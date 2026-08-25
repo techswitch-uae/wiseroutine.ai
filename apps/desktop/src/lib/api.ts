@@ -7,6 +7,17 @@
  * through the app's deep-link scheme.
  */
 
+import {
+  cachedPlan,
+  cachePlan,
+  clearOfflineState,
+  enqueue,
+  forget,
+  type PendingKind,
+  pending,
+  withPending,
+} from "./offline";
+
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8787";
 const TOKEN_KEY = "wiseroutine.session";
 
@@ -17,6 +28,15 @@ export function getSessionToken(): string | null {
 export function setSessionToken(token: string | null): void {
   if (token) globalThis.localStorage?.setItem(TOKEN_KEY, token);
   else globalThis.localStorage?.removeItem(TOKEN_KEY);
+}
+
+/** No response at all, as opposed to a response we did not like. Only this
+ *  means "queue it and try later"; a 4xx is the server's final answer. */
+export class OfflineError extends Error {
+  constructor() {
+    super("offline");
+    this.name = "OfflineError";
+  }
 }
 
 export class ApiError extends Error {
@@ -38,14 +58,22 @@ export class ApiError extends Error {
 
 async function send(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getSessionToken();
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-      ...init.headers,
-    },
-  });
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: {
+        "content-type": "application/json",
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...init.headers,
+      },
+    });
+  } catch {
+    // fetch only rejects when the request never completed — no DNS, no route,
+    // no server. That is the one case worth retrying later.
+    throw new OfflineError();
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -126,6 +154,67 @@ export interface MissedItem {
   reasonText: string | null;
 }
 
+/**
+ * A slot action, taken now or remembered for later.
+ *
+ * The timestamp is attached here rather than on the server precisely because
+ * it may travel: the server trusts it only inside a window (`replayedAt`), so
+ * a routine followed on a plane keeps its real shape instead of collapsing
+ * into the minute the connection came back.
+ */
+async function slotAction(
+  slotId: string,
+  kind: PendingKind,
+  reason?: string,
+): Promise<{ queued: boolean }> {
+  const at = Date.now();
+  const body = { at, ...(reason !== undefined ? { reason } : {}) };
+
+  try {
+    await send(`/slots/${slotId}/${kind}`, post(body));
+    return { queued: false };
+  } catch (error) {
+    if (!(error instanceof OfflineError)) throw error;
+    enqueue({ slotId, kind, at, ...(reason !== undefined ? { reason } : {}) });
+    return { queued: true };
+  }
+}
+
+/**
+ * Send everything waiting, oldest first.
+ *
+ * Order matters: start-then-complete on one slot has to arrive that way round.
+ * A rejected action is dropped rather than retried forever — the slot was
+ * replanned or the day rolled over, and a queue that cannot drain is a queue
+ * that blocks every later action behind it.
+ */
+export async function flushPending(): Promise<number> {
+  const queue = pending();
+  if (queue.length === 0) return 0;
+
+  const done: string[] = [];
+
+  for (const action of queue) {
+    try {
+      await send(
+        `/slots/${action.slotId}/${action.kind}`,
+        post({
+          at: action.at,
+          ...(action.reason !== undefined ? { reason: action.reason } : {}),
+        }),
+      );
+      done.push(action.id);
+    } catch (error) {
+      if (error instanceof OfflineError) break;
+      console.warn("dropping unsendable action", action.kind, action.slotId);
+      done.push(action.id);
+    }
+  }
+
+  forget(done);
+  return done.length;
+}
+
 export const api = {
   /** Ask for a sign-in code. Also the sign-*up* path: an address that can read
    *  its own mail is the whole registration. */
@@ -144,12 +233,16 @@ export const api = {
     );
     const token = response.headers.get("set-auth-token");
     if (!token) throw new ApiError(500, { error: "no_session_token" });
+    clearOfflineState();
     setSessionToken(token);
   },
 
   async signOut(): Promise<void> {
     await send("/auth/sign-out", post({})).catch(() => undefined);
     setSessionToken(null);
+    // Whose "today" this is has changed; a leftover plan or queued action
+    // would belong to the previous account.
+    clearOfflineState();
   },
 
   session: () => request<SessionResponse>("/auth/get-session"),
@@ -161,8 +254,38 @@ export const api = {
       (r) => r.url,
     ),
 
-  today: (at?: number) =>
-    request<TodayResponse>(`/today${at ? `?at=${at}` : ""}`),
+  /**
+   * Today's plan, from the server if it can be reached and from the last
+   * saved copy if it cannot.
+   *
+   * `stale` is what the view needs to be honest about what it is showing —
+   * an old plan presented as current is worse than an error.
+   */
+  async today(
+    at?: number,
+  ): Promise<TodayResponse & { stale: boolean; cachedAt: number }> {
+    const now = Date.now();
+    try {
+      const data = await request<TodayResponse>(
+        `/today${at ? `?at=${at}` : ""}`,
+      );
+      cachePlan(data, now);
+      return { ...withPending(data, pending()), stale: false, cachedAt: now };
+    } catch (error) {
+      if (!(error instanceof OfflineError)) throw error;
+
+      const saved = cachedPlan(now);
+      // Nothing saved, or saved for a day that has ended: there is no honest
+      // plan to show, so this is a plain failure.
+      if (!saved) throw error;
+
+      return {
+        ...withPending(saved.data, pending()),
+        stale: true,
+        cachedAt: saved.cachedAt,
+      };
+    }
+  },
   missed: () => request<MissedItem[]>("/missed"),
   plan: (trigger = "user_request") =>
     request<{ planRunId: string; placed: number; unplaced: unknown[] }>(
@@ -172,12 +295,10 @@ export const api = {
         body: JSON.stringify({ trigger }),
       },
     ),
-  startSlot: (id: string) =>
-    request<void>(`/slots/${id}/start`, { method: "POST" }),
-  completeSlot: (id: string) =>
-    request<void>(`/slots/${id}/complete`, { method: "POST" }),
-  skipSlot: (id: string) =>
-    request<void>(`/slots/${id}/skip`, { method: "POST" }),
+  startSlot: (id: string) => slotAction(id, "start"),
+  completeSlot: (id: string) => slotAction(id, "complete"),
+  skipSlot: (id: string, reason?: string) => slotAction(id, "skip", reason),
+  pendingCount: () => pending().length,
 };
 
 /** Merge slots and meetings into one ordered timeline, which is what screen 3a

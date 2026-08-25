@@ -24,6 +24,7 @@ import { visibleModules } from "@wiseroutine/plans";
 import {
   dayBounds,
   localDateOf,
+  replayedAt,
   shouldSyncOnForeground,
   shouldTouchLastSeen,
   toBusyBlocks,
@@ -457,11 +458,27 @@ app.post("/plan", async (c) => {
 
 /* ── Slots ───────────────────────────────────────────────────────────────── */
 
+/**
+ * When the user says it happened, within reason.
+ *
+ * Someone following their routine on a plane records four actions offline and
+ * sends them on landing. Without `at`, all four land in the same minute hours
+ * later, and the day's history — which is what progress and streaks are
+ * computed from — becomes fiction. `replayedAt` is what keeps that claim
+ * inside something a genuine offline stretch could produce.
+ */
+async function actionAt(c: Ctx): Promise<number> {
+  const body = await c.req
+    .json<{ at?: number }>()
+    .catch(() => ({}) as { at?: number });
+  return replayedAt(c.get("now"), body.at);
+}
+
 app.post("/slots/:id/start", async (c) => {
   await setSlotStatus(
     c.get("db"),
     { slotId: c.req.param("id"), status: "started", actor: "user" },
-    c.get("now"),
+    await actionAt(c),
     newId,
   );
   return c.body(null, 204);
@@ -471,14 +488,14 @@ app.post("/slots/:id/complete", async (c) => {
   await setSlotStatus(
     c.get("db"),
     { slotId: c.req.param("id"), status: "completed", actor: "user" },
-    c.get("now"),
+    await actionAt(c),
     newId,
   );
   return c.body(null, 204);
 });
 
 app.post("/slots/:id/skip", async (c) => {
-  type SkipBody = { reason?: string };
+  type SkipBody = { reason?: string; at?: number };
   const body: SkipBody = await c.req
     .json<SkipBody>()
     .catch(() => ({}) as SkipBody);
@@ -491,7 +508,7 @@ app.post("/slots/:id/skip", async (c) => {
       reasonCode: "dismissed",
       ...(body.reason !== undefined ? { reasonText: body.reason } : {}),
     },
-    c.get("now"),
+    replayedAt(c.get("now"), body.at),
     newId,
   );
   return c.body(null, 204);

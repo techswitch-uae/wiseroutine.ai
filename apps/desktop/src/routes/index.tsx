@@ -5,9 +5,13 @@ import {
   ApiError,
   api,
   buildTimeline,
+  flushPending,
   getSessionToken,
   type TodayResponse,
 } from "../lib/api";
+
+/** What `api.today()` hands back: the plan plus where it came from. */
+type CachedToday = TodayResponse & { stale: boolean; cachedAt: number };
 
 const timeFormatter = (timeZone: string) =>
   new Intl.DateTimeFormat("en-GB", {
@@ -18,9 +22,10 @@ const timeFormatter = (timeZone: string) =>
   });
 
 const Today: React.FC = () => {
-  const [data, setData] = useState<TodayResponse | null>(null);
+  const [data, setData] = useState<CachedToday | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [queued, setQueued] = useState(() => api.pendingCount());
 
   const load = useCallback(() => {
     if (!getSessionToken()) {
@@ -31,6 +36,7 @@ const Today: React.FC = () => {
       .today()
       .then((response) => {
         setData(response);
+        setQueued(api.pendingCount());
         setError(null);
       })
       .catch((cause: unknown) => {
@@ -43,6 +49,25 @@ const Today: React.FC = () => {
   }, []);
 
   useEffect(load, [load]);
+
+  /**
+   * Send anything taken offline, then reload.
+   *
+   * On mount as well as on `online`, because the browser fires that event on
+   * regaining a network — not on the app being reopened somewhere with one.
+   */
+  useEffect(() => {
+    const drain = () => {
+      void flushPending().then((sent) => {
+        setQueued(api.pendingCount());
+        if (sent > 0) load();
+      });
+    };
+
+    drain();
+    globalThis.addEventListener?.("online", drain);
+    return () => globalThis.removeEventListener?.("online", drain);
+  }, [load]);
 
   // The live slot is decided by the clock, so the timeline has to re-render as
   // it passes. A minute is enough — nothing here changes faster than that.
@@ -76,6 +101,10 @@ const Today: React.FC = () => {
 
   return (
     <main className="wr-shell">
+      {data.stale ? (
+        <SavedPlanNotice cachedAt={data.cachedAt} queued={queued} />
+      ) : null}
+
       <header className="wr-shell-head">
         <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
           <span style={{ fontFamily: "var(--font-heading)", fontSize: 20 }}>
@@ -111,7 +140,14 @@ const Today: React.FC = () => {
               grace={0.7}
               autoMove="Moves itself if you don't start"
               onStart={() => {
-                if (row.slotId) void api.startSlot(row.slotId).then(load);
+                if (!row.slotId) return;
+                void api.startSlot(row.slotId).then(({ queued: waiting }) => {
+                  setQueued(api.pendingCount());
+                  // Offline there is nothing to reload from; the queue is
+                  // already projected onto what is on screen.
+                  if (!waiting) load();
+                  else setData((current) => current && { ...current });
+                });
               }}
             />
           ))
@@ -127,6 +163,41 @@ const Today: React.FC = () => {
     </main>
   );
 };
+
+/**
+ * Shown only when the plan on screen came from storage rather than the server.
+ *
+ * A stale plan presented as current is worse than an error — someone would
+ * follow a routine that has since been replanned around a meeting they cannot
+ * see. Saying when it was saved lets them judge that themselves.
+ */
+const SavedPlanNotice: React.FC<{ cachedAt: number; queued: number }> = ({
+  cachedAt,
+  queued,
+}) => (
+  <div
+    role="status"
+    style={{
+      background: "var(--wr-recessed)",
+      border: "1px solid var(--wr-hairline)",
+      borderRadius: 12,
+      padding: "9px 12px",
+      marginBottom: 12,
+      font: "500 12.5px var(--font-body)",
+      color: "var(--wr-text-muted)",
+    }}
+  >
+    Offline — showing the plan saved at{" "}
+    {new Intl.DateTimeFormat("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).format(new Date(cachedAt))}
+    {queued > 0
+      ? `. ${queued} ${queued === 1 ? "change" : "changes"} will sync when you reconnect.`
+      : "."}
+  </div>
+);
 
 /** The design system has no text field yet — one screen does not justify
  *  adding one, so this borrows its tokens. */
