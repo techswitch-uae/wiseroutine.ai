@@ -1,0 +1,10 @@
+{
+  "editor.codeActionsOnSave": {
+    "source.fixAll.biome": "explicit",
+    "source.organizeImports.biome": "explicit",
+    "source.action.useSortedKeys.biome": "explicit"
+  },
+  "biome.enabled": true,
+  "biome.lsp.bin": "node_modules/.bin/biome",
+  "biome.lsp.trace.server": "verbose"
+}

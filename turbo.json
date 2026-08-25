@@ -1,0 +1,25 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "globalDependencies": ["**/.env.*local"],
+  "envMode": "loose",
+  "tasks": {
+    "generate": {
+      "inputs": [
+        "prisma/**",
+        "prisma.*.config.ts",
+        "migrations/**",
+        "scripts/embed-migrations.mjs"
+      ],
+      "outputs": ["src/generated/**"]
+    },
+    "build": {
+      "dependsOn": ["^build", "test", "generate", "^generate"],
+      "outputs": ["dist/**", ".output/**", "!.output/**/cache/**"]
+    },
+    "test": { "dependsOn": ["^test", "generate", "^generate"] },
+    "typecheck": { "dependsOn": ["^typecheck", "generate", "^generate"] },
+    "dev": { "cache": false, "persistent": true },
+    "clean": { "cache": false }
+  }
+}

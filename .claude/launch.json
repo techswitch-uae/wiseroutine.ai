@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "wiseroutine-design",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["design"],
+      "port": 3100,
+      "autoPort": false
+    }
+  ]
+}

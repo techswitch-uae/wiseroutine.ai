@@ -1,0 +1,356 @@
+// A single user's database — one of these per person.
+//
+// There is no `userId` anywhere: the database *is* the tenant, so filtering by
+// user would be filtering by "the only one". That is the whole point of the
+// split, and it also means a query can never accidentally cross a user
+// boundary.
+//
+// Everything a user owns lives here. What must be queried across users —
+// login, sessions, billing, and the sync/grace coordination table — lives in
+// the directory database instead (see directory.prisma).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/user"
+  runtime  = "cloudflare"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ── Calendar connections ────────────────────────────────────────────────────
+
+model CalendarConnection {
+  id String @id
+
+  /// "google" | "microsoft"
+  provider          String
+  providerAccountId String @map("provider_account_id")
+  email             String
+  scopes            String
+
+  /// "active" | "needs_reauth" | "revoked". The UI turns needs_reauth into
+  /// "reconnect your calendar" — a connection that dies silently is fatal.
+  status String @default("active")
+
+  createdAt DateTime @map("created_at")
+
+  token     OAuthToken?
+  calendars Calendar[]
+
+  @@unique([provider, providerAccountId], map: "connections_provider_account")
+  @@map("calendar_connections")
+}
+
+/// Envelope-encrypted OAuth tokens.
+///
+/// The database being per-user does not make plaintext tokens acceptable: a
+/// leaked platform token still reaches every database. keyVersion is what makes
+/// rotation possible without downtime.
+model OAuthToken {
+  connectionId String @id @map("connection_id")
+
+  accessTokenCiphertext  String  @map("access_token_ciphertext")
+  accessTokenIv          String  @map("access_token_iv")
+  refreshTokenCiphertext String? @map("refresh_token_ciphertext")
+  refreshTokenIv         String? @map("refresh_token_iv")
+
+  keyVersion Int      @default(1) @map("key_version")
+  expiresAt  DateTime @map("expires_at")
+  updatedAt  DateTime @map("updated_at")
+
+  connection CalendarConnection @relation(fields: [connectionId], references: [id])
+
+  @@map("oauth_tokens")
+}
+
+model Calendar {
+  id           String @id
+  connectionId String @map("connection_id")
+
+  providerCalendarId String  @map("provider_calendar_id")
+  name               String
+  timeZone           String? @map("time_zone")
+  isPrimary          Boolean @default(false) @map("is_primary")
+
+  /// Only selected calendars feed the free/busy map. The user's choice, so it
+  /// must survive a resync.
+  isSelected Boolean @default(true) @map("is_selected")
+
+  /// Google freeBusyReader calendars return opaque blocks with no detail.
+  accessRole String? @map("access_role")
+
+  createdAt DateTime @map("created_at")
+
+  connection CalendarConnection @relation(fields: [connectionId], references: [id])
+  syncState  CalendarSyncState?
+  events     ExternalEvent[]
+
+  @@unique([connectionId, providerCalendarId], map: "calendars_provider_id")
+  @@map("calendars")
+}
+
+model CalendarSyncState {
+  calendarId String @id @map("calendar_id")
+
+  /// Google. Invalidated by 410 GONE and by ACL changes on the calendar.
+  syncToken String? @map("sync_token")
+  /// Microsoft. The date window is frozen inside this token — re-baseline.
+  deltaLink String? @map("delta_link")
+
+  lastFullSyncAt    DateTime? @map("last_full_sync_at")
+  lastIncrementalAt DateTime? @map("last_incremental_at")
+  /// When the frozen delta window was last rebuilt.
+  windowRebasedAt   DateTime? @map("window_rebased_at")
+
+  watchChannelId  String?   @map("watch_channel_id")
+  watchResourceId String?   @map("watch_resource_id")
+  /// Compared on every push notification; our only authentication there.
+  watchSecret     String?   @map("watch_secret")
+  watchExpiresAt  DateTime? @map("watch_expires_at")
+
+  consecutiveFailures Int @default(0) @map("consecutive_failures")
+
+  /// Bumped on each completed sync so conflict detection can tell a genuinely
+  /// new conflict from one re-observed during a full rebuild.
+  syncGeneration Int @default(0) @map("sync_generation")
+
+  calendar Calendar @relation(fields: [calendarId], references: [id])
+
+  @@index([watchChannelId], map: "sync_state_watch_channel")
+  @@map("calendar_sync_state")
+}
+
+model ExternalEvent {
+  id         String @id
+  calendarId String @map("calendar_id")
+
+  providerEventId String @map("provider_event_id")
+
+  /// Cross-calendar identity — how the same meeting on a work and a personal
+  /// calendar is deduplicated.
+  icalUid        String? @map("ical_uid")
+  seriesMasterId String? @map("series_master_id")
+  title          String?
+
+  startsAt DateTime @map("starts_at")
+  endsAt   DateTime @map("ends_at")
+  timeZone String?  @map("time_zone")
+  isAllDay Boolean  @default(false) @map("is_all_day")
+
+  /// Google eventType, normalised. Load-bearing: workingLocation events span
+  /// the whole workday and are pure metadata.
+  kind           String  @default("default")
+  /// "busy" | "free" | "tentative" | "oof"
+  busyStatus     String  @default("busy") @map("busy_status")
+  /// "accepted" | "declined" | "tentative" | "none"
+  responseStatus String  @default("none") @map("response_status")
+  isCancelled    Boolean @default(false) @map("is_cancelled")
+
+  /// Google etag / Graph changeKey. Compared to skip no-op writes, because a
+  /// row written costs far more than a row read.
+  changeTag         String?   @map("change_tag")
+  providerUpdatedAt DateTime? @map("provider_updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+  updatedAt         DateTime  @map("updated_at")
+
+  calendar Calendar @relation(fields: [calendarId], references: [id])
+
+  @@unique([calendarId, providerEventId], map: "events_provider_id")
+  @@index([startsAt], map: "events_start")
+  @@map("external_events")
+}
+
+// ── Activities ──────────────────────────────────────────────────────────────
+
+model Activity {
+  id String @id
+
+  name String
+  /// "recovery" | "focus" | "task"
+  kind String
+  icon String?
+
+  isActive Boolean @default(true) @map("is_active")
+
+  /// "countPerDay" | "durationPerDay" | "countPerWeek" — deep work is 2 h a day
+  /// in 25 min blocks, eye rest is 4x a day, a walk is 3x a week. One table
+  /// has to express all three.
+  minimumType    String @map("minimum_type")
+  minimumValue   Int    @map("minimum_value")
+  sessionMinutes Int    @map("session_minutes")
+
+  /// Sunday=0 bitmask.
+  daysOfWeek Int @default(127) @map("days_of_week")
+
+  /// "low" | "normal" | "high" — wins the gap when two activities compete.
+  importance String @default("normal")
+
+  /// How long to wait before moving it to the next gap.
+  graceMinutes               Int @default(3) @map("grace_minutes")
+  bufferBeforeMeetingMinutes Int @default(0) @map("buffer_before_meeting_minutes")
+
+  /// Modelled now, unused in v1 — write-back is a switch, not a migration.
+  writeToCalendar         Boolean @default(false) @map("write_to_calendar")
+  writeTargetConnectionId String? @map("write_target_connection_id")
+
+  createdAt  DateTime  @map("created_at")
+  archivedAt DateTime? @map("archived_at")
+
+  windows ActivityWindow[]
+  slots   Slot[]
+
+  @@index([isActive], map: "activities_active")
+  @@map("activities")
+}
+
+model ActivityWindow {
+  id         String @id
+  activityId String @map("activity_id")
+
+  /// Minutes from local midnight, e.g. 07:00 is 420. Wall-clock, so it follows
+  /// the user across a timezone change.
+  anchorMinutes Int @map("anchor_minutes")
+
+  activity Activity @relation(fields: [activityId], references: [id])
+
+  @@index([activityId], map: "activity_windows_activity")
+  @@map("activity_windows")
+}
+
+// ── Slots ───────────────────────────────────────────────────────────────────
+
+model Slot {
+  id         String  @id
+  activityId String? @map("activity_id")
+  reminderId String? @map("reminder_id")
+
+  title String
+  /// "recovery" | "focus" | "task"
+  kind  String
+
+  startsAt DateTime @map("starts_at")
+  endsAt   DateTime @map("ends_at")
+  timeZone String   @map("time_zone")
+
+  /// planned | live | started | completed | skipped | missed | cancelled
+  status String @default("planned")
+
+  /// User placed or pinned it. The planner must never move it.
+  isLocked Boolean @default(false) @map("is_locked")
+
+  /// Cached so the timeline renders without a join-heavy overlap query.
+  conflictEventId  String? @map("conflict_event_id")
+  /// "edge" | "partial" | "contained"
+  conflictSeverity String? @map("conflict_severity")
+
+  /// Capped per day so a slot cannot thrash between filling gaps.
+  autoMoveCount Int @default(0) @map("auto_move_count")
+
+  planRunId String?  @map("plan_run_id")
+  createdAt DateTime @map("created_at")
+
+  activity Activity?   @relation(fields: [activityId], references: [id])
+  events   SlotEvent[]
+
+  @@index([startsAt], map: "slots_start")
+  @@index([status, startsAt], map: "slots_status")
+  @@map("slots")
+}
+
+/// The slot lifecycle log.
+///
+/// Not optional. "Moved twice, then no gap under 20 min appeared" and "skipped
+/// five times in ten days" are queries over this table, not strings stored on
+/// the slot. It cannot be backfilled, so it exists from day one.
+model SlotEvent {
+  id     String @id
+  slotId String @map("slot_id")
+
+  at DateTime
+
+  /// planned | auto_moved | user_moved | started | completed | skipped |
+  /// missed | cancelled
+  type String
+
+  reasonCode   String?   @map("reason_code")
+  reasonText   String?   @map("reason_text")
+  fromStartsAt DateTime? @map("from_starts_at")
+  toStartsAt   DateTime? @map("to_starts_at")
+
+  /// "system" | "user"
+  actor String
+
+  slot Slot @relation(fields: [slotId], references: [id])
+
+  @@index([slotId], map: "slot_events_slot")
+  @@index([at], map: "slot_events_at")
+  @@map("slot_events")
+}
+
+model Reminder {
+  id String @id
+
+  title String
+  /// "tomorrow" | "this_week" | "date"
+  dueWindow String  @map("due_window")
+  dueDate   String? @map("due_date")
+
+  estimatedMinutes Int?    @map("estimated_minutes")
+  needsFocus       Boolean @default(false) @map("needs_focus")
+
+  /// "open" | "slotted" | "done" | "dropped"
+  status String  @default("open")
+  slotId String? @map("slot_id")
+
+  createdAt DateTime @map("created_at")
+
+  @@index([status], map: "reminders_status")
+  @@map("reminders")
+}
+
+/// Every placement is attributable to a run, so "why did it put my stretch
+/// there?" is answerable and a solver change can be replayed and diffed
+/// against a real day before it ships.
+model PlanRun {
+  id String @id
+
+  localDate String @map("local_date")
+  /// "morning" | "calendar_change" | "user_request" | "missed_replan"
+  trigger   String
+
+  engineVersion String @map("engine_version")
+  inputsHash    String @map("inputs_hash")
+
+  placedCount   Int  @default(0) @map("placed_count")
+  unplacedCount Int  @default(0) @map("unplaced_count")
+  durationMs    Int? @map("duration_ms")
+
+  createdAt DateTime @map("created_at")
+
+  @@index([localDate], map: "plan_runs_date")
+  @@map("plan_runs")
+}
+
+/// Server state, not local UI state — the same set appears in the menu bar and
+/// on the widget.
+model DashboardModule {
+  moduleKey String  @id @map("module_key")
+  position  Int
+  isEnabled Boolean @default(true) @map("is_enabled")
+
+  @@map("dashboard_modules")
+}
+
+/// Coarse desk sessions for "sitting streak". Deliberately not a presence
+/// sample firehose — the client detects idle locally and reports boundaries.
+model DeskSession {
+  id String @id
+
+  startedAt DateTime  @map("started_at")
+  endedAt   DateTime? @map("ended_at")
+
+  @@index([startedAt], map: "desk_sessions_started")
+  @@map("desk_sessions")
+}

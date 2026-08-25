@@ -1,0 +1,15 @@
+{
+  "name": "@wiseroutine/typescript-config",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "base.json",
+    "vite.json",
+    "workers.json"
+  ],
+  "exports": {
+    "./base.json": "./base.json",
+    "./vite.json": "./vite.json",
+    "./workers.json": "./workers.json"
+  }
+}

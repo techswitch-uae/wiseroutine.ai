@@ -1,0 +1,37 @@
+{
+  "name": "@wiseroutine/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:remote": "wrangler dev --env dev --remote",
+    "deploy:dev": "node scripts/check-secrets.mjs --env dev && wrangler deploy --env dev && curl -fsS https://api-dev.wiseroutine.ai/health/config",
+    "deploy:prod": "node scripts/check-secrets.mjs --env production && wrangler deploy --env production && curl -fsS https://api.wiseroutine.ai/health/config",
+    "secrets:push:dev": "node scripts/push-secrets.mjs --env dev",
+    "secrets:push:prod": "node scripts/push-secrets.mjs --env production",
+    "secrets:check:dev": "node scripts/check-secrets.mjs --env dev",
+    "secrets:check:prod": "node scripts/check-secrets.mjs --env production",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "git clean -xdf .cache .turbo dist node_modules"
+  },
+  "dependencies": {
+    "@wiseroutine/db": "workspace:*",
+    "@wiseroutine/env": "workspace:*",
+    "@wiseroutine/plans": "workspace:*",
+    "@wiseroutine/providers": "workspace:*",
+    "@wiseroutine/scheduler": "workspace:*",
+    "better-auth": "^1.7.1",
+    "hono": "^4.13.4",
+    "stripe": "^22.5.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20260823.1",
+    "@wiseroutine/typescript-config": "workspace:*",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.125.0"
+  }
+}

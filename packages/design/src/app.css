@@ -1,0 +1,265 @@
+/* Wise Routine — the application layer on top of the Organic design system.
+   Rules this file encodes (from "Wise Routine · interface kit"):
+     · Three colours. Terracotta = recovery / the thing you can act on.
+       Ink = focus and the one commitment per view. Sand = everything else.
+     · Depth, not outline, separates a surface from its ground.
+     · Four elevations: inset, lift-1, lift-2, lift-3. Shadows are warm neutral.
+     · No opacity-based disabled state anywhere. Done = chip, Paused = hollow
+       rule + chip, Off = inset + toggle, Unplanned = dashed. Never dim a row.
+     · Dashed #cdbe9f is the one "nothing here yet" treatment. */
+
+@import "./organic.css";
+@import "@fontsource/caprasimo/400.css";
+@import "@fontsource-variable/figtree";
+
+:root {
+  /* — grounds — */
+  --wr-page: #f6f1e8;            /* content ground */
+  --wr-chrome: var(--color-neutral-200); /* window bar, sidebars, settings panes */
+  --wr-card: var(--color-neutral-100);
+  --wr-recessed: var(--color-neutral-200);
+  --wr-track: var(--color-neutral-300);
+  --wr-dashed: #cdbe9f;
+  --wr-ink: var(--color-text);
+
+  /* — text ramp, raised so every muted step clears 4.5:1 at 11px — */
+  --wr-text-muted: color-mix(in srgb, var(--color-text) 74%, transparent);
+  --wr-text-soft: color-mix(in srgb, var(--color-text) 70%, transparent);
+  --wr-hairline: color-mix(in srgb, #2e2b25 10%, transparent);
+
+  /* — elevation: four steps, no more. Inset is the absence of one. — */
+  --wr-inset: inset 0 1px 2px rgba(46, 43, 37, 0.07);
+  --wr-lift-1: 0 1px 2px rgba(46, 43, 37, 0.06), 0 4px 12px rgba(46, 43, 37, 0.07);
+  --wr-lift-2: 0 1px 2px rgba(46, 43, 37, 0.06), 0 8px 20px rgba(46, 43, 37, 0.1);
+  --wr-lift-3: 0 3px 6px rgba(46, 43, 37, 0.1), 0 20px 44px rgba(46, 43, 37, 0.22);
+  --wr-lift-btn: 0 2px 4px rgba(46, 43, 37, 0.14), 0 8px 18px rgba(46, 43, 37, 0.2);
+
+  --wr-gutter: 48px;             /* the fixed time column */
+}
+
+body { background: var(--wr-page); }
+
+.wr-elev-inset { box-shadow: var(--wr-inset); }
+.wr-elev-1 { box-shadow: var(--wr-lift-1); }
+.wr-elev-2 { box-shadow: var(--wr-lift-2); }
+.wr-elev-3 { box-shadow: var(--wr-lift-3); }
+
+/* — type — Caprasimo names a thing (screen, card, number); Figtree is read
+   as a sentence. A number the user scans is display type, not body type. — */
+.wr-display-30 { font-family: var(--font-heading); font-size: 30px; line-height: 1.1; }
+.wr-display-21 { font-family: var(--font-heading); font-size: 21px; line-height: 1.2; }
+.wr-body-strong { font: 600 13.5px var(--font-body); }
+.wr-body { font: 400 12px/1.55 var(--font-body); color: var(--wr-text-muted); }
+.wr-label {
+  font: 700 9.5px var(--font-body); letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--wr-text-muted);
+}
+
+/* ── Actions ───────────────────────────────────────────────────────────────
+   Chosen by consequence, not by position on screen. */
+.wr-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border: 0; cursor: pointer; text-decoration: none;
+  font: 600 13px var(--font-body); border-radius: 999px;
+  padding: 11px 22px; color: var(--color-text); background: transparent;
+}
+/* The system has no opacity-based disabled state, so an unavailable action
+   degrades to the inset sand surface instead of dimming. */
+.wr-btn:disabled {
+  cursor: not-allowed; background: var(--color-neutral-200); color: var(--wr-text-soft);
+  box-shadow: inset 0 0 0 1px var(--wr-hairline);
+}
+.wr-btn-primary {           /* starts or schedules something — the physical act */
+  background: var(--color-accent-700); color: #fff; box-shadow: var(--wr-lift-btn);
+  padding-left: 18px;
+}
+.wr-btn-primary:hover { background: var(--color-accent-800); }
+.wr-btn-primary:active { background: var(--color-accent-900); }
+.wr-btn-commit {            /* confirms or saves a decision — one per view */
+  background: var(--color-text); color: var(--color-neutral-100); box-shadow: var(--wr-lift-btn);
+}
+.wr-btn-commit:hover { background: var(--color-neutral-800); }
+.wr-btn-commit:active { background: var(--color-neutral-900); }
+.wr-btn-secondary {         /* sand + hairline, never a white pill on white */
+  background: var(--color-neutral-200); box-shadow: inset 0 0 0 1px var(--wr-hairline);
+  color: var(--color-accent-900); font-size: 12.5px; padding: 11px 20px;
+}
+.wr-btn-secondary:hover { background: var(--color-neutral-300); }
+.wr-btn-quiet {             /* text only — the escape route */
+  color: var(--wr-text-soft); font-size: 12.5px; padding: 11px 16px;
+}
+.wr-btn-quiet:hover { color: var(--color-text); }
+.wr-btn-block { width: 100%; }
+
+/* — chips: a choice made with one tap, or a static state marker — */
+.wr-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 13px; border-radius: 999px; border: 0;
+  font: 600 12px var(--font-body); color: var(--wr-text-muted);
+  background: var(--color-neutral-200); box-shadow: inset 0 0 0 1px rgba(46, 43, 37, 0.08);
+}
+button.wr-chip { cursor: pointer; }
+.wr-chip-selected { background: var(--color-accent-700); color: #fff; box-shadow: 0 1px 3px rgba(46, 43, 37, 0.25); }
+.wr-chip-ink { background: var(--color-text); color: var(--color-neutral-100); box-shadow: 0 1px 3px rgba(46, 43, 37, 0.25); }
+.wr-chip-static {           /* Done, Paused, a count — no shadow, no hover */
+  padding: 5px 11px; background: var(--color-neutral-100);
+  box-shadow: inset 0 0 0 1px rgba(46, 43, 37, 0.16);
+  font: 700 9.5px var(--font-body); letter-spacing: 0.07em; text-transform: uppercase;
+}
+.wr-chip-dashed { background: transparent; box-shadow: none; border: 1px dashed var(--wr-dashed); padding: 7px 13px; color: var(--wr-text-soft); }
+.wr-chip-key { font: 600 10.5px ui-monospace, Menlo, monospace; padding: 4px 9px; }
+
+/* — toggle: turns a whole behaviour on. Off is an inset track; the row
+     itself never dims, because a dimmed row reads as unavailable. — */
+.wr-toggle {
+  position: relative; flex: none; width: 38px; height: 22px; padding: 0;
+  border: 0; border-radius: 999px; cursor: pointer;
+  background: var(--wr-track); box-shadow: inset 0 1px 2px rgba(46, 43, 37, 0.12);
+}
+.wr-toggle::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
+  border-radius: 999px; background: var(--color-neutral-100);
+  box-shadow: 0 1px 2px rgba(46, 43, 37, 0.2); transition: left 120ms ease;
+}
+.wr-toggle[aria-checked="true"] { background: var(--color-accent); box-shadow: 0 1px 3px rgba(46, 43, 37, 0.28); }
+.wr-toggle[aria-checked="true"]::after { left: 19px; background: #fff; }
+
+/* — segmented: three-or-fewer mutually exclusive values, short labels — */
+.wr-seg {
+  display: inline-flex; gap: 4px; padding: 3px; border-radius: 999px;
+  background: var(--color-neutral-200); box-shadow: inset 0 1px 2px rgba(46, 43, 37, 0.08);
+}
+.wr-seg-opt {
+  border: 0; background: transparent; cursor: pointer;
+  padding: 6px 12px; border-radius: 999px;
+  font: 600 11.5px var(--font-body); color: var(--wr-text-soft);
+}
+.wr-seg-opt[aria-pressed="true"] {
+  background: var(--color-text); color: var(--color-neutral-100);
+  box-shadow: 0 1px 3px rgba(46, 43, 37, 0.25);
+}
+
+/* ── Slot cards ────────────────────────────────────────────────────────────
+   One component, four variants. The variant is decided by who owns the
+   block, not by how important it looks. */
+.wr-slot-row { display: flex; gap: 12px; align-items: flex-start; }
+.wr-time {
+  width: var(--wr-gutter); flex: none; padding-top: 12px;
+  font: 600 11px var(--font-body); color: var(--wr-text-muted);
+}
+.wr-time-now { font-weight: 700; color: var(--color-accent-900); padding-top: 17px; }
+
+.wr-slot {
+  flex: 1; display: flex; align-items: center; gap: 11px;
+  padding: 11px 15px; border-radius: 14px;
+  background: var(--wr-card); box-shadow: var(--wr-lift-1);
+}
+/* the 3px rule is the only category marker; dots are for status and legends */
+.wr-rule { width: 3px; height: 20px; flex: none; border-radius: 2px; background: var(--color-text); }
+.wr-slot-recovery .wr-rule { background: var(--color-accent); }
+.wr-rule-hollow { background: transparent; box-shadow: inset 0 0 0 1px rgba(46, 43, 37, 0.35); height: 26px; }
+
+.wr-slot-inset { background: var(--wr-recessed); box-shadow: var(--wr-inset); }
+
+.wr-slot-meeting {          /* the app does not own it, so it must not compete */
+  min-height: 56px; justify-content: space-between;
+  background: var(--wr-recessed); box-shadow: var(--wr-inset);
+}
+.wr-slot-meeting .wr-slot-name { font: 500 13.5px var(--font-body); color: var(--wr-text-muted); }
+
+.wr-slot-name { font: 600 13.5px var(--font-body); }
+.wr-slot-meta { font: 400 12px var(--font-body); color: var(--wr-text-soft); }
+.wr-slot-trailing { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+
+.wr-slot-live {             /* exactly one per view — the slot startable now */
+  display: block; padding: 14px 16px; border-radius: 16px; box-shadow: var(--wr-lift-3);
+}
+.wr-slot-live .wr-rule { height: 34px; background: var(--color-accent); }
+.wr-slot-live .wr-slot-name { font-size: 15.5px; }
+.wr-slot-live .wr-slot-meta { color: var(--color-accent-900); margin-top: 2px; }
+.wr-slot-automove { font: 600 11.5px/1.35 var(--font-body); color: var(--wr-text-soft); text-align: right; max-width: 146px; }
+
+/* the draining grace period */
+.wr-bar { height: 4px; border-radius: 999px; background: var(--wr-track); }
+.wr-bar-fill { height: 100%; border-radius: 999px; background: var(--color-accent); }
+.wr-bar-ink .wr-bar-fill { background: var(--color-text); }
+
+/* — dashed: gaps, add rows, undated reminders. Never carries a shadow. — */
+.wr-dashed-row {
+  flex: 1; display: flex; align-items: center; gap: 9px;
+  min-height: 30px; padding: 10px 15px; border-radius: 14px;
+  border: 1px dashed var(--wr-dashed); background: transparent;
+  font: 600 12.5px var(--font-body); color: var(--wr-text-soft); text-align: left;
+}
+button.wr-dashed-row { cursor: pointer; width: 100%; }
+
+/* ── Rail modules ──────────────────────────────────────────────────────────
+   One card at lift-2 with an eyebrow, a body and at most one action.
+   Modules are user-toggleable and reorderable, so none may depend on its
+   neighbour or on being first. */
+.wr-module {
+  width: 250px; padding: 17px 19px; border-radius: var(--radius-lg);
+  background: var(--wr-card); box-shadow: var(--wr-lift-2);
+}
+.wr-module-attention {      /* the single loudest element — one per screen */
+  padding: 18px; background: var(--color-text); color: var(--color-neutral-100);
+  box-shadow: 0 3px 6px rgba(46, 43, 37, 0.14), 0 16px 34px rgba(46, 43, 37, 0.22);
+}
+.wr-module-attention .wr-label { color: color-mix(in srgb, var(--color-neutral-100) 72%, transparent); }
+.wr-module-head { display: flex; align-items: center; justify-content: space-between; }
+.wr-module-empty {
+  background: transparent; box-shadow: none; border: 1px dashed var(--wr-dashed);
+  padding: 15px 17px; display: flex; align-items: center; gap: 10px;
+  font: 600 12px var(--font-body); color: var(--wr-text-muted);
+}
+
+/* — metric: progress against a minimum, never a goal or a streak — */
+.wr-metric-head { display: flex; justify-content: space-between; font: 600 12px var(--font-body); margin-bottom: 5px; }
+.wr-metric-head span:last-child { color: var(--wr-text-muted); }
+.wr-metric .wr-bar { height: 6px; }
+
+/* ── Structure & metadata ──────────────────────────────────────────────────*/
+.wr-frame { border-radius: 16px; overflow: hidden; box-shadow: var(--wr-lift-2); }
+.wr-titlebar {
+  height: 36px; display: flex; align-items: center; gap: 7px; padding: 0 14px;
+  background: var(--wr-chrome); font: 600 11px var(--font-body); color: var(--wr-text-muted);
+}
+.wr-titlebar i { width: 11px; height: 11px; border-radius: 999px; background: #cfc4b1; }
+.wr-sidebar {
+  width: 200px; flex: none; align-self: stretch; padding: 20px 14px;
+  display: flex; flex-direction: column; gap: 22px; background: var(--wr-chrome);
+}
+.wr-navitem {
+  display: flex; align-items: center; padding: 8px 12px; border-radius: 999px;
+  font: 400 13px var(--font-body); color: var(--wr-text-muted);
+  border: 0; background: transparent; cursor: pointer; text-align: left; width: 100%;
+}
+.wr-navitem-active {
+  font-weight: 600; color: var(--color-text); background: var(--color-neutral-100);
+  box-shadow: 0 1px 2px rgba(46, 43, 37, 0.07), 0 3px 8px rgba(46, 43, 37, 0.06);
+}
+.wr-navitem-count { margin-left: auto; font: 700 10.5px var(--font-body); padding: 1px 7px; border-radius: 999px; background: var(--wr-track); }
+
+/* one neutral mark per provider, always trailing the item it belongs to —
+   provenance is not a category, so provider brand colours are not used */
+.wr-source {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 19px; height: 19px; border-radius: 999px; flex: none;
+  background: var(--color-neutral-100); box-shadow: inset 0 0 0 1px rgba(46, 43, 37, 0.14);
+  font: 700 10px var(--font-body); color: var(--wr-text-muted);
+}
+.wr-source-sm { width: 17px; height: 17px; font-size: 9.5px; }
+.wr-dot { width: 7px; height: 7px; border-radius: 999px; flex: none; background: var(--color-accent); }
+.wr-status {                /* "Adapting live · Google, Outlook" */
+  display: inline-flex; align-items: center; gap: 8px; padding: 7px 13px;
+  border-radius: 999px; background: var(--color-neutral-200);
+  font: 600 12px var(--font-body); color: var(--wr-text-muted);
+}
+
+/* — app shell — the page never carries a headline; the date sits inline with a
+     helper sentence, and everything explanatory belongs in the rail. — */
+.wr-shell { max-width: 900px; margin: 0 auto; padding: 24px 26px 28px; }
+.wr-shell-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px;
+}

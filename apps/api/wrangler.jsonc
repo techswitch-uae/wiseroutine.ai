@@ -1,0 +1,258 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "wiseroutine-api",
+	"main": "src/index.ts",
+	// nodejs_compat is on by default from this date; no flag needed.
+	"compatibility_date": "2026-08-22",
+	"observability": {
+		"enabled": true
+	},
+	// ─────────────────────────────────────────────────────────────────────────
+	// Top level is *local only* — `wrangler dev` and the test suite.
+	//
+	// Deliberately no `secrets_store_secrets` here: locally the same names come
+	// from `.dev.vars` as plain strings, which `resolveServerEnv` accepts either
+	// way. The deployed environments are under `env` below; wrangler does not
+	// inherit vars or bindings into a named environment, so each one repeats
+	// everything it needs. That repetition is the point — reading one block
+	// tells you exactly what that environment runs with.
+	// ─────────────────────────────────────────────────────────────────────────
+	"kv_namespaces": [
+		{
+			"binding": "CONFIG",
+			"id": "local-development-placeholder"
+		}
+	],
+	"queues": {
+		"producers": [
+			{
+				"binding": "SYNC_QUEUE",
+				"queue": "wiseroutine-sync-dev"
+			}
+		],
+		"consumers": [
+			{
+				"queue": "wiseroutine-sync-dev",
+				"max_batch_size": 10,
+				"max_batch_timeout": 5,
+				"max_retries": 5,
+				"dead_letter_queue": "wiseroutine-sync-dev-dlq"
+			}
+		]
+	},
+	"vars": {
+		"ENVIRONMENT": "development",
+		"APP_URL": "http://localhost:3000",
+		"API_URL": "http://localhost:8787",
+		// Two local `turso dev` servers — see docs/setup-database.md.
+		"TURSO_DIRECTORY_URL": "http://127.0.0.1:8080",
+		"TURSO_USER_HOST": "http://127.0.0.1:8081"
+	},
+	"env": {
+		// ───────────────────────────────────────────────────────────────────────
+		// Deployed dev. Its own Turso databases, its own queue, its own secrets.
+		// Nothing here is shared with production except the Secrets Store itself,
+		// which is account-wide — hence the WR_DEV_ / WR_PROD_ name prefixes.
+		// ───────────────────────────────────────────────────────────────────────
+		"dev": {
+			"name": "wiseroutine-api-dev",
+			"kv_namespaces": [
+				{
+					"binding": "CONFIG",
+					"id": "2cfed25c6bf34e1f9b5e69e6cae20c81"
+				}
+			],
+			"queues": {
+				"producers": [
+					{
+						"binding": "SYNC_QUEUE",
+						"queue": "wiseroutine-sync-dev"
+					}
+				],
+				"consumers": [
+					{
+						"queue": "wiseroutine-sync-dev",
+						"max_batch_size": 10,
+						"max_batch_timeout": 5,
+						"max_retries": 5,
+						"dead_letter_queue": "wiseroutine-sync-dev-dlq"
+					}
+				]
+			},
+			"triggers": {
+				"crons": [
+					"* * * * *", // grace-period sweep
+					"*/5 * * * *", // sync ticker
+					"0 3 * * *" // nightly retention
+				]
+			},
+			"vars": {
+				"ENVIRONMENT": "preview",
+				"APP_URL": "https://app-dev.wiseroutine.ai",
+				"API_URL": "https://api-dev.wiseroutine.ai",
+				"TURSO_DIRECTORY_URL": "libsql://wiseroutine-directory-dev-REPLACE_WITH_ORG.turso.io",
+				"TURSO_USER_HOST": "REPLACE_WITH_ORG.turso.io",
+				"TURSO_ORG": "REPLACE_WITH_ORG",
+				"TURSO_GROUP": "users-dev",
+				// Public identifiers, not secrets: they ship in the consent URL, the
+				// checkout session and the From header respectively.
+				"GOOGLE_CLIENT_ID": "REPLACE_WITH_DEV_GOOGLE_CLIENT_ID",
+				"MICROSOFT_CLIENT_ID": "REPLACE_WITH_DEV_MICROSOFT_CLIENT_ID",
+				"STRIPE_PRO_PRICE_ID": "REPLACE_WITH_TEST_PRICE_ID",
+				"RESEND_FROM": "dev@wiseroutine.ai",
+				"ONESIGNAL_APP_ID": "REPLACE_WITH_DEV_ONESIGNAL_APP_ID"
+			},
+			"secrets_store_secrets": [
+				{
+					"binding": "TURSO_AUTH_TOKEN",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_DEV_TURSO_AUTH_TOKEN"
+				},
+				{
+					"binding": "TURSO_PLATFORM_TOKEN",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_DEV_TURSO_PLATFORM_TOKEN"
+				},
+				{
+					"binding": "TOKEN_ROOT_KEY",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_DEV_TOKEN_ROOT_KEY"
+				},
+				{
+					"binding": "SESSION_SECRET",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_DEV_SESSION_SECRET"
+				},
+				{
+					"binding": "GOOGLE_CLIENT_SECRET",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_DEV_GOOGLE_CLIENT_SECRET"
+				},
+				{
+					"binding": "MICROSOFT_CLIENT_SECRET",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_DEV_MICROSOFT_CLIENT_SECRET"
+				},
+				{
+					"binding": "STRIPE_SECRET_KEY",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_DEV_STRIPE_SECRET_KEY"
+				},
+				{
+					"binding": "STRIPE_WEBHOOK_SECRET",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_DEV_STRIPE_WEBHOOK_SECRET"
+				},
+				{
+					"binding": "RESEND_API_KEY",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_DEV_RESEND_API_KEY"
+				},
+				{
+					"binding": "ONESIGNAL_API_KEY",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_DEV_ONESIGNAL_API_KEY"
+				}
+			]
+		},
+		"production": {
+			"name": "wiseroutine-api",
+			"kv_namespaces": [
+				{
+					"binding": "CONFIG",
+					"id": "acd7e15e40db4105a45ba6d6b6a7d7d9"
+				}
+			],
+			"queues": {
+				"producers": [
+					{
+						"binding": "SYNC_QUEUE",
+						"queue": "wiseroutine-sync"
+					}
+				],
+				"consumers": [
+					{
+						"queue": "wiseroutine-sync",
+						"max_batch_size": 10,
+						"max_batch_timeout": 5,
+						"max_retries": 5,
+						"dead_letter_queue": "wiseroutine-sync-dlq"
+					}
+				]
+			},
+			"triggers": {
+				"crons": [
+					"* * * * *", // grace-period sweep
+					"*/5 * * * *", // sync ticker
+					"0 3 * * *" // nightly retention
+				]
+			},
+			"vars": {
+				"ENVIRONMENT": "production",
+				"APP_URL": "https://app.wiseroutine.ai",
+				"API_URL": "https://api.wiseroutine.ai",
+				"TURSO_DIRECTORY_URL": "libsql://wiseroutine-directory-REPLACE_WITH_ORG.turso.io",
+				"TURSO_USER_HOST": "REPLACE_WITH_ORG.turso.io",
+				"TURSO_ORG": "REPLACE_WITH_ORG",
+				"TURSO_GROUP": "users",
+				"GOOGLE_CLIENT_ID": "REPLACE_WITH_GOOGLE_CLIENT_ID",
+				"MICROSOFT_CLIENT_ID": "REPLACE_WITH_MICROSOFT_CLIENT_ID",
+				"STRIPE_PRO_PRICE_ID": "REPLACE_WITH_LIVE_PRICE_ID",
+				"RESEND_FROM": "hello@wiseroutine.ai",
+				"ONESIGNAL_APP_ID": "REPLACE_WITH_ONESIGNAL_APP_ID"
+			},
+			"secrets_store_secrets": [
+				{
+					"binding": "TURSO_AUTH_TOKEN",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_PROD_TURSO_AUTH_TOKEN"
+				},
+				{
+					"binding": "TURSO_PLATFORM_TOKEN",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_PROD_TURSO_PLATFORM_TOKEN"
+				},
+				{
+					"binding": "TOKEN_ROOT_KEY",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_PROD_TOKEN_ROOT_KEY"
+				},
+				{
+					"binding": "SESSION_SECRET",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_PROD_SESSION_SECRET"
+				},
+				{
+					"binding": "GOOGLE_CLIENT_SECRET",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_PROD_GOOGLE_CLIENT_SECRET"
+				},
+				{
+					"binding": "MICROSOFT_CLIENT_SECRET",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_PROD_MICROSOFT_CLIENT_SECRET"
+				},
+				{
+					"binding": "STRIPE_SECRET_KEY",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_PROD_STRIPE_SECRET_KEY"
+				},
+				{
+					"binding": "STRIPE_WEBHOOK_SECRET",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_PROD_STRIPE_WEBHOOK_SECRET"
+				},
+				{
+					"binding": "RESEND_API_KEY",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_PROD_RESEND_API_KEY"
+				},
+				{
+					"binding": "ONESIGNAL_API_KEY",
+					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
+					"secret_name": "WR_PROD_ONESIGNAL_API_KEY"
+				}
+			]
+		}
+	}
+}

@@ -1,0 +1,32 @@
+{
+  "name": "@wiseroutine/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "prisma generate --config prisma.directory.config.ts && prisma generate --config prisma.user.config.ts && node scripts/embed-migrations.mjs",
+    "migrate:diff:directory": "prisma migrate diff --config prisma.directory.config.ts --from-migrations migrations/directory --to-schema prisma/directory.prisma --script",
+    "migrate:diff:user": "prisma migrate diff --config prisma.user.config.ts --from-migrations migrations/user --to-schema prisma/user.prisma --script",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "git clean -xdf .cache .turbo dist node_modules src/generated"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.17.4",
+    "@prisma/adapter-libsql": "^7.9.1",
+    "@prisma/client": "^7.9.1",
+    "@wiseroutine/plans": "workspace:*",
+    "@wiseroutine/scheduler": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260823.1",
+    "@wiseroutine/typescript-config": "workspace:*",
+    "prisma": "^7.9.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

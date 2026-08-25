@@ -1,0 +1,10 @@
+{
+  "extends": "@wiseroutine/typescript-config/vite.json",
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vitest.setup.ts"],
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "references": [{ "path": "./tsconfig.node.json" }]
+}

@@ -1,0 +1,4 @@
+{
+  "extends": "@wiseroutine/typescript-config/base.json",
+  "include": ["src/**/*.ts"]
+}

@@ -1,0 +1,9 @@
+{
+  "extends": "@wiseroutine/typescript-config/workers.json",
+  "include": [
+    "src/**/*.ts",
+    "prisma.directory.config.ts",
+    "prisma.user.config.ts"
+  ],
+  "exclude": ["src/generated"]
+}

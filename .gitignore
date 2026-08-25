@@ -1,0 +1,25 @@
+node_modules
+dist
+.output
+.nitro
+.tanstack
+.vite
+target
+*.local
+.DS_Store
+.turbo
+src/generated
+.prisma-shadow.db
+.shadow-*.db
+
+# Local Worker secrets. `.dev.vars` feeds `wrangler dev`; `.env.dev` and
+# `.env.prod` are the sources `secrets:push:*` uploads to Cloudflare. All of
+# them are plaintext credentials — never commit one. Ignored by pattern rather
+# than by name so a `.env.staging` someone adds later is covered too.
+.dev.vars
+.env
+.env.*
+!.env.example
+
+# wrangler's local state: simulated KV, queues and secrets store.
+.wrangler

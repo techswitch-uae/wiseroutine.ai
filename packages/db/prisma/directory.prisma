@@ -1,0 +1,301 @@
+// The directory database — one, shared.
+//
+// Holds only what must be queried *across* users: login lookup, sessions,
+// billing, and the coordination table the cron ticker reads. Everything a user
+// owns lives in their own database (see user.prisma).
+//
+// Instants are DateTime because Prisma range-checks Int at 32 bits and epoch
+// ms is ~1.7e12; the repository layer converts to and from epoch-ms numbers.
+// SQLite has no Prisma enums, so those are String with TS union types.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/directory"
+  runtime  = "cloudflare"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id        String  @id
+  /// Unique because Better Auth resolves an account by address; the soft
+  /// delete below therefore frees the address only once it is hard-deleted.
+  email     String  @unique(map: "users_email")
+  name      String?
+  /// Better Auth calls this `image`; mapped in the auth config.
+  avatarUrl String? @map("avatar_url")
+
+  /// Owned by Better Auth: true once an OTP for this address has been used.
+  emailVerified Boolean @default(false) @map("email_verified")
+
+  /// IANA zone. The frame in which every preferred window is evaluated.
+  timeZone String @default("UTC") @map("time_zone")
+  locale   String @default("en")
+
+  /// Minutes from local midnight bounding the planning window.
+  dayStartMinutes Int @default(480) @map("day_start_minutes")
+  dayEndMinutes   Int @default(1080) @map("day_end_minutes")
+
+  /// Resolved snapshot ("free" | "pro") so a request reads one column instead
+  /// of calling Stripe.
+  plan          String    @default("free")
+  /// "grant" | "stripe" | "default"
+  planSource    String    @default("default") @map("plan_source")
+  planExpiresAt DateTime? @map("plan_expires_at")
+
+  /// Data minimisation: store busy intervals but never event titles.
+  storeEventTitles Boolean @default(true) @map("store_event_titles")
+
+  /// The user's own Turso database. Their calendar data never touches this one.
+  databaseName String  @unique(map: "users_database_name") @map("database_name")
+  /// Set while provisioning, cleared once the schema is applied. A user whose
+  /// database is not ready yet must not be handed a session.
+  databaseReady Boolean @default(false) @map("database_ready")
+
+  /// Last request from this user's app. Drives how often their calendars are
+  /// polled — see `syncInterval` in packages/scheduler. Null means they have
+  /// never opened it, which counts as dormant rather than new.
+  lastSeenAt DateTime? @map("last_seen_at")
+
+  createdAt DateTime  @map("created_at")
+  updatedAt DateTime  @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  accounts      Account[]
+  sessions      Session[]
+  subscription  Subscription?
+  planGrants    PlanGrant[]
+  scheduledWork ScheduledWork[]
+  watchChannels WatchChannel[]
+  devices       Device[]
+
+  @@map("users")
+}
+
+/// Better Auth owns this table.
+///
+/// It stores the session token itself rather than a hash of it, which is how
+/// Better Auth looks a session up. The token is high-entropy, httpOnly on web
+/// and held in the OS keychain on desktop, and rotates on its own schedule —
+/// but a directory dump is now enough to impersonate, which the previous
+/// hand-rolled table was written to prevent. Accepted to avoid forking the
+/// adapter; revisit if the directory is ever exposed more widely.
+model Session {
+  id     String @id
+  userId String @map("user_id")
+
+  token     String   @unique(map: "sessions_token")
+  expiresAt DateTime @map("expires_at")
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @map("created_at")
+  updatedAt DateTime @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "sessions_user")
+  @@map("sessions")
+}
+
+/// One authentication method linked to a user — today only the email OTP
+/// credential Better Auth writes at signup.
+///
+/// Note what is *not* here: calendar OAuth tokens. Connecting Google or
+/// Outlook writes to the user's own database (`calendar_connections` /
+/// `oauth_tokens`), envelope-encrypted, so no provider refresh token ever
+/// lands in the shared directory.
+model Account {
+  id     String @id
+  userId String @map("user_id")
+
+  /// The authority that issued `accountId`. Better Auth uses a synthetic
+  /// `local:credential` namespace for non-OAuth accounts.
+  issuer     String
+  accountId  String @map("account_id")
+  providerId String @map("provider_id")
+
+  accessToken           String?   @map("access_token")
+  refreshToken          String?   @map("refresh_token")
+  idToken               String?   @map("id_token")
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at")
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at")
+  scope                 String?
+  password              String?
+
+  createdAt DateTime @map("created_at")
+  updatedAt DateTime @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([issuer, accountId], map: "accounts_issuer_account")
+  @@index([userId], map: "accounts_user")
+  @@map("accounts")
+}
+
+/// Pending one-time codes. Better Auth deletes a row as it is consumed, so
+/// this table is empty except for OTPs in flight.
+model Verification {
+  id String @id
+
+  identifier String
+  value      String
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @map("created_at")
+  updatedAt  DateTime @map("updated_at")
+
+  @@index([identifier], map: "verifications_identifier")
+  @@map("verifications")
+}
+
+/// Better Auth's rate-limit counters.
+///
+/// Stored here rather than in memory because a Worker isolate is per-colo and
+/// short-lived, so an in-memory counter would not actually limit anything —
+/// and the endpoint being limited sends email, which costs money per request.
+model RateLimit {
+  id String @id
+
+  key         String @unique(map: "rate_limits_key")
+  count       Int
+  lastRequest BigInt @map("last_request")
+
+  @@map("rate_limits")
+}
+
+model Subscription {
+  userId String @id @map("user_id")
+
+  /// Indexed so the Stripe webhook finds the user in one lookup rather than
+  /// scanning a user list.
+  stripeCustomerId     String  @unique(map: "subscriptions_customer") @map("stripe_customer_id")
+  stripeSubscriptionId String? @map("stripe_subscription_id")
+  stripePriceId        String? @map("stripe_price_id")
+
+  status            String
+  currentPeriodEnd  DateTime? @map("current_period_end")
+  cancelAtPeriodEnd Boolean   @default(false) @map("cancel_at_period_end")
+  updatedAt         DateTime  @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("subscriptions")
+}
+
+/// Beta access. Outranks Stripe, carries a reason and an optional expiry, so
+/// winding the beta down is per-user and audited rather than a mystery flag.
+model PlanGrant {
+  id     String @id
+  userId String @map("user_id")
+
+  plan      String
+  reason    String
+  grantedBy String    @map("granted_by")
+  expiresAt DateTime? @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId], map: "plan_grants_user")
+  @@map("plan_grants")
+}
+
+/// The coordination table.
+///
+/// With one database per user there is no way to ask "whose calendar is due?"
+/// or "whose slot has run out of grace?" — those were cross-user scans. So the
+/// answer is denormalised here, and the cron ticker reads exactly one indexed
+/// table before fanning out onto the queue. The per-user database still holds
+/// the authoritative state; this only says *when* to go look.
+model ScheduledWork {
+  id     String @id
+  userId String @map("user_id")
+
+  /// "sync_calendar" | "renew_watch" | "grace_sweep"
+  kind String
+
+  /// Identifies the row inside the user's database (a calendar id, a slot id).
+  /// Empty string means "the whole user", e.g. the grace sweep. Not nullable,
+  /// because Prisma cannot use a NULL column in a compound-unique lookup.
+  targetId String @default("") @map("target_id")
+
+  dueAt        DateTime  @map("due_at")
+  backoffUntil DateTime? @map("backoff_until")
+  failures     Int       @default(0)
+
+  createdAt DateTime @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, kind, targetId], map: "scheduled_work_target")
+  @@index([dueAt], map: "scheduled_work_due")
+  @@map("scheduled_work")
+}
+
+/// Push-channel routing.
+///
+/// A Google notification carries a channel id and a Graph one carries a
+/// resource path — neither says which user it is for, and with a database per
+/// user we must know that *before* we can open anything. So the mapping lives
+/// here, alongside the shared secret the webhook authenticates against.
+model WatchChannel {
+  /// Google channel id, or the Graph subscription/calendar id.
+  channelId String @id @map("channel_id")
+
+  userId     String @map("user_id")
+  /// Identifies the calendar inside the user's own database.
+  calendarId String @map("calendar_id")
+
+  /// "google" | "microsoft"
+  provider String
+
+  /// Compared constant-time on every delivery; our only authentication there.
+  secret String
+
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId], map: "watch_channels_user")
+  @@index([expiresAt], map: "watch_channels_expiry")
+  @@map("watch_channels")
+}
+
+model Device {
+  id     String @id
+  userId String @map("user_id")
+
+  /// "macos" | "windows" | "linux" | "web"
+  platform String
+
+  /// Only set for web; desktop notifies locally via the Tauri plugin, because
+  /// OneSignal cannot reach a Tauri app.
+  onesignalSubscriptionId String? @map("onesignal_subscription_id")
+
+  appVersion String?  @map("app_version")
+  lastSeenAt DateTime @map("last_seen_at")
+  createdAt  DateTime @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId], map: "devices_user")
+  @@map("devices")
+}
+
+/// Webhook idempotency. Stripe retries, Google delivers duplicates while two
+/// channels overlap during renewal, and Graph retries for up to four hours.
+/// Lives here because a Stripe event is not scoped to a user we have resolved
+/// yet.
+model ProcessedEvent {
+  id String @id
+
+  /// "stripe" | "google" | "microsoft"
+  source      String
+  processedAt DateTime @map("processed_at")
+
+  @@index([processedAt], map: "processed_events_at")
+  @@map("processed_events")
+}
