@@ -7,6 +7,7 @@ import {
   ClashRow,
   CodeInput,
   DashedRow,
+  DayGrid,
   DragPlacement,
   Field,
   FitStrip,
@@ -36,6 +37,9 @@ import {
   SittingStreak,
   TodayScreen,
 } from "./screens";
+
+/** A fixed 09:00 UTC, so the specimen never shifts with the clock. */
+const GRID_DAY_START = Date.UTC(2026, 7, 27, 9, 0, 0);
 
 const Row: React.FC<{
   name: string;
@@ -929,6 +933,73 @@ export const Gallery: React.FC = () => {
       </Section>
 
       <Section
+        title="The day as a surface"
+        blurb="A ruled grid rather than a list of rows. A list gives every block its own start time and nothing to read it against, so a day of 11:58, 12:23, 12:48 looks like a series of mistakes — it is not, that is simply where the gaps were. The ruler is what makes that legible."
+      >
+        <Row
+          name="Day grid"
+          tag="15-minute steps"
+          wide
+          why={
+            <>
+              Quarter-hours to measure against, the hour in bold to actually
+              read, and one accent line for <b>now</b> so it can never be
+              mistaken for a gridline. Blocks are positioned by time, so one
+              that starts at 11:58 sits just under the 12:00 line —
+              deliberately, exactly as every calendar people already know
+              behaves.
+            </>
+          }
+        >
+          <div style={{ width: 560 }}>
+            <DayGrid
+              dayStart={GRID_DAY_START}
+              dayEnd={GRID_DAY_START + 3 * 60 * 60_000}
+              timeZone="UTC"
+              now={GRID_DAY_START + 82 * 60_000}
+              items={[
+                {
+                  key: "a",
+                  startsAt: GRID_DAY_START + 8 * 60_000,
+                  endsAt: GRID_DAY_START + 33 * 60_000,
+                  node: (
+                    <Slot variant="focus" time="" name="Deep work" meta="25 min" />
+                  ),
+                },
+                {
+                  key: "b",
+                  startsAt: GRID_DAY_START + 60 * 60_000,
+                  endsAt: GRID_DAY_START + 105 * 60_000,
+                  node: (
+                    <Slot
+                      variant="meeting"
+                      time=""
+                      name="Product Operations Check-in"
+                      meta="45 min"
+                      source="M"
+                    />
+                  ),
+                },
+                {
+                  key: "c",
+                  startsAt: GRID_DAY_START + 128 * 60_000,
+                  endsAt: GRID_DAY_START + 143 * 60_000,
+                  node: (
+                    <Slot
+                      variant="recovery"
+                      time=""
+                      name="Back & shoulder stretch"
+                      meta="15 min"
+                    />
+                  ),
+                },
+              ]}
+            />
+          </div>
+        </Row>
+      </Section>
+
+      <Section
         title="Getting in"
         blurb="The screens before an account exists. They are the only ones that carry a headline, and the only ones with no navigation — there is nothing to navigate to and nobody to name yet. The emailed code is the path everything else is an alternative to."
       >
@@ -1051,6 +1122,9 @@ export const Gallery: React.FC = () => {
             name="Mara Kovac"
             draftName={draftName}
             onDraftNameChange={setDraftName}
+            timeZone="Europe/Lisbon"
+            timeZoneOptions={["Europe/Lisbon", "Asia/Dubai", "UTC"]}
+            deviceTimeZone="Asia/Dubai"
             accounts={[
               { id: "a1", provider: "google", connectedAt: "3 August 2026" },
               { id: "a2", provider: "microsoft", connectedAt: "12 August 2026" },

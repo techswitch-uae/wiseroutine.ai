@@ -6,7 +6,22 @@ import {
 } from "@wiseroutine/design";
 import { useCallback, useEffect, useState } from "react";
 import { patchAccount, setAccount, useAccount } from "../lib/account";
-import { ApiError, api, OfflineError } from "../lib/api";
+import { ApiError, api, deviceTimeZone, OfflineError } from "../lib/api";
+
+/**
+ * Every zone this runtime knows, for the picker.
+ *
+ * `supportedValuesOf` is recent enough to be worth guarding: an older runtime
+ * gets an empty list, and the screen falls back to offering just the saved
+ * zone and this device's — which is the choice almost everyone needs anyway.
+ */
+function timeZoneOptions(): string[] {
+  try {
+    return Intl.supportedValuesOf("timeZone");
+  } catch {
+    return [];
+  }
+}
 
 /**
  * The account page.
@@ -49,6 +64,10 @@ const Account: React.FC = () => {
   const [nameSaved, setNameSaved] = useState(false);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+
+  // Computed once: the list is ~450 strings and never changes at runtime.
+  const [zones] = useState(timeZoneOptions);
+  const device = deviceTimeZone();
 
   /** Only the provider list — the identity is already in the store, put there
    *  by the layout that guards this route. */
@@ -139,6 +158,21 @@ const Account: React.FC = () => {
       accounts={accounts}
       onDisconnect={disconnect}
       disconnecting={disconnecting}
+      {...(account?.timeZone ? { timeZone: account.timeZone } : {})}
+      timeZoneOptions={zones}
+      deviceTimeZone={device}
+      onTimeZoneChange={(zone) => {
+        // Optimistic: the picker should not lag behind the click. A refusal
+        // puts the old value back, so the screen never claims a zone the
+        // server rejected.
+        const previous = account?.timeZone;
+        patchAccount({ timeZone: zone });
+        setProblem(null);
+        api.setTimeZone(zone).catch(() => {
+          if (previous) patchAccount({ timeZone: previous });
+          setProblem("Couldn't change your time zone. Try again.");
+        });
+      }}
       onSignOut={() => {
         setAccount(null);
         void api.signOut().then(() => navigate({ to: "/signin" }));

@@ -1,5 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Button, DashedRow, LiveStatus, Slot } from "@wiseroutine/design";
+import {
+  Button,
+  DashedRow,
+  DayGrid,
+  IconButton,
+  LiveStatus,
+  RefreshGlyph,
+  Slot,
+} from "@wiseroutine/design";
 import { useCallback, useEffect, useState } from "react";
 import {
   ApiError,
@@ -14,19 +22,12 @@ import { openExternal } from "../lib/open-external";
 /** What `api.today()` hands back: the plan plus where it came from. */
 type CachedToday = TodayResponse & { stale: boolean; cachedAt: number };
 
-const timeFormatter = (timeZone: string) =>
-  new Intl.DateTimeFormat("en-GB", {
-    timeZone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
-
 const Today: React.FC = () => {
   const [data, setData] = useState<CachedToday | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [queued, setQueued] = useState(() => api.pendingCount());
+  const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(() => {
     if (!getSessionToken()) {
@@ -48,6 +49,27 @@ const Today: React.FC = () => {
         );
       });
   }, []);
+
+  /**
+   * Sync now, then show what arrived.
+   *
+   * The server schedules and queues; the work itself finishes just after the
+   * response. So this waits a beat before reloading rather than reloading
+   * immediately onto data that has not landed yet. Anything slower than that
+   * is picked up by the next load — no press is ever lost, it just may show up
+   * a moment later than the spinner suggests.
+   */
+  const refresh = useCallback(() => {
+    setSyncing(true);
+    api
+      .sync()
+      .then(() => new Promise((resolve) => setTimeout(resolve, 1200)))
+      .catch(() => undefined)
+      .finally(() => {
+        setSyncing(false);
+        load();
+      });
+  }, [load]);
 
   useEffect(load, [load]);
 
@@ -87,7 +109,6 @@ const Today: React.FC = () => {
     );
   }
 
-  const format = timeFormatter(data.timeZone);
   const rows = buildTimeline(data, now);
   const dayLabel = new Intl.DateTimeFormat("en-GB", {
     timeZone: data.timeZone,
@@ -102,7 +123,7 @@ const Today: React.FC = () => {
         <SavedPlanNotice cachedAt={data.cachedAt} queued={queued} />
       ) : null}
 
-      <header className="wr-shell-head">
+      <header className="wr-shell-head wr-shell-head-sticky">
         <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
           <span style={{ fontFamily: "var(--font-heading)", fontSize: 20 }}>
             {dayLabel}
@@ -117,39 +138,58 @@ const Today: React.FC = () => {
             found
           </span>
         </div>
-        <LiveStatus>Adapting live</LiveStatus>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <LiveStatus>Adapting live</LiveStatus>
+          <IconButton
+            label={syncing ? "Syncing your calendars" : "Sync calendars now"}
+            busy={syncing}
+            disabled={syncing}
+            onClick={refresh}
+          >
+            <RefreshGlyph />
+          </IconButton>
+        </div>
       </header>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {rows.length === 0 ? (
-          <DashedRow gutter={false}>
-            Nothing planned yet — plan your day
-          </DashedRow>
-        ) : (
-          rows.map((row) => (
-            <Slot
-              key={row.key}
-              variant={row.variant}
-              time={format.format(new Date(row.startsAt))}
-              name={row.title}
-              meta={row.meta ?? ""}
-              done={row.done ?? false}
-              grace={0.7}
-              autoMove="Moves itself if you don't start"
-              onStart={() => {
-                if (!row.slotId) return;
-                void api.startSlot(row.slotId).then(({ queued: waiting }) => {
-                  setQueued(api.pendingCount());
-                  // Offline there is nothing to reload from; the queue is
-                  // already projected onto what is on screen.
-                  if (!waiting) load();
-                  else setData((current) => current && { ...current });
-                });
-              }}
-            />
-          ))
-        )}
-      </div>
+      {rows.length === 0 ? (
+        <DashedRow gutter={false}>Nothing planned yet — plan your day</DashedRow>
+      ) : (
+        <DayGrid
+          dayStart={data.dayStart}
+          dayEnd={data.dayEnd}
+          timeZone={data.timeZone}
+          now={now}
+          items={rows.map((row) => ({
+            key: row.key,
+            startsAt: row.startsAt,
+            endsAt: row.endsAt,
+            node: (
+              <Slot
+                variant={row.variant}
+                // The gutter already says when this is; repeating it inside
+                // the card is noise the grid was built to remove.
+                time=""
+                name={row.title}
+                meta={row.meta ?? ""}
+                done={row.done ?? false}
+                // No grace bar or "moves itself" line inside the grid: those
+                // are list-row affordances, and here they make a 25-minute
+                // block draw twice its own height and collide with the next.
+                onStart={() => {
+                  if (!row.slotId) return;
+                  void api.startSlot(row.slotId).then(({ queued: waiting }) => {
+                    setQueued(api.pendingCount());
+                    // Offline there is nothing to reload from; the queue is
+                    // already projected onto what is on screen.
+                    if (!waiting) load();
+                    else setData((current) => current && { ...current });
+                  });
+                }}
+              />
+            ),
+          }))}
+        />
+      )}
 
       <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
         <Button variant="secondary" onClick={() => void api.plan().then(load)}>

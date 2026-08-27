@@ -22,6 +22,10 @@ const API = "https://graph.microsoft.com/v1.0";
  * attachments** — everything the free/busy engine needs and nothing more,
  * which is a materially better privacy story than `Calendars.Read`.
  *
+ * The subject arriving is a property of the *request*, not of this scope: a
+ * delta without an explicit `$select` gets a reduced payload with no subject
+ * at all. See `EVENT_FIELDS`.
+ *
  * `offline_access` is what produces a refresh token. Omitting it is the single
  * most common oversight in a Graph integration.
  */
@@ -217,12 +221,14 @@ function parseGraphTime(value: unknown): number {
 
 export function normaliseMicrosoftEvent(
   raw: Record<string, unknown>,
+  /** Subject of this event's series master, when the occurrence lacks one. */
+  inheritedTitle?: string | null,
 ): NormalisedEvent {
   return {
     providerEventId: String(raw.id),
     icalUid: raw.iCalUId ? String(raw.iCalUId) : null,
     seriesMasterId: raw.seriesMasterId ? String(raw.seriesMasterId) : null,
-    title: raw.subject ? String(raw.subject) : null,
+    title: raw.subject ? String(raw.subject) : (inheritedTitle ?? null),
     startsAt: parseGraphTime(raw.start),
     endsAt: parseGraphTime(raw.end),
     timeZone: raw.originalStartTimeZone
@@ -240,6 +246,38 @@ export function normaliseMicrosoftEvent(
       : null,
   };
 }
+
+/**
+ * Exactly the properties `normaliseMicrosoftEvent` reads.
+ *
+ * A delta query without `$select` does not return the full event: Graph sends
+ * a reduced default set, and `subject` is not reliably in it. The symptom is
+ * silent and specific — occurrences come back with no subject and no
+ * responseStatus, so a real meeting is stored as an untitled busy block and the
+ * timeline says "Busy" for a calendar that is full of named events.
+ *
+ * Asking for the fields we actually use is both the fix and the documented way
+ * to run a delta. Keep this list in step with the normaliser: a field missing
+ * here is silently `undefined` there, not an error.
+ */
+const EVENT_FIELDS = [
+  "id",
+  "iCalUId",
+  "seriesMasterId",
+  "subject",
+  "start",
+  "end",
+  "originalStartTimeZone",
+  "isAllDay",
+  "showAs",
+  "responseStatus",
+  "isCancelled",
+  "changeKey",
+  "lastModifiedDateTime",
+  // Load-bearing: without `type` a seriesMaster is indistinguishable from a
+  // real booking, and the two must be treated in opposite ways below.
+  "type",
+].join(",");
 
 export interface MicrosoftSyncParams {
   accessToken: string;
@@ -275,6 +313,9 @@ export async function microsoftSyncPage(
       built.searchParams.set("startDateTime", params.startDateTime);
     if (params.endDateTime)
       built.searchParams.set("endDateTime", params.endDateTime);
+    // Only on the initial call: Graph bakes the selection into the delta token,
+    // and every nextLink/deltaLink after this carries it for us.
+    built.searchParams.set("$select", EVENT_FIELDS);
     url = built.toString();
   }
 
@@ -284,6 +325,27 @@ export async function microsoftSyncPage(
   const events: NormalisedEvent[] = [];
   const deletedIds: string[] = [];
 
+  /**
+   * A recurring meeting arrives twice, and neither half is usable alone.
+   *
+   * Graph sends one `seriesMaster` carrying the subject and the recurrence
+   * rule, and one `occurrence` per instance carrying the real times but **no
+   * subject** — it expects the occurrence to inherit it. Taking the payload at
+   * face value is therefore two bugs at once: every instance of every
+   * recurring meeting is stored nameless and renders as "Busy", and each
+   * master is stored as a booking of its own, putting a phantom busy block on
+   * the free/busy map at the first instance's time.
+   *
+   * So: read the subjects off the masters, hand them down, and keep only the
+   * occurrences. A master is a template — nobody is ever busy because of one.
+   */
+  const seriesTitles = new Map<string, string>();
+  for (const item of items) {
+    if (item.type === "seriesMaster" && item.subject) {
+      seriesTitles.set(String(item.id), String(item.subject));
+    }
+  }
+
   for (const item of items) {
     // A Graph tombstone carries ONLY the id — no other fields — so the delete
     // path must work from that alone.
@@ -291,7 +353,17 @@ export async function microsoftSyncPage(
       deletedIds.push(String(item.id));
       continue;
     }
-    events.push(normaliseMicrosoftEvent(item));
+    if (item.type === "seriesMaster") continue;
+
+    const seriesId = item.seriesMasterId
+      ? String(item.seriesMasterId)
+      : undefined;
+    events.push(
+      normaliseMicrosoftEvent(
+        item,
+        seriesId ? seriesTitles.get(seriesId) : undefined,
+      ),
+    );
   }
 
   return {

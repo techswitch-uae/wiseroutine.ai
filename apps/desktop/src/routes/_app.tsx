@@ -69,6 +69,7 @@ const AppLayout: React.FC = () => {
           name: s.user.name ?? "",
           email: s.user.email,
           plan: s.user.plan,
+          timeZone: s.user.timeZone,
           avatarUrl: s.user.image ?? null,
         });
       })

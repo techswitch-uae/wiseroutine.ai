@@ -114,12 +114,15 @@ body { background: var(--wr-page); }
   background: var(--color-accent-2-300); color: var(--color-accent-2-800);
 }
 
-/* — "or", between two ways of doing the same thing — */
-.wr-rule {
+/* — "or", between two ways of doing the same thing —
+   NOT `.wr-rule`: that name belongs to the slot card's coloured kind marker,
+   and reusing it silently gave every slot in the app 42px of vertical margin
+   and two hairline pseudo-elements. Different thing, different name. */
+.wr-divider {
   display: flex; align-items: center; gap: 14px; margin: 24px 0 18px;
   font: 400 11.5px var(--font-body); color: var(--wr-text-soft);
 }
-.wr-rule::before, .wr-rule::after {
+.wr-divider::before, .wr-divider::after {
   content: ""; flex: 1; height: 1px; background: var(--wr-hairline);
 }
 
@@ -138,6 +141,13 @@ body { background: var(--wr-page); }
 .wr-field-input::placeholder { color: var(--wr-text-soft); }
 .wr-field-input:focus { box-shadow: inset 0 0 0 1.5px var(--color-accent); }
 .wr-field > .wr-label { display: block; margin-bottom: 7px; }
+/* The pill, with room for the native disclosure arrow the OS draws. */
+.wr-select { appearance: none; padding-right: 38px; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--wr-text-muted) 50%),
+                    linear-gradient(135deg, var(--wr-text-muted) 50%, transparent 50%);
+  background-position: calc(100% - 20px) 50%, calc(100% - 15px) 50%;
+  background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+}
 
 /* ── The six-digit code ────────────────────────────────────────────────────
    Six boxes, but one real input lying over them: paste, autofill and the
@@ -181,6 +191,22 @@ body { background: var(--wr-page); }
   position: absolute; inset: 0; width: 100%; height: 100%;
   opacity: 0; border: 0; padding: 0; margin: 0; cursor: text;
   font-size: 16px; /* iOS zooms a focused field under 16px */
+}
+
+/* A verb the user already knows, so it carries a glyph rather than a word.
+   Sand, not accent: syncing is maintenance, not the thing they came to do. */
+.wr-iconbtn {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 30px; height: 30px; border: 0; border-radius: 999px; cursor: pointer;
+  background: var(--color-neutral-200); color: var(--wr-text-muted);
+  box-shadow: inset 0 0 0 1px var(--wr-hairline);
+}
+.wr-iconbtn:hover { background: var(--color-neutral-300); color: var(--color-text); }
+.wr-iconbtn:disabled { cursor: not-allowed; color: var(--wr-text-soft); }
+.wr-iconbtn-busy svg { animation: wr-spin 0.9s linear infinite; }
+@keyframes wr-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .wr-iconbtn-busy svg { animation: none; }
 }
 
 /* — chips: a choice made with one tap, or a static state marker — */
@@ -234,6 +260,49 @@ button.wr-chip { cursor: pointer; }
 /* ── Slot cards ────────────────────────────────────────────────────────────
    One component, four variants. The variant is decided by who owns the
    block, not by how important it looks. */
+/* ── The day as a ruled surface ────────────────────────────────────────────
+   The gutter is the same fixed column the list rows use, so a grid and a row
+   never disagree about where the time sits. */
+.wr-daygrid { position: relative; }
+.wr-daygrid-tick {
+  position: absolute; left: 0; right: 0; height: 0;
+  border-top: 1px solid var(--wr-hairline);
+}
+/* Quarters are there to measure against; the hour is what is actually read. */
+.wr-daygrid-hour { border-top-color: color-mix(in srgb, #2e2b25 18%, transparent); }
+.wr-daygrid-label {
+  position: absolute; left: 0; top: -7px; width: var(--wr-gutter);
+  font: 400 10.5px var(--font-body); color: var(--wr-text-soft);
+  font-variant-numeric: tabular-nums; text-align: right; padding-right: 10px;
+  box-sizing: border-box;
+}
+.wr-daygrid-hour .wr-daygrid-label { font-weight: 700; color: var(--wr-text-muted); }
+/* Now: the one accent line on the surface, so it cannot be mistaken for a
+   gridline. */
+.wr-daygrid-now {
+  position: absolute; left: var(--wr-gutter); right: 0; height: 0;
+  border-top: 1.5px solid var(--color-accent); z-index: 2;
+}
+.wr-daygrid-now::before {
+  content: ""; position: absolute; left: -3px; top: -4px;
+  width: 7px; height: 7px; border-radius: 999px; background: var(--color-accent);
+}
+.wr-daygrid-now-label {
+  position: absolute; left: calc(-1 * var(--wr-gutter)); top: -7px;
+  width: var(--wr-gutter); text-align: right; padding-right: 10px;
+  box-sizing: border-box; font: 700 10.5px var(--font-body);
+  color: var(--color-accent-900); font-variant-numeric: tabular-nums;
+}
+.wr-daygrid-item {
+  position: absolute; left: var(--wr-gutter); right: 0; z-index: 1;
+  display: flex; flex-direction: column;
+}
+/* Inside the grid the card owns the whole width — the row's own time column
+   would repeat what the gutter already says. */
+.wr-daygrid-item .wr-slot-row { display: block; }
+.wr-daygrid-item .wr-time { display: none; }
+.wr-daygrid-item .wr-slot { height: 100%; box-sizing: border-box; }
+
 .wr-slot-row { display: flex; gap: 12px; align-items: flex-start; }
 .wr-time {
   width: var(--wr-gutter); flex: none; padding-top: 12px;
@@ -351,6 +420,13 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
 /* — app shell — the page never carries a headline; the date sits inline with a
      helper sentence, and everything explanatory belongs in the rail. — */
 .wr-shell { max-width: 900px; margin: 0 auto; padding: 24px 26px 28px; }
+/* The date, the status and the sync control stay put while the day scrolls
+   underneath. Opaque on purpose: slots pass directly behind it. */
+.wr-shell-head-sticky {
+  position: sticky; top: 0; z-index: 5;
+  background: var(--wr-page); padding: 4px 0 10px; margin-bottom: 4px;
+  box-shadow: 0 6px 10px -8px rgba(46, 43, 37, 0.35);
+}
 .wr-shell-head {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 14px;
@@ -498,9 +574,21 @@ img.wr-avatar { object-fit: cover; }
    and survives a page that is longer than the viewport. */
 .wr-frame-bare {
   border-radius: 0; box-shadow: none;
-  display: flex; flex-direction: column; min-height: 100vh;
+  display: flex; flex-direction: column;
+  /* Exactly the window, not at least it: the rail is furniture and should not
+     travel with the content. `dvh` where it is understood, because a mobile
+     browser's `vh` includes chrome that is not actually there. */
+  height: 100vh;
+  height: 100dvh;
 }
-.wr-frame-bare .wr-frame-body { flex: 1; }
+/* `min-height: 0` on both — a flex child defaults to `min-height: auto` and
+   refuses to shrink below its content, which makes any `overflow` on it inert
+   and pushes the scrollbar back onto the page. */
+.wr-frame-bare .wr-frame-body { flex: 1; min-height: 0; }
+/* The rail scrolls itself only if it outgrows the window; the page always
+   does. Two independent scrollers, which is the whole point. */
+.wr-frame-bare .wr-sidebar { min-height: 0; overflow-y: auto; }
+.wr-frame-bare .wr-page { min-height: 0; overflow-y: auto; }
 
 /* ── Getting in ────────────────────────────────────────────────────────────
    No sidebar and no page head: there is no navigation to offer and no user to

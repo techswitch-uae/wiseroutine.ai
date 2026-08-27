@@ -1,4 +1,9 @@
-import { saveTokens, upsertCalendars, upsertConnection } from "@wiseroutine/db";
+import {
+  saveTokens,
+  scheduleWork,
+  upsertCalendars,
+  upsertConnection,
+} from "@wiseroutine/db";
 import { required } from "@wiseroutine/env";
 import {
   decodeIdToken,
@@ -10,6 +15,7 @@ import {
   microsoftExchangeCode,
   microsoftListCalendars,
   needsAdminConsent,
+  ProviderError,
 } from "@wiseroutine/providers";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -189,10 +195,30 @@ connect.get("/:provider/callback", async (c) => {
     now,
   );
 
-  const calendars =
-    provider === "google"
-      ? await googleListCalendars(tokens.accessToken)
-      : await microsoftListCalendars(tokens.accessToken);
+  /**
+   * The first call that actually uses the grant — and the first that can fail
+   * for reasons the user did nothing to cause: an API not enabled on the
+   * project, a quota, a provider outage.
+   *
+   * Unhandled, it threw out of the callback and Google's browser tab landed on
+   * a raw 500 — after the user had already granted access, which is the worst
+   * possible moment to show someone a stack of JSON. The tokens are saved by
+   * this point, so retrying re-uses the same connection row and repairs it;
+   * what matters here is that the user is told, in the app, that it did not
+   * finish. The reason goes to the log, where the person who can fix it looks.
+   */
+  let calendars: Awaited<ReturnType<typeof googleListCalendars>>;
+  try {
+    calendars =
+      provider === "google"
+        ? await googleListCalendars(tokens.accessToken)
+        : await microsoftListCalendars(tokens.accessToken);
+  } catch (error) {
+    console.error("listing calendars failed", provider, error);
+    done.searchParams.set("error", "calendar_unavailable");
+    done.searchParams.set("connected", provider);
+    return c.redirect(done.toString());
+  }
 
   const calendarIds = await upsertCalendars(
     db,
@@ -200,6 +226,44 @@ connect.get("/:provider/callback", async (c) => {
     now,
     newId,
   );
+
+  /**
+   * Owe a first sync for every calendar we just took on.
+   *
+   * Nothing else was doing this. `upsertCalendars` marks them selected, but
+   * the only places that schedule `sync_calendar` are the selection toggle,
+   * the push webhooks, and the foreground middleware — and that last one is
+   * deliberately debounced by `shouldSyncOnForeground`, so an active user
+   * whose `lastSeenAt` was just touched does not trigger it. The result was a
+   * calendar that connected successfully, reported success, and then showed
+   * nothing until the sync interval happened to elapse.
+   *
+   * The directory row is the durable "this is owed"; the queue message is the
+   * nudge that gets it done now rather than at the next tick. Same pairing as
+   * `markForeground` and the webhooks.
+   */
+  for (const calendarId of calendarIds) {
+    await scheduleWork(
+      c.get("directory"),
+      {
+        userId,
+        kind: "sync_calendar",
+        targetId: calendarId,
+        dueAt: now,
+      },
+      now,
+      newId,
+    );
+
+    await c.env.SYNC_QUEUE.send({
+      type: "sync-calendar",
+      workId: "",
+      userId,
+      databaseName: user.databaseName,
+      targetId: calendarId,
+      reason: "connected",
+    });
+  }
 
   // Open the push channels now, while we hold a fresh access token and the
   // user is watching a page that can report a failure. Without this the
@@ -242,7 +306,20 @@ connect.get("/:provider/callback", async (c) => {
         newId,
       );
     } catch (error) {
-      console.error("watch failed", provider, calendarId, error);
+      // Google refuses to push to anything but HTTPS, so a channel can never
+      // open against `http://localhost`. That is the expected state of every
+      // local machine, not a fault — and a stack trace here reads like the
+      // connection broke when it did not. Sync still runs on the ticker.
+      if (
+        error instanceof ProviderError &&
+        error.body.includes("webhookUrlNotHttps")
+      ) {
+        console.info(
+          `push channel skipped for ${provider}: the provider requires an HTTPS webhook, and this environment is ${env.API_URL}. Calendars still sync on the poll ticker.`,
+        );
+      } else {
+        console.error("watch failed", provider, calendarId, error);
+      }
     }
   }
 

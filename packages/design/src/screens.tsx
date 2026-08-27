@@ -17,6 +17,7 @@ import {
   PROVIDER_NAMES,
   ProviderButton,
   Rule,
+  SelectField,
   Slot,
   TimeStepper,
 } from "./components";
@@ -227,6 +228,12 @@ export const AccountScreen: React.FC<{
   accounts?: readonly LinkedAccount[];
   onDisconnect?: (account: LinkedAccount) => void;
   disconnecting?: string | null;
+  /** IANA zone every preferred window is evaluated in. */
+  timeZone?: string;
+  timeZoneOptions?: readonly string[];
+  onTimeZoneChange?: (zone: string) => void;
+  /** This device's zone, offered when it differs from the saved one. */
+  deviceTimeZone?: string;
   onSignOut?: () => void;
   problem?: string | null;
 }> = ({
@@ -241,6 +248,10 @@ export const AccountScreen: React.FC<{
   accounts = [],
   onDisconnect,
   disconnecting,
+  timeZone,
+  timeZoneOptions = [],
+  onTimeZoneChange,
+  deviceTimeZone,
   onSignOut,
   problem,
 }) => {
@@ -290,6 +301,39 @@ export const AccountScreen: React.FC<{
           it.
         </p>
       </section>
+
+      {timeZone ? (
+        <section className="wr-account-sec">
+          <span className="wr-label">Your day</span>
+          <SelectField
+            label="Time zone"
+            options={
+              // Always include the saved value, even if this build of the
+              // browser does not list it — otherwise the select silently shows
+              // the wrong zone as selected.
+              timeZoneOptions.includes(timeZone)
+                ? timeZoneOptions
+                : [timeZone, ...timeZoneOptions]
+            }
+            value={timeZone}
+            onChange={(event) => onTimeZoneChange?.(event.target.value)}
+          />
+          {deviceTimeZone && deviceTimeZone !== timeZone ? (
+            <div className="wr-account-actions">
+              <Button
+                variant="secondary"
+                onClick={() => onTimeZoneChange?.(deviceTimeZone)}
+              >
+                Use this device's zone ({deviceTimeZone})
+              </Button>
+            </div>
+          ) : null}
+          <p className="wr-account-note">
+            Everything is scheduled in this zone — your day's start and end, and
+            when each activity is due.
+          </p>
+        </section>
+      ) : null}
 
       <section className="wr-account-sec">
         <span className="wr-label">How you sign in</span>

@@ -18,6 +18,21 @@ export const PlayGlyph: React.FC = () => (
   </svg>
 );
 
+/** The second inline glyph. Still no icon dependency: two shapes do not earn
+ *  one, and a dependency for an arrow is a dependency to keep updated. */
+export const RefreshGlyph: React.FC = () => (
+  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" role="img">
+    <title>Sync</title>
+    <path
+      d="M14 8a6 6 0 1 1-1.76-4.24M14 2v4h-4"
+      stroke="currentColor"
+      strokeWidth="2.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 /* ── Actions ─────────────────────────────────────────────────────────────── */
 
 export type ButtonVariant = "primary" | "commit" | "secondary" | "quiet";
@@ -88,7 +103,7 @@ export const ProviderButton: React.FC<
 /** "or" — between two routes to the same place. */
 export const Rule: React.FC<{ children?: React.ReactNode }> = ({
   children = "or",
-}) => <div className="wr-rule">{children}</div>;
+}) => <div className="wr-divider">{children}</div>;
 
 export type FieldProps = React.InputHTMLAttributes<HTMLInputElement> & {
   label: string;
@@ -109,6 +124,43 @@ export const Field: React.FC<FieldProps> = ({
         {label}
       </label>
       <input id={inputId} className="wr-field-input" {...rest} />
+    </div>
+  );
+};
+
+export type SelectFieldProps = React.SelectHTMLAttributes<HTMLSelectElement> & {
+  label: string;
+  options: readonly string[];
+};
+
+/**
+ * A labelled pill that happens to be a `<select>`.
+ *
+ * A native select rather than a custom listbox: four hundred time zones want
+ * type-ahead, keyboard paging and a scroll position the OS already knows how
+ * to give, and every one of those is something a div would have to
+ * re-implement badly.
+ */
+export const SelectField: React.FC<SelectFieldProps> = ({
+  label,
+  options,
+  id,
+  className,
+  ...rest
+}) => {
+  const inputId = id ?? `wr-select-${label.toLowerCase().replace(/\W+/g, "-")}`;
+  return (
+    <div className={cx("wr-field", className)}>
+      <label className="wr-label" htmlFor={inputId}>
+        {label}
+      </label>
+      <select id={inputId} className="wr-field-input wr-select" {...rest}>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
     </div>
   );
 };
@@ -184,6 +236,38 @@ export const CodeInput: React.FC<CodeInputProps> = ({
     </div>
   );
 };
+
+export type IconButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  /** Required: an icon alone tells a screen reader nothing. */
+  label: string;
+  /** Spins the glyph while the work is in flight. */
+  busy?: boolean;
+};
+
+/**
+ * A round button carrying one glyph.
+ *
+ * For an action that is a verb the user already understands — refresh, close —
+ * and would only be made longer by a word. Anything that needs explaining is a
+ * `Button` with text on it instead.
+ */
+export const IconButton: React.FC<IconButtonProps> = ({
+  label,
+  busy,
+  className,
+  children,
+  ...rest
+}) => (
+  <button
+    type="button"
+    className={cx("wr-iconbtn", busy && "wr-iconbtn-busy", className)}
+    aria-label={label}
+    title={label}
+    {...rest}
+  >
+    {children}
+  </button>
+);
 
 export type ChipVariant =
   | "inset"
@@ -373,6 +457,107 @@ export const Slot: React.FC<SlotProps> = ({
 };
 
 /** Protected gap, add row, undated reminder — the one "nothing here yet" look. */
+export interface DayGridItem {
+  key: string;
+  startsAt: number;
+  endsAt: number;
+  node: React.ReactNode;
+}
+
+export type DayGridProps = {
+  /** Epoch ms bounding the visible day. */
+  dayStart: number;
+  dayEnd: number;
+  /** The zone the labels are written in — the user's, never the device's. */
+  timeZone: string;
+  items: readonly DayGridItem[];
+  /** Drawn only when it falls inside the window. */
+  now?: number;
+  /**
+   * Height of one 15-minute step. Below ~22px the labels collide; below the
+   * height of a slot card, short blocks are drawn taller than their duration
+   * and start to overlap. 30 is the smallest that reads cleanly for both.
+   */
+  stepHeight?: number;
+};
+
+const QUARTER = 15 * 60_000;
+
+/**
+ * The day as a ruled surface rather than a list of rows.
+ *
+ * A list gives every slot its own start time and nothing to read them against,
+ * so a day of 11:58, 12:23, 12:48 looks like a series of mistakes. It is not —
+ * those are simply where the gaps were — but only a ruler makes that legible.
+ * With one, the eye reads the quarter-hours and treats each block's exact edge
+ * as detail, which is how every calendar people already know behaves.
+ *
+ * Blocks are positioned by time, so an item that does not start on a quarter
+ * sits slightly below the line, deliberately.
+ */
+export const DayGrid: React.FC<DayGridProps> = ({
+  dayStart,
+  dayEnd,
+  timeZone,
+  items,
+  now,
+  stepHeight = 30,
+}) => {
+  const perMs = stepHeight / QUARTER;
+  const height = Math.max(0, (dayEnd - dayStart) * perMs);
+  const label = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+
+  const ticks: number[] = [];
+  for (let at = dayStart; at <= dayEnd; at += QUARTER) ticks.push(at);
+
+  return (
+    <div className="wr-daygrid" style={{ height }}>
+      {ticks.map((at) => {
+        // The hour carries the weight; the quarters are there to measure
+        // against, not to read one by one.
+        const onTheHour = new Date(at).getTime() % (60 * 60_000) === 0;
+        return (
+          <div
+            key={at}
+            className={cx("wr-daygrid-tick", onTheHour && "wr-daygrid-hour")}
+            style={{ top: (at - dayStart) * perMs }}
+          >
+            <span className="wr-daygrid-label">{label.format(new Date(at))}</span>
+          </div>
+        );
+      })}
+
+      {now !== undefined && now >= dayStart && now <= dayEnd ? (
+        <div className="wr-daygrid-now" style={{ top: (now - dayStart) * perMs }}>
+          <span className="wr-daygrid-now-label">{label.format(new Date(now))}</span>
+        </div>
+      ) : null}
+
+      {items.map((item) => {
+        const top = (Math.max(item.startsAt, dayStart) - dayStart) * perMs;
+        const raw = (Math.min(item.endsAt, dayEnd) - Math.max(item.startsAt, dayStart)) * perMs;
+        return (
+          <div
+            key={item.key}
+            className="wr-daygrid-item"
+            // A 15-minute block is shorter than the card inside it, so the
+            // height is a floor rather than a clamp: better to overlap the
+            // next line slightly than to clip a name to nothing.
+            style={{ top, minHeight: Math.max(raw, stepHeight) }}
+          >
+            {item.node}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 export const DashedRow: React.FC<{
   children: React.ReactNode;
   gutter?: boolean;

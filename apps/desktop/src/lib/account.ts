@@ -16,6 +16,8 @@ export interface Account {
   name: string;
   email: string;
   plan: string;
+  /** IANA zone every preferred window is evaluated in. */
+  timeZone: string;
   /** Only ever rendered when it is an `https:` URL — see `Avatar`. */
   avatarUrl: string | null;
 }

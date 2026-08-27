@@ -17,15 +17,36 @@ import { useEffect, useState } from "react";
  */
 const AuthComplete: React.FC = () => {
   const navigate = useNavigate();
-  const { error, consentUrl, signin } = Route.useSearch();
+  const { error, consentUrl, signin, connected } = Route.useSearch();
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    // A sign-in landing is terminal: this browser is not the app, and sending
-    // it to "/" would show a sign-in screen to someone who just signed in.
-    if (error || signin) return;
+    // Every outcome that means something is terminal *here*, because "here" is
+    // usually the system browser rather than the app. Sending it to "/" asks a
+    // browser with no session token to render the app, and the guard bounces it
+    // straight to a sign-in screen — which is what someone saw immediately
+    // after successfully connecting a calendar.
+    if (error || signin || connected) return;
     void navigate({ to: "/", replace: true });
-  }, [error, signin, navigate]);
+  }, [error, signin, connected, navigate]);
+
+  // `error` wins: the post-consent failure carries `connected` too, so that it
+  // can name the provider, and reading them in the wrong order would report a
+  // success that did not happen.
+  if (connected && !error) {
+    const name = connected === "microsoft" ? "Outlook" : "Google";
+    return (
+      <main className="wr-shell" style={{ maxWidth: 460 }}>
+        <h1 className="wr-display-30" style={{ marginBottom: 8 }}>
+          {name} calendar connected
+        </h1>
+        <p className="wr-body">
+          You can close this window. Wise Routine is already pulling your
+          calendar in — it will appear on your day shortly.
+        </p>
+      </main>
+    );
+  }
 
   if (signin) {
     return (
@@ -100,6 +121,34 @@ const AuthComplete: React.FC = () => {
     );
   }
 
+  /**
+   * Access was granted, but reading the calendars afterwards failed.
+   *
+   * Distinct from a refusal, because the two are not the same to the user and
+   * are not the same to fix: nothing they did caused this, and the permission
+   * they just gave is still good — retrying picks up the same connection.
+   */
+  if (error === "calendar_unavailable") {
+    return (
+      <main className="wr-shell" style={{ maxWidth: 460 }}>
+        <h1 className="wr-display-30" style={{ marginBottom: 8 }}>
+          Almost — we couldn't read your calendars
+        </h1>
+        <p className="wr-body" style={{ marginBottom: 16 }}>
+          You granted access and that part worked. Reading the calendar list
+          straight afterwards didn't, which is on us, not you. Try again in a
+          moment — you shouldn't have to grant anything twice.
+        </p>
+        <Button
+          variant="commit"
+          onClick={() => void navigate({ to: "/", replace: true })}
+        >
+          Back
+        </Button>
+      </main>
+    );
+  }
+
   if (error) {
     return (
       <main className="wr-shell" style={{ maxWidth: 460 }}>
@@ -129,11 +178,18 @@ const AuthComplete: React.FC = () => {
 export const Route = createFileRoute("/auth/complete")({
   validateSearch: (
     search: Record<string, unknown>,
-  ): { error?: string; consentUrl?: string; signin?: string } => ({
+  ): {
+    error?: string;
+    consentUrl?: string;
+    signin?: string;
+    connected?: string;
+  } => ({
     error: typeof search.error === "string" ? search.error : undefined,
     consentUrl:
       typeof search.consentUrl === "string" ? search.consentUrl : undefined,
     signin: typeof search.signin === "string" ? search.signin : undefined,
+    connected:
+      typeof search.connected === "string" ? search.connected : undefined,
   }),
   component: AuthComplete,
 });

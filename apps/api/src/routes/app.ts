@@ -19,7 +19,12 @@ import {
   touchLastSeen,
   updateActivity,
   updateUserSettings,
+  upsertCalendars,
 } from "@wiseroutine/db";
+import {
+  googleListCalendars,
+  microsoftListCalendars,
+} from "@wiseroutine/providers";
 import { visibleModules } from "@wiseroutine/plans";
 import {
   dayBounds,
@@ -40,6 +45,7 @@ import {
   rootKey,
 } from "../context";
 import { detectConflicts, planDay } from "../planning/planDay";
+import { accessTokenFor, type SyncDeps } from "../sync/engine";
 import { ensureWatch, stopWatch, type WatchDeps } from "../sync/watch";
 
 export const app = new Hono<App>();
@@ -165,6 +171,104 @@ const foreground: MiddlewareHandler<App> = async (c, next) => {
 
 app.use("*", requireUser);
 app.use("*", foreground);
+
+/**
+ * Sync now, whatever the debounce thinks.
+ *
+ * `foreground` deliberately refuses to sync for someone actively using the app
+ * — sixty provider passes an hour is worse than the poll it replaces. That is
+ * right as a default and wrong as the only option: when someone has just
+ * changed something at the provider, or is watching a calendar that has not
+ * appeared yet, they need a way to say "now". This is that way, and being an
+ * explicit press is what makes bypassing the debounce defensible.
+ *
+ * Awaited rather than `waitUntil`, unlike the middleware: the caller pressed a
+ * button and is waiting to be told it was heard.
+ */
+/**
+ * Re-read the calendar *list* for every live connection.
+ *
+ * Calendars were only ever discovered once, at connect. Nothing looked again,
+ * so two things could not heal on their own: a connection whose first listing
+ * failed stayed permanently empty — tokens, no calendars, nothing to sync and
+ * no sign of it — and a calendar created at the provider after connecting
+ * never appeared at all.
+ *
+ * `upsertCalendars` keeps the user's `isSelected` choice, so rediscovery adds
+ * without ever silently re-enabling something they turned off.
+ *
+ * One connection's failure must not sink the others: an expired grant on a
+ * second account is exactly the case where the first account still needs to
+ * sync.
+ */
+async function rediscoverCalendars(c: Ctx): Promise<void> {
+  const env = c.get("env");
+  const db = c.get("db");
+  const now = c.get("now");
+
+  const deps: SyncDeps = {
+    db,
+    userId: c.get("user").userId,
+    rootKey: rootKey(c),
+    clientIds: {
+      google: {
+        clientId: env.GOOGLE_CLIENT_ID ?? "",
+        clientSecret: env.GOOGLE_CLIENT_SECRET ?? "",
+      },
+      microsoft: {
+        clientId: env.MICROSOFT_CLIENT_ID ?? "",
+        clientSecret: env.MICROSOFT_CLIENT_SECRET ?? "",
+      },
+    },
+  };
+
+  for (const connection of await listConnections(db)) {
+    if (connection.status !== "active") continue;
+    try {
+      const accessToken = await accessTokenFor(
+        deps,
+        connection.id,
+        connection.provider as "google" | "microsoft",
+        now,
+      );
+      const calendars =
+        connection.provider === "google"
+          ? await googleListCalendars(accessToken)
+          : await microsoftListCalendars(accessToken);
+
+      await upsertCalendars(
+        db,
+        calendars.map((cal) => ({ connectionId: connection.id, ...cal })),
+        now,
+        newId,
+      );
+    } catch (error) {
+      console.error("rediscovering calendars", connection.email, error);
+    }
+  }
+}
+
+/**
+ * Sync now, whatever the debounce thinks.
+ *
+ * `foreground` deliberately refuses to sync for someone actively using the app
+ * — sixty provider passes an hour is worse than the poll it replaces. That is
+ * right as a default and wrong as the only option: when someone has just
+ * changed something at the provider, or is watching a calendar that has not
+ * appeared yet, they need a way to say "now". This is that way, and being an
+ * explicit press is what makes bypassing the debounce defensible.
+ *
+ * Rediscovery runs first so that a calendar which did not exist last time is
+ * already known by the time the syncs are scheduled.
+ *
+ * Awaited rather than `waitUntil`, unlike the middleware: the caller pressed a
+ * button and is waiting to be told it was heard.
+ */
+app.post("/sync", async (c) => {
+  await rediscoverCalendars(c);
+  await markForeground(c, true);
+  return c.json({ ok: true });
+});
 
 /* ── Calendars ───────────────────────────────────────────────────────────── */
 
@@ -341,6 +445,23 @@ app.patch("/settings", async (c) => {
     storeEventTitles?: boolean;
   };
   const body: SettingsBody = await c.req.json<SettingsBody>();
+
+  /**
+   * A zone the platform actually knows.
+   *
+   * This column is not decoration: every preferred window is evaluated in it
+   * and the planner formats against it. An unchecked string here is stored
+   * happily and then throws a `RangeError` somewhere far away, on a request
+   * that has nothing to do with settings. `Intl` is the authority on what is a
+   * real IANA zone, so ask it rather than keeping a list to fall out of date.
+   */
+  if (body.timeZone !== undefined) {
+    try {
+      new Intl.DateTimeFormat(undefined, { timeZone: body.timeZone });
+    } catch {
+      throw new HTTPException(400, { message: "Unknown time zone" });
+    }
+  }
 
   if (
     body.dayStartMinutes !== undefined &&

@@ -25,6 +25,21 @@ export function getSessionToken(): string | null {
   return globalThis.localStorage?.getItem(TOKEN_KEY) ?? null;
 }
 
+/**
+ * The zone this device believes it is in.
+ *
+ * `Intl` resolves it from the OS, so it follows the user across a flight
+ * without anyone being asked. Falls back to UTC on the rare runtime that
+ * cannot say — the same value the column already defaults to.
+ */
+export function deviceTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
 export function setSessionToken(token: string | null): void {
   if (token) globalThis.localStorage?.setItem(TOKEN_KEY, token);
   else globalThis.localStorage?.removeItem(TOKEN_KEY);
@@ -240,6 +255,21 @@ export async function flushPending(): Promise<number> {
   return done.length;
 }
 
+/**
+ * Report this device's zone, once a session exists.
+ *
+ * Deliberately swallows its own failure: a wrong time zone is worth fixing but
+ * is never a reason to fail a sign-in that has already succeeded. The Account
+ * page can set it explicitly, and the next sign-in tries again.
+ */
+async function announceTimeZone(): Promise<void> {
+  try {
+    await api.setTimeZone(deviceTimeZone());
+  } catch {
+    // Not worth surfacing — the user is signed in either way.
+  }
+}
+
 export const api = {
   /** Ask for a sign-in code. Also the sign-*up* path: an address that can read
    *  its own mail is the whole registration. */
@@ -260,6 +290,7 @@ export const api = {
     if (!token) throw new ApiError(500, { error: "no_session_token" });
     clearOfflineState();
     setSessionToken(token);
+    await announceTimeZone();
   },
 
   /**
@@ -311,6 +342,7 @@ export const api = {
       if (result.status === "ready") {
         clearOfflineState();
         setSessionToken(result.token);
+        await announceTimeZone();
         return;
       }
       throw new SocialSignInError(
@@ -397,6 +429,20 @@ export const api = {
       };
     }
   },
+  /**
+   * Tell the server which zone this device is in.
+   *
+   * Every preferred window is evaluated in this zone, so the default of "UTC"
+   * quietly shifts someone's whole day. Sent once at sign-in rather than on
+   * every load, so that a zone the user later chooses by hand is not
+   * overwritten every time they open the app.
+   */
+  setTimeZone: (timeZone: string) =>
+    request<void>("/settings", { method: "PATCH", body: JSON.stringify({ timeZone }) }),
+
+  /** Ask for a sync now rather than at the next tick — the refresh button. */
+  sync: () => request<{ ok: true }>("/sync", post({})),
+
   missed: () => request<MissedItem[]>("/missed"),
   plan: (trigger = "user_request") =>
     request<{ planRunId: string; placed: number; unplaced: unknown[] }>(

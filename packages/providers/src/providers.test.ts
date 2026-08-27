@@ -1,7 +1,7 @@
 import { isBusy } from "@wiseroutine/scheduler";
 import { describe, expect, test } from "vitest";
 import { normaliseGoogleEvent } from "./google";
-import { normaliseMicrosoftEvent } from "./microsoft";
+import { microsoftSyncPage, normaliseMicrosoftEvent } from "./microsoft";
 import { decodeIdToken, toCalendarEvent } from "./types";
 
 /**
@@ -175,5 +175,77 @@ describe("decodeIdToken", () => {
 
   test("a malformed token yields nothing rather than throwing", () => {
     expect(decodeIdToken("not-a-token")).toEqual({});
+  });
+});
+
+/** Answer one Graph call with a canned payload, then put `fetch` back. */
+async function withFetch<T>(
+  body: unknown,
+  run: () => Promise<T>,
+): Promise<T> {
+  const real = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch;
+  try {
+    return await run();
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+/**
+ * A recurring meeting arrives from `calendarView/delta` as two kinds of thing,
+ * and taking the payload at face value gets both of them wrong: the occurrence
+ * carries the times but no subject, and the master carries the subject but is
+ * not a booking at all. That shipped — every recurring meeting rendered as
+ * "Busy", and every series added a phantom busy block at its first instance.
+ */
+describe("microsoft recurring series", () => {
+  const page = (items: unknown[]) => ({ value: items });
+
+  const master = {
+    id: "series-1",
+    type: "seriesMaster",
+    subject: "BB Standup",
+    start: { dateTime: "2026-08-27T08:30:00.0000000", timeZone: "UTC" },
+    end: { dateTime: "2026-08-27T08:45:00.0000000", timeZone: "UTC" },
+  };
+  const occurrence = {
+    id: "occ-1",
+    type: "occurrence",
+    seriesMasterId: "series-1",
+    // No `subject`: Graph expects it to be inherited from the master.
+    start: { dateTime: "2026-08-28T08:30:00.0000000", timeZone: "UTC" },
+    end: { dateTime: "2026-08-28T08:45:00.0000000", timeZone: "UTC" },
+  };
+
+  test("an occurrence inherits the series subject", async () => {
+    const fetched = await withFetch(page([master, occurrence]), () =>
+      microsoftSyncPage({ accessToken: "t", calendarId: "cal" }),
+    );
+    const found = fetched.events.find((e) => e.providerEventId === "occ-1");
+    expect(found?.title).toBe("BB Standup");
+  });
+
+  // The master's start is its first instance, which the occurrences already
+  // cover. Storing it too double-books that slot against a meeting that is not
+  // separately in the diary.
+  test("the series master is not stored as a booking", async () => {
+    const fetched = await withFetch(page([master, occurrence]), () =>
+      microsoftSyncPage({ accessToken: "t", calendarId: "cal" }),
+    );
+    expect(fetched.events.map((e) => e.providerEventId)).toEqual(["occ-1"]);
+  });
+
+  // A later delta page can carry occurrences whose master is not in it.
+  test("an orphan occurrence stays untitled rather than throwing", async () => {
+    const fetched = await withFetch(page([occurrence]), () =>
+      microsoftSyncPage({ accessToken: "t", calendarId: "cal" }),
+    );
+    expect(fetched.events).toHaveLength(1);
+    expect(fetched.events[0]?.title).toBeNull();
   });
 });
