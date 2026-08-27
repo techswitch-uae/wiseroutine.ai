@@ -47,6 +47,11 @@ export const Button: React.FC<ButtonProps> = ({
   />
 );
 
+export const PROVIDER_NAMES = {
+  google: "Google",
+  microsoft: "Microsoft",
+} as const;
+
 /**
  * "Continue with Google".
  *
@@ -55,8 +60,13 @@ export const Button: React.FC<ButtonProps> = ({
  * with someone else's rules about how it may be drawn.
  */
 export const ProviderButton: React.FC<
-  Omit<ButtonProps, "variant"> & { provider: "google" | "microsoft" }
-> = ({ provider, className, ...rest }) => (
+  Omit<ButtonProps, "variant"> & {
+    provider: "google" | "microsoft";
+    /** Overrides "Continue with X" — used for the waiting state, where the
+     *  button has to say what it is now doing rather than what it offers. */
+    label?: string;
+  }
+> = ({ provider, label, className, ...rest }) => (
   <button
     type="button"
     className={cx("wr-btn", "wr-btn-provider", className)}
@@ -71,7 +81,7 @@ export const ProviderButton: React.FC<
     >
       {provider === "google" ? "G" : "M"}
     </span>
-    Continue with {provider === "google" ? "Google" : "Microsoft"}
+    {label ?? `Continue with ${PROVIDER_NAMES[provider]}`}
   </button>
 );
 
@@ -722,20 +732,51 @@ export const Keycap: React.FC<{
   </span>
 );
 
+/**
+ * An `https:` URL, and nothing else.
+ *
+ * Providers do not agree on what a picture is. Google sends a URL; Entra sends
+ * the image itself, base64 in the profile, big enough to blow past header
+ * limits and far too big to sit in a database column that every session read
+ * touches. So the rule is the narrow one: a real URL renders, anything else —
+ * `data:`, a bare path, an empty string — is treated as no picture at all and
+ * falls back to initials, which always work.
+ */
+const isImageUrl = (src: string | null | undefined): src is string =>
+  typeof src === "string" && /^https:\/\//i.test(src);
+
 /** The user's mark. Initials when there is no image — never an icon. */
-export const Avatar: React.FC<{ name: string; size?: number }> = ({
-  name,
-  size = 24,
-}) => (
-  <span
-    className="wr-avatar"
-    style={{ width: size, height: size, fontSize: size * 0.4 }}
-    aria-hidden="true"
-  >
-    {name
-      .split(" ")
-      .map((part) => part[0])
-      .slice(0, 2)
-      .join("")}
-  </span>
-);
+export const Avatar: React.FC<{
+  name: string;
+  size?: number;
+  /** Ignored unless it is an `https:` URL. */
+  src?: string | null;
+}> = ({ name, size = 24, src }) => {
+  const initials = name
+    .split(" ")
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("");
+
+  if (isImageUrl(src)) {
+    return (
+      <img
+        className="wr-avatar"
+        style={{ width: size, height: size }}
+        src={src}
+        alt=""
+        aria-hidden="true"
+      />
+    );
+  }
+
+  return (
+    <span
+      className="wr-avatar"
+      style={{ width: size, height: size, fontSize: size * 0.4 }}
+      aria-hidden="true"
+    >
+      {initials}
+    </span>
+  );
+};

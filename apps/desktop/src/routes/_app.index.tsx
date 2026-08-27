@@ -9,6 +9,7 @@ import {
   getSessionToken,
   type TodayResponse,
 } from "../lib/api";
+import { openExternal } from "../lib/open-external";
 
 /** What `api.today()` hands back: the plan plus where it came from. */
 type CachedToday = TodayResponse & { stale: boolean; cachedAt: number };
@@ -195,23 +196,46 @@ const SavedPlanNotice: React.FC<{ cachedAt: number; queued: number }> = ({
   </div>
 );
 
-/** Connecting a calendar is a separate, later act — consent completes in the
- *  system browser and returns through the app's deep link. */
-const ConnectCalendar: React.FC = () => (
-  <>
-    <Button
-      variant="quiet"
-      onClick={() => void api.connectUrl("google").then((url) => open(url))}
-    >
-      Connect Google
-    </Button>
-    <Button
-      variant="quiet"
-      onClick={() => void api.connectUrl("microsoft").then((url) => open(url))}
-    >
-      Connect Outlook
-    </Button>
-  </>
-);
+/**
+ * Connecting a calendar is a separate, later act — consent completes in the
+ * system browser.
+ *
+ * `openExternal` rather than a bare `open`: in the packaged app the webview
+ * has no opener and would navigate away from the app, and in a browser the
+ * popup blocker refuses a `window.open` issued after the round trip that
+ * fetched the URL. When it cannot open one, say so instead of looking like
+ * nothing happened.
+ */
+const ConnectCalendar: React.FC = () => {
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const connect = async (provider: "google" | "microsoft") => {
+    setProblem(null);
+    try {
+      const url = await api.connectUrl(provider);
+      if (!(await openExternal(url))) {
+        setProblem("Couldn't open your browser. Allow pop-ups and try again.");
+      }
+    } catch {
+      setProblem("Couldn't start that connection. Try again.");
+    }
+  };
+
+  return (
+    <>
+      <Button variant="quiet" onClick={() => void connect("google")}>
+        Connect Google
+      </Button>
+      <Button variant="quiet" onClick={() => void connect("microsoft")}>
+        Connect Outlook
+      </Button>
+      {problem ? (
+        <span className="wr-body" role="alert">
+          {problem}
+        </span>
+      ) : null}
+    </>
+  );
+};
 
 export const Route = createFileRoute("/_app/")({ component: Today });

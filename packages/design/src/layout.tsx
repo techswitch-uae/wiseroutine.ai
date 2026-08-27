@@ -47,6 +47,8 @@ export interface NavEntry {
 export const UserMenu: React.FC<{
   name: string;
   email?: string;
+  /** Ignored unless it is an `https:` URL — see `Avatar`. */
+  avatarSrc?: string | null;
   /** "free" reads as plain text; "pro" earns the chip. */
   plan?: "free" | "pro";
   items?: readonly { key: string; label: string }[];
@@ -54,6 +56,7 @@ export const UserMenu: React.FC<{
 }> = ({
   name,
   email,
+  avatarSrc,
   plan = "free",
   items = [
     { key: "settings", label: "Settings" },
@@ -90,7 +93,11 @@ export const UserMenu: React.FC<{
       {open ? (
         <div className="wr-usermenu-pop" role="menu">
           <div className="wr-usermenu-head">
-            <Avatar name={name} size={32} />
+            <Avatar
+              name={name}
+              size={32}
+              {...(avatarSrc !== undefined ? { src: avatarSrc } : {})}
+            />
             <div style={{ minWidth: 0 }}>
               <div className="wr-usermenu-name">{name}</div>
               {email ? <div className="wr-usermenu-email">{email}</div> : null}
@@ -121,7 +128,10 @@ export const UserMenu: React.FC<{
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <Avatar name={name} />
+        <Avatar
+          name={name}
+          {...(avatarSrc !== undefined ? { src: avatarSrc } : {})}
+        />
         <span className="wr-usermenu-trigger-name">{name}</span>
       </button>
     </div>

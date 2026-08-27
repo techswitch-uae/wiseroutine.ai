@@ -1,5 +1,6 @@
 import type React from "react";
 import {
+  Avatar,
   Button,
   Chip,
   ClashRow,
@@ -13,6 +14,7 @@ import {
   Module,
   ModuleEmpty,
   PlanNote,
+  PROVIDER_NAMES,
   ProviderButton,
   Rule,
   Slot,
@@ -74,7 +76,16 @@ export const SignInScreen: React.FC<{
    *  with no provider credentials must not offer a door that cannot open. */
   providers?: readonly SocialProvider[];
   onProvider?: (provider: SocialProvider) => void;
+  /** Sending the emailed code. Only the code path — a provider sign-in must
+   *  not make this button claim it is sending anything. */
   busy?: boolean;
+  /** Consent is open in a browser and we are waiting for it to come back. */
+  waitingFor?: SocialProvider | null;
+  onCancelWaiting?: () => void;
+  /** Set when the browser could not be opened for us — a popup blocker, or a
+   *  webview with no opener. The user can still get there by hand, and a link
+   *  they can click is the difference between a delay and a dead end. */
+  consentUrl?: string | null;
   problem?: string | null;
   chrome?: boolean;
 }> = ({
@@ -84,6 +95,9 @@ export const SignInScreen: React.FC<{
   providers = ["google", "microsoft"],
   onProvider,
   busy,
+  waitingFor,
+  onCancelWaiting,
+  consentUrl,
   problem,
   chrome,
 }) => (
@@ -134,11 +148,42 @@ export const SignInScreen: React.FC<{
             <ProviderButton
               key={provider}
               provider={provider}
-              disabled={busy}
+              // One at a time: a second consent window would race the first
+              // for the same account.
+              disabled={waitingFor !== null && waitingFor !== undefined}
+              {...(waitingFor === provider
+                ? { label: `Waiting for ${PROVIDER_NAMES[provider]}…` }
+                : {})}
               onClick={() => onProvider?.(provider)}
             />
           ))}
         </div>
+
+        {waitingFor ? (
+          <div className="wr-auth-waiting">
+            <p>
+              {consentUrl
+                ? `We couldn't open your browser. Open the ${PROVIDER_NAMES[waitingFor]} page yourself to finish:`
+                : `Finish signing in with ${PROVIDER_NAMES[waitingFor]} in your browser, then come back here.`}
+            </p>
+            {consentUrl ? (
+              // Opens in the browser the user is already in; this is the
+              // fallback for when we could not open one for them.
+              <a
+                href={consentUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="wr-auth-consent-link"
+              >
+                Open the {PROVIDER_NAMES[waitingFor]} sign-in page
+              </a>
+            ) : null}
+            <Button variant="quiet" onClick={onCancelWaiting}>
+              Cancel
+            </Button>
+          </div>
+        ) : null}
+
         <p className="wr-auth-foot">
           Signing in with Google or Microsoft does not connect that calendar —
           you choose calendars separately, after you are in.
@@ -147,6 +192,170 @@ export const SignInScreen: React.FC<{
     ) : null}
   </AuthFrame>
 );
+
+/* ── Account ─────────────────────────────────────────────────────────────── */
+
+export interface LinkedAccount {
+  /** Better Auth's account row id — what an unlink is addressed to. */
+  id: string;
+  provider: SocialProvider;
+  /** When the provider was linked. */
+  connectedAt?: string;
+}
+
+/**
+ * The account page.
+ *
+ * Three questions, three blocks: what we call you, how you get in, and how you
+ * leave. Signing in with a provider and syncing that provider's calendar are
+ * different grants, and this page is only about the first — the note says so,
+ * because "Disconnect Google" here could otherwise read as "stop syncing my
+ * Google calendar", which it is not.
+ */
+export const AccountScreen: React.FC<{
+  email: string;
+  name: string;
+  /** Rendered only when it is an `https:` URL — see `Avatar`. */
+  avatarUrl?: string | null;
+  /** Draft name in the field, which is not the saved one until it is saved. */
+  draftName?: string;
+  onDraftNameChange?: (value: string) => void;
+  onSaveName?: () => void;
+  /** True while a save is in flight; also disables an unchanged save. */
+  savingName?: boolean;
+  nameSaved?: boolean;
+  accounts?: readonly LinkedAccount[];
+  onDisconnect?: (account: LinkedAccount) => void;
+  disconnecting?: string | null;
+  onSignOut?: () => void;
+  problem?: string | null;
+}> = ({
+  email,
+  name,
+  avatarUrl,
+  draftName,
+  onDraftNameChange,
+  onSaveName,
+  savingName,
+  nameSaved,
+  accounts = [],
+  onDisconnect,
+  disconnecting,
+  onSignOut,
+  problem,
+}) => {
+  const draft = draftName ?? name;
+  const unchanged = draft.trim() === name.trim();
+
+  return (
+    <div className="wr-account">
+      <div className="wr-account-id">
+        <Avatar
+          name={name || email}
+          size={44}
+          {...(avatarUrl !== undefined ? { src: avatarUrl } : {})}
+        />
+        <div style={{ minWidth: 0 }}>
+          <div className="wr-account-id-name">{name || email}</div>
+          <div className="wr-account-id-email">{email}</div>
+        </div>
+      </div>
+
+      <section className="wr-account-sec">
+        <form
+          style={{ display: "flex", gap: 10, alignItems: "flex-end" }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSaveName?.();
+          }}
+        >
+          <Field
+            label="Name"
+            value={draft}
+            onChange={(event) => onDraftNameChange?.(event.target.value)}
+            placeholder="How should we address you?"
+            autoComplete="name"
+            style={{ flex: 1 }}
+          />
+          <Button
+            variant="commit"
+            type="submit"
+            disabled={savingName || unchanged}
+          >
+            {savingName ? "Saving…" : nameSaved && unchanged ? "Saved" : "Save"}
+          </Button>
+        </form>
+        <p className="wr-account-note">
+          Providers give us a name when you sign in with them. This overrides
+          it.
+        </p>
+      </section>
+
+      <section className="wr-account-sec">
+        <span className="wr-label">How you sign in</span>
+
+        {accounts.length === 0 ? (
+          <p className="wr-account-empty">
+            A code emailed to <b>{email}</b>. That always works, whether or not
+            a provider is connected.
+          </p>
+        ) : (
+          accounts.map((account) => (
+            <div className="wr-account-row" key={account.id}>
+              <span
+                className={`wr-provider-mark${
+                  account.provider === "microsoft"
+                    ? " wr-provider-microsoft"
+                    : ""
+                }`}
+                aria-hidden="true"
+              >
+                {account.provider === "google" ? "G" : "M"}
+              </span>
+              <div className="wr-account-row-main">
+                <div className="wr-account-row-name">
+                  {PROVIDER_NAMES[account.provider]}
+                </div>
+                {account.connectedAt ? (
+                  <div className="wr-account-row-note">
+                    Connected {account.connectedAt}
+                  </div>
+                ) : null}
+              </div>
+              <Button
+                variant="secondary"
+                onClick={() => onDisconnect?.(account)}
+                disabled={disconnecting === account.id}
+              >
+                {disconnecting === account.id ? "Disconnecting…" : "Disconnect"}
+              </Button>
+            </div>
+          ))
+        )}
+
+        {problem ? (
+          <p className="wr-auth-problem" role="alert">
+            {problem}
+          </p>
+        ) : null}
+
+        <p className="wr-account-note">
+          Disconnecting only removes this way of signing in — your calendars
+          stay connected, and the emailed code still works.
+        </p>
+      </section>
+
+      <section className="wr-account-sec">
+        <span className="wr-label">This device</span>
+        <div className="wr-account-actions">
+          <Button variant="secondary" onClick={onSignOut}>
+            Sign out
+          </Button>
+        </div>
+      </section>
+    </div>
+  );
+};
 
 /** mm:ss, for the resend countdown. */
 const countdown = (seconds: number): string =>

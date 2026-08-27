@@ -13,6 +13,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as DesignRouteImport } from './routes/design'
 import { Route as SigninRouteImport } from './routes/signin'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
+import { Route as AppAccountRouteImport } from './routes/_app.account'
 import { Route as AuthCompleteRouteImport } from './routes/auth.complete'
 
 const AppRoute = AppRouteImport.update({
@@ -34,6 +35,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAccountRoute = AppAccountRouteImport.update({
+  id: '/account',
+  path: '/account',
+  getParentRoute: () => AppRoute,
+} as any)
 const AuthCompleteRoute = AuthCompleteRouteImport.update({
   id: '/auth/complete',
   path: '/auth/complete',
@@ -44,11 +50,13 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/design': typeof DesignRoute
   '/signin': typeof SigninRoute
+  '/account': typeof AppAccountRoute
   '/auth/complete': typeof AuthCompleteRoute
 }
 export interface FileRoutesByTo {
   '/design': typeof DesignRoute
   '/signin': typeof SigninRoute
+  '/account': typeof AppAccountRoute
   '/auth/complete': typeof AuthCompleteRoute
   '/': typeof AppIndexRoute
 }
@@ -57,15 +65,23 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/design': typeof DesignRoute
   '/signin': typeof SigninRoute
+  '/_app/account': typeof AppAccountRoute
   '/auth/complete': typeof AuthCompleteRoute
   '/_app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/design' | '/signin' | '/auth/complete'
+  fullPaths: '/' | '/design' | '/signin' | '/account' | '/auth/complete'
   fileRoutesByTo: FileRoutesByTo
-  to: '/design' | '/signin' | '/auth/complete' | '/'
-  id: '__root__' | '/_app' | '/design' | '/signin' | '/auth/complete' | '/_app/'
+  to: '/design' | '/signin' | '/account' | '/auth/complete' | '/'
+  id:
+    | '__root__'
+    | '/_app'
+    | '/design'
+    | '/signin'
+    | '/_app/account'
+    | '/auth/complete'
+    | '/_app/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -105,6 +121,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/account': {
+      id: '/_app/account'
+      path: '/account'
+      fullPath: '/account'
+      preLoaderRoute: typeof AppAccountRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/auth/complete': {
       id: '/auth/complete'
       path: '/auth/complete'
@@ -116,10 +139,12 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
+  AppAccountRoute: typeof AppAccountRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAccountRoute: AppAccountRoute,
   AppIndexRoute: AppIndexRoute,
 }
 

@@ -454,11 +454,53 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
   color: var(--color-neutral-900); font-weight: 700; font-family: var(--font-body);
   text-transform: uppercase; letter-spacing: 0.02em;
 }
+/* When it is a real picture rather than initials. `cover` because a provider
+   crops however it likes and a squashed face is worse than a trimmed one. */
+img.wr-avatar { object-fit: cover; }
+
+/* ── Account ───────────────────────────────────────────────────────────────
+   Sections rather than a page headline — the app shell forbids one, and each
+   block here answers a different question about the account. */
+.wr-account { display: flex; flex-direction: column; gap: 22px; max-width: 560px; }
+.wr-account-id { display: flex; align-items: center; gap: 13px; }
+.wr-account-id-name { font: 600 15px var(--font-body); }
+.wr-account-id-email { font: 400 12.5px var(--font-body); color: var(--wr-text-muted); }
+.wr-account-sec {
+  background: var(--wr-card); border-radius: 15px; box-shadow: var(--wr-lift-1);
+  padding: 16px 18px;
+}
+.wr-account-sec > .wr-label { display: block; margin-bottom: 12px; }
+/* One linked provider. The mark is the same neutral badge the sign-in screen
+   uses, so "Google" means the same thing in both places. */
+.wr-account-row {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 0; border-top: 1px solid var(--wr-hairline);
+}
+.wr-account-row:first-of-type { border-top: 0; padding-top: 0; }
+.wr-account-row-main { flex: 1; min-width: 0; }
+.wr-account-row-name { font: 600 13px var(--font-body); }
+.wr-account-row-note { font: 400 11.5px var(--font-body); color: var(--wr-text-muted); }
+.wr-account-empty {
+  font: 400 12px/1.55 var(--font-body); color: var(--wr-text-muted); margin: 0;
+}
+.wr-account-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.wr-account-note {
+  font: 400 11.5px/1.55 var(--font-body); color: var(--wr-text-soft); margin: 10px 0 0;
+}
 
 /* ── App frame ───────────────────────────────────────────────────────────── */
 
 .wr-frame-body { display: flex; align-items: stretch; min-height: 0; }
-.wr-frame-bare { border-radius: 0; box-shadow: none; }
+/* The bare frame is the app itself — the OS window supplies the chrome, so
+   this one has no reason to stop at the height of its content. Column flex
+   rather than a height on the sidebar: the rail stretches because the row it
+   sits in fills the window, which keeps `align-self: stretch` doing the work
+   and survives a page that is longer than the viewport. */
+.wr-frame-bare {
+  border-radius: 0; box-shadow: none;
+  display: flex; flex-direction: column; min-height: 100vh;
+}
+.wr-frame-bare .wr-frame-body { flex: 1; }
 
 /* ── Getting in ────────────────────────────────────────────────────────────
    No sidebar and no page head: there is no navigation to offer and no user to
@@ -500,6 +542,23 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
   font: 400 11.5px/1.6 var(--font-body); color: var(--wr-text-soft);
   margin: 22px 0 0;
 }
+/* The "we are waiting on a browser" block. Inset, because it is context for
+   something happening elsewhere rather than a thing on this page to act on —
+   and it always carries a way out, since the alternative is a screen the user
+   can only escape by quitting. */
+.wr-auth-waiting {
+  margin-top: 14px; padding: 13px 15px; border-radius: 14px;
+  background: var(--wr-recessed); box-shadow: var(--wr-inset);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+}
+.wr-auth-waiting p {
+  margin: 0; font: 400 12px/1.55 var(--font-body); color: var(--wr-text-muted);
+}
+.wr-auth-consent-link {
+  font: 600 12.5px var(--font-body); color: var(--color-accent-900);
+  word-break: break-all;
+}
+
 .wr-auth-back {
   align-self: flex-start; font: 600 12.5px var(--font-body);
   color: var(--color-accent-900); background: none; border: 0;
@@ -548,7 +607,13 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
   font: 600 12.5px var(--font-body); color: var(--wr-ink); text-align: left;
 }
 .wr-usermenu-trigger:hover { background: var(--color-neutral-300); }
-.wr-usermenu-trigger-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* `min-width: 0` is what makes the ellipsis work at all: a flex item defaults
+   to `min-width: auto` and refuses to shrink below its content, so a long
+   address pushed the rail wide instead of truncating. Everything else here was
+   already correct and did nothing without it. */
+.wr-usermenu-trigger-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 /* Lift 3 — the floating-surface step, shared with the live slot and dialogs. */
 .wr-usermenu-pop {
   position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; min-width: 208px;

@@ -72,6 +72,31 @@ export const msOrNull = (date: Date | null | undefined): number | null =>
 export { DIRECTORY_MIGRATIONS, type Migration, USER_MIGRATIONS };
 
 /**
+ * Split a migration file into single statements.
+ *
+ * libSQL executes one statement per call. Prisma terminates each with `;` on
+ * its own line and precedes it with a `-- CreateTable` style comment, so the
+ * comments have to be stripped per *line*: dropping any chunk that starts with
+ * `--` drops every statement, and the migration then applies nothing while
+ * still recording itself as applied.
+ *
+ * ponytail: line-based, so a `--` inside a string literal would be cut. Prisma
+ * does not emit those; revisit if a hand-written migration ever does.
+ */
+export function splitStatements(sql: string): string[] {
+  return sql
+    .split(";\n")
+    .map((statement) =>
+      statement
+        .split("\n")
+        .filter((line) => !line.trimStart().startsWith("--"))
+        .join("\n")
+        .trim(),
+    )
+    .filter((statement) => statement.length > 0);
+}
+
+/**
  * Apply pending migrations to a libSQL database.
  *
  * Runs in the Worker as well as in Node, because provisioning a new user's
@@ -102,23 +127,7 @@ export async function applyMigrations(
     for (const migration of migrations) {
       if (seen.has(migration.name)) continue;
 
-      // libSQL executes one statement per call, so a migration file is split.
-      // Prisma emits statements terminated by `;` on its own line, each one
-      // preceded by a `-- CreateTable` style comment — which has to be stripped
-      // per line rather than per statement, or every statement is a comment and
-      // the migration silently applies nothing.
-      // ponytail: line-based, so a `--` inside a string literal would be cut.
-      // Prisma does not emit those; revisit if a hand-written migration does.
-      const statements = migration.sql
-        .split(";\n")
-        .map((statement) =>
-          statement
-            .split("\n")
-            .filter((line) => !line.trimStart().startsWith("--"))
-            .join("\n")
-            .trim(),
-        )
-        .filter((statement) => statement.length > 0);
+      const statements = splitStatements(migration.sql);
 
       await client.batch(statements, "write");
       await client.execute({

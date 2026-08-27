@@ -411,7 +411,7 @@ describe("social sign-in handoff", () => {
   // answers are legitimate; what is never legitimate is a crash, or a consent
   // URL asking for more than an identity.
   test("signing in asks for an identity, never a calendar", async () => {
-    const response = await worker.default.fetch(
+    const started = await worker.default.fetch(
       "http://api/signin/social/start",
       {
         method: "POST",
@@ -419,23 +419,85 @@ describe("social sign-in handoff", () => {
         body: JSON.stringify({ provider: "google" }),
       },
     );
+    expect(started.status).toBe(200);
+    const { url, ticket } = (await started.json()) as {
+      url: string;
+      ticket: string;
+    };
+    expect(ticket).toBeTruthy();
 
-    // 503 is the unconfigured path — a refusal, not a 500.
-    if (response.status === 503) return;
+    // `start` no longer talks to the provider — it points at our own route, so
+    // that the browser's navigation is what mints the consent URL.
+    expect(new URL(url).pathname).toBe("/signin/social/go");
 
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as { url: string; ticket: string };
-    expect(body.ticket).toBeTruthy();
+    const go = await worker.default.fetch(url, { redirect: "manual" });
+    // 302 to the app means the provider is unconfigured here — a refusal, not
+    // a crash, and nothing more to assert.
+    const location = go.headers.get("location") ?? "";
+    if (!location.startsWith("http://api")) {
+      expect(go.status).toBe(302);
+    } else {
+      return;
+    }
 
-    const url = new URL(body.url);
-    const scope = url.searchParams.get("scope") ?? "";
+    const consent = new URL(location);
+    const scope = consent.searchParams.get("scope") ?? "";
     expect(scope).not.toContain("calendar");
     // Its own callback, not the calendar flow's — two grants, two redirects.
-    expect(url.searchParams.get("redirect_uri")).toContain(
+    expect(consent.searchParams.get("redirect_uri")).toContain(
       "/auth/callback/google",
     );
     // Someone with a work and a personal account must get to choose.
-    expect(url.searchParams.get("prompt")).toBe("select_account");
+    expect(consent.searchParams.get("prompt")).toBe("select_account");
+  });
+
+  /**
+   * The regression that cost an afternoon.
+   *
+   * Better Auth binds the OAuth `state` to the browser with a signed cookie and
+   * refuses the callback without it. Minting the consent URL from a route the
+   * app calls by `fetch` sets that cookie on a cross-origin XHR response, which
+   * the browser throws away — so consent completed and then died as
+   * `state_mismatch`, with nothing in the logs and a valid-looking URL.
+   *
+   * The cookie must ride on the redirect the *browser* follows. This asserts
+   * that, and that it is the state the consent URL actually carries.
+   */
+  test("the consent redirect carries the state cookie", async () => {
+    const started = await worker.default.fetch(
+      "http://api/signin/social/start",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ provider: "google" }),
+      },
+    );
+    const { url } = (await started.json()) as { url: string };
+
+    const go = await worker.default.fetch(url, { redirect: "manual" });
+    const location = go.headers.get("location") ?? "";
+    // Unconfigured provider in this environment — nothing to bind.
+    if (location.startsWith("http://api")) return;
+
+    const state = new URL(location).searchParams.get("state");
+    expect(state).toBeTruthy();
+
+    const cookies = go.headers.getSetCookie();
+    const stateCookie = cookies.find((cookie) => cookie.includes("state="));
+    expect(stateCookie).toBeDefined();
+    // Signed, so the cookie is `<state>.<signature>` — the state it commits to
+    // has to be the one the provider will hand back.
+    expect(stateCookie).toContain(state as string);
+  });
+
+  // A ticket nobody minted must not be able to start a consent flow.
+  test("an unminted ticket cannot start a consent flow", async () => {
+    const go = await worker.default.fetch(
+      "http://api/signin/social/go?ticket=never-minted",
+      { redirect: "manual" },
+    );
+    expect(go.status).toBe(302);
+    expect(go.headers.get("location")).toContain("signin=failed");
   });
 
   test("a claim without a ticket is refused", async () => {

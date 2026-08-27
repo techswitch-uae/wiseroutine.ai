@@ -28,6 +28,7 @@ import {
 } from "./components";
 import { TODAY_FIXTURE } from "./fixtures";
 import {
+  AccountScreen,
   AppSidebar,
   CheckEmailScreen,
   PlacingScreen,
@@ -92,6 +93,7 @@ export const Gallery: React.FC = () => {
   const [nav, setNav] = useState("Today");
   const [email, setEmail] = useState("mara@studio.com");
   const [code, setCode] = useState("418");
+  const [draftName, setDraftName] = useState("Mara Kovac");
 
   return (
     <div className="gl">
@@ -1031,6 +1033,32 @@ export const Gallery: React.FC = () => {
         </Row>
 
         <Row
+          name="Account"
+          tag="screen · signed in"
+          wide
+          why={
+            <>
+              Three questions, three blocks: what we call you, how you get in,
+              how you leave. The name field overrides whatever a provider told
+              us. "Disconnect" removes a <i>sign-in method</i>, never a
+              calendar — the note says so, because the two are separate grants
+              and the wrong reading loses someone their sync.
+            </>
+          }
+        >
+          <AccountScreen
+            email="mara@studio.com"
+            name="Mara Kovac"
+            draftName={draftName}
+            onDraftNameChange={setDraftName}
+            accounts={[
+              { id: "a1", provider: "google", connectedAt: "3 August 2026" },
+              { id: "a2", provider: "microsoft", connectedAt: "12 August 2026" },
+            ]}
+          />
+        </Row>
+
+        <Row
           name="Sign in"
           tag="screen · signed out"
           wide
@@ -1046,6 +1074,29 @@ export const Gallery: React.FC = () => {
           }
         >
           <SignInScreen email={email} onEmailChange={setEmail} chrome={false} />
+        </Row>
+
+        <Row
+          name="Sign in · waiting on a provider"
+          tag="screen · consent open elsewhere"
+          wide
+          why={
+            <>
+              Consent happens in a browser this window cannot see, so the screen
+              has to say so — and always offer a way out, since the alternative
+              is a state the user can only escape by quitting. The emailed code
+              stays live throughout: waiting on Google is not a reason to lock
+              the door that always works. Pass <code>consentUrl</code> when the
+              browser could not be opened and the link is the way through.
+            </>
+          }
+        >
+          <SignInScreen
+            email="mara@studio.com"
+            waitingFor="google"
+            consentUrl="https://accounts.google.com/o/oauth2/v2/auth?…"
+            chrome={false}
+          />
         </Row>
 
         <Row

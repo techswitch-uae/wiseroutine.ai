@@ -4,7 +4,7 @@ import {
   SignInScreen,
   type SocialProvider,
 } from "@wiseroutine/design";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   api,
@@ -12,6 +12,7 @@ import {
   OfflineError,
   SocialSignInError,
 } from "../lib/api";
+import { openExternal } from "../lib/open-external";
 
 /**
  * Signing in, deliberately outside the app shell.
@@ -62,6 +63,16 @@ const SignIn: React.FC = () => {
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
+  /**
+   * The provider whose consent we are waiting on, if any.
+   *
+   * Separate from `busy` on purpose. They were one flag, and the result was a
+   * screen that disabled everything and told the user it was "Sending…" an
+   * email it had never touched — for as long as the poll ran, with no way out.
+   */
+  const [waitingFor, setWaitingFor] = useState<SocialProvider | null>(null);
+  /** Only set when we could not open a browser, so the user can do it. */
+  const [consentUrl, setConsentUrl] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [wrong, setWrong] = useState(false);
   const [expired, setExpired] = useState(false);
@@ -75,6 +86,12 @@ const SignIn: React.FC = () => {
    * given up and gone somewhere else in the app.
    */
   const social = useRef<AbortController | null>(null);
+  const cancelWaiting = useCallback(() => {
+    social.current?.abort();
+    social.current = null;
+    setWaitingFor(null);
+    setConsentUrl(null);
+  }, []);
   useEffect(() => () => social.current?.abort(), []);
 
   /** One ticking second, only while there is something to tick. */
@@ -115,14 +132,18 @@ const SignIn: React.FC = () => {
       .finally(() => setBusy(false));
   };
 
-  const sendCode = () =>
-    run(api.sendCode(email), () => {
+  const sendCode = () => {
+    // The user has chosen the other door; a provider attempt still polling
+    // would sign them in behind whatever they do next.
+    cancelWaiting();
+    return run(api.sendCode(email), () => {
       setSent(true);
       setCode("");
       setWrong(false);
       setExpired(false);
       setResendIn(RESEND_SECONDS);
     });
+  };
 
   /**
    * Submit the code.
@@ -156,34 +177,50 @@ const SignIn: React.FC = () => {
    * Google or Microsoft.
    *
    * Consent happens in a real browser — a provider will not render its consent
-   * screen in an embedded webview — so this opens one and then waits for the
-   * server to hand back a session against the ticket it was given up front.
+   * screen in an embedded webview, and in the packaged app navigating there
+   * would replace the app itself. So: ask the server for a URL and a ticket,
+   * open a browser, and only then start waiting.
+   *
+   * The order matters, and so does the return value of the open. Opening can
+   * fail — a popup blocker, a webview with no opener — and polling for a
+   * consent that was never shown is a spinner that runs until the ticket
+   * expires. When it fails the user gets the link and can go by hand, which is
+   * a delay rather than a dead end.
    */
-  const signInWith = (provider: SocialProvider) => {
-    social.current?.abort();
+  const signInWith = async (provider: SocialProvider) => {
+    cancelWaiting();
     const controller = new AbortController();
     social.current = controller;
 
-    setBusy(true);
     setProblem(null);
-    api
-      .signInWithSocial(provider, (url) => window.open(url), controller.signal)
-      .then(() => {
-        if (controller.signal.aborted) return;
-        // Aborted attempts resolve without a token; only navigate on a real one.
-        if (getSessionToken()) goToApp();
-      })
-      .catch((cause: unknown) => {
-        if (controller.signal.aborted) return;
-        setProblem(
-          cause instanceof SocialSignInError
-            ? socialProblem(cause.reason, provider)
-            : explain(cause),
-        );
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setBusy(false);
-      });
+    setConsentUrl(null);
+    setWaitingFor(provider);
+
+    try {
+      const { url, ticket } = await api.startSocial(provider);
+      if (controller.signal.aborted) return;
+
+      // Surfaced only if the open fails; holding it costs nothing and saves
+      // the attempt.
+      if (!(await openExternal(url))) setConsentUrl(url);
+      if (controller.signal.aborted) return;
+
+      await api.awaitSocial(ticket, controller.signal);
+      if (controller.signal.aborted) return;
+      if (getSessionToken()) goToApp();
+    } catch (cause) {
+      if (controller.signal.aborted) return;
+      setProblem(
+        cause instanceof SocialSignInError
+          ? socialProblem(cause.reason, provider)
+          : explain(cause),
+      );
+    } finally {
+      if (!controller.signal.aborted) {
+        setWaitingFor(null);
+        setConsentUrl(null);
+      }
+    }
   };
 
   if (sent) {
@@ -223,8 +260,11 @@ const SignIn: React.FC = () => {
         email={email}
         onEmailChange={setEmail}
         onSubmit={sendCode}
-        onProvider={signInWith}
+        onProvider={(provider) => void signInWith(provider)}
         busy={busy}
+        waitingFor={waitingFor}
+        onCancelWaiting={cancelWaiting}
+        consentUrl={consentUrl}
         problem={problem}
         chrome={false}
       />

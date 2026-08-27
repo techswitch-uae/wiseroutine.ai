@@ -152,10 +152,21 @@ export interface SessionResponse {
     id: string;
     email: string;
     name: string | null;
+    /** Better Auth's `image`, mapped to `avatarUrl` in the database. Only ever
+     *  rendered when it is an `https:` URL — see `Avatar`. */
+    image?: string | null;
     timeZone: string;
     plan: "free" | "pro";
     planSource: string;
   };
+}
+
+/** One provider that can sign this account in. Not a calendar connection. */
+export interface LinkedAccountResponse {
+  id: string;
+  providerId: string;
+  createdAt: string;
+  scopes?: string[];
 }
 
 export interface MissedItem {
@@ -252,31 +263,32 @@ export const api = {
   },
 
   /**
-   * Sign in with Google or Microsoft.
+   * Begin a provider sign-in. Returns the consent URL and the ticket to
+   * redeem once the user has been through it.
    *
-   * Consent has to happen in a real browser — a provider will not render its
-   * consent screen inside an embedded webview — so the session is created
-   * somewhere this process cannot read. The server hands us a ticket up front
-   * and parks the session token against it when consent lands; this waits for
-   * that and then holds the same kind of token an emailed code produces.
-   *
-   * `open` is passed in rather than reached for, so the caller decides what
-   * "open a browser" means and this stays testable.
+   * Deliberately does *not* open the browser itself. Opening can fail — a
+   * popup blocker, a webview with no opener — and the caller is the only one
+   * that can react to that: polling for a consent that was never shown is the
+   * bug this split exists to prevent.
    *
    * Which calendars the account syncs is a separate question entirely — see
    * `connectUrl`. Signing in with Google connects nothing.
    */
-  async signInWithSocial(
-    provider: "google" | "microsoft",
-    open: (url: string) => void,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    const { url, ticket } = await request<{ url: string; ticket: string }>(
+  startSocial: (provider: "google" | "microsoft") =>
+    request<{ url: string; ticket: string }>(
       "/signin/social/start",
       post({ provider }),
-    );
-    open(url);
+    ),
 
+  /**
+   * Wait for consent to land, then hold the session it produced.
+   *
+   * The session is created in a browser this process cannot read, so the
+   * server parks the token against the ticket and this collects it. What comes
+   * back is the same kind of token an emailed code produces, which is why
+   * nothing downstream needs to know how the user signed in.
+   */
+  async awaitSocial(ticket: string, signal?: AbortSignal): Promise<void> {
     // The ticket outlives any sensible wait; this loop is bounded by it rather
     // than by a count of its own, so the two can never disagree about when an
     // attempt is over.
@@ -307,6 +319,26 @@ export const api = {
     }
   },
 
+  /**
+   * The providers that can sign this account in.
+   *
+   * Better Auth's own endpoint — there is no route of ours in front of it,
+   * because there is nothing of ours to add. Note what these are *not*:
+   * calendar connections, which live in the user's own database and are listed
+   * by `/calendars`.
+   */
+  listAccounts: () => request<LinkedAccountResponse[]>("/auth/list-accounts"),
+
+  /** The one profile field the user owns. Everything else on the user row is
+   *  `input: false` server-side and cannot be written from here. */
+  updateName: (name: string) =>
+    request<unknown>("/auth/update-user", post({ name })),
+
+  /** Remove one way of signing in. The emailed code always remains, which is
+   *  what makes removing the last provider safe. */
+  unlinkAccount: (accountId: string) =>
+    request<unknown>("/auth/unlink-account", post({ accountId })),
+
   async signOut(): Promise<void> {
     await send("/auth/sign-out", post({})).catch(() => undefined);
     setSessionToken(null);
@@ -315,7 +347,16 @@ export const api = {
     clearOfflineState();
   },
 
-  session: () => request<SessionResponse>("/auth/get-session"),
+  /**
+   * The current session, or `null`.
+   *
+   * Better Auth answers 200 with a literal `null` body for a token it does not
+   * recognise — expired, revoked, or issued by a database that has since been
+   * reset. That is not an error, so it must not be typed as one: a caller that
+   * assumes a user here reads `.user` off null and throws somewhere far away
+   * from the cause.
+   */
+  session: () => request<SessionResponse | null>("/auth/get-session"),
 
   /** Mint a consent URL for the signed-in account. Authenticated, so which
    *  account the calendar attaches to is never a query parameter. */

@@ -259,7 +259,37 @@ export function createAuth(directory: Directory, env: ServerEnv) {
      * emailed code instead. That is the safe direction to be wrong in.
      */
     account: {
-      accountLinking: { enabled: true, trustedProviders: ["google"] },
+      accountLinking: {
+        enabled: true,
+        trustedProviders: ["google"],
+        /**
+         * Take the name and picture when a provider is linked.
+         *
+         * Without this, someone who signed up with an emailed code — which
+         * asks for nothing but an address — and *later* connected Google keeps
+         * an empty name for ever, and the sidebar has nothing to call them but
+         * their own email address. The provider is the only thing that ever
+         * knew their name, and a link is the moment it tells us.
+         *
+         * Safe against identity drift: Better Auth never changes `email` or
+         * `emailVerified` on a link, and every application column we own is
+         * `input: false`, so a provider profile cannot reach `plan` or
+         * `databaseName`. Worth revisiting only when the app lets someone edit
+         * their own name — at that point a later link would overwrite it.
+         */
+        updateUserInfoOnLink: true,
+        /**
+         * Let someone remove their last provider.
+         *
+         * Better Auth refuses by default, and for most applications it is
+         * right: unlink the only account and you have locked yourself out.
+         * Not here. Every account is reachable by a code emailed to its own
+         * address — that is the primary way in, not a fallback — so a provider
+         * is only ever a shortcut, and refusing to remove the last one would
+         * trap people in a sign-in method they no longer want.
+         */
+        allowUnlinkingAll: true,
+      },
     },
 
     // In-memory counters would not limit anything: a Worker isolate is
