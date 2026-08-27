@@ -304,7 +304,6 @@ export const AccountScreen: React.FC<{
 
       {timeZone ? (
         <section className="wr-account-sec">
-          <span className="wr-label">Your day</span>
           <SelectField
             label="Time zone"
             options={
@@ -418,7 +417,9 @@ export const CheckEmailScreen: React.FC<{
   email: string;
   code: string;
   onCodeChange?: (value: string) => void;
-  onSubmit?: () => void;
+  /** The pasted code arrives as an argument: on paste the parent's `code`
+   *  state is still a render behind, so submitting from it sends nothing. */
+  onSubmit?: (code?: string) => void;
   onBack?: () => void;
   onResend?: () => void;
   /** Seconds until a resend is allowed. 0 or absent enables the link. */
@@ -484,7 +485,7 @@ export const CheckEmailScreen: React.FC<{
         <CodeInput
           value={code}
           onChange={(next) => onCodeChange?.(next)}
-          onComplete={() => onSubmit?.()}
+          onComplete={(next) => onSubmit?.(next)}
           {...(wrong !== undefined ? { wrong } : {})}
           disabled={busy}
           autoFocus
@@ -525,6 +526,9 @@ export const AppSidebar: React.FC<{
   <Sidebar
     items={NAV}
     active={active}
+    // The kit documents quick add even though the app has not bound it yet —
+    // the catalogue is the plan, the app's own rail is the product.
+    onQuickAdd={() => undefined}
     user={
       <UserMenu
         name={user.name}

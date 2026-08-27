@@ -214,6 +214,9 @@ export function createAuth(directory: Directory, env: ServerEnv) {
       env.APP_URL,
       "tauri://localhost",
       "http://tauri.localhost",
+      // ponytail: the design gallery runs on its own Vite port (`pnpm design`)
+      // and is not APP_URL. Hardcoded, not configurable — one dev port.
+      ...(env.ENVIRONMENT === "development" ? ["http://localhost:41100"] : []),
     ],
 
     /**

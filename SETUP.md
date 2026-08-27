@@ -166,11 +166,110 @@ Web Push at all. Desktop notifications go through
 `@tauri-apps/plugin-notification`, scheduled locally. OneSignal covers web and
 any future mobile app.
 
-## Desktop signing (before any public build)
+## Releasing the desktop app
 
-- Apple Developer membership → Developer ID certificate → notarisation
-- Windows code-signing certificate
-- A Tauri updater signing key (`pnpm dlx tauri signer generate`)
+The pipeline is written — `.github/workflows/release.yml`. What is missing is
+three credentials, and only you can get them.
 
-Unsigned builds get a Gatekeeper warning on macOS and a SmartScreen block on
-Windows. Both certificates have lead times.
+### How a release happens
+
+Nothing here picks a version number by hand. Commit messages do:
+
+- `fix: …` → patch, `feat: …` → minor, `feat!: …` or a `BREAKING CHANGE:`
+  footer → major
+- anything else — `chore:`, a bare sentence — moves nothing and appears nowhere
+
+Release Please reads those, opens a PR carrying the version bump and the
+`CHANGELOG.md` entry, and **merging that PR is the release**: it tags,
+publishes the GitHub Release, and the same workflow then builds the installers
+onto it. A run where no commit had a recognised prefix simply produces no
+release PR, which is the expected outcome and not a failure.
+
+The version lives in four files and they must never disagree; the bump updates
+all four (`.release-please-manifest.json`, root `package.json`,
+`tauri.conf.json`, `src-tauri/Cargo.toml`). Do not edit any of them by hand.
+
+Only the commit **subject** is parsed. The body is free text, and a
+`BREAKING CHANGE:` footer is what makes a major:
+
+```
+feat(grid): size day rows to their content
+
+Blocks were positioned at a hardcoded 46px per quarter-hour, so a live
+card overflowed the block below it.
+
+BREAKING CHANGE: DayGrid no longer accepts `busyStep` as pixels.
+```
+
+The scope in brackets is optional and only groups the changelog line.
+
+**Nothing is armed yet.** The workflow is `workflow_dispatch` only — run it
+from the Actions tab when you want the first release. Restore the `push`
+trigger in `.github/workflows/release.yml` to make it automatic.
+
+To see what the next version and changelog would be without touching anything:
+
+```bash
+GITHUB_TOKEN=<a token with repo read> pnpm release:preview
+```
+
+`bootstrap-sha` in the config pins where history starts, so the commits from
+before this convention was adopted are never scanned.
+
+### 1. The updater key — do this first
+
+This one is free and blocks the build; without it `tauri build` cannot produce
+update artifacts and the release job fails.
+
+```bash
+pnpm --filter @wiseroutine/desktop exec tauri signer generate -w ~/.tauri/wiseroutine.key
+```
+
+- The **public** key goes into `tauri.conf.json` → `plugins.updater.pubkey`,
+  committed. It is currently an empty string, which is why nothing updates yet.
+- The **private** key goes into two GitHub secrets — `TAURI_SIGNING_PRIVATE_KEY`
+  (the file's contents, not its path) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+
+**Back the private key up somewhere you will still have in five years.** It is
+the only thing that proves an update came from you. Lose it and every already
+installed copy of the app stops accepting updates — permanently, with no fix
+short of asking every user to download a fresh build by hand.
+
+### 2. Apple — Gatekeeper
+
+Apple Developer Program, $99/year. You need a **Developer ID Application**
+certificate specifically; the "Apple Development" one is for running on your
+own machines and is still blocked on anyone else's.
+
+Signing alone is not enough — the build also has to be **notarised**, which is
+an upload to Apple, a scan, and a ticket stapled to the installer. The workflow
+does both if these secrets exist: `APPLE_CERTIFICATE` (the .p12, base64),
+`APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
+`APPLE_PASSWORD` (an app-specific password, not the account one), and
+`APPLE_TEAM_ID`.
+
+### 3. Windows — SmartScreen
+
+Since 2023 the key has to live in hardware, so a .pfx file on disk is no longer
+an option:
+
+- **Azure Trusted Signing**, ~$10/month, much the easier route — but it wants
+  an organisation that has been verifiable for three years, or individual
+  identity verification.
+- An **EV certificate** from DigiCert or Sectigo, $300–500/year on a USB token,
+  which is painful to drive from CI.
+
+Worth knowing before you pay: a standard (OV) certificate does *not* remove the
+SmartScreen warning immediately — it clears once the build has accumulated
+download reputation. EV certificates skip that wait. Until either is in place
+the Windows build still succeeds, it just warns on install.
+
+### What you get
+
+Each release carries a macOS `.dmg` (one universal build — no asking people
+which Mac they own), a Windows installer, and `latest.json`. Installed apps
+poll that file, show the update pill in the sidebar, and install and restart
+when it is clicked.
+
+Linux is not built. It is one entry in the workflow's matrix plus the
+`libwebkit2gtk` apt line when it is wanted.

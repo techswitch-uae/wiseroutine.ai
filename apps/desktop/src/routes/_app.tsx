@@ -5,10 +5,11 @@ import {
   useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
-import { AppFrame, Sidebar, UserMenu } from "@wiseroutine/design";
-import { useEffect } from "react";
+import { AppFrame, Sidebar, UpdatePill, UserMenu } from "@wiseroutine/design";
+import { useEffect, useState } from "react";
 import { setAccount, useAccount } from "../lib/account";
 import { ApiError, api, getSessionToken, setSessionToken } from "../lib/api";
+import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
 
 /**
  * The app shell every signed-in page renders inside.
@@ -22,15 +23,82 @@ import { ApiError, api, getSessionToken, setSessionToken } from "../lib/api";
  * for a session it does not have.
  */
 
-/** The product's navigation, whether or not each destination exists yet. */
+/**
+ * The navigation, which is every page that exists.
+ *
+ * Week, Activities, Reminders and Calendars were listed here as the intended
+ * information architecture. They had no routes, so each was a dead click — the
+ * rail offered five destinations and reached two. The design kit still carries
+ * them as the plan; this list is the product.
+ */
 const NAV = [
   { key: "today", label: "Today", to: "/" },
-  { key: "week", label: "Week" },
-  { key: "activities", label: "Activities" },
-  { key: "reminders", label: "Reminders" },
-  { key: "calendars", label: "Calendars" },
   { key: "account", label: "Account", to: "/account" },
 ] as const;
+
+/** Only the entries `onSelect` below actually does something with. */
+const USER_MENU = [
+  { key: "account", label: "Account" },
+  { key: "signout", label: "Sign out" },
+] as const;
+
+/**
+ * The rail's "there is a new version" pill, and nothing when there is not.
+ *
+ * Renders to nothing in the browser: `checkForUpdate` answers `null` off the
+ * desktop, so the web build carries this component but never shows it.
+ *
+ * It re-checks on a timer as well as on mount. Someone who leaves the app open
+ * for a fortnight — which is the normal way to use it — would otherwise only
+ * ever learn about a release by quitting, which is the one thing they are not
+ * doing.
+ */
+const RECHECK_HOURS = 6;
+
+const UpdateNotice: React.FC = () => {
+  const [update, setUpdate] = useState<AppUpdate | null>(null);
+  /** `undefined` until the user starts it, then 0–100, or `null` for a
+   *  download whose size the server never told us. */
+  const [percent, setPercent] = useState<number | null | undefined>(undefined);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const look = () => {
+      void checkForUpdate().then((found) => {
+        if (!cancelled) setUpdate(found);
+      });
+    };
+
+    look();
+    const timer = setInterval(look, RECHECK_HOURS * 60 * 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
+  if (!update) return null;
+
+  return (
+    <UpdatePill
+      version={update.version}
+      {...(percent !== undefined ? { percent } : {})}
+      {...(problem !== null ? { problem } : {})}
+      onInstall={() => {
+        setProblem(null);
+        setPercent(null);
+        // No `finally` resetting the spinner: on success this process is
+        // replaced by the new version mid-promise, and there is nothing left
+        // to reset.
+        installUpdate(update, setPercent).catch((cause: unknown) => {
+          setPercent(undefined);
+          setProblem(cause instanceof Error ? cause.message : "Try again");
+        });
+      }}
+    />
+  );
+};
 
 const AppLayout: React.FC = () => {
   const navigate = useNavigate();
@@ -74,7 +142,8 @@ const AppLayout: React.FC = () => {
         });
       })
       .catch((cause: unknown) => {
-        if (cause instanceof ApiError && cause.status === 401) return signedOut();
+        if (cause instanceof ApiError && cause.status === 401)
+          return signedOut();
         // Anything else — offline, a 500 — is not proof of being signed out,
         // and must not throw someone out of an app they can still read.
       });
@@ -110,6 +179,7 @@ const AppLayout: React.FC = () => {
               {...(user?.avatarUrl ? { avatarSrc: user.avatarUrl } : {})}
               {...(user?.email !== undefined ? { email: user.email } : {})}
               plan={user?.plan === "pro" ? "pro" : "free"}
+              items={USER_MENU}
               onSelect={(key) => {
                 if (key === "signout") {
                   setAccount(null);
@@ -120,7 +190,9 @@ const AppLayout: React.FC = () => {
               }}
             />
           }
-        />
+        >
+          <UpdateNotice />
+        </Sidebar>
       }
     >
       <Outlet />

@@ -26,6 +26,7 @@ import {
   StateRow,
   TimeStepper,
   Toggle,
+  UpdatePill,
 } from "./components";
 import { TODAY_FIXTURE } from "./fixtures";
 import {
@@ -933,28 +934,70 @@ export const Gallery: React.FC = () => {
       </Section>
 
       <Section
+        title="Keeping the app current"
+        blurb="A new version is ready, not urgent. It gets a pill in the rail rather than a dialog, because there is no decision in it worth interrupting someone mid-sentence for — and the only thing accepting it costs them is the restart it warns about."
+      >
+        <Row
+          name="Update pill"
+          tag="idle · installing · failed"
+          why={
+            <>
+              Once it is running it stops being a button: the one action it
+              offered is already happening and the app is about to restart
+              underneath them. The bar is a width rather than a spinner, except
+              where there is no total to measure against — a redirect to a CDN
+              that sends no length gets a travelling stripe instead of a
+              percentage nobody can trust.
+            </>
+          }
+        >
+          <div style={{ width: 200, display: "grid", gap: 10 }}>
+            <UpdatePill version="0.2.0" onInstall={() => undefined} />
+            <UpdatePill
+              version="0.2.0"
+              percent={42}
+              onInstall={() => undefined}
+            />
+            <UpdatePill
+              version="0.2.0"
+              percent={null}
+              onInstall={() => undefined}
+            />
+            <UpdatePill
+              version="0.2.0"
+              problem="the server hung up"
+              onInstall={() => undefined}
+            />
+          </div>
+        </Row>
+      </Section>
+
+      <Section
         title="The day as a surface"
         blurb="A ruled grid rather than a list of rows. A list gives every block its own start time and nothing to read it against, so a day of 11:58, 12:23, 12:48 looks like a series of mistakes — it is not, that is simply where the gaps were. The ruler is what makes that legible."
       >
         <Row
           name="Day grid"
-          tag="15-minute steps"
+          tag="adaptive 5-minute rows"
           wide
           why={
             <>
-              Quarter-hours to measure against, the hour in bold to actually
-              read, and one accent line for <b>now</b> so it can never be
-              mistaken for a gridline. Blocks are positioned by time, so one
-              that starts at 11:58 sits just under the 12:00 line —
-              deliberately, exactly as every calendar people already know
-              behaves.
+              Time is not linear here. A stretch something occupies gets room to
+              be read; an empty one collapses to a dotted measure mark and only
+              the hour is labelled. Dead time still exists — the ruler ticks
+              through it, so the shape of the day survives — it just stops
+              costing a screen. The ruler is a real grid of five-minute rows, so
+              a row grows to whatever the card in it needs and the line below
+              moves with it: the live block here wants a Start button and gets
+              the room for one instead of overflowing the next block. Two things
+              at once take a lane each rather than stacking.
             </>
           }
         >
           <div style={{ width: 560 }}>
             <DayGrid
               dayStart={GRID_DAY_START}
-              dayEnd={GRID_DAY_START + 3 * 60 * 60_000}
+              dayEnd={GRID_DAY_START + 6 * 60 * 60_000}
               timeZone="UTC"
               now={GRID_DAY_START + 82 * 60_000}
               items={[
@@ -963,7 +1006,12 @@ export const Gallery: React.FC = () => {
                   startsAt: GRID_DAY_START + 8 * 60_000,
                   endsAt: GRID_DAY_START + 33 * 60_000,
                   node: (
-                    <Slot variant="focus" time="" name="Deep work" meta="25 min" />
+                    <Slot
+                      variant="focus"
+                      time=""
+                      name="Deep work"
+                      meta="25 min"
+                    />
                   ),
                 },
                 {
@@ -981,6 +1029,20 @@ export const Gallery: React.FC = () => {
                   ),
                 },
                 {
+                  key: "b2",
+                  startsAt: GRID_DAY_START + 75 * 60_000,
+                  endsAt: GRID_DAY_START + 105 * 60_000,
+                  node: (
+                    <Slot
+                      variant="meeting"
+                      time=""
+                      name="Design review (double-booked)"
+                      meta="30 min"
+                      source="G"
+                    />
+                  ),
+                },
+                {
                   key: "c",
                   startsAt: GRID_DAY_START + 128 * 60_000,
                   endsAt: GRID_DAY_START + 143 * 60_000,
@@ -990,6 +1052,20 @@ export const Gallery: React.FC = () => {
                       time=""
                       name="Back & shoulder stretch"
                       meta="15 min"
+                    />
+                  ),
+                },
+                {
+                  key: "d",
+                  startsAt: GRID_DAY_START + 165 * 60_000,
+                  endsAt: GRID_DAY_START + 180 * 60_000,
+                  node: (
+                    <Slot
+                      variant="live"
+                      time=""
+                      name="Walk to the window"
+                      meta="15 min"
+                      onStart={() => undefined}
                     />
                   ),
                 },
@@ -1111,9 +1187,9 @@ export const Gallery: React.FC = () => {
             <>
               Three questions, three blocks: what we call you, how you get in,
               how you leave. The name field overrides whatever a provider told
-              us. "Disconnect" removes a <i>sign-in method</i>, never a
-              calendar — the note says so, because the two are separate grants
-              and the wrong reading loses someone their sync.
+              us. "Disconnect" removes a <i>sign-in method</i>, never a calendar
+              — the note says so, because the two are separate grants and the
+              wrong reading loses someone their sync.
             </>
           }
         >
@@ -1127,7 +1203,11 @@ export const Gallery: React.FC = () => {
             deviceTimeZone="Asia/Dubai"
             accounts={[
               { id: "a1", provider: "google", connectedAt: "3 August 2026" },
-              { id: "a2", provider: "microsoft", connectedAt: "12 August 2026" },
+              {
+                id: "a2",
+                provider: "microsoft",
+                connectedAt: "12 August 2026",
+              },
             ]}
           />
         </Row>

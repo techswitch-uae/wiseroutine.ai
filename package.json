@@ -1,5 +1,6 @@
 {
   "name": "wiseroutine",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.30.1",
@@ -15,7 +16,8 @@
     "clean": "turbo run clean",
     "bundle": "pnpm --filter @wiseroutine/desktop bundle",
     "api": "pnpm --filter @wiseroutine/api dev",
-    "wrangler": "pnpm --filter @wiseroutine/api exec wrangler"
+    "wrangler": "pnpm --filter @wiseroutine/api exec wrangler",
+    "release:preview": "pnpm dlx release-please release-pr --dry-run --repo-url=techswitch-uae/wiseroutine.ai --config-file=release-please-config.json --manifest-file=.release-please-manifest.json --token=$GITHUB_TOKEN"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.8",

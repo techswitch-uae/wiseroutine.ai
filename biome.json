@@ -25,7 +25,8 @@
       "!**/routeTree.gen.ts",
       "!**/src/generated",
       "!**/.wrangler",
-      "!**/.turso-local"
+      "!**/.turso-local",
+      "!**/.claude"
     ]
   },
   "formatter": {

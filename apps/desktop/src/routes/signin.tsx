@@ -152,12 +152,15 @@ const SignIn: React.FC = () => {
    * not different sentences: a wrong code keeps its digits and counts down the
    * attempts, an expired one stops offering the boxes at all.
    */
-  const submitCode = () => {
-    if (code.length < 6 || busy) return;
+  const submitCode = (pasted?: string) => {
+    // On paste the digits arrive as an argument because `code` is still a
+    // render behind — reading state here submits the previous value.
+    const value = pasted ?? code;
+    if (value.length < 6 || busy) return;
     setBusy(true);
     setProblem(null);
     api
-      .signIn(email, code)
+      .signIn(email, value)
       .then(goToApp)
       .catch((cause: unknown) => {
         // Better Auth burns the code once it is expired or out of attempts;

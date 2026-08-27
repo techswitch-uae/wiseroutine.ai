@@ -184,10 +184,15 @@ export const Sidebar: React.FC<{
     {children}
 
     <div className="wr-sidebar-foot">
-      <button type="button" className="wr-quickadd" onClick={onQuickAdd}>
-        <span>+ {quickAdd}</span>
-        <Keycap>⌘K</Keycap>
-      </button>
+      {/* Only when something is listening. It rendered unconditionally, which
+          put a button and a ⌘K hint in the rail of an app that had neither —
+          a shortcut advertised and not bound is worse than one not offered. */}
+      {onQuickAdd ? (
+        <button type="button" className="wr-quickadd" onClick={onQuickAdd}>
+          <span>+ {quickAdd}</span>
+          <Keycap>⌘K</Keycap>
+        </button>
+      ) : null}
       {user}
     </div>
   </nav>

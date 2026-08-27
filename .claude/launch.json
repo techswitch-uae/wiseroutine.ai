@@ -2,6 +2,17 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@wiseroutine/desktop",
+        "dev:vite"
+      ],
+      "port": 41000,
+      "autoPort": false
+    },
+    {
       "name": "design",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
@@ -11,7 +22,8 @@
         "--port",
         "41100"
       ],
-      "port": 41100
+      "port": 41100,
+      "autoPort": false
     }
   ]
 }

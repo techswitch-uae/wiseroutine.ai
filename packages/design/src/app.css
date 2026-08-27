@@ -263,15 +263,29 @@ button.wr-chip { cursor: pointer; }
 /* ── The day as a ruled surface ────────────────────────────────────────────
    The gutter is the same fixed column the list rows use, so a grid and a row
    never disagree about where the time sits. */
-.wr-daygrid { position: relative; }
+/* A real grid of five-minute rows. Rows are `minmax(floor, auto)`, so a row
+   grows to whatever the card in it needs and the line below moves with it —
+   which is why a block can no longer overflow into the next one. */
+.wr-daygrid { display: grid; column-gap: 8px; }
+/* Ticks and blocks share cells on purpose: the ruler is drawn through the day,
+   not beside it. Zero height so a line never costs a row any space. */
+/* The rule starts where the gutter ends, so it never runs through the time it
+   is labelling — the number is read, the line is measured against, and they
+   stop needing to share a pixel. Dotted throughout: this is a ruler behind the
+   day, not a border between rows. */
 .wr-daygrid-tick {
-  position: absolute; left: 0; right: 0; height: 0;
-  border-top: 1px solid var(--wr-hairline);
+  position: relative; height: 0; align-self: start; z-index: 0;
+  margin-left: var(--wr-gutter);
+  border-top: 1px dotted var(--wr-hairline);
 }
 /* Quarters are there to measure against; the hour is what is actually read. */
 .wr-daygrid-hour { border-top-color: color-mix(in srgb, #2e2b25 18%, transparent); }
+/* A collapsed quarter is a measure mark, not a line to read along. */
+.wr-daygrid-idle { opacity: 0.65; }
+/* Hung back into the gutter the rule no longer covers. */
 .wr-daygrid-label {
-  position: absolute; left: 0; top: -7px; width: var(--wr-gutter);
+  position: absolute; left: calc(-1 * var(--wr-gutter)); top: -7px;
+  width: var(--wr-gutter);
   font: 400 10.5px var(--font-body); color: var(--wr-text-soft);
   font-variant-numeric: tabular-nums; text-align: right; padding-right: 10px;
   box-sizing: border-box;
@@ -280,8 +294,9 @@ button.wr-chip { cursor: pointer; }
 /* Now: the one accent line on the surface, so it cannot be mistaken for a
    gridline. */
 .wr-daygrid-now {
-  position: absolute; left: var(--wr-gutter); right: 0; height: 0;
-  border-top: 1.5px solid var(--color-accent); z-index: 2;
+  position: relative; height: 0; align-self: start; z-index: 2;
+  margin-left: var(--wr-gutter);
+  border-top: 1.5px solid var(--color-accent);
 }
 .wr-daygrid-now::before {
   content: ""; position: absolute; left: -3px; top: -4px;
@@ -293,15 +308,25 @@ button.wr-chip { cursor: pointer; }
   box-sizing: border-box; font: 700 10.5px var(--font-body);
   color: var(--color-accent-900); font-variant-numeric: tabular-nums;
 }
+/* Placed by row span, so its height *is* its duration — there is no second
+   opinion about where it ends. `min-width: 0` because a grid item defaults to
+   its content's minimum and a long meeting title would otherwise widen the
+   whole lane rather than ellipsing. */
+/* Inset from its own lines rather than sitting on them. The row grows to cover
+   the padding, so this is breathing room the card gains and not height it
+   loses. */
 .wr-daygrid-item {
-  position: absolute; left: var(--wr-gutter); right: 0; z-index: 1;
+  z-index: 1; min-width: 0; padding: 3px 0 4px; box-sizing: border-box;
   display: flex; flex-direction: column;
 }
 /* Inside the grid the card owns the whole width — the row's own time column
    would repeat what the gutter already says. */
-.wr-daygrid-item .wr-slot-row { display: block; }
+.wr-daygrid-item .wr-slot-row { display: block; flex: 1; min-height: 0; }
 .wr-daygrid-item .wr-time { display: none; }
-.wr-daygrid-item .wr-slot { height: 100%; box-sizing: border-box; }
+/* `min-height`, not `height`: the block fills its duration, and a card that
+   needs more than that still reports its real height to the grid, which is
+   what makes the row grow instead of the card overflowing. */
+.wr-daygrid-item .wr-slot { min-height: 100%; box-sizing: border-box; }
 
 .wr-slot-row { display: flex; gap: 12px; align-items: flex-start; }
 .wr-time {
@@ -420,12 +445,12 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
 /* — app shell — the page never carries a headline; the date sits inline with a
      helper sentence, and everything explanatory belongs in the rail. — */
 .wr-shell { max-width: 900px; margin: 0 auto; padding: 24px 26px 28px; }
-/* The date, the status and the sync control stay put while the day scrolls
-   underneath. Opaque on purpose: slots pass directly behind it. */
-.wr-shell-head-sticky {
-  position: sticky; top: 0; z-index: 5;
-  background: var(--wr-page); padding: 4px 0 10px; margin-bottom: 4px;
-  box-shadow: 0 6px 10px -8px rgba(46, 43, 37, 0.35);
+/* The date, the status and the sync control. Part of the frame, so it does not
+   move — see `.wr-page-bar`. The hairline is what separates it from the day
+   once the day has scrolled up behind it. */
+.wr-shell-head-bar {
+  padding-bottom: 12px; margin-bottom: 2px;
+  border-bottom: 1px solid var(--wr-hairline);
 }
 .wr-shell-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -585,10 +610,33 @@ img.wr-avatar { object-fit: cover; }
    refuses to shrink below its content, which makes any `overflow` on it inert
    and pushes the scrollbar back onto the page. */
 .wr-frame-bare .wr-frame-body { flex: 1; min-height: 0; }
-/* The rail scrolls itself only if it outgrows the window; the page always
-   does. Two independent scrollers, which is the whole point. */
-.wr-frame-bare .wr-sidebar { min-height: 0; overflow-y: auto; }
-.wr-frame-bare .wr-page { min-height: 0; overflow-y: auto; }
+/* The rail itself must never be a scroll container. `overflow-y: auto` forces
+   `overflow-x` to `auto` as well, and that clipped the user popover — 208px
+   wide against a 200px rail — at exactly the edge where the day begins, which
+   reads as the day covering it. So the *list* scrolls if it outgrows the
+   window and the rail stays open, which is also what keeps the foot in place.
+   `z-index` because the day's blocks are stacked; without it the rail is
+   painted first and anything leaving it goes underneath. */
+.wr-frame-bare .wr-sidebar { min-height: 0; position: relative; z-index: 3; }
+.wr-frame-bare .wr-nav { min-height: 0; overflow-y: auto; }
+/* The page is a column, not a scroller: a bar that belongs to the layout and a
+   body that scrolls under it. Sticky would also hold the bar in place, but the
+   bar would still be *inside* the scrolled content — one flick of momentum and
+   it lags, and anything with a shadow smears. This way it simply never moves,
+   because it is never in the thing that moves. */
+.wr-frame-bare .wr-page {
+  min-height: 0; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.wr-page-bar { flex: none; }
+.wr-page-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+/* The page's own wrappers sit between `.wr-page` and the scroller, so they are
+   the ones that have to pass the window's height down. They did not: the body
+   was `align-items: flex-start` and neither it nor the main column could
+   shrink, so the scroller measured itself against its own content, never
+   overflowed, and `.wr-page`'s `overflow: hidden` simply cut the day off. */
+.wr-frame-bare .wr-page-body { flex: 1; min-height: 0; align-items: stretch; }
+.wr-frame-bare .wr-page-main { min-height: 0; }
 
 /* ── Getting in ────────────────────────────────────────────────────────────
    No sidebar and no page head: there is no navigation to offer and no user to
@@ -736,3 +784,43 @@ img.wr-avatar { object-fit: cover; }
 .wr-page-body { display: flex; gap: 22px; align-items: flex-start; }
 .wr-page-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .wr-rail { width: 250px; flex: none; display: flex; flex-direction: column; gap: 12px; }
+
+/* ── There is a new version ────────────────────────────────────────────────
+   A pill in the rail. Deliberately quiet: an update is ready, not urgent, and
+   the only thing it can cost someone is the restart it warns about. */
+.wr-update {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 7px 10px; box-sizing: border-box;
+  border: 1px solid var(--wr-hairline); border-radius: 999px;
+  background: var(--wr-card); cursor: pointer; overflow: hidden;
+  font: 600 12px var(--font-body); color: var(--wr-text-muted); text-align: left;
+}
+.wr-update:hover { background: var(--color-accent-100); color: var(--color-text); }
+/* Mid-install it is a status, not a control — no hover, no pointer. */
+.wr-update-busy { cursor: default; background: var(--wr-card); }
+.wr-update-busy:hover { background: var(--wr-card); color: var(--wr-text-muted); }
+.wr-update-text {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Hairline along the bottom edge, so progress never costs the pill any height
+   and the label does not move when it appears. */
+.wr-update-bar {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: var(--wr-hairline); overflow: hidden;
+}
+.wr-update-bar-fill {
+  display: block; height: 100%; width: 0;
+  background: var(--color-accent); transition: width 160ms linear;
+}
+/* No total to measure against: a stripe that travels, rather than a number
+   that would be a guess. */
+.wr-update-bar-unknown .wr-update-bar-fill {
+  width: 35%; animation: wr-update-slide 1.1s ease-in-out infinite;
+}
+@keyframes wr-update-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(340%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wr-update-bar-unknown .wr-update-bar-fill { animation: none; width: 100%; opacity: 0.5; }
+}

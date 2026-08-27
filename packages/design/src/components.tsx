@@ -473,27 +473,39 @@ export type DayGridProps = {
   items: readonly DayGridItem[];
   /** Drawn only when it falls inside the window. */
   now?: number;
-  /**
-   * Height of one 15-minute step. Below ~22px the labels collide; below the
-   * height of a slot card, short blocks are drawn taller than their duration
-   * and start to overlap. 30 is the smallest that reads cleanly for both.
-   */
-  stepHeight?: number;
+  /** Height of a quarter-hour nothing is happening in. */
+  idleStep?: number;
+  /** Height of a quarter-hour something occupies. Must comfortably fit a slot
+   *  card, or a 15-minute block cannot be drawn at its true size. */
+  busyStep?: number;
 };
 
+const STEP = 5 * 60_000;
 const QUARTER = 15 * 60_000;
+const HOUR = 60 * 60_000;
 
 /**
- * The day as a ruled surface rather than a list of rows.
+ * The day as a ruled surface, scaled to where the day actually is.
  *
- * A list gives every slot its own start time and nothing to read them against,
- * so a day of 11:58, 12:23, 12:48 looks like a series of mistakes. It is not —
- * those are simply where the gaps were — but only a ruler makes that legible.
- * With one, the eye reads the quarter-hours and treats each block's exact edge
- * as detail, which is how every calendar people already know behaves.
+ * A uniform scale forces one bad choice or the other: fine enough to read a
+ * 15-minute block and the empty afternoon is a screen of nothing, coarse
+ * enough to fit the day on screen and every block is a crowded sliver.
  *
- * Blocks are positioned by time, so an item that does not start on a quarter
- * sits slightly below the line, deliberately.
+ * So time is not linear here. A stretch something occupies gets room to be
+ * read; an empty one collapses to a line. Dead time still *exists* — the ruler
+ * keeps ticking through it, so nothing is hidden and the shape of the day
+ * survives — it just stops costing a screen.
+ *
+ * The ruler is a real CSS grid of five-minute rows, not a stack of absolutely
+ * positioned boxes, and that is the whole point. A row is `minmax(floor, auto)`,
+ * so the browser grows it to whatever the card inside actually needs and the
+ * line below moves with it. Measuring cards in JS to guess a height is what
+ * made blocks overflow their slot before: a live card wants 90px and a
+ * quarter-hour was hardcoded to 46, so it spilled over the next one. Here that
+ * cannot happen, because nothing is hardcoded — the grid asks the content.
+ *
+ * Blocks snap to the five-minute ruler. Two minutes of rounding is invisible;
+ * a block drawn between the lines is not.
  */
 export const DayGrid: React.FC<DayGridProps> = ({
   dayStart,
@@ -501,10 +513,9 @@ export const DayGrid: React.FC<DayGridProps> = ({
   timeZone,
   items,
   now,
-  stepHeight = 30,
+  idleStep = 13,
+  busyStep = 46,
 }) => {
-  const perMs = stepHeight / QUARTER;
-  const height = Math.max(0, (dayEnd - dayStart) * perMs);
   const label = new Intl.DateTimeFormat("en-GB", {
     timeZone,
     hour: "2-digit",
@@ -512,48 +523,134 @@ export const DayGrid: React.FC<DayGridProps> = ({
     hourCycle: "h23",
   });
 
+  // The ruler starts on a quarter, whatever time the day does, so every hour
+  // and quarter line lands exactly on a row boundary rather than near one.
+  const origin = Math.floor(dayStart / QUARTER) * QUARTER;
+  const rowCount = Math.max(1, Math.ceil((dayEnd - origin) / STEP));
+  const rowOf = (at: number) =>
+    Math.min(rowCount, Math.max(0, Math.round((at - origin) / STEP)));
+
+  // Half-open, and never shorter than one row: a block the grid could draw as
+  // nothing is a block nobody can read or click.
+  const placed = items
+    .map((item) => {
+      const from = rowOf(item.startsAt);
+      return {
+        item,
+        from,
+        to: Math.max(from + 1, rowOf(item.endsAt)),
+        lane: 0,
+        span: 1,
+      };
+    })
+    .sort((a, b) => a.from - b.from || a.to - b.to);
+
+  // Lanes, so two things at once sit side by side instead of on top of each
+  // other. A double-booked hour is a real hour — two calendars can and do
+  // disagree — and stacking the cards makes it look like a rendering fault
+  // rather than the clash it is.
+  const laneEnds: number[] = [];
+  for (const block of placed) {
+    const free = laneEnds.findIndex((end) => end <= block.from);
+    const lane = free === -1 ? laneEnds.length : free;
+    laneEnds[lane] = block.to;
+    block.lane = lane;
+  }
+  const laneCount = Math.max(1, laneEnds.length);
+
+  // Then widen anything with nothing beside it. Without this one clash at
+  // 10:15 halves every other block in the day, which reads as a column layout
+  // the day does not have.
+  // ponytail: O(n²) over one day's blocks — a sweep if a week view ever shares
+  // this grid.
+  for (const block of placed) {
+    while (
+      block.lane + block.span < laneCount &&
+      !placed.some(
+        (other) =>
+          other !== block &&
+          other.lane === block.lane + block.span &&
+          other.from < block.to &&
+          other.to > block.from,
+      )
+    ) {
+      block.span += 1;
+    }
+  }
+
+  // A row is tall only where something needs it to be. `auto` is the ceiling,
+  // not the floor: these are minimums the content may exceed.
+  const occupied = new Array<boolean>(rowCount).fill(false);
+  for (const block of placed) {
+    for (let row = block.from; row < block.to && row < rowCount; row += 1) {
+      occupied[row] = true;
+    }
+  }
+  const perRow = (busy: boolean) =>
+    (busy ? busyStep : idleStep) / (QUARTER / STEP);
+  const rows = occupied
+    .map((busy) => `minmax(${perRow(busy).toFixed(2)}px, auto)`)
+    .join(" ");
+
   const ticks: number[] = [];
-  for (let at = dayStart; at <= dayEnd; at += QUARTER) ticks.push(at);
+  for (let at = origin; at < dayEnd; at += QUARTER) ticks.push(at);
 
   return (
-    <div className="wr-daygrid" style={{ height }}>
+    <div
+      className="wr-daygrid"
+      style={{
+        gridTemplateRows: rows,
+        gridTemplateColumns: `var(--wr-gutter) repeat(${laneCount}, minmax(0, 1fr))`,
+      }}
+    >
       {ticks.map((at) => {
-        // The hour carries the weight; the quarters are there to measure
-        // against, not to read one by one.
-        const onTheHour = new Date(at).getTime() % (60 * 60_000) === 0;
+        const row = rowOf(at);
+        const onTheHour = at % HOUR === 0;
+        // A collapsed quarter has no room for its own number, and a column of
+        // colliding numbers is worse than none.
+        const busy = occupied[row] === true;
         return (
           <div
             key={at}
-            className={cx("wr-daygrid-tick", onTheHour && "wr-daygrid-hour")}
-            style={{ top: (at - dayStart) * perMs }}
+            className={cx(
+              "wr-daygrid-tick",
+              onTheHour && "wr-daygrid-hour",
+              !busy && "wr-daygrid-idle",
+            )}
+            style={{ gridRow: row + 1, gridColumn: "1 / -1" }}
           >
-            <span className="wr-daygrid-label">{label.format(new Date(at))}</span>
+            {busy || onTheHour ? (
+              <span className="wr-daygrid-label">
+                {label.format(new Date(at))}
+              </span>
+            ) : null}
           </div>
         );
       })}
 
       {now !== undefined && now >= dayStart && now <= dayEnd ? (
-        <div className="wr-daygrid-now" style={{ top: (now - dayStart) * perMs }}>
-          <span className="wr-daygrid-now-label">{label.format(new Date(now))}</span>
+        <div
+          className="wr-daygrid-now"
+          style={{ gridRow: rowOf(now) + 1, gridColumn: "1 / -1" }}
+        >
+          <span className="wr-daygrid-now-label">
+            {label.format(new Date(now))}
+          </span>
         </div>
       ) : null}
 
-      {items.map((item) => {
-        const top = (Math.max(item.startsAt, dayStart) - dayStart) * perMs;
-        const raw = (Math.min(item.endsAt, dayEnd) - Math.max(item.startsAt, dayStart)) * perMs;
-        return (
-          <div
-            key={item.key}
-            className="wr-daygrid-item"
-            // A 15-minute block is shorter than the card inside it, so the
-            // height is a floor rather than a clamp: better to overlap the
-            // next line slightly than to clip a name to nothing.
-            style={{ top, minHeight: Math.max(raw, stepHeight) }}
-          >
-            {item.node}
-          </div>
-        );
-      })}
+      {placed.map(({ item, from, to, lane, span }) => (
+        <div
+          key={item.key}
+          className="wr-daygrid-item"
+          style={{
+            gridRow: `${from + 1} / ${to + 1}`,
+            gridColumn: `${lane + 2} / span ${span}`,
+          }}
+        >
+          {item.node}
+        </div>
+      ))}
     </div>
   );
 };
@@ -663,6 +760,79 @@ export const LiveStatus: React.FC<{ children: React.ReactNode }> = ({
     {children}
   </span>
 );
+
+export type UpdatePillProps = {
+  /** The version waiting to be installed. */
+  version: string;
+  /** 0–100 while installing, `null` when the server sent no length, and
+   *  absent until the user actually starts it. */
+  percent?: number | null;
+  /** Set when an install failed. The pill becomes a retry. */
+  problem?: string;
+  onInstall: () => void;
+};
+
+/**
+ * "There is a new version" — the whole of it.
+ *
+ * A pill in the rail rather than a dialog. An update is not urgent and has no
+ * decision in it worth interrupting someone mid-sentence for; it is a thing
+ * that is ready when they are. Once running it stops being a button, because
+ * the one action it offered is already happening and the app is about to
+ * restart underneath them.
+ *
+ * The bar is a width, not a spinner: a download that cannot report a total —
+ * a redirect to a CDN that sends no `Content-Length` — gets a quiet
+ * indeterminate stripe rather than a percentage nobody can trust.
+ */
+export const UpdatePill: React.FC<UpdatePillProps> = ({
+  version,
+  percent,
+  problem,
+  onInstall,
+}) => {
+  const installing = percent !== undefined && !problem;
+
+  return (
+    <button
+      type="button"
+      className={cx("wr-update", installing && "wr-update-busy")}
+      onClick={installing ? undefined : onInstall}
+      disabled={installing}
+      // The version is the useful part for anyone reading this aloud; the
+      // visible text is short because the rail is 200px wide.
+      aria-label={
+        problem
+          ? `Update to ${version} failed. ${problem}. Try again.`
+          : installing
+            ? `Installing version ${version}`
+            : `Update to version ${version} and restart`
+      }
+    >
+      {installing ? null : <span className="wr-dot" />}
+      <span className="wr-update-text">
+        {problem
+          ? "Update failed — retry"
+          : installing
+            ? "Installing…"
+            : `Update to ${version}`}
+      </span>
+      {installing ? (
+        <span
+          className={cx(
+            "wr-update-bar",
+            percent === null && "wr-update-bar-unknown",
+          )}
+        >
+          <span
+            className="wr-update-bar-fill"
+            style={percent === null ? undefined : { width: `${percent}%` }}
+          />
+        </span>
+      ) : null}
+    </button>
+  );
+};
 
 export const NavItem: React.FC<{
   children: React.ReactNode;

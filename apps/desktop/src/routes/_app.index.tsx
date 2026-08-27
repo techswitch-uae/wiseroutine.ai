@@ -4,7 +4,6 @@ import {
   DashedRow,
   DayGrid,
   IconButton,
-  LiveStatus,
   RefreshGlyph,
   Slot,
 } from "@wiseroutine/design";
@@ -123,7 +122,7 @@ const Today: React.FC = () => {
         <SavedPlanNotice cachedAt={data.cachedAt} queued={queued} />
       ) : null}
 
-      <header className="wr-shell-head wr-shell-head-sticky">
+      <header className="wr-shell-head wr-shell-head-bar wr-page-bar">
         <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
           <span style={{ fontFamily: "var(--font-heading)", fontSize: 20 }}>
             {dayLabel}
@@ -139,7 +138,6 @@ const Today: React.FC = () => {
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <LiveStatus>Adapting live</LiveStatus>
           <IconButton
             label={syncing ? "Syncing your calendars" : "Sync calendars now"}
             busy={syncing}
@@ -151,51 +149,60 @@ const Today: React.FC = () => {
         </div>
       </header>
 
-      {rows.length === 0 ? (
-        <DashedRow gutter={false}>Nothing planned yet — plan your day</DashedRow>
-      ) : (
-        <DayGrid
-          dayStart={data.dayStart}
-          dayEnd={data.dayEnd}
-          timeZone={data.timeZone}
-          now={now}
-          items={rows.map((row) => ({
-            key: row.key,
-            startsAt: row.startsAt,
-            endsAt: row.endsAt,
-            node: (
-              <Slot
-                variant={row.variant}
-                // The gutter already says when this is; repeating it inside
-                // the card is noise the grid was built to remove.
-                time=""
-                name={row.title}
-                meta={row.meta ?? ""}
-                done={row.done ?? false}
-                // No grace bar or "moves itself" line inside the grid: those
-                // are list-row affordances, and here they make a 25-minute
-                // block draw twice its own height and collide with the next.
-                onStart={() => {
-                  if (!row.slotId) return;
-                  void api.startSlot(row.slotId).then(({ queued: waiting }) => {
-                    setQueued(api.pendingCount());
-                    // Offline there is nothing to reload from; the queue is
-                    // already projected onto what is on screen.
-                    if (!waiting) load();
-                    else setData((current) => current && { ...current });
-                  });
-                }}
-              />
-            ),
-          }))}
-        />
-      )}
+      <div className="wr-page-scroll">
+        {rows.length === 0 ? (
+          <DashedRow gutter={false}>
+            Nothing planned yet — plan your day
+          </DashedRow>
+        ) : (
+          <DayGrid
+            dayStart={data.dayStart}
+            dayEnd={data.dayEnd}
+            timeZone={data.timeZone}
+            now={now}
+            items={rows.map((row) => ({
+              key: row.key,
+              startsAt: row.startsAt,
+              endsAt: row.endsAt,
+              node: (
+                <Slot
+                  variant={row.variant}
+                  // The gutter already says when this is; repeating it inside
+                  // the card is noise the grid was built to remove.
+                  time=""
+                  name={row.title}
+                  meta={row.meta ?? ""}
+                  done={row.done ?? false}
+                  // No grace bar or "moves itself" line inside the grid: those
+                  // are list-row affordances, and here they make a 25-minute
+                  // block draw twice its own height and collide with the next.
+                  onStart={() => {
+                    if (!row.slotId) return;
+                    void api
+                      .startSlot(row.slotId)
+                      .then(({ queued: waiting }) => {
+                        setQueued(api.pendingCount());
+                        // Offline there is nothing to reload from; the queue is
+                        // already projected onto what is on screen.
+                        if (!waiting) load();
+                        else setData((current) => current && { ...current });
+                      });
+                  }}
+                />
+              ),
+            }))}
+          />
+        )}
 
-      <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
-        <Button variant="secondary" onClick={() => void api.plan().then(load)}>
-          Re-plan today
-        </Button>
-        <ConnectCalendar />
+        <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
+          <Button
+            variant="secondary"
+            onClick={() => void api.plan().then(load)}
+          >
+            Re-plan today
+          </Button>
+          <ConnectCalendar />
+        </div>
       </div>
     </>
   );

@@ -1,0 +1,124 @@
+# Versioning and the changelog, driven by what the commits say.
+#
+# Nothing here decides a version number by hand. Release Please reads the
+# conventional-commit prefixes since the last tag, works out whether that is a
+# patch, a minor or a major, and opens a PR carrying the bump and the changelog
+# entry. Merging that PR is the act of releasing: it tags, and it publishes the
+# GitHub Release the desktop build later attaches installers to.
+#
+# `fix:` -> patch, `feat:` -> minor, `feat!:` or a `BREAKING CHANGE:` footer ->
+# major. A commit with no recognised prefix is not a mistake, it simply does not
+# appear in the changelog and does not move the version.
+name: Release
+
+# Manual only, for now.
+#
+# The pipeline is complete but deliberately not armed: releasing is a decision,
+# and until the updater signing key exists a release would produce installers
+# that no installed app will accept. Run it from the Actions tab to cut the
+# first release. To go automatic afterwards, put back:
+#
+#   push:
+#     branches: [main]
+#
+# and every merge to main that carries a `feat:` or `fix:` opens a release PR.
+on:
+  workflow_dispatch:
+
+# Release Please writes a branch, a PR and a tag, so it needs more than the
+# default read-only token.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      # Consumed by the build job that will attach installers to the release.
+      # True only on the run that merges the release PR, never on ordinary
+      # pushes to main.
+      released: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+      # The commit the tag points at — the one carrying the version bump.
+      # Checking out `main` instead would race any commit merged behind it.
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # Installers, built only on the run that actually cut a release.
+  #
+  # This is a second job in the same workflow rather than a workflow triggered
+  # by the tag, and it has to be: a tag pushed by the default GITHUB_TOKEN does
+  # not start another workflow run. A separate `on: push: tags` file would
+  # simply never fire.
+  build:
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # One universal binary rather than an Intel and an Apple-silicon
+          # download. It is a larger file, but the website gets a single macOS
+          # link and nobody has to know which Mac they own.
+          - platform: macos-latest
+            args: --target universal-apple-darwin
+          - platform: windows-latest
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.sha }}
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # Signs the update artifacts so installed apps will accept them. This
+          # is Tauri's own key, and is not the OS code signature below — an
+          # update signed with it still shows an "unidentified developer"
+          # warning on a fresh install if the bundle itself is unsigned.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+          # Gatekeeper. The certificate signs the bundle; notarisation is what
+          # actually clears it, and needs the Apple ID credentials as well —
+          # a signed-but-unnotarised app is still blocked on first launch.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: apps/desktop
+          # The release already exists — Release Please made it. Naming the tag
+          # attaches the installers and `latest.json` to that one rather than
+          # opening a second, empty release beside it.
+          tagName: ${{ needs.release-please.outputs.tag }}
+          args: ${{ matrix.args }}
