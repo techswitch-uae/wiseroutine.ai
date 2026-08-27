@@ -4,6 +4,7 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { bearer } from "better-auth/plugins/bearer";
 import { emailOTP } from "better-auth/plugins/email-otp";
+import { Resend } from "resend";
 import type { ServerEnv } from "./env";
 import { provisionUserDatabase } from "./provisioning";
 
@@ -50,27 +51,32 @@ const userFields = {
   }
 >;
 
+/**
+ * Deliver the sign-in code.
+ *
+ * The SDK **resolves** on a rejected send and puts the reason in `error`
+ * rather than throwing, so an unchecked call looks like success and the user
+ * waits for a mail that was never accepted. Turning that back into a throw is
+ * what lets Better Auth surface it: the OTP has already been written to
+ * `verifications` by this point, and a code nobody can receive has to fail the
+ * request rather than sit there until it expires.
+ */
 async function sendOtp(env: ServerEnv, to: string, otp: string): Promise<void> {
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${required(env.RESEND_API_KEY, "RESEND_API_KEY")}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      from: required(env.RESEND_FROM, "RESEND_FROM"),
-      to,
-      subject: `${otp} is your Wise Routine code`,
-      // The code is in the subject line too, so a phone notification is often
-      // enough and the mail never has to be opened.
-      text: `${otp}\n\nThis code expires in 5 minutes. If you didn't ask to sign in, ignore this email.`,
-    }),
+  const resend = new Resend(required(env.RESEND_API_KEY, "RESEND_API_KEY"));
+
+  const { error } = await resend.emails.send({
+    from: required(env.RESEND_FROM, "RESEND_FROM"),
+    to,
+    subject: `${otp} is your Wise Routine code`,
+    // The code is in the subject line too, so a phone notification is often
+    // enough and the mail never has to be opened.
+    text: `${otp}\n\nThis code expires in 5 minutes. If you didn't ask to sign in, ignore this email.`,
   });
 
-  if (!response.ok) {
-    throw new Error(
-      `Resend refused: ${response.status} ${await response.text()}`,
-    );
+  if (error) {
+    // `error.message` is Resend's own wording — safe to log, and specific
+    // enough to tell an unverified domain from a bad key.
+    throw new Error(`Resend refused: ${error.name}: ${error.message}`);
   }
 }
 

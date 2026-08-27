@@ -158,8 +158,21 @@ export function assertConfigured(config: ServerEnv): void {
     return value === undefined || value === null || value === "";
   });
 
-  if (missing.length > 0) {
-    throw new Error(`Missing configuration: ${missing.sort().join(", ")}`);
+  // A var still holding its scaffold value is not configuration, it is a
+  // reminder — and an empty check waves it through. `wrangler.jsonc` ships
+  // with a REPLACE_WITH_* for every value that has to be filled in, so the
+  // marker is worth failing on explicitly.
+  const unfilled = Object.entries(config as unknown as Record<string, unknown>)
+    .filter(([, value]) => String(value ?? "").startsWith("REPLACE_WITH"))
+    .map(([key]) => key);
+
+  const problems = [
+    ...missing.map((key) => `${key} (missing)`),
+    ...unfilled.map((key) => `${key} (still a placeholder)`),
+  ];
+
+  if (problems.length > 0) {
+    throw new Error(`Configuration not ready: ${problems.sort().join(", ")}`);
   }
 }
 

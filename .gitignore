@@ -23,3 +23,6 @@ src/generated
 
 # wrangler's local state: simulated KV, queues and secrets store.
 .wrangler
+
+# Local libSQL files backing `turso dev`.
+.turso-local

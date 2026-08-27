@@ -14,8 +14,8 @@ import { generateToken } from "./crypto";
  * SQL drifts silently.
  */
 
-const DIRECTORY_URL = "http://127.0.0.1:8080";
-const USER_URL = "http://127.0.0.1:8081";
+const DIRECTORY_URL = "http://127.0.0.1:41080";
+const USER_URL = "http://127.0.0.1:41081";
 
 export const directory = (): Directory =>
   createDirectory({ url: DIRECTORY_URL });

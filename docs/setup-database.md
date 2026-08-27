@@ -1,107 +1,141 @@
-# Setup — the databases
+# Setup — databases
 
-Turso, in two tiers. One **directory** database, shared, holding login,
-sessions, billing and the coordination table the cron ticker reads. Then **one
-database per user**, holding everything they own.
-
-Three contexts, and they are genuinely different:
+Two tiers: one shared **directory** (login, sessions, billing, the cron
+coordination table) and **one database per user** (everything they own).
 
 | | directory | user databases |
 |---|---|---|
-| **local** | `turso dev` on :8080 | `turso dev` on :8081 — one database, shared by every local user |
+| **local** | `turso dev` :41080 | `turso dev` :41081 — one database shared by every local user |
 | **dev** | `wiseroutine-directory-dev` | group `users-dev`, one per user |
 | **production** | `wiseroutine-directory` | group `users`, one per user |
 
 ---
 
-## The CLI
+## 1. Install the CLI
 
-Needed for local development and for the test suite.
+Needed for local development and for `pnpm test`.
 
 ```bash
 curl -sSfL https://get.tur.so/install.sh | bash
 turso auth login
 ```
 
-## Local
-
-`turso dev` serves exactly one database per instance, so local development
-needs two of them — on the ports in `apps/api/wrangler.jsonc`:
+## 2. Local
 
 ```bash
-turso dev --port 8080 &   # stands in for the directory
-turso dev --port 8081 &   # stands in for every user database
+mkdir -p .turso-local
+turso dev --port 41080 --db-file .turso-local/wiseroutine-directory.db &
+turso dev --port 41081 --db-file .turso-local/wiseroutine-user.db &
 
-turso db shell http://127.0.0.1:8080 < packages/db/migrations/directory/0001_init.sql
+turso db shell http://127.0.0.1:41080 < packages/db/migrations/directory/0001_init.sql
+turso db shell http://127.0.0.1:41081 < packages/db/migrations/user/0001_init.sql
 ```
 
-The user database migrates itself at signup, as it does everywhere else. The
-directory does not, so that shell command is required before the first sign-in
-or every request fails on a missing table. `pnpm test` starts and migrates both
-servers itself (`apps/api/vitest.globalSetup.ts`) — the above is only for
-`pnpm api`.
+`--db-file` matters. Without it `turso dev` is in-memory, so every restart
+loses the schema *and* your account, and you re-run both migrations each time.
 
-**What local cannot show you:** one server means one database, so every local
-user shares it. Signup provisioning and tenant isolation are exercised for the
-first time in dev.
+Both migrations are needed. The user database also migrates itself at signup,
+so the second is belt-and-braces — but without it the first request against a
+user database fails and `pnpm api` gives you no hint why.
 
-## Dev and production
+Run them once. `applyMigrations` records what it has applied, so re-running is
+a no-op.
 
-Same shape, different names. Do this twice.
+`pnpm test` starts its own pair on the same ports and migrates them itself
+(`apps/api/vitest.globalSetup.ts`) — deliberately in-memory, so each run starts
+clean. Stop your dev servers before running the suite, or the ports collide.
+
+### If a port is taken
+
+41080/41081 are used because low ports are magnets — 8080 for Docker, uvicorn,
+Spring and Jenkins, 8081 for Expo — and anything in the 3000-9000 range is
+likely to be another project of yours. Worth knowing how this fails: `turso dev` binds `*:PORT`
+while most servers bind `127.0.0.1:PORT`, and the specific bind wins. So
+`turso dev` reports success, and the Worker silently talks to whatever else is
+there.
 
 ```bash
-# ── dev ──────────────────────────────────────────────────────────────────
+lsof -nP -iTCP:41080 -sTCP:LISTEN
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:41080/health   # 200 from sqld
+```
+
+To change them, update `apps/api/wrangler.jsonc` (top-level `vars`),
+`apps/api/vitest.config.ts`, `apps/api/vitest.globalSetup.ts` and
+`apps/api/src/test-support.ts`.
+
+**What local cannot show you:** `turso dev` serves one database, so every local
+user shares it. Signup provisioning and tenant isolation are first exercised in
+dev.
+
+## 3. Dev
+
+```bash
 turso group create users-dev
 turso db create wiseroutine-directory-dev --group users-dev
 turso db shell wiseroutine-directory-dev < packages/db/migrations/directory/0001_init.sql
 
-turso group tokens create users-dev      # -> WR_DEV_TURSO_AUTH_TOKEN
+turso group tokens create users-dev          # -> WR_DEV_TURSO_AUTH_TOKEN
 turso auth api-tokens mint wiseroutine-dev   # -> WR_DEV_TURSO_PLATFORM_TOKEN
+turso db show wiseroutine-directory-dev --url
+```
 
-# ── production ───────────────────────────────────────────────────────────
+## 4. Production
+
+```bash
 turso group create users
 turso db create wiseroutine-directory --group users
 turso db shell wiseroutine-directory < packages/db/migrations/directory/0001_init.sql
 
-turso group tokens create users          # -> WR_PROD_TURSO_AUTH_TOKEN
-turso auth api-tokens mint wiseroutine   # -> WR_PROD_TURSO_PLATFORM_TOKEN
+turso group tokens create users              # -> WR_PROD_TURSO_AUTH_TOKEN
+turso auth api-tokens mint wiseroutine       # -> WR_PROD_TURSO_PLATFORM_TOKEN
+turso db show wiseroutine-directory --url
 ```
 
-The directory lives **inside** the same group as the user databases on purpose:
-the Worker uses one `TURSO_AUTH_TOKEN` for both tiers, so a token scoped to the
-group has to be able to open the directory too.
+Only the directory is migrated by hand. User databases are created **and**
+migrated at signup from `USER_MIGRATIONS` — see `apps/api/src/provisioning.ts`.
 
-Two different tokens, two different jobs:
+Two things that catch people:
 
-- a **group token** (`turso group tokens create`) opens every database in the
-  group. `turso db tokens create` exists too, but it takes a *database* name and
-  scopes the token to that one database — not what this needs.
-- a **platform token** (`turso auth api-tokens mint`) is what lets the Worker
-  create a *new* database at signup.
+- The directory lives **inside** the same group as the user databases. The
+  Worker uses one `TURSO_AUTH_TOKEN` for both tiers, so a group-scoped token
+  has to reach the directory too.
+- `turso group tokens create` is not `turso db tokens create`. The latter takes
+  a *database* name and scopes the token to that one database.
 
-Both go into Cloudflare Secrets Store — see [setup-api.md](setup-api.md).
+## 5. Fill in `apps/api/wrangler.jsonc`
 
-Then fill in `apps/api/wrangler.jsonc` for each environment:
-`TURSO_DIRECTORY_URL` (from `turso db show <name> --url`), `TURSO_USER_HOST`
-(your org host suffix, e.g. `myorg.turso.io`), `TURSO_ORG`, `TURSO_GROUP`.
+Per environment, under `vars`:
 
-User databases are created and migrated automatically at signup — see
-`apps/api/src/provisioning.ts`. Nothing else is created by hand.
+| var | where it comes from |
+|---|---|
+| `TURSO_DIRECTORY_URL` | the `turso db show … --url` output, whole |
+| `TURSO_USER_HOST` | that URL's host suffix — `acme.turso.io` from `libsql://wiseroutine-directory-acme.turso.io`. Same for both environments; it identifies the org, not the environment. |
+| `TURSO_ORG` | the bare slug — `acme`. Also `turso org list`. |
+| `TURSO_GROUP` | `users-dev` or `users` |
+
+The tokens go to Cloudflare, not here — see [setup-api.md](setup-api.md).
+
+Locally `TURSO_USER_HOST` is a full `http://127.0.0.1:41081` URL rather than a
+suffix. That is intentional: `userDatabaseUrl` returns an `http` host as-is,
+because `turso dev` serves one database and the name has nothing to attach to.
 
 ---
 
-## The cost of one database per user
+## Changing the schema
 
-**Schema changes now fan out.** A change to `prisma/user.prisma` has to be
-applied to every existing user database, not once. New databases get it from
-`USER_MIGRATIONS` at creation; existing ones need a backfill job that walks the
-directory. That job does not exist yet — write it before the first user-schema
-change after launch, not during.
+```bash
+# 1. Edit packages/db/prisma/{directory,user}.prisma
+# 2. Emit the next migration
+pnpm --filter @wiseroutine/db migrate:diff:user > packages/db/migrations/user/0002_<name>.sql
+# 3. Regenerate clients and re-embed the SQL
+pnpm --filter @wiseroutine/db generate
+# 4. Apply it to every directory database by hand
+turso db shell wiseroutine-directory-dev < packages/db/migrations/directory/0002_<name>.sql
+```
 
-**Nothing can query across users.** "Whose sync is failing", "how many users are
-on Pro", any admin or analytics question — none of it is a SQL query any more.
-The directory's `scheduled_work` table is what makes the cron ticker possible;
-anything else cross-cutting needs the same treatment.
+**A user-schema change fans out.** New user databases pick it up at creation;
+existing ones need a backfill job that walks the directory. That job does not
+exist — write it before the first user-schema change after launch, not during.
 
-**Dev and production must be migrated separately**, including the directory. A
-migration applied to one is not applied to the other.
+**Dev and production migrate separately.** Applying to one does nothing for the
+other.

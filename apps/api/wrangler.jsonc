@@ -45,8 +45,8 @@
 		"APP_URL": "http://localhost:3000",
 		"API_URL": "http://localhost:8787",
 		// Two local `turso dev` servers — see docs/setup-database.md.
-		"TURSO_DIRECTORY_URL": "http://127.0.0.1:8080",
-		"TURSO_USER_HOST": "http://127.0.0.1:8081"
+		"TURSO_DIRECTORY_URL": "http://127.0.0.1:41080",
+		"TURSO_USER_HOST": "http://127.0.0.1:41081"
 	},
 	"env": {
 		// ───────────────────────────────────────────────────────────────────────
@@ -90,9 +90,9 @@
 				"ENVIRONMENT": "preview",
 				"APP_URL": "https://app-dev.wiseroutine.ai",
 				"API_URL": "https://api-dev.wiseroutine.ai",
-				"TURSO_DIRECTORY_URL": "libsql://wiseroutine-directory-dev-REPLACE_WITH_ORG.turso.io",
-				"TURSO_USER_HOST": "REPLACE_WITH_ORG.turso.io",
-				"TURSO_ORG": "REPLACE_WITH_ORG",
+				"TURSO_DIRECTORY_URL": "libsql://wiseroutine-directory-dev-techswitch.turso.io",
+				"TURSO_USER_HOST": "techswitch.turso.io",
+				"TURSO_ORG": "techswitch",
 				"TURSO_GROUP": "users-dev",
 				// Public identifiers, not secrets: they ship in the consent URL, the
 				// checkout session and the From header respectively.
@@ -100,7 +100,7 @@
 				"MICROSOFT_CLIENT_ID": "REPLACE_WITH_DEV_MICROSOFT_CLIENT_ID",
 				"STRIPE_PRO_PRICE_ID": "REPLACE_WITH_TEST_PRICE_ID",
 				"RESEND_FROM": "dev@wiseroutine.ai",
-				"ONESIGNAL_APP_ID": "REPLACE_WITH_DEV_ONESIGNAL_APP_ID"
+				"ONESIGNAL_APP_ID": "f7b14b9d-83f3-4ea6-8d34-a3836dc48950"
 			},
 			"secrets_store_secrets": [
 				{
@@ -192,14 +192,14 @@
 				"APP_URL": "https://app.wiseroutine.ai",
 				"API_URL": "https://api.wiseroutine.ai",
 				"TURSO_DIRECTORY_URL": "libsql://wiseroutine-directory-REPLACE_WITH_ORG.turso.io",
-				"TURSO_USER_HOST": "REPLACE_WITH_ORG.turso.io",
-				"TURSO_ORG": "REPLACE_WITH_ORG",
+				"TURSO_USER_HOST": "techswitch.turso.io",
+				"TURSO_ORG": "techswitch",
 				"TURSO_GROUP": "users",
 				"GOOGLE_CLIENT_ID": "REPLACE_WITH_GOOGLE_CLIENT_ID",
 				"MICROSOFT_CLIENT_ID": "REPLACE_WITH_MICROSOFT_CLIENT_ID",
 				"STRIPE_PRO_PRICE_ID": "REPLACE_WITH_LIVE_PRICE_ID",
-				"RESEND_FROM": "hello@wiseroutine.ai",
-				"ONESIGNAL_APP_ID": "REPLACE_WITH_ONESIGNAL_APP_ID"
+				"RESEND_FROM": "support@wiseroutine.ai",
+				"ONESIGNAL_APP_ID": "f7b14b9d-83f3-4ea6-8d34-a3836dc48950"
 			},
 			"secrets_store_secrets": [
 				{

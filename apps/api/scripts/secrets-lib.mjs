@@ -52,6 +52,21 @@ export function declared(env) {
   return { storeId: [...stores][0], names, prefix };
 }
 
+/**
+ * The plain `vars` declared anywhere in wrangler.jsonc.
+ *
+ * Only used to tell two very different situations apart when a key in an env
+ * file is not a secret: "this belongs in wrangler.jsonc" and "nothing uses
+ * this at all". Reporting both as the latter sends you looking for a missing
+ * binding that was never supposed to exist.
+ */
+export function varNames() {
+  const text = readFileSync(new URL("wrangler.jsonc", `file://${PKG}`), "utf8");
+  return new Set(
+    [...text.matchAll(/^\s*"([A-Z_][A-Z0-9_]*)"\s*:\s*"/gm)].map((m) => m[1]),
+  );
+}
+
 export function fail(message) {
   console.error(`[secrets] ${message}`);
   process.exit(1);

@@ -20,8 +20,8 @@ import {
  * these tests to prove tenant separation.
  */
 
-const DIRECTORY_PORT = 8080;
-const USER_PORT = 8081;
+const DIRECTORY_PORT = 41080;
+const USER_PORT = 41081;
 
 const servers: ChildProcess[] = [];
 

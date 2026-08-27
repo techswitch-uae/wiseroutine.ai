@@ -31,6 +31,7 @@ import {
   fail,
   PKG,
   storeContents,
+  varNames,
   wrangler,
 } from "./secrets-lib.mjs";
 
@@ -174,12 +175,18 @@ function main() {
 
   // Anything in the file that no binding wants is almost always a typo or a
   // leftover, and silently ignoring it is how someone spends an afternoon
-  // wondering why their new key has no effect.
+  // wondering why their new key has no effect. But "not a secret" and "not
+  // used" are different problems with different fixes, so they are said
+  // differently.
   const wanted = new Set(names.map((name) => name.slice(prefix.length)));
+  const vars = varNames();
   for (const key of local.keys()) {
-    if (!wanted.has(key)) {
-      console.warn(`  ignored ${key} — no binding in wrangler.jsonc wants it`);
-    }
+    if (wanted.has(key)) continue;
+    console.warn(
+      vars.has(key)
+        ? `  ${key} is a var, not a secret — the app does use it; set it in wrangler.jsonc under this environment's "vars", and delete it from ${FILE[env]}`
+        : `  ignored ${key} — nothing in wrangler.jsonc uses it`,
+    );
   }
 
   let failed = 0;

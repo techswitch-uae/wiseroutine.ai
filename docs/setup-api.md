@@ -1,73 +1,38 @@
 # Setup — the API worker
 
-Two deployed environments, `dev` and `production`, plus local. Each is a
-separate Worker with its own queue, its own KV namespace, its own databases and
-its own secrets. Nothing is shared except the account-level Secrets Store,
-which is why every secret name carries a `WR_DEV_` or `WR_PROD_` prefix.
+Two deployed environments, `dev` and `production`, plus local. Each deployed
+one is a separate Worker with its own queue, KV namespace, databases and
+secrets.
+
+**Where a value lives, decided by one question — is it a secret?**
+
+- **No → `vars` in `apps/api/wrangler.jsonc`.** Committed, per environment.
+  URLs, Turso org/group, OAuth client *IDs*, Stripe price, Resend From,
+  OneSignal app ID. These ship in consent URLs, email headers or client-side
+  SDK code anyway.
+- **Yes → Cloudflare Secrets Store**, bound per environment in the same file.
+  Nothing can read a stored secret back — not the dashboard, not us. Only a
+  Worker with a binding resolves it, at runtime.
+
+"It is a var" never means "it is optional": `RESEND_FROM` is required to send
+the sign-in code. It means you edit it in `wrangler.jsonc` rather than push it.
+
+Rotating a secret needs no deploy — update it in the store and the next isolate
+picks it up.
 
 ---
 
-## Where configuration lives
-
-There are exactly two places, and which one a value belongs in is decided by
-one question — *is it a secret?*
-
-**Not a secret → `vars` in `apps/api/wrangler.jsonc`.** Committed, per
-environment, readable at a glance. URLs, the Turso org and group, OAuth client
-*IDs*, the Stripe price, the Resend From address, the OneSignal app ID. These
-ship in consent URLs and email headers anyway.
-
-**A secret → Cloudflare Secrets Store**, bound per environment in the same
-file. The value exists in exactly one place, account-wide, and nothing can read
-it back out — not the dashboard, not the API, not us. Only a Worker with a
-binding resolves it, at runtime.
-
-The consequence worth knowing: **rotating a secret does not need a deploy.**
-Update it in the store and the next isolate picks it up. The old
-`wrangler secret put`-per-worker approach needed one push per environment and a
-redeploy to be sure.
-
-`apps/api/src/env.ts` lists the secret names once, in `SECRET_KEYS`. Adding a
-secret means touching that list, the two `secrets_store_secrets` blocks in
-`wrangler.jsonc`, and a schema fragment — and the deploy will tell you if you
-miss one.
-
-## Why a deploy cannot ship a broken configuration
-
-`pnpm deploy:dev` / `pnpm deploy:prod` run three gates in order, and stop at the
-first failure:
-
-1. **`scripts/check-secrets.mjs`** reads every `secret_name` for the target
-   environment out of `wrangler.jsonc` and checks each exists in the store.
-   Missing one, and nothing is uploaded.
-2. **`wrangler deploy`** refuses a binding it cannot wire up.
-3. **`GET /health/config`** on the deployed Worker resolves every binding and
-   runs the full schema over the result — so an empty value, or a Resend key
-   that does not start with `re_`, fails here. `curl -f` turns that into a
-   non-zero exit.
-
-Gate 1 checks presence, gate 3 checks shape. Between them, "missing or invalid"
-means the command fails. Nothing can check a stored secret's value against its
-source, because Cloudflare will not disclose it — that is the trade for having
-one store.
-
----
-
-## 1. Cloudflare — account resources
+## 1. Cloudflare resources
 
 ```bash
 pnpm wrangler login
 pnpm wrangler secrets-store store list --remote
 ```
 
-There is **one store per account and it already exists** — Cloudflare creates
-`default_secrets_store` the first time anyone with the Secrets Store Admin or
-Super Administrator role touches the feature. Trying to create another returns
-`maximum_stores_exceeded`; list it and use the id you get.
-
-This account's is already filled into `apps/api/wrangler.jsonc`
-(`8edcf4c1ac534aaea54bc99c6cefaec2`). It is an identifier, not a credential —
-committed for the same reason KV namespace ids are.
+One store per account, already created for you as `default_secrets_store`
+(creating a second returns `maximum_stores_exceeded`). This account's id is
+already in `wrangler.jsonc`: `8edcf4c1ac534aaea54bc99c6cefaec2`. It is an
+identifier, not a credential.
 
 ```bash
 pnpm wrangler kv namespace create CONFIG --env dev
@@ -78,86 +43,51 @@ pnpm wrangler queues create wiseroutine-sync
 pnpm wrangler queues create wiseroutine-sync-dlq
 ```
 
-Paste each KV `id` into the matching environment block.
+Keep the binding name `CONFIG`, and answer **no** to "connect to the remote
+resource for local dev" — local uses a simulated namespace. Paste each KV `id`
+into the matching environment block.
 
-**Note:** Queues need the Workers **Paid** plan ($5/mo). That is the floor cost
-of this architecture. Secrets Store is in open beta — one store per account, up
-to 100 secrets, 1 KiB each.
+Queues need the Workers **Paid** plan ($5/mo). Secrets Store is open beta: one
+store per account, 100 secrets, 1 KiB each.
 
-## 2. The secrets
+## 2. Secrets
 
-Ten per environment. Create each one:
+Ten per environment. Put the values in `apps/api/.env.dev` and
+`apps/api/.env.prod` — both gitignored, and generated for you with every name
+and its source — then:
 
 ```bash
-STORE=8edcf4c1ac534aaea54bc99c6cefaec2
-pnpm wrangler secrets-store secret create $STORE --name WR_PROD_SESSION_SECRET --scopes workers --remote
+pnpm --filter @wiseroutine/api secrets:push:dev -- --dry-run
+pnpm --filter @wiseroutine/api secrets:push:dev
+pnpm --filter @wiseroutine/api secrets:check:dev
 ```
 
-Omit `--value` and let it prompt — passing it inline leaves the secret in your
-shell history.
-
-Or keep them in a local file and push the set in one command — see
-[From a local file](#from-a-local-file) below.
-
-| name | where it comes from |
+| secret | source |
 |---|---|
-| `…_TURSO_AUTH_TOKEN` | `turso group tokens create <group>` |
-| `…_TURSO_PLATFORM_TOKEN` | `turso auth api-tokens mint <name>` |
-| `…_TOKEN_ROOT_KEY` | generated, below |
-| `…_SESSION_SECRET` | generated, below |
-| `…_GOOGLE_CLIENT_SECRET` | Google Cloud console |
-| `…_MICROSOFT_CLIENT_SECRET` | Entra app registration |
-| `…_STRIPE_SECRET_KEY` | Stripe dashboard |
-| `…_STRIPE_WEBHOOK_SECRET` | Stripe webhook endpoint |
-| `…_RESEND_API_KEY` | Resend dashboard |
-| `…_ONESIGNAL_API_KEY` | OneSignal dashboard |
+| `TURSO_AUTH_TOKEN` | `turso group tokens create <group>` |
+| `TURSO_PLATFORM_TOKEN` | `turso auth api-tokens mint <name>` |
+| `TOKEN_ROOT_KEY` | generated — see below |
+| `SESSION_SECRET` | generated — see below |
+| `GOOGLE_CLIENT_SECRET` | Google Cloud console |
+| `MICROSOFT_CLIENT_SECRET` | Entra → Certificates & secrets |
+| `STRIPE_SECRET_KEY` | Stripe — test mode for dev, live for production |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook endpoint |
+| `RESEND_API_KEY` | Resend → API keys |
+| `ONESIGNAL_API_KEY` | OneSignal → Keys & IDs |
 
-Prefix each with `WR_DEV_` or `WR_PROD_`. Check yourself at any time:
+Names in the file are **unprefixed**; the `WR_DEV_` / `WR_PROD_` prefix belongs
+to the store, where both environments share one account namespace.
 
-```bash
-pnpm --filter @wiseroutine/api secrets:check:prod
-```
+How the push behaves:
 
-### From a local file
+- Blank or absent → left as it is in the store, so fill the file in gradually.
+- A key nothing binds → reported by name, never silently dropped.
+- A key that is a *var* → told so, with where to set it instead.
+- Values go over stdin, never `argv`. Nothing prints a value, only a length and
+  a short SHA.
 
-`.env.dev` and `.env.prod` in `apps/api/` (both gitignored) hold the values,
-one `KEY=value` per line, **unprefixed** — `RESEND_API_KEY=re_...`, not
-`WR_PROD_RESEND_API_KEY`. The prefix belongs to the store, where dev and
-production share one account namespace; the file already knows which
-environment it is.
-
-```bash
-pnpm --filter @wiseroutine/api secrets:push:dev  -- --dry-run
-pnpm --filter @wiseroutine/api secrets:push:prod
-```
-
-What it does, and what it refuses to do:
-
-- **Which secrets exist is not the script's opinion.** It reads the
-  `secrets_store_secrets` entries in `wrangler.jsonc` — the same list the
-  deploy preflight checks — so nothing can be pushed that no binding wants,
-  and nothing bound can be quietly skipped.
-- **A key in the file that nothing binds is reported, not ignored.** That is
-  almost always a typo, and silently dropping it costs an afternoon.
-- **A key absent from the file is left alone in the store.** Pushing is
-  additive; it never clears a secret you did not mention. `secrets:check:*` is
-  what tells you the set is complete.
-- **Values go in over stdin, never as an argument.** Anything in `argv` is
-  visible to `ps` while the process runs.
-- **Nothing prints a value.** Output is a length and a short SHA, enough to
-  tell two pushes apart without putting a credential in your scrollback.
-- Empty values, stray quotes and pasted line breaks are refused before upload.
-
-**The trade you are making.** Until you create these files, the only copy of a
-production secret is inside Cloudflare, where nothing — not the dashboard, not
-the API, not us — can read it back. A local `.env.prod` is a plaintext copy on
-a laptop, and it is exactly as safe as that disk. That is a fair trade for one
-command instead of ten prompts; it is worth knowing you made it. If you would
-rather not keep one, `secrets-store secret create` per key still works and
-`secrets:check:prod` still tells you what is missing.
-
-A rotated value reaches the Worker as isolates recycle. Deploy if you need it
-to take effect immediately.
+**The trade:** before these files existed, the only copy of a production secret
+was inside Cloudflare. `.env.prod` is a plaintext copy on your laptop.
 
 ### The two generated ones
 
@@ -165,32 +95,36 @@ to take effect immediately.
 node -e "console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64'))"
 ```
 
-`TOKEN_ROOT_KEY` envelope-encrypts per-user OAuth refresh tokens — **losing it
-means every user must reconnect their calendar**, so back it up where you would
-back up a database credential. `SESSION_SECRET` signs sessions and OTP state;
-losing it only signs everyone out. Generate a different pair per environment.
+`TOKEN_ROOT_KEY` envelope-encrypts per-user OAuth refresh tokens — **lose it
+and every user must reconnect their calendar.** Back it up. `SESSION_SECRET`
+only signs everyone out if lost. Different pair per environment.
 
 ## 3. Local
 
-Local uses neither store. `wrangler dev` reads `apps/api/.dev.vars`
-(gitignored), and `resolveServerEnv` takes a plain string wherever a deployed
-environment hands it a binding — so the code path is the same.
+`wrangler dev` reads `apps/api/.dev.vars` (gitignored). `resolveServerEnv`
+takes a plain string wherever a deployed environment hands it a binding, so the
+code path is identical.
 
 ```bash
 cat > apps/api/.dev.vars <<EOF
 TOKEN_ROOT_KEY=$(node -e "console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64'))")
 SESSION_SECRET=$(node -e "console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64'))")
 RESEND_API_KEY=re_...
+RESEND_FROM=you@your-verified-domain
+# Only needed to test connecting a calendar locally:
+GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+MICROSOFT_CLIENT_ID=
 MICROSOFT_CLIENT_SECRET=
-STRIPE_SECRET_KEY=
-STRIPE_WEBHOOK_SECRET=
 EOF
 ```
 
-Leave a secret blank and the feature that needs it fails at its call site with
-the key's name — the app still boots. That leniency is local-only;
-`/health/config` refuses it anywhere else.
+`RESEND_API_KEY` **and** `RESEND_FROM` are both required to sign in — without
+either, no code is sent. The client IDs are vars in the deployed environments,
+but the top-level block declares none, so locally they come from here too.
+
+Anything left blank fails at its call site naming the key; the app still boots.
+That leniency is local-only.
 
 Start the two `turso dev` servers first — see
 [setup-database.md](setup-database.md) — then:
@@ -199,22 +133,43 @@ Start the two `turso dev` servers first — see
 pnpm api
 ```
 
-## 4. Deploying
+## 4. Deploy
 
 ```bash
 pnpm --filter @wiseroutine/api deploy:dev
 pnpm --filter @wiseroutine/api deploy:prod
 ```
 
-Both are also the answer to "a secret changed": rotate it in the store, and
-deploy only if you want the change to take effect immediately rather than as
-isolates recycle.
+Three gates, stopping at the first failure:
+
+1. `check-secrets.mjs` — every declared secret exists in the store. Nothing is
+   uploaded otherwise.
+2. `wrangler deploy` — refuses a binding it cannot wire.
+3. `GET /health/config` — the deployed Worker resolves every binding and runs
+   the schema over the result. Catches empty values, wrong shapes (a Resend key
+   without `re_`) and any var still holding a `REPLACE_WITH_…` placeholder.
+
+Gate 1 is pre-upload, gate 3 post-upload — so treat a gate-3 failure as "roll
+back", not "nothing happened". Nothing can compare a stored secret against its
+source, because Cloudflare will not disclose it.
 
 ## 5. Domains
 
-- API: `api.wiseroutine.ai` and `api-dev.wiseroutine.ai` — need a valid
-  CA-signed certificate, which Google's push channels require.
-- App: `wiseroutine.ai` — must host the homepage and privacy policy for Google
-  verification, and is the domain to verify in Resend.
+- `api.wiseroutine.ai` and `api-dev.wiseroutine.ai` — need a CA-signed
+  certificate, which Google's push channels require.
+- `wiseroutine.ai` — homepage and privacy policy for Google verification, and
+  the domain to verify in Resend.
 
-Set `APP_URL` and `API_URL` in each environment's `vars` once these exist.
+Then set `APP_URL` and `API_URL` in each environment's `vars`.
+
+---
+
+## Adding a secret
+
+Three places, and the deploy tells you if you miss one:
+
+1. `SECRET_KEYS` in `apps/api/src/env.ts`
+2. both `secrets_store_secrets` blocks in `wrangler.jsonc`
+3. a schema fragment — a package's `keys.ts`, or `apps/api/src/env.ts`
+
+Then add it to `.env.dev` / `.env.prod` and push.

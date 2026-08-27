@@ -14,14 +14,13 @@ lifecycles — a database migration is not a deploy:
 
 **One rule for secrets:** every secret lives in the account's Cloudflare
 Secrets Store and nowhere else, named `WR_DEV_*` or `WR_PROD_*`. Nothing reads
-one back out — not the dashboard, not us — so rotating means writing a new
-value there, and the next isolate has it without a deploy. `pnpm deploy:*`
-refuses to ship if a declared secret is absent, and refuses to finish if the
-deployed Worker cannot validate what it resolved. Local development is the one
-exception: `apps/api/.dev.vars`, gitignored, never a real credential.
+one back out, so rotating means writing a new value there — the next isolate
+has it without a deploy. Public values (URLs, client IDs, the From address) are
+`vars` in `wrangler.jsonc` instead; that makes them editable, not optional.
 
-The rest of this file is the vendors — the accounts those secrets come from,
-roughly in the order they block something.
+Order: databases first, then the Cloudflare resources, then the vendor accounts
+below — you need a Resend key before anyone can sign in, and nothing else on
+this page blocks a local run.
 
 ---
 
