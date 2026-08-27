@@ -103,11 +103,22 @@ export async function applyMigrations(
       if (seen.has(migration.name)) continue;
 
       // libSQL executes one statement per call, so a migration file is split.
-      // Prisma emits statements terminated by `;` on its own line.
+      // Prisma emits statements terminated by `;` on its own line, each one
+      // preceded by a `-- CreateTable` style comment — which has to be stripped
+      // per line rather than per statement, or every statement is a comment and
+      // the migration silently applies nothing.
+      // ponytail: line-based, so a `--` inside a string literal would be cut.
+      // Prisma does not emit those; revisit if a hand-written migration does.
       const statements = migration.sql
         .split(";\n")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0 && !s.startsWith("--"));
+        .map((statement) =>
+          statement
+            .split("\n")
+            .filter((line) => !line.trimStart().startsWith("--"))
+            .join("\n")
+            .trim(),
+        )
+        .filter((statement) => statement.length > 0);
 
       await client.batch(statements, "write");
       await client.execute({

@@ -1,9 +1,18 @@
 import { resolvePlan } from "@wiseroutine/plans";
 import { at, atOrNull, type Directory, msOrNull } from "../client";
 
-/** Turso database names are DNS labels: lowercase, alphanumeric and dashes. */
-export function databaseNameFor(userId: string): string {
-  return `wr-user-${userId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase()}`;
+/**
+ * A fresh name for a user's Turso database.
+ *
+ * Turso database names are DNS labels — lowercase, alphanumeric and dashes —
+ * so the uuid loses its hyphens. Deliberately *not* derived from the user id:
+ * the id is not known until the row is inserted, and the name has to be part
+ * of that same insert because the column is NOT NULL. Nothing depends on the
+ * two matching; `users.database_name` is the only thing that maps one to the
+ * other.
+ */
+export function newDatabaseName(): string {
+  return `wr-user-${crypto.randomUUID().replace(/-/g, "")}`;
 }
 
 export function getUser(directory: Directory, userId: string) {
@@ -150,3 +159,24 @@ export async function updateUserSettings(
 
   await directory.user.update({ where: { id: userId }, data });
 }
+
+/**
+ * The defaults for a newly created user.
+ *
+ * These mirror the `@default(...)` values in `prisma/directory.prisma`, and
+ * `defaults.test.ts` fails if the two ever disagree. Both are needed: the
+ * schema default covers a direct insert, while Better Auth demands an explicit
+ * value for every field it knows is required — it validates its own field list
+ * before any hook runs, so "the database will fill it in" is not an answer it
+ * accepts.
+ */
+export const USER_DEFAULTS = {
+  databaseReady: false,
+  timeZone: "UTC",
+  locale: "en",
+  dayStartMinutes: 480,
+  dayEndMinutes: 1080,
+  plan: "free",
+  planSource: "default",
+  storeEventTitles: true,
+} as const;

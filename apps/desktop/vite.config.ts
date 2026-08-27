@@ -74,22 +74,22 @@ export default defineConfig(async () => ({
   // Prevent Vite from obscuring rust errors
   clearScreen: false,
 
-  // The prerender step boots a preview server. Keep it off 3000 — that port is
-  // reserved for `tauri dev`, and a build must not fail because it is taken.
+  // The prerender step boots a preview server. Keep it off the dev port, which
+  // `tauri dev` needs fixed — a build must not fail because it is taken.
   preview: {
-    port: 3200,
+    port: 41200,
     strictPort: false,
   },
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
-    port: 3000,
+    port: 41000,
     strictPort: true,
     host: host || false,
     hmr: host
       ? {
           protocol: "ws",
           host,
-          port: 3001,
+          port: 41001,
         }
       : undefined,
     watch: {

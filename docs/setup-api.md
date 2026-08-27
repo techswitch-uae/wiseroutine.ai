@@ -106,22 +106,23 @@ takes a plain string wherever a deployed environment hands it a binding, so the
 code path is identical.
 
 ```bash
-cat > apps/api/.dev.vars <<EOF
-TOKEN_ROOT_KEY=$(node -e "console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64'))")
-SESSION_SECRET=$(node -e "console.log(Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64'))")
-RESEND_API_KEY=re_...
-RESEND_FROM=you@your-verified-domain
-# Only needed to test connecting a calendar locally:
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-MICROSOFT_CLIENT_ID=
-MICROSOFT_CLIENT_SECRET=
-EOF
+pnpm --filter @wiseroutine/api dev:vars
 ```
 
-`RESEND_API_KEY` **and** `RESEND_FROM` are both required to sign in — without
-either, no code is sent. The client IDs are vars in the deployed environments,
-but the top-level block declares none, so locally they come from here too.
+That derives `.dev.vars` from the two files that already hold the answers:
+secrets from `.env.dev`, vars from the `dev` environment in `wrangler.jsonc`.
+Nothing is retyped, so no value can be invented to fill a gap — it reports what
+it skipped instead. Re-run it after changing either source.
+
+Two things it deliberately does not copy: vars that already exist in the
+top-level block (`.dev.vars` overrides them, so copying `APP_URL` or
+`TURSO_DIRECTORY_URL` from the deployed environment would point local
+development at deployed infrastructure), and anything still holding a
+`REPLACE_WITH_…` placeholder.
+
+`RESEND_API_KEY` **and** `RESEND_FROM` are both required to sign in — the
+script says so by name if either is missing. Sending from your own domain needs
+that domain verified in Resend first.
 
 Anything left blank fails at its call site naming the key; the app still boots.
 That leniency is local-only.

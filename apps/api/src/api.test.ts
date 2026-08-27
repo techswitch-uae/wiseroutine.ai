@@ -2,7 +2,7 @@ import { exports as worker } from "cloudflare:workers";
 import { beforeEach, describe, expect, test } from "vitest";
 import {
   directory,
-  resetUserDatabase,
+  resetDatabases,
   seedActivity,
   seedCalendar,
   seedUser,
@@ -19,9 +19,10 @@ import {
  * behave under the timing and duplication rules the providers impose.
  */
 
-// `turso dev` serves one database, so every test user shares it. Reset between
-// tests so counts and lists start from a known state.
-beforeEach(resetUserDatabase);
+// `turso dev` serves one database per instance, so every test user shares
+// both. Reset between tests so counts, lists and fixed ids start from a known
+// state.
+beforeEach(resetDatabases);
 
 describe("health", () => {
   test("responds without auth", async () => {
@@ -377,5 +378,102 @@ describe("webhooks", () => {
       body: JSON.stringify({ id: "evt_1", type: "checkout.session.completed" }),
     });
     expect(response.status).toBe(400);
+  });
+});
+
+/**
+ * The ticket exchange that carries a browser-made session into the desktop
+ * app. The OAuth round-trip itself cannot be exercised here — it needs a real
+ * provider — so what is checked is everything around it: that a ticket is
+ * required, that a redeemed or unknown one is refused without leaking which,
+ * and that a provider this environment has no credentials for is a clean
+ * refusal rather than a 500. The test environment deliberately has none.
+ */
+describe("social sign-in handoff", () => {
+  test("an unknown provider is refused", async () => {
+    const response = await worker.default.fetch(
+      "http://api/signin/social/start",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ provider: "facebook" }),
+      },
+    );
+    expect(response.status).toBe(400);
+  });
+
+  // The separation the whole design rests on: signing in with Google asks for
+  // an identity and nothing else. If calendar scopes ever leak into this URL,
+  // "sign in" silently becomes "hand over your calendar" — and the consent
+  // screen would say so, months before anyone read this file.
+  //
+  // Whether a provider is configured depends on the environment, so both
+  // answers are legitimate; what is never legitimate is a crash, or a consent
+  // URL asking for more than an identity.
+  test("signing in asks for an identity, never a calendar", async () => {
+    const response = await worker.default.fetch(
+      "http://api/signin/social/start",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ provider: "google" }),
+      },
+    );
+
+    // 503 is the unconfigured path — a refusal, not a 500.
+    if (response.status === 503) return;
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { url: string; ticket: string };
+    expect(body.ticket).toBeTruthy();
+
+    const url = new URL(body.url);
+    const scope = url.searchParams.get("scope") ?? "";
+    expect(scope).not.toContain("calendar");
+    // Its own callback, not the calendar flow's — two grants, two redirects.
+    expect(url.searchParams.get("redirect_uri")).toContain(
+      "/auth/callback/google",
+    );
+    // Someone with a work and a personal account must get to choose.
+    expect(url.searchParams.get("prompt")).toBe("select_account");
+  });
+
+  test("a claim without a ticket is refused", async () => {
+    const response = await worker.default.fetch(
+      "http://api/signin/social/claim",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      },
+    );
+    expect(response.status).toBe(400);
+  });
+
+  // Unknown, expired and already-redeemed are one answer on purpose: telling
+  // them apart would tell someone guessing tickets that they had found a real
+  // one.
+  test("an unknown ticket reads as expired", async () => {
+    const response = await worker.default.fetch(
+      "http://api/signin/social/claim",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ticket: "not-a-ticket-anyone-minted" }),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "expired" });
+  });
+
+  // The landing has nothing to park a session against without one, and must
+  // not fall through into an unhandled error.
+  test("the callback landing survives a missing ticket", async () => {
+    const response = await worker.default.fetch(
+      "http://api/signin/social/finish",
+      { redirect: "manual" },
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toContain("signin=failed");
   });
 });

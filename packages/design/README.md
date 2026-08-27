@@ -36,4 +36,4 @@ add `lucide-react` when the first screen needs more.
 ## Gallery
 
 `pnpm design` from the repo root serves every component and variant at
-<http://localhost:3000>.
+<http://localhost:41100/design>.

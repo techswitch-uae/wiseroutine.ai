@@ -23,7 +23,9 @@
       "!**/.tanstack",
       "!**/.turbo",
       "!**/routeTree.gen.ts",
-      "!**/src/generated"
+      "!**/src/generated",
+      "!**/.wrangler",
+      "!**/.turso-local"
     ]
   },
   "formatter": {

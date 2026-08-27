@@ -3,21 +3,44 @@ import { Button } from "@wiseroutine/design";
 import { useEffect, useState } from "react";
 
 /**
- * Where the calendar consent round-trip lands.
+ * Where a consent round-trip lands, in the browser.
  *
- * Signing in happens in the app itself now (an emailed code); this only ever
- * reports whether a calendar got connected. No token passes through here —
- * provider tokens stay on the server, encrypted, in the user's own database.
+ * Two arrive here. A calendar connection reports back through `error` /
+ * `connected`; a provider sign-in reports through `signin`, and that one is
+ * being read in the *system browser* rather than in the app — the app itself
+ * is elsewhere, holding a ticket and waiting for the server to fill it. So the
+ * only useful thing this page can say in that case is "go back to the app".
+ *
+ * No token passes through here in either direction. Provider tokens stay on
+ * the server, encrypted, in the user's own database; the session token is
+ * handed to the app through the ticket, never through a URL.
  */
 const AuthComplete: React.FC = () => {
   const navigate = useNavigate();
-  const { error, consentUrl } = Route.useSearch();
+  const { error, consentUrl, signin } = Route.useSearch();
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (error) return;
+    // A sign-in landing is terminal: this browser is not the app, and sending
+    // it to "/" would show a sign-in screen to someone who just signed in.
+    if (error || signin) return;
     void navigate({ to: "/", replace: true });
-  }, [error, navigate]);
+  }, [error, signin, navigate]);
+
+  if (signin) {
+    return (
+      <main className="wr-shell" style={{ maxWidth: 460 }}>
+        <h1 className="wr-display-30" style={{ marginBottom: 8 }}>
+          {signin === "ok" ? "You're signed in" : "That didn't complete"}
+        </h1>
+        <p className="wr-body">
+          {signin === "ok"
+            ? "You can close this window — Wise Routine is already picking it up."
+            : "Nothing changed. Close this window and try again from the app."}
+        </p>
+      </main>
+    );
+  }
 
   /**
    * Many work tenants disable user consent, so an employee cannot grant even a
@@ -106,10 +129,11 @@ const AuthComplete: React.FC = () => {
 export const Route = createFileRoute("/auth/complete")({
   validateSearch: (
     search: Record<string, unknown>,
-  ): { error?: string; consentUrl?: string } => ({
+  ): { error?: string; consentUrl?: string; signin?: string } => ({
     error: typeof search.error === "string" ? search.error : undefined,
     consentUrl:
       typeof search.consentUrl === "string" ? search.consentUrl : undefined,
+    signin: typeof search.signin === "string" ? search.signin : undefined,
   }),
   component: AuthComplete,
 });

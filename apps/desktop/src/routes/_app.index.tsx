@@ -76,17 +76,13 @@ const Today: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  if (error === "not_connected") return <SignIn onDone={load} />;
-
   if (!data) {
     return (
-      <main className="wr-shell">
-        <p className="wr-body">
-          {error === "offline"
-            ? "Can't reach Wise Routine right now."
-            : "Loading your day…"}
-        </p>
-      </main>
+      <p className="wr-body">
+        {error === "offline"
+          ? "Can't reach Wise Routine right now."
+          : "Loading your day…"}
+      </p>
     );
   }
 
@@ -100,7 +96,7 @@ const Today: React.FC = () => {
   }).format(new Date(data.dayStart));
 
   return (
-    <main className="wr-shell">
+    <>
       {data.stale ? (
         <SavedPlanNotice cachedAt={data.cachedAt} queued={queued} />
       ) : null}
@@ -160,7 +156,7 @@ const Today: React.FC = () => {
         </Button>
         <ConnectCalendar />
       </div>
-    </main>
+    </>
   );
 };
 
@@ -199,124 +195,6 @@ const SavedPlanNotice: React.FC<{ cachedAt: number; queued: number }> = ({
   </div>
 );
 
-/** The design system has no text field yet — one screen does not justify
- *  adding one, so this borrows its tokens. */
-const fieldStyle: React.CSSProperties = {
-  font: "400 15px var(--font-body)",
-  padding: "11px 14px",
-  borderRadius: 12,
-  border: "1px solid var(--wr-hairline)",
-  background: "var(--wr-recessed)",
-  boxShadow: "var(--wr-inset)",
-  color: "var(--wr-ink)",
-};
-
-/**
- * Signing in.
- *
- * A code to the address, nothing else — no password to forget, and no
- * dependency on Google having approved us yet. The same form registers: an
- * address that can read its own mail is the whole account.
- */
-const SignIn: React.FC<{ onDone: () => void }> = ({ onDone }) => {
-  const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
-  const [sent, setSent] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-
-  const run = (work: Promise<unknown>, then: () => void) => {
-    setBusy(true);
-    setProblem(null);
-    work
-      .then(() => then())
-      .catch((cause: unknown) =>
-        setProblem(
-          cause instanceof ApiError && cause.status === 429
-            ? "Too many attempts. Wait a minute and try again."
-            : sent
-              ? "That code didn't work. Check it, or ask for a new one."
-              : "Couldn't send the code. Try again.",
-        ),
-      )
-      .finally(() => setBusy(false));
-  };
-
-  return (
-    <main className="wr-shell" style={{ maxWidth: 460 }}>
-      <h1 className="wr-display-30" style={{ marginBottom: 8 }}>
-        {sent ? "Check your email" : "Sign in"}
-      </h1>
-      <p className="wr-body" style={{ marginBottom: 20 }}>
-        {sent
-          ? `We sent a six-digit code to ${email}. It expires in five minutes.`
-          : "We'll email you a code. No password to set or remember."}
-      </p>
-
-      <form
-        style={{ display: "flex", flexDirection: "column", gap: 10 }}
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (sent) run(api.signIn(email, code), onDone);
-          else run(api.sendCode(email), () => setSent(true));
-        }}
-      >
-        {sent ? (
-          <input
-            style={fieldStyle}
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            placeholder="123456"
-            aria-label="Sign-in code"
-            required
-          />
-        ) : (
-          <input
-            style={fieldStyle}
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-            placeholder="you@example.com"
-            aria-label="Email address"
-            required
-          />
-        )}
-
-        {problem ? (
-          <p
-            className="wr-body"
-            style={{ color: "var(--wr-ink)" }}
-            role="alert"
-          >
-            {problem}
-          </p>
-        ) : null}
-
-        <Button variant="commit" block type="submit" disabled={busy}>
-          {sent ? "Sign in" : "Email me a code"}
-        </Button>
-
-        {sent ? (
-          <Button
-            variant="quiet"
-            block
-            type="button"
-            onClick={() => {
-              setSent(false);
-              setCode("");
-            }}
-          >
-            Use a different address
-          </Button>
-        ) : null}
-      </form>
-    </main>
-  );
-};
-
 /** Connecting a calendar is a separate, later act — consent completes in the
  *  system browser and returns through the app's deep link. */
 const ConnectCalendar: React.FC = () => (
@@ -336,4 +214,4 @@ const ConnectCalendar: React.FC = () => (
   </>
 );
 
-export const Route = createFileRoute("/")({ component: Today });
+export const Route = createFileRoute("/_app/")({ component: Today });

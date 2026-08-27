@@ -48,7 +48,11 @@ export function googleAuthorizeUrl(params: {
   // Without these two there is no refresh token on repeat consent, which is
   // the classic "it worked once and never again" bug.
   url.searchParams.set("access_type", "offline");
-  url.searchParams.set("prompt", "consent");
+  // `select_account` as well as `consent`: connecting a *second* calendar is
+  // the normal case — work and personal — and with only `consent` a browser
+  // signed into one account re-consents that same account and silently
+  // re-upserts the connection the user already had.
+  url.searchParams.set("prompt", "select_account consent");
   url.searchParams.set("include_granted_scopes", "true");
   return url.toString();
 }

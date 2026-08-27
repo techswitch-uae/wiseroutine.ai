@@ -41,19 +41,30 @@ The free tier is 3,000 emails a month, which is roughly 3,000 sign-ins.
 
 ## Google Cloud — OAuth client, then verification
 
-Google is now only used to *connect a calendar*, never to sign in, so this no
-longer blocks anyone from having an account. Still start the verification clock
-as soon as the OAuth flow works — it remains the longest lead time here.
+Google does two separate jobs: **signing in** and **connecting a calendar**.
+One app registration serves both — the difference is the scopes each flow asks
+for, so a user can sign in with Google and connect Outlook, or the reverse.
+
+Neither blocks anyone from having an account: the emailed code always works, and
+"Continue with Google" simply does not appear in an environment where these
+credentials are unset. Still start the verification clock as soon as the OAuth
+flow works — it remains the longest lead time here.
 
 1. Create a project, enable the **Google Calendar API**.
 2. Create an **OAuth 2.0 Client ID** (Web application) — one for dev, one for
    production, so a test consent screen never touches real users. Redirect URIs:
-   `https://api.wiseroutine.ai/connect/google/callback`,
-   `https://api-dev.wiseroutine.ai/connect/google/callback`, and
-   `http://localhost:8787/connect/google/callback` for local work.
+   **two per environment** — one for each job, and a missing one fails only
+   that flow, which is a confusing way to find out:
+   - sign-in: `https://api.wiseroutine.ai/auth/callback/google`,
+     `https://api-dev.wiseroutine.ai/auth/callback/google`,
+     `http://localhost:8787/auth/callback/google`
+   - calendar: `https://api.wiseroutine.ai/connect/google/callback`,
+     `https://api-dev.wiseroutine.ai/connect/google/callback`,
+     `http://localhost:8787/connect/google/callback`
 3. On the consent screen add exactly these scopes — no more, since over-broad
    scopes are the top rejection reason, and no fewer, since adding one later
-   triggers re-verification:
+   triggers re-verification. Sign-in asks only for the first line; connecting a
+   calendar asks for all of them:
    - `openid`, `email`, `profile`
    - `.../auth/calendar.events.readonly`
    - `.../auth/calendar.calendarlist.readonly`
@@ -80,16 +91,34 @@ capped at ~100 test users behind an "unverified app" warning.
 
 1. Register an app. Choose **"Accounts in any organizational directory and
    personal Microsoft accounts"** and use the `/common` authority.
-2. Redirect URIs: `https://api.wiseroutine.ai/connect/microsoft/callback`,
-   `https://api-dev.wiseroutine.ai/connect/microsoft/callback`, and
-   `http://localhost:8787/connect/microsoft/callback`.
+2. Redirect URIs — **two per environment**, sign-in and calendar:
+   - sign-in: `https://api.wiseroutine.ai/auth/callback/microsoft`,
+     `https://api-dev.wiseroutine.ai/auth/callback/microsoft`,
+     `http://localhost:8787/auth/callback/microsoft`
+   - calendar: `https://api.wiseroutine.ai/connect/microsoft/callback`,
+     `https://api-dev.wiseroutine.ai/connect/microsoft/callback`,
+     `http://localhost:8787/connect/microsoft/callback`
 3. Delegated permissions: `openid`, `email`, `profile`, `offline_access`,
    `User.Read`, `Calendars.ReadBasic`.
    `offline_access` is what produces a refresh token — omitting it is the most
    common oversight here.
+   Add `email` as an [optional claim] for managed users: Entra omits it by
+   default for work accounts, and without it a sign-in has no address to key an
+   account on.
+
+   [optional claim]: https://learn.microsoft.com/en-us/entra/identity-platform/optional-claims
 4. Create a client secret, then:
    The client *ID* is a var; the secret goes in the store, one per
    environment. See [docs/setup-api.md](docs/setup-api.md).
+
+**One asymmetry worth knowing before the first support email.** Google asserts
+`email_verified` and Microsoft does not — Entra's `email` claim is tenant-mutable
+and never verified by Microsoft, so trusting it would let a tenant administrator
+mint a claim for an address they do not control. So a Google sign-in joins an
+existing account with the same address automatically, and a Microsoft one does
+not: it fails with `account_not_linked`, and the screen tells the user to sign in
+with the emailed code instead. That is deliberate, and it is the safe direction
+to be wrong in.
 
 **Admin consent is handled.** Many work tenants disable user consent entirely,
 so employees cannot connect without an IT admin approving the app. The callback

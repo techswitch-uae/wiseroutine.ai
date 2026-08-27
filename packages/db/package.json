@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "generate": "prisma generate --config prisma.directory.config.ts && prisma generate --config prisma.user.config.ts && node scripts/embed-migrations.mjs",
+    "generate": "prisma generate --config prisma.directory.config.ts && prisma generate --config prisma.user.config.ts && node scripts/embed-migrations.mjs && node scripts/check-defaults.mjs",
     "migrate:diff:directory": "prisma migrate diff --config prisma.directory.config.ts --from-migrations migrations/directory --to-schema prisma/directory.prisma --script",
     "migrate:diff:user": "prisma migrate diff --config prisma.user.config.ts --from-migrations migrations/user --to-schema prisma/user.prisma --script",
     "test": "vitest run",

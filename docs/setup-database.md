@@ -41,27 +41,39 @@ user database fails and `pnpm api` gives you no hint why.
 Run them once. `applyMigrations` records what it has applied, so re-running is
 a no-op.
 
-`pnpm test` starts its own pair on the same ports and migrates them itself
+`pnpm test` starts its own pair on **41090/41091** and migrates them itself
 (`apps/api/vitest.globalSetup.ts`) — deliberately in-memory, so each run starts
-clean. Stop your dev servers before running the suite, or the ports collide.
+clean. Separate ports on purpose: sharing 41080/41081 meant the suite quietly
+ran against your development databases, seeing their leftovers and writing its
+own. You can leave `pnpm api` running while you test.
+
+If a test port is taken, the suite now refuses to start rather than talking to
+whatever is there.
+
+Everything local sits in one block, so nothing collides with another project:
+41000 the app, 41001 its HMR socket, 41080 the directory, 41081 user data,
+41090/41091 the same two for tests, 41100 the design gallery, 41200 the preview
+server. The API stays on wrangler's own 8787.
 
 ### If a port is taken
 
-41080/41081 are used because low ports are magnets — 8080 for Docker, uvicorn,
+41080/41081/41090/41091 are used because low ports are magnets — 8080 for Docker, uvicorn,
 Spring and Jenkins, 8081 for Expo — and anything in the 3000-9000 range is
 likely to be another project of yours. Worth knowing how this fails: `turso dev` binds `*:PORT`
 while most servers bind `127.0.0.1:PORT`, and the specific bind wins. So
 `turso dev` reports success, and the Worker silently talks to whatever else is
-there.
+there. There is a second version of the same trap: `turso dev` is a wrapper
+around `sqld`, so killing it leaves `sqld` orphaned and still holding the port.
+`vitest.globalSetup.ts` kills the process group for that reason.
 
 ```bash
 lsof -nP -iTCP:41080 -sTCP:LISTEN
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:41080/health   # 200 from sqld
 ```
 
-To change them, update `apps/api/wrangler.jsonc` (top-level `vars`),
-`apps/api/vitest.config.ts`, `apps/api/vitest.globalSetup.ts` and
-`apps/api/src/test-support.ts`.
+To change the development ports, update `apps/api/wrangler.jsonc` (top-level
+`vars`). For the test ports, `apps/api/vitest.config.ts`,
+`apps/api/vitest.globalSetup.ts` and `apps/api/src/test-support.ts`.
 
 **What local cannot show you:** `turso dev` serves one database, so every local
 user shares it. Signup provisioning and tenant isolation are first exercised in

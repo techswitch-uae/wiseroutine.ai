@@ -2,11 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "wiseroutine-design",
+      "name": "design",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["design"],
-      "port": 3100,
-      "autoPort": false
+      "runtimeArgs": [
+        "--filter",
+        "@wiseroutine/desktop",
+        "dev:vite",
+        "--port",
+        "41100"
+      ],
+      "port": 41100
     }
   ]
 }

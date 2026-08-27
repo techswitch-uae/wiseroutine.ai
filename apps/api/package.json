@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "dev:remote": "wrangler dev --env dev --remote",
+    "dev:vars": "node scripts/dev-vars.mjs",
     "deploy:dev": "node scripts/check-secrets.mjs --env dev && wrangler deploy --env dev && curl -fsS https://api-dev.wiseroutine.ai/health/config",
     "deploy:prod": "node scripts/check-secrets.mjs --env production && wrangler deploy --env production && curl -fsS https://api.wiseroutine.ai/health/config",
     "secrets:push:dev": "node scripts/push-secrets.mjs --env dev",

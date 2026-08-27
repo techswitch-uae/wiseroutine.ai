@@ -5,7 +5,7 @@
   "identifier": "ai.wiseroutine.app",
   "build": {
     "beforeDevCommand": "pnpm dev:vite",
-    "devUrl": "http://localhost:3000",
+    "devUrl": "http://localhost:41000",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../.output/public"
   },

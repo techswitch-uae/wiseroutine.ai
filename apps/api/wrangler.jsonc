@@ -42,11 +42,18 @@
 	},
 	"vars": {
 		"ENVIRONMENT": "development",
-		"APP_URL": "http://localhost:3000",
+		"APP_URL": "http://localhost:41000",
 		"API_URL": "http://localhost:8787",
 		// Two local `turso dev` servers — see docs/setup-database.md.
 		"TURSO_DIRECTORY_URL": "http://127.0.0.1:41080",
-		"TURSO_USER_HOST": "http://127.0.0.1:41081"
+		"TURSO_USER_HOST": "http://127.0.0.1:41081",
+		// Public identifiers, not secrets — the same dev registrations `env.dev`
+		// uses. Without them here, a plain `wrangler dev` has no client id, so
+		// "Continue with Google" is hidden and connecting a calendar throws:
+		// both flows read these, and the top-level config is what `pnpm api`
+		// runs on. The matching secrets come from `.dev.vars`.
+		"GOOGLE_CLIENT_ID": "640812709495-80ja6bdimbmrimr9ktngj4o5v9tclocu.apps.googleusercontent.com",
+		"MICROSOFT_CLIENT_ID": "7dd4e266-977b-43e4-856e-bdf7b97a508e"
 	},
 	"env": {
 		// ───────────────────────────────────────────────────────────────────────
@@ -96,8 +103,8 @@
 				"TURSO_GROUP": "users-dev",
 				// Public identifiers, not secrets: they ship in the consent URL, the
 				// checkout session and the From header respectively.
-				"GOOGLE_CLIENT_ID": "REPLACE_WITH_DEV_GOOGLE_CLIENT_ID",
-				"MICROSOFT_CLIENT_ID": "REPLACE_WITH_DEV_MICROSOFT_CLIENT_ID",
+				"GOOGLE_CLIENT_ID": "640812709495-80ja6bdimbmrimr9ktngj4o5v9tclocu.apps.googleusercontent.com",
+				"MICROSOFT_CLIENT_ID": "7dd4e266-977b-43e4-856e-bdf7b97a508e",
 				"STRIPE_PRO_PRICE_ID": "REPLACE_WITH_TEST_PRICE_ID",
 				"RESEND_FROM": "dev@wiseroutine.ai",
 				"ONESIGNAL_APP_ID": "f7b14b9d-83f3-4ea6-8d34-a3836dc48950"
@@ -195,8 +202,8 @@
 				"TURSO_USER_HOST": "techswitch.turso.io",
 				"TURSO_ORG": "techswitch",
 				"TURSO_GROUP": "users",
-				"GOOGLE_CLIENT_ID": "REPLACE_WITH_GOOGLE_CLIENT_ID",
-				"MICROSOFT_CLIENT_ID": "REPLACE_WITH_MICROSOFT_CLIENT_ID",
+				"GOOGLE_CLIENT_ID": "640812709495-80ja6bdimbmrimr9ktngj4o5v9tclocu.apps.googleusercontent.com",
+				"MICROSOFT_CLIENT_ID": "7dd4e266-977b-43e4-856e-bdf7b97a508e",
 				"STRIPE_PRO_PRICE_ID": "REPLACE_WITH_LIVE_PRICE_ID",
 				"RESEND_FROM": "support@wiseroutine.ai",
 				"ONESIGNAL_APP_ID": "f7b14b9d-83f3-4ea6-8d34-a3836dc48950"

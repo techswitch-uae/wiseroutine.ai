@@ -4,19 +4,37 @@ import "./gallery.css";
 import {
   Button,
   Chip,
+  ClashRow,
+  CodeInput,
   DashedRow,
+  DragPlacement,
+  Field,
+  FitStrip,
   LiveStatus,
   Metric,
   Module,
   ModuleEmpty,
   NavItem,
+  PlanNote,
   PlayGlyph,
+  ProviderButton,
+  Rule,
   Segmented,
   Slot,
   SourceMark,
   StateRow,
+  TimeStepper,
   Toggle,
 } from "./components";
+import { TODAY_FIXTURE } from "./fixtures";
+import {
+  AppSidebar,
+  CheckEmailScreen,
+  PlacingScreen,
+  SignInScreen,
+  SittingStreak,
+  TodayScreen,
+} from "./screens";
 
 const Row: React.FC<{
   name: string;
@@ -72,6 +90,8 @@ export const Gallery: React.FC = () => {
   const [grace, setGrace] = useState<"1 min" | "3 min" | "10 min">("3 min");
   const [duration, setDuration] = useState("15 min");
   const [nav, setNav] = useState("Today");
+  const [email, setEmail] = useState("mara@studio.com");
+  const [code, setCode] = useState("418");
 
   return (
     <div className="gl">
@@ -756,6 +776,311 @@ export const Gallery: React.FC = () => {
                   label="Tomorrow's shape"
                 />
               }
+            />
+          </div>
+        </Row>
+      </Section>
+
+      <Section
+        title="Placement by hand"
+        blurb="Free users put every slot where it goes, so the kit needs the intermediate states a scheduler would otherwise hide: the drag, the exact time, and the clash. All three are built from components above — nothing here is a new surface."
+      >
+        <Row
+          name="Slot / dragging"
+          tag="variant: dragging"
+          wide
+          why={
+            <>
+              Two halves. The <b>target stretch</b> reads its own range, so the
+              drop is legible without the card. The <b>floating card</b> is the
+              base slot at <b>Lift 3</b> — the one element allowed to move with
+              the cursor. It offsets down and right of the target so both stay
+              readable; it does not tilt, scale or fade. The target uses accent-
+              <b>200</b> where a standing proposal uses accent-100: a live drag
+              is louder, and the two never appear at once.
+            </>
+          }
+        >
+          <DragPlacement
+            time="11:30"
+            range="11:30–11:40"
+            name="Shoulder stretch"
+            at="11:30"
+          />
+        </Row>
+
+        <Row
+          name="Time stepper"
+          tag="form"
+          why={
+            <>
+              The step size and the consequence are stated beside the value —
+              never inferred from the widget. Under it a <b>fit strip</b>: six
+              bars across the surrounding window, darker where the time matches
+              the user's own history. It is a hint, not a control, and it never
+              blocks a choice.
+            </>
+          }
+        >
+          <div style={{ width: 340 }}>
+            <TimeStepper value="11:05" note="5 min steps · ends 11:15" />
+            <div style={{ marginTop: 14 }}>
+              <FitStrip
+                values={[0.2, 0.5, 0.9, 0.5, 0.2, 0.2]}
+                caption="Darker means it fits your usual window for this activity."
+              />
+            </div>
+          </div>
+        </Row>
+
+        <Row
+          name="Clash row"
+          tag="variant: clash"
+          why={
+            <>
+              A slot the user must resolve keeps its card and gains a second
+              tier: the reason, then the escape routes as choice chips and one
+              quiet Drop. A clash that resolves itself — a length change rather
+              than a move — drops to the <b>inset</b> surface with a neutral
+              rule, because it is information plus one button, not a decision.
+            </>
+          }
+        >
+          <ClashRow
+            name="Shoulder stretch · 11:05"
+            reason="Inside Design review, 25 min of overlap"
+            alternatives={["11:30", "12:45"]}
+            dismiss="Drop"
+          />
+          <ClashRow
+            name="Deep work · 11:25"
+            reason="5 min of overlap — shortening it to 20 min clears it"
+            action="Shorten"
+          />
+        </Row>
+
+        <Row
+          name="Plan note"
+          tag="dashed"
+          why={
+            <>
+              How the product mentions Pro: dashed edge, no fill, no shadow —
+              the same treatment as an empty gap, because that is what it is. It
+              states what would have happened in past tense and never covers,
+              blocks or dims the thing the user is doing. One per screen at
+              most, and never on the ink module.
+            </>
+          }
+        >
+          <PlanNote title="Pro would have moved both at 11:32">
+            To 11:40 and 11:55, with an undo. You would have read a notification
+            instead of fixing a list.
+          </PlanNote>
+        </Row>
+
+        <Row
+          name="Slot / suggested"
+          tag="variant: suggested"
+          why={
+            <>
+              A slot the scheduler proposes but the user has not accepted — Pro
+              only. <b>Accent-100 with a ring, no shadow</b>: it is not yet a
+              real thing on the page, so it does not lift. Free never shows this
+              variant; the same row is a dashed gap.
+            </>
+          }
+        >
+          <Slot
+            variant="suggested"
+            time="11:00"
+            name="Shoulder stretch"
+            meta="10 min · after the review"
+          />
+          <DashedRow>15 min free — held open</DashedRow>
+        </Row>
+      </Section>
+
+      <Section
+        title="App frame"
+        blurb="Sand chrome, near-white page, lifted content. The window bar and the sidebar share one tone so nothing looks like a different app, and the page never carries a headline — the date sits inline with a helper sentence."
+      >
+        <Row
+          name="Sidebar & user menu"
+          tag="layout"
+          wide
+          why={
+            <>
+              Brand, destinations, an optional module, then the two things
+              always within reach: quick add on ink, and the user. The menu is a
+              popover at <b>Lift 3</b> — the floating-surface step it shares
+              with the live slot — because only one element may be off the page
+              at a time. Click the name to open it.
+            </>
+          }
+        >
+          <div style={{ width: 200 }}>
+            <AppSidebar active="today">
+              <SittingStreak value="52 min" note="A stretch is queued next" />
+            </AppSidebar>
+          </div>
+        </Row>
+      </Section>
+
+      <Section
+        title="Getting in"
+        blurb="The screens before an account exists. They are the only ones that carry a headline, and the only ones with no navigation — there is nothing to navigate to and nobody to name yet. The emailed code is the path everything else is an alternative to."
+      >
+        <Row
+          name="Field"
+          tag="input"
+          why={
+            <>
+              A pill on the card surface, with a real label rather than a
+              placeholder — a placeholder disappears exactly when the user wants
+              to check what they typed. The accent ring <i>is</i> the focus
+              state; the browser's own outline is suppressed.
+            </>
+          }
+        >
+          <div style={{ width: 320 }}>
+            <Field
+              label="Email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+            />
+          </div>
+        </Row>
+
+        <Row
+          name="Code input"
+          tag="input · 6 digits"
+          why={
+            <>
+              Six boxes, one real input lying invisibly over them. Paste, OS
+              autofill and the numeric keyboard are the platform's job — six
+              separate inputs would mean re-implementing all three and getting
+              focus management wrong. Non-digits are stripped, so a pasted “418
+              206” works.
+            </>
+          }
+        >
+          <div style={{ width: 320, display: "grid", gap: 14 }}>
+            <CodeInput value={code} onChange={setCode} />
+            <CodeInput value="418206" onChange={() => undefined} wrong />
+          </div>
+        </Row>
+
+        <Row
+          name="Provider button"
+          tag="action · social"
+          why={
+            <>
+              A neutral badge, not the provider's logo — the kit already refuses
+              brand colour for provenance, and a logo is someone else's asset
+              with someone else's rules. Never the primary action: the emailed
+              code is the path that depends on nobody.
+            </>
+          }
+        >
+          <div style={{ width: 320, display: "grid", gap: 9 }}>
+            <ProviderButton provider="google" />
+            <ProviderButton provider="microsoft" />
+            <Rule />
+          </div>
+        </Row>
+      </Section>
+
+      <Section
+        title="Screens"
+        blurb="Whole screens composed only from the kit. If a screen needs something the components cannot express, that is a gap in the components — not licence to style it locally. These are the check that the two stay honest."
+      >
+        <Row
+          name="Today"
+          tag="screen"
+          wide
+          why={
+            <>
+              One timeline component repeated, and a rail of modules. Exactly
+              one live slot and at most one ink module — enforced by whoever
+              supplies the data, since a component cannot see its siblings.
+            </>
+          }
+        >
+          <TodayScreen
+            date="Tuesday, 11 August"
+            helper="Four slots proposed around three meetings"
+            slots={TODAY_FIXTURE}
+            gap="15 min free — held open"
+          />
+        </Row>
+
+        <Row
+          name="Placing a slot"
+          tag="screen · free"
+          wide
+          why={
+            <>
+              The four steps a Free user goes through, on one screen because the
+              steps are the argument: a scheduler hides all of this, and doing
+              it by hand is what the Free plan <i>is</i>.
+            </>
+          }
+        >
+          <PlacingScreen />
+        </Row>
+
+        <Row
+          name="Sign in"
+          tag="screen · signed out"
+          wide
+          why={
+            <>
+              One field and one action. The providers sit under a rule as
+              alternatives, and the footnote carries the thing the buttons
+              cannot say: signing in with Google is not connecting Google's
+              calendar. Pass an empty <code>providers</code> and the rule and
+              both buttons disappear — an environment with no credentials must
+              not offer a door that cannot open.
+            </>
+          }
+        >
+          <SignInScreen email={email} onEmailChange={setEmail} chrome={false} />
+        </Row>
+
+        <Row
+          name="Check your email"
+          tag="screen · waiting / wrong / expired"
+          wide
+          why={
+            <>
+              Three states of one screen, not three screens. A wrong code keeps
+              its digits so they can be checked against the email and counts the
+              attempts down; an expired one stops pretending the boxes matter
+              and offers the two ways out.
+            </>
+          }
+        >
+          <div style={{ display: "grid", gap: 14 }}>
+            <CheckEmailScreen
+              email="mara@studio.com"
+              code={code}
+              onCodeChange={setCode}
+              resendIn={24}
+              chrome={false}
+            />
+            <CheckEmailScreen
+              email="mara@studio.com"
+              code="418206"
+              wrong
+              attemptsLeft={2}
+              chrome={false}
+            />
+            <CheckEmailScreen
+              email="mara@studio.com"
+              code=""
+              expired
+              chrome={false}
             />
           </div>
         </Row>

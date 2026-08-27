@@ -38,6 +38,7 @@ import {
 import { app as appRoutes } from "./routes/app";
 import { billing } from "./routes/billing";
 import { connect } from "./routes/connect";
+import { signin } from "./routes/signin";
 import { type SyncDeps, syncCalendar, WINDOW_BEHIND_DAYS } from "./sync/engine";
 import { realignAfterSync } from "./sync/realign";
 import { ensureWatch, type WatchDeps } from "./sync/watch";
@@ -74,6 +75,10 @@ api.get("/health/config", (c) => {
 api.on(["GET", "POST"], "/auth/*", (c) => c.get("auth").handler(c.req.raw));
 
 api.route("/connect", connect);
+// Deliberately not under /auth: that prefix is Better Auth's, and these are
+// ours — the ticket exchange that gets a browser-made session into the
+// desktop app. See routes/signin.ts.
+api.route("/signin", signin);
 api.route("/webhooks", webhooks);
 api.route("/billing", billing);
 api.route("/", appRoutes);

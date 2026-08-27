@@ -20,10 +20,10 @@ export default defineConfig({
           // path. Throwaway values — real ones never leave Cloudflare.
           TOKEN_ROOT_KEY: "dGVzdC1yb290LWtleS0zMi1ieXRlcy1sb25nLXh4eHg=",
           SESSION_SECRET: "test-session-secret-at-least-32-chars-long",
-          APP_URL: "http://localhost:3000",
+          APP_URL: "http://localhost:41000",
           API_URL: "http://localhost:8787",
-          TURSO_DIRECTORY_URL: "http://127.0.0.1:41080",
-          TURSO_USER_HOST: "http://127.0.0.1:41081",
+          TURSO_DIRECTORY_URL: "http://127.0.0.1:41090",
+          TURSO_USER_HOST: "http://127.0.0.1:41091",
         },
       },
     }),

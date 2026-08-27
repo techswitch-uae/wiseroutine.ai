@@ -46,6 +46,10 @@ export function microsoftAuthorizeUrl(params: {
   url.searchParams.set("response_mode", "query");
   url.searchParams.set("scope", MICROSOFT_SCOPES.join(" "));
   url.searchParams.set("state", params.state);
+  // Without this, a browser with a live Entra session is signed straight
+  // through on that account — so "connect another calendar" reconnects the one
+  // already connected, and a second Microsoft account cannot be added at all.
+  url.searchParams.set("prompt", "select_account");
   return url.toString();
 }
 

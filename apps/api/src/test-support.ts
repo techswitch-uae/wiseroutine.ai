@@ -14,8 +14,8 @@ import { generateToken } from "./crypto";
  * SQL drifts silently.
  */
 
-const DIRECTORY_URL = "http://127.0.0.1:41080";
-const USER_URL = "http://127.0.0.1:41081";
+const DIRECTORY_URL = "http://127.0.0.1:41090";
+const USER_URL = "http://127.0.0.1:41091";
 
 export const directory = (): Directory =>
   createDirectory({ url: DIRECTORY_URL });
@@ -82,11 +82,39 @@ export async function seedUser(
 }
 
 /**
- * Empty the shared user database.
+ * Empty both databases.
  *
- * `turso dev` serves one database, so every test user maps to the same one —
- * tests that care about their own state must start from a clean slate.
+ * `turso dev` serves one database per instance, so every test user maps to the
+ * same pair — tests that care about their own state must start from a clean
+ * slate. The directory matters as much as the user database: rows keyed by a
+ * fixed id (a webhook channel, say) collide with the previous test's leftovers.
  */
+export async function resetDatabases(): Promise<void> {
+  await Promise.all([resetUserDatabase(), resetDirectory()]);
+}
+
+/**
+ * Empty the shared directory.
+ *
+ * Deleted child-first: the schema restricts rather than cascades on most of
+ * these, so removing users before what points at them fails on the FK.
+ */
+export async function resetDirectory(): Promise<void> {
+  const dir = directory();
+  await dir.watchChannel.deleteMany();
+  await dir.scheduledWork.deleteMany();
+  await dir.device.deleteMany();
+  await dir.planGrant.deleteMany();
+  await dir.subscription.deleteMany();
+  await dir.session.deleteMany();
+  await dir.account.deleteMany();
+  await dir.user.deleteMany();
+  await dir.verification.deleteMany();
+  await dir.rateLimit.deleteMany();
+  await dir.processedEvent.deleteMany();
+}
+
+/** Empty the shared user database. */
 export async function resetUserDatabase(): Promise<void> {
   const db = userDb();
   await db.slotEvent.deleteMany();

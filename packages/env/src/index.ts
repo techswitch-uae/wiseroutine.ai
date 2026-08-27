@@ -27,7 +27,7 @@ export const coreKeys = {
   ENVIRONMENT: z
     .enum(["development", "preview", "production"])
     .default("development"),
-  APP_URL: z.url().default("http://localhost:3000"),
+  APP_URL: z.url().default("http://localhost:41000"),
   API_URL: z.url().default("http://localhost:8787"),
 
   /** Root key for envelope-encrypting per-user OAuth tokens. 32 bytes, base64. */

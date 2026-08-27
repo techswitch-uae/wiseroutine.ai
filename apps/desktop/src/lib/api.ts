@@ -39,6 +39,20 @@ export class OfflineError extends Error {
   }
 }
 
+/**
+ * A provider sign-in that came back refused rather than unreachable.
+ *
+ * `reason` is Better Auth's own code, so the screen can answer the one case a
+ * user can actually act on — `account_not_linked` — differently from a plain
+ * "you pressed cancel".
+ */
+export class SocialSignInError extends Error {
+  constructor(readonly reason: string) {
+    super(`social sign-in refused: ${reason}`);
+    this.name = "SocialSignInError";
+  }
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -235,6 +249,62 @@ export const api = {
     if (!token) throw new ApiError(500, { error: "no_session_token" });
     clearOfflineState();
     setSessionToken(token);
+  },
+
+  /**
+   * Sign in with Google or Microsoft.
+   *
+   * Consent has to happen in a real browser — a provider will not render its
+   * consent screen inside an embedded webview — so the session is created
+   * somewhere this process cannot read. The server hands us a ticket up front
+   * and parks the session token against it when consent lands; this waits for
+   * that and then holds the same kind of token an emailed code produces.
+   *
+   * `open` is passed in rather than reached for, so the caller decides what
+   * "open a browser" means and this stays testable.
+   *
+   * Which calendars the account syncs is a separate question entirely — see
+   * `connectUrl`. Signing in with Google connects nothing.
+   */
+  async signInWithSocial(
+    provider: "google" | "microsoft",
+    open: (url: string) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const { url, ticket } = await request<{ url: string; ticket: string }>(
+      "/signin/social/start",
+      post({ provider }),
+    );
+    open(url);
+
+    // The ticket outlives any sensible wait; this loop is bounded by it rather
+    // than by a count of its own, so the two can never disagree about when an
+    // attempt is over.
+    for (;;) {
+      // Aborting matters: without it, walking back to the email form leaves a
+      // poll running that would sign the user in minutes later, out of
+      // nowhere.
+      if (signal?.aborted) return;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (signal?.aborted) return;
+
+      const result = await request<
+        | { status: "pending" }
+        | { status: "ready"; token: string }
+        | { status: "failed"; reason: string }
+        | { status: "expired" }
+      >("/signin/social/claim", post({ ticket }));
+
+      if (result.status === "pending") continue;
+      if (result.status === "ready") {
+        clearOfflineState();
+        setSessionToken(result.token);
+        return;
+      }
+      throw new SocialSignInError(
+        result.status === "failed" ? result.reason : "expired",
+      );
+    }
   },
 
   async signOut(): Promise<void> {
