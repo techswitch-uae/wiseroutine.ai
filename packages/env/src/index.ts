@@ -30,6 +30,15 @@ export const coreKeys = {
   APP_URL: z.url().default("http://localhost:41000"),
   API_URL: z.url().default("http://localhost:8787"),
 
+  /**
+   * Unlocks the seeding routes the browser tests drive.
+   *
+   * Three locks, because this mints sessions: the routes refuse outright in
+   * production, they do not exist unless this is set, and every call must
+   * present it. Leave it unset everywhere except a local run and CI.
+   */
+  E2E_SECRET: z.string().min(16).optional(),
+
   /** Root key for envelope-encrypting per-user OAuth tokens. 32 bytes, base64. */
   TOKEN_ROOT_KEY: z.base64().optional(),
   SESSION_SECRET: z.string().min(32).optional(),

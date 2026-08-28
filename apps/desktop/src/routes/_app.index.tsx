@@ -188,20 +188,9 @@ const Today: React.FC = () => {
       ) : null}
 
       <header className="wr-shell-head wr-shell-head-bar wr-page-bar">
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-          <span style={{ fontFamily: "var(--font-heading)", fontSize: 20 }}>
-            {dayLabel}
-          </span>
-          <span
-            style={{
-              font: "600 12px var(--font-body)",
-              color: "var(--wr-text-muted)",
-            }}
-          >
-            {rows.filter((r) => r.variant === "recovery").length} recovery slots
-            found
-          </span>
-        </div>
+        <span style={{ fontFamily: "var(--font-heading)", fontSize: 20 }}>
+          {dayLabel}
+        </span>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <IconButton
             label={syncing ? "Syncing your calendars" : "Sync calendars now"}

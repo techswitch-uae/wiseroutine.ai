@@ -265,6 +265,17 @@ describe("planning end to end", () => {
   });
 });
 
+/** The next noon that falls on a weekday, so a test never lands on a Saturday
+ *  and blames the code for it. */
+function weekdayNoon(): number {
+  const at = new Date();
+  at.setHours(12, 0, 0, 0);
+  do {
+    at.setDate(at.getDate() + 1);
+  } while (at.getDay() === 0 || at.getDay() === 6);
+  return at.getTime();
+}
+
 describe("settings", () => {
   test("turning titles off erases the ones already stored", async () => {
     const user = await seedUser();
@@ -300,7 +311,11 @@ describe("settings", () => {
   test("deselecting a calendar takes its events off the day at once", async () => {
     const user = await seedUser();
     const { calendarId } = await seedCalendar();
-    const start = tomorrowNoon();
+    // A weekday, not simply tomorrow. `tomorrowNoon()` drifts with the wall
+    // clock, and a day outside the user's working window has no room for a
+    // meeting — so this test passed Monday to Thursday and failed on a Friday,
+    // for a reason that had nothing to do with calendars.
+    const start = weekdayNoon();
 
     await userDb().externalEvent.create({
       data: {

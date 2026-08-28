@@ -271,7 +271,15 @@ button.wr-chip { cursor: pointer; }
 /* A real grid of five-minute rows. Rows are `minmax(floor, auto)`, so a row
    grows to whatever the card in it needs and the line below moves with it —
    which is why a block can no longer overflow into the next one. */
-.wr-daygrid { display: grid; column-gap: 8px; }
+.wr-daygrid {
+  display: grid; column-gap: 8px;
+  /* The first hour's label is centred on its line, so half of it sits above
+     the grid's top edge. Harmless where the grid hangs free, sheared off the
+     moment it is inside a scroller — which is where it actually lives. The
+     padding is outside the row track, so every line and block moves down
+     together and none of the placement maths changes. */
+  padding-top: 8px;
+}
 /* Ticks and blocks share cells on purpose: the ruler is drawn through the day,
    not beside it. Zero height so a line never costs a row any space. */
 /* The rule starts where the gutter ends, so it never runs through the time it

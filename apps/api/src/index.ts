@@ -39,6 +39,7 @@ import { app as appRoutes } from "./routes/app";
 import { billing } from "./routes/billing";
 import { connect } from "./routes/connect";
 import { signin } from "./routes/signin";
+import { testing } from "./routes/testing";
 import { type SyncDeps, syncCalendar, WINDOW_BEHIND_DAYS } from "./sync/engine";
 import { realignAfterSync } from "./sync/realign";
 import { ensureWatch, type WatchDeps } from "./sync/watch";
@@ -73,6 +74,10 @@ api.get("/health/config", (c) => {
 // mounted rather than wrapped so its endpoints stay exactly what its client
 // expects. Connecting a calendar is deliberately *not* under /auth.
 api.on(["GET", "POST"], "/auth/*", (c) => c.get("auth").handler(c.req.raw));
+
+// Seeding for the browser tests. Refuses in production, and does not exist at
+// all unless `E2E_SECRET` is configured — see routes/testing.ts.
+api.route("/test", testing);
 
 api.route("/connect", connect);
 // Deliberately not under /auth: that prefix is Better Auth's, and these are
