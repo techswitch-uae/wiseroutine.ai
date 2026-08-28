@@ -72,7 +72,26 @@ export async function accessTokenFor(
   now: number,
 ): Promise<string> {
   const stored = await getTokens(deps.db, connectionId);
-  if (!stored) throw new Error(`No tokens for connection ${connectionId}`);
+  /**
+   * A connection with no token row at all.
+   *
+   * The connection and its tokens are two writes, and only the first one is
+   * guaranteed to have happened: `/connect/:provider/callback` upserts the
+   * connection, then seals two tokens and saves them. A throw or an eviction
+   * between the two leaves a row that says "active" with nothing behind it.
+   *
+   * Marked, not merely thrown - the same as a missing refresh token below.
+   * Left active it is a connection nobody can repair and nothing gives up on:
+   * `runSyncJob` retries anything still active, the backoff caps at six hours
+   * and never ends, Calendars goes on reporting "Reading 2 of 4 calendars",
+   * and the only trace is a line in a log the user cannot see. Needing a
+   * reconnection is exactly what this is, and it is the one state the UI
+   * already offers a way out of.
+   */
+  if (!stored) {
+    await markNeedsReauth(deps.db, connectionId);
+    throw new Error(`No tokens for connection ${connectionId}`);
+  }
 
   if (stored.expiresAt > now + 60_000) {
     return open(deps.rootKey, deps.userId, {

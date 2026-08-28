@@ -54,19 +54,34 @@ test("unticking a calendar takes its meetings off the day", async ({
   await expect(page.getByText(MEETING.title)).toBeHidden();
 });
 
-test("the set-up module is offered only until a calendar is connected", async ({
+test("the set-up module asks for a calendar until one is connected", async ({
   page,
   signIn,
 }) => {
   await signIn();
   await page.goto("/");
+  await dayShown(page);
   await expect(page.getByRole("button", { name: /Connect/ })).toBeVisible();
 
-  // Dismissing is permanent, and is the other way out of the module.
-  await page.getByRole("button", { name: "Skip for now" }).click();
-  await expect(page.getByRole("button", { name: "Skip for now" })).toBeHidden();
+  // There is no way out but doing it. "Skip for now" used to be the other
+  // one, and all it bought was a blank day with nothing on it explaining why.
+  await expect(page.getByRole("button", { name: "Skip for now" })).toHaveCount(
+    0,
+  );
 
   await page.reload();
   await dayShown(page);
-  await expect(page.getByRole("button", { name: "Skip for now" })).toBeHidden();
+  await expect(page.getByRole("button", { name: /Connect/ })).toBeVisible();
+});
+
+test("a connected calendar retires the step that asked for it", async ({
+  page,
+  signIn,
+}) => {
+  await signIn([{ name: "Work", isPrimary: true, events: [MEETING] }]);
+  await page.goto("/");
+  await dayShown(page);
+
+  // Satisfied, not pressed: the step is done because the connection exists.
+  await expect(page.getByRole("button", { name: /Connect/ })).toHaveCount(0);
 });

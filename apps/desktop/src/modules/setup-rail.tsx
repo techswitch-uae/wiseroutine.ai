@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import {
   type CalendarProvider,
   Modal,
@@ -7,37 +8,54 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { beginConnect } from "../routes/_app.calendars";
-
-/** Dismissing is forever, and has to outlive the window to mean anything. */
-const DISMISSED = "wr.setup.dismissed";
-
-const wasDismissed = (): boolean => {
-  try {
-    return globalThis.localStorage?.getItem(DISMISSED) === "1";
-  } catch {
-    // Private windows and locked-down profiles throw on access rather than
-    // returning null. Not remembering is the right failure: the module comes
-    // back, which is annoying, rather than never appearing at all.
-    return false;
-  }
-};
+import { DAY_HOURS_ANCHOR } from "../routes/_app.settings";
 
 /**
  * The rail's set-up module, and the sheet its one button opens.
  *
- * Shown only while no calendar is being read - the module exists to fix
- * exactly that, so a connected account is the thing that retires it. Dismissal
- * is the other way out and is permanent, which is why it is remembered outside
- * React.
+ * Three steps, all of them real: a calendar to read, two activities to place
+ * in it, and a look at the hours everything is placed between. There is no way
+ * out but finishing, because there is nothing the app can do until all three
+ * are true - a day with no calendar and no activities is an empty ruler, and
+ * "Skip for now" only ever bought a blank screen with no explanation on it.
  *
- * The design's checklist had three steps. Two of them - adding activities and
- * confirming working hours - are not built, and a checklist that lists work
- * the app cannot do is a promise it cannot keep, so only the real step is
- * here. The kit still carries all three for when they exist.
+ * Each step retires itself by being satisfied, not by being pressed: the
+ * calendar step goes when a connection lands, the activities step when two are
+ * active. The module goes when the last one does.
  */
+
+/**
+ * That the user has looked at their working hours.
+ *
+ * The only one of the three with nothing in the database to check, because
+ * confirming an already-correct default changes nothing - there is no "yes,
+ * 09:00 to 18:00 is right" to store. So it is remembered here, on the machine
+ * where the looking happened.
+ *
+ * ponytail: local to this device. A column on the user row if it ever needs to
+ * follow someone to a second machine.
+ */
+const HOURS_SEEN = "wr.setup.hours";
+
+const hoursSeen = (): boolean => {
+  try {
+    return globalThis.localStorage?.getItem(HOURS_SEEN) === "1";
+  } catch {
+    // Private windows and locked-down profiles throw on access rather than
+    // returning null. Not remembering asks again, which is a small annoyance;
+    // the alternative is a step nobody can ever complete.
+    return false;
+  }
+};
+
+/** How many activities the first plan needs before it can shape a day. */
+const ENOUGH_ACTIVITIES = 2;
+
 export const SetupRail: React.FC = () => {
+  const navigate = useNavigate();
   const [connected, setConnected] = useState<boolean | null>(null);
-  const [dismissed, setDismissed] = useState(wasDismissed);
+  const [active, setActive] = useState<number | null>(null);
+  const [seenHours, setSeenHours] = useState(hoursSeen);
   const [connecting, setConnecting] = useState(false);
   const [busy, setBusy] = useState<CalendarProvider | null>(null);
 
@@ -45,42 +63,81 @@ export const SetupRail: React.FC = () => {
     api
       .calendars()
       .then((response) => setConnected(response.connections.length > 0))
-      // A failed read is not proof of no calendar, and flashing the module at
-      // someone who is already set up is worse than showing nothing.
+      // A failed read is not proof of no calendar, and asking someone who is
+      // already set up to set up again is worse than showing nothing.
       .catch(() => setConnected(true));
+
+    api
+      .activities()
+      .then((rows) => setActive(rows.filter((row) => row.isActive).length))
+      .catch(() => setActive(ENOUGH_ACTIVITIES));
   }, []);
 
   useEffect(look, [look]);
 
-  // Consent completes in a browser, so coming back to the window is the only
-  // signal this one gets that anything happened.
+  // Consent completes in a browser, and activities are added on another page,
+  // so coming back to this window is the only signal this one gets that
+  // anything has happened.
   useEffect(() => {
     globalThis.addEventListener?.("focus", look);
     return () => globalThis.removeEventListener?.("focus", look);
   }, [look]);
 
-  if (dismissed || connected !== false) return null;
+  // Nothing until both reads land: a checklist that ticks its steps one at a
+  // time as the answers arrive reads as progress the user did not make.
+  if (connected === null || active === null) return null;
+
+  const enough = active >= ENOUGH_ACTIVITIES;
+  if (connected && enough && seenHours) return null;
 
   return (
     <>
       <SetupModule
+        tone="dark"
         steps={[
           {
             key: "calendar",
             label: "Connect a calendar",
             detail:
               "Google or Outlook. We only read your times - nothing is ever written back.",
+            done: connected,
             action: { label: "Connect", onClick: () => setConnecting(true) },
           },
+          {
+            key: "activities",
+            label: "Add two activities",
+            detail:
+              "A stretch and something for your eyes is a good pair to start with.",
+            done: enough,
+            action: {
+              label: "Add an activity",
+              onClick: () => void navigate({ to: "/activities" }),
+            },
+          },
+          {
+            key: "hours",
+            label: "Confirm working hours",
+            detail:
+              "Everything is placed inside these. Change them if the default is not your day.",
+            done: seenHours,
+            action: {
+              label: "Check my hours",
+              onClick: () => {
+                // Marked on the way there rather than on the way back: this
+                // window is not told when someone scrolls a settings page, and
+                // a step that can only be finished by an event we never
+                // receive is a step nobody can finish.
+                setSeenHours(true);
+                try {
+                  globalThis.localStorage?.setItem(HOURS_SEEN, "1");
+                } catch {
+                  // Then it asks again next launch. Nothing else breaks.
+                }
+                void navigate({ to: "/settings", hash: DAY_HOURS_ANCHOR });
+              },
+            },
+          },
         ]}
-        onDismiss={() => {
-          setDismissed(true);
-          try {
-            globalThis.localStorage?.setItem(DISMISSED, "1");
-          } catch {
-            // Then it comes back next launch. Nothing else breaks.
-          }
-        }}
       />
 
       {connecting ? (
@@ -96,7 +153,7 @@ export const SetupRail: React.FC = () => {
               void beginConnect(provider).then(() => {
                 setBusy(null);
                 // Consent carries on in the browser; the sheet has done its
-                // job and the module retires itself when the account lands.
+                // job and the step ticks itself when the account lands.
                 setConnecting(false);
               });
             }}

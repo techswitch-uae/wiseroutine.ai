@@ -1,9 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  ACTIVITY_TEMPLATES,
-  type ActivityRow,
-  toSchedulerActivity,
-} from "./activities";
+import { type ActivityRow, toSchedulerActivity } from "./activities";
 
 const row = (over: Partial<ActivityRow> = {}): ActivityRow =>
   ({
@@ -63,21 +59,5 @@ describe("toSchedulerActivity", () => {
   // grows one back, the two-tier split has been undone somewhere.
   test("a user activity row carries no user id", () => {
     expect(row()).not.toHaveProperty("userId");
-  });
-});
-
-describe("ACTIVITY_TEMPLATES", () => {
-  test("covers the starter library from the designs", () => {
-    const names = ACTIVITY_TEMPLATES.map((t) => t.name);
-    expect(names).toContain("Back & shoulder stretch");
-    expect(names).toContain("Eye rest");
-    expect(names).toContain("Deep work");
-  });
-
-  test("deep work is a duration minimum in fixed blocks, not a count", () => {
-    const deepWork = ACTIVITY_TEMPLATES.find((t) => t.name === "Deep work");
-    expect(deepWork?.minimumType).toBe("durationPerDay");
-    expect(deepWork?.minimumValue).toBe(120);
-    expect(deepWork?.sessionMinutes).toBe(25);
   });
 });

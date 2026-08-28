@@ -694,6 +694,14 @@ export interface DayGridItem {
   startsAt: number;
   endsAt: number;
   node: React.ReactNode;
+  /**
+   * Can be dragged to another time. Our own slots are; a meeting is not,
+   * because moving it here would say we can move it in the calendar it came
+   * from, and we never write back.
+   */
+  movable?: boolean;
+  /** Named in the drag handle's label. Only read when `movable`. */
+  title?: string;
 }
 
 export type DayGridProps = {
@@ -710,6 +718,9 @@ export type DayGridProps = {
   /** Height of a quarter-hour something occupies. Must comfortably fit a slot
    *  card, or a 15-minute block cannot be drawn at its true size. */
   busyStep?: number;
+  /** Fires once, on drop, with instants already snapped to the ruler. Without
+   *  it nothing is draggable however the items are marked. */
+  onMove?: (key: string, startsAt: number, endsAt: number) => void;
 };
 
 const STEP = 5 * 60_000;
@@ -738,6 +749,11 @@ const HOUR = 60 * 60_000;
  *
  * Blocks snap to the five-minute ruler. Two minutes of rounding is invisible;
  * a block drawn between the lines is not.
+ *
+ * Blocks can also be dragged to another time. A drag re-lays the grid out live
+ * rather than floating a card over it, which is the honest preview: if the
+ * drop lands on top of a meeting, the two appear side by side exactly as they
+ * will once it is released, because it is the same lane maths either way.
  */
 export const DayGrid: React.FC<DayGridProps> = ({
   dayStart,
@@ -747,6 +763,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
   now,
   idleStep = 13,
   busyStep = 46,
+  onMove,
 }) => {
   const label = new Intl.DateTimeFormat("en-GB", {
     timeZone,
@@ -755,6 +772,17 @@ export const DayGrid: React.FC<DayGridProps> = ({
     hourCycle: "h23",
   });
 
+  /** The block under the cursor, at the time the cursor currently proposes. */
+  const [drag, setDrag] = useState<{
+    key: string;
+    startsAt: number;
+    endsAt: number;
+  } | null>(null);
+  const surface = useRef<HTMLDivElement>(null);
+  /** Where the pointer took hold inside the card, so a block does not jump its
+   *  own height the moment it is picked up. */
+  const grab = useRef(0);
+
   // The ruler starts on a quarter, whatever time the day does, so every hour
   // and quarter line lands exactly on a row boundary rather than near one.
   const origin = Math.floor(dayStart / QUARTER) * QUARTER;
@@ -762,9 +790,20 @@ export const DayGrid: React.FC<DayGridProps> = ({
   const rowOf = (at: number) =>
     Math.min(rowCount, Math.max(0, Math.round((at - origin) / STEP)));
 
+  // The dragged block reads from the cursor rather than from its own row, so
+  // everything below - lanes, spans, the drop it will produce - is computed
+  // once, off the same list.
+  const shown = drag
+    ? items.map((item) =>
+        item.key === drag.key
+          ? { ...item, startsAt: drag.startsAt, endsAt: drag.endsAt }
+          : item,
+      )
+    : items;
+
   // Half-open, and never shorter than one row: a block the grid could draw as
   // nothing is a block nobody can read or click.
-  const placed = items
+  const placed = shown
     .map((item) => {
       const from = rowOf(item.startsAt);
       return {
@@ -812,9 +851,16 @@ export const DayGrid: React.FC<DayGridProps> = ({
 
   // A row is tall only where something needs it to be. `auto` is the ceiling,
   // not the floor: these are minimums the content may exceed.
+  //
+  // Read off `items` rather than `placed`, so a drag never rescales the ruler
+  // it is being measured against. Collapsing the stretch a block just left
+  // would slide every line under the cursor upwards, and the block would chase
+  // a target that moves because it moved.
   const occupied = new Array<boolean>(rowCount).fill(false);
-  for (const block of placed) {
-    for (let row = block.from; row < block.to && row < rowCount; row += 1) {
+  for (const item of items) {
+    const from = rowOf(item.startsAt);
+    const to = Math.max(from + 1, rowOf(item.endsAt));
+    for (let row = from; row < to && row < rowCount; row += 1) {
       occupied[row] = true;
     }
   }
@@ -827,8 +873,108 @@ export const DayGrid: React.FC<DayGridProps> = ({
   const ticks: number[] = [];
   for (let at = origin; at < dayEnd; at += QUARTER) ticks.push(at);
 
+  /**
+   * Which instant a screen position points at.
+   *
+   * Read off the rendered ticks rather than computed from a scale, because
+   * this ruler is deliberately not linear - an idle stretch is collapsed to a
+   * line - and pixels-per-minute would land a drop an hour out. The ticks are
+   * the only thing that knows the real mapping, so they are what is asked.
+   *
+   * ponytail: measures every tick on each pointer move. Fine for one day's
+   * ~60 marks; cache the table at drag start if a week view shares this grid.
+   */
+  const instantAt = (clientY: number): number => {
+    const marks = [
+      ...(surface.current?.querySelectorAll<HTMLElement>("[data-at]") ?? []),
+    ].map((el) => ({
+      at: Number(el.dataset.at),
+      top: el.getBoundingClientRect().top,
+    }));
+
+    const first = marks[0];
+    const last = marks.at(-1);
+    if (!first || !last) return dayStart;
+    if (clientY <= first.top) return first.at;
+
+    for (let i = 1; i < marks.length; i += 1) {
+      const above = marks[i - 1] as { at: number; top: number };
+      const below = marks[i] as { at: number; top: number };
+      if (clientY < below.top) {
+        const span = below.top - above.top;
+        // A collapsed pair shares a pixel; there is nothing to interpolate.
+        const ratio = span > 0 ? (clientY - above.top) / span : 0;
+        return above.at + ratio * (below.at - above.at);
+      }
+    }
+    return last.at;
+  };
+
+  /** Where a block of this length would land if dropped with its top here.
+   *  Snapped to the ruler, and never hanging off either end of the day. */
+  const propose = (item: DayGridItem, top: number) => {
+    const length = item.endsAt - item.startsAt;
+    const snapped = Math.round(instantAt(top) / STEP) * STEP;
+    const startsAt = Math.min(Math.max(snapped, dayStart), dayEnd - length);
+    return { key: item.key, startsAt, endsAt: startsAt + length };
+  };
+
+  /** Commit, but only if the drop is somewhere else. A click that never moved
+   *  is a click, and must not spend a write saying nothing changed. */
+  const settle = () => {
+    if (!drag) return;
+    const from = items.find((item) => item.key === drag.key);
+    setDrag(null);
+    if (from && from.startsAt !== drag.startsAt) {
+      onMove?.(drag.key, drag.startsAt, drag.endsAt);
+    }
+  };
+
+  const handles = (item: DayGridItem) => ({
+    tabIndex: 0,
+    "aria-label": `${item.title ?? "Slot"} at ${label.format(
+      new Date(item.startsAt),
+    )}. Drag, or use the arrow keys, to move it.`,
+    onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
+      // A press on Start is a press on Start - only the card around it is a
+      // handle. Without this every attempt to start a slot lifted it instead.
+      if (event.button !== 0) return;
+      if ((event.target as HTMLElement).closest("button")) return;
+      grab.current =
+        event.clientY - event.currentTarget.getBoundingClientRect().top;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setDrag({
+        key: item.key,
+        startsAt: item.startsAt,
+        endsAt: item.endsAt,
+      });
+    },
+    onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => {
+      if (drag?.key !== item.key) return;
+      setDrag(propose(item, event.clientY - grab.current));
+    },
+    onPointerUp: settle,
+    // Losing the pointer - a system gesture, a window switch - is not a drop.
+    onPointerCancel: () => setDrag(null),
+    onKeyDown: (event: React.KeyboardEvent) => {
+      const step =
+        event.key === "ArrowUp" ? -STEP : event.key === "ArrowDown" ? STEP : 0;
+      if (step === 0) return;
+      event.preventDefault();
+      const length = item.endsAt - item.startsAt;
+      const startsAt = Math.min(
+        Math.max(item.startsAt + step, dayStart),
+        dayEnd - length,
+      );
+      if (startsAt !== item.startsAt) {
+        onMove?.(item.key, startsAt, startsAt + length);
+      }
+    },
+  });
+
   return (
     <div
+      ref={surface}
       className="wr-daygrid"
       style={{
         gridTemplateRows: rows,
@@ -844,6 +990,8 @@ export const DayGrid: React.FC<DayGridProps> = ({
         return (
           <div
             key={at}
+            // The ruler a drag measures itself against - see `instantAt`.
+            data-at={at}
             className={cx(
               "wr-daygrid-tick",
               onTheHour && "wr-daygrid-hour",
@@ -871,18 +1019,35 @@ export const DayGrid: React.FC<DayGridProps> = ({
         </div>
       ) : null}
 
-      {placed.map(({ item, from, to, lane, span }) => (
-        <div
-          key={item.key}
-          className="wr-daygrid-item"
-          style={{
-            gridRow: `${from + 1} / ${to + 1}`,
-            gridColumn: `${lane + 2} / span ${span}`,
-          }}
-        >
-          {item.node}
-        </div>
-      ))}
+      {placed.map(({ item, from, to, lane, span }) => {
+        const movable = onMove !== undefined && item.movable === true;
+        const moving = drag?.key === item.key;
+        return (
+          <div
+            key={item.key}
+            className={cx(
+              "wr-daygrid-item",
+              movable && "wr-daygrid-item-movable",
+              moving && "wr-daygrid-item-moving",
+            )}
+            style={{
+              gridRow: `${from + 1} / ${to + 1}`,
+              gridColumn: `${lane + 2} / span ${span}`,
+            }}
+            {...(movable ? handles(item) : {})}
+          >
+            {/* The range the drop would produce, stated rather than inferred
+                from where the card happens to sit. */}
+            {moving ? (
+              <span className="wr-daygrid-range">
+                {label.format(new Date(item.startsAt))}–
+                {label.format(new Date(item.endsAt))}
+              </span>
+            ) : null}
+            {item.node}
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -1221,8 +1386,12 @@ export interface SetupStep {
 
 export type SetupModuleProps = {
   steps: readonly SetupStep[];
-  /** Removes the module for good - the caller has to remember that. */
-  onDismiss: () => void;
+  /**
+   * Removes the module for good - the caller has to remember that. Omit it and
+   * there is no way out but finishing, which is right when every step is
+   * something the app cannot work without.
+   */
+  onDismiss?: () => void;
   /**
    * "dark" is the one from the design: near-black, and the only object on the
    * page carrying that weight. It is for the first run, where the day behind
@@ -1311,9 +1480,11 @@ export const SetupModule: React.FC<SetupModuleProps> = ({
         })}
       </ol>
 
-      <button type="button" className="wr-setup-skip" onClick={onDismiss}>
-        Skip for now
-      </button>
+      {onDismiss ? (
+        <button type="button" className="wr-setup-skip" onClick={onDismiss}>
+          Skip for now
+        </button>
+      ) : null}
     </Card>
   );
 };
@@ -1682,6 +1853,68 @@ export const TimeStepper: React.FC<{
       </button>
     </div>
     {note ? <span className="wr-stepper-note">{note}</span> : null}
+  </div>
+);
+
+/**
+ * The wide sibling of `TimeStepper`: a field in a form rather than a detail
+ * beside a slot, so it names itself and fills its column.
+ *
+ * The ends of the range disable rather than silently ignore a press. A stepper
+ * that keeps accepting clicks and never changes is the one thing worse than
+ * one that stops.
+ */
+export const Stepper: React.FC<{
+  label: string;
+  value: string;
+  onStep?: (direction: -1 | 1) => void;
+  canDecrease?: boolean;
+  canIncrease?: boolean;
+}> = ({ label, value, onStep, canDecrease = true, canIncrease = true }) => (
+  <div className="wr-field">
+    <span className="wr-label">{label}</span>
+    <div className="wr-stepper wr-stepper-wide">
+      <button
+        type="button"
+        className="wr-stepper-btn"
+        aria-label={`${label}: less`}
+        disabled={!canDecrease}
+        onClick={() => onStep?.(-1)}
+      >
+        −
+      </button>
+      <span className="wr-stepper-value">{value}</span>
+      <button
+        type="button"
+        className="wr-stepper-btn"
+        aria-label={`${label}: more`}
+        disabled={!canIncrease}
+        onClick={() => onStep?.(1)}
+      >
+        +
+      </button>
+    </div>
+  </div>
+);
+
+/**
+ * A behaviour turned on or off, with the sentence saying what it does.
+ *
+ * Inset, because it is one setting inside a form rather than an object in its
+ * own right - the same surface a self-resolving clash drops to.
+ */
+export const SwitchRow: React.FC<{
+  title: string;
+  note?: string;
+  checked: boolean;
+  onChange?: (next: boolean) => void;
+}> = ({ title, note, checked, onChange }) => (
+  <div className="wr-switchrow">
+    <div className="wr-switchrow-body">
+      <span className="wr-body-strong">{title}</span>
+      {note ? <span className="wr-slot-meta">{note}</span> : null}
+    </div>
+    <Toggle checked={checked} onChange={onChange} label={title} />
   </div>
 );
 

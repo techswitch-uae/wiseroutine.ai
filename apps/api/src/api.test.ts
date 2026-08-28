@@ -1,5 +1,6 @@
 import { exports as worker } from "cloudflare:workers";
 import { beforeEach, describe, expect, test } from "vitest";
+import { accessTokenFor } from "./sync/engine";
 import {
   directory,
   resetDatabases,
@@ -286,6 +287,43 @@ function weekdayNoon(): number {
  * meetings it excludes are reported rather than dropped, and that the server
  * refuses a range it could not honour.
  */
+/**
+ * A connection that cannot be read, and cannot be repaired by retrying.
+ *
+ * The queue's retry is for a provider having a bad minute. Anything the user
+ * has to act on has to leave that loop, or it runs until someone reads a log.
+ */
+describe("a connection with nothing behind it", () => {
+  test("a missing token row asks for a reconnection instead of retrying", async () => {
+    const user = await seedUser();
+    // Exactly the half-written state `/connect/:provider/callback` leaves if
+    // it fails between upserting the connection and saving the tokens: a row
+    // that says "active" with no `oauth_tokens` beside it.
+    const { connectionId } = await seedCalendar();
+
+    const deps = {
+      db: userDb(),
+      userId: user.userId,
+      rootKey: "unused - this never reaches the crypto",
+      clientIds: {
+        google: { clientId: "", clientSecret: "" },
+        microsoft: { clientId: "", clientSecret: "" },
+      },
+    };
+
+    await expect(
+      accessTokenFor(deps, connectionId, "google", Date.now()),
+    ).rejects.toThrow(/No tokens/);
+
+    // The status is what stops it: `runSyncJob` declines to retry anything
+    // that is not active, and Calendars turns this into "reconnect".
+    const row = await userDb().calendarConnection.findUnique({
+      where: { id: connectionId },
+    });
+    expect(row?.status).toBe("needs_reauth");
+  });
+});
+
 describe("day view hours", () => {
   /**
    * A user whose zone is the one this runtime is in.

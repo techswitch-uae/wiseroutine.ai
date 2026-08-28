@@ -1,4 +1,5 @@
 import {
+  archiveActivity,
   cancelWork,
   countActiveActivities,
   createActivity,
@@ -15,6 +16,7 @@ import {
   moveSlot,
   scheduleWork,
   setActivityActive,
+  setActivityWindows,
   setCalendarSelected,
   setSlotStatus,
   touchLastSeen,
@@ -451,6 +453,8 @@ app.patch("/activities/:id", async (c) => {
   const patch: Record<string, unknown> = {};
   for (const key of [
     "name",
+    "kind",
+    "minimumType",
     "minimumValue",
     "sessionMinutes",
     "daysOfWeek",
@@ -464,6 +468,27 @@ app.patch("/activities/:id", async (c) => {
     await updateActivity(db, c.req.param("id"), patch);
   }
 
+  // Absent leaves the windows alone; an empty array clears them. The two are
+  // different answers - "I did not say" and "nowhere in particular" - and
+  // collapsing them would wipe a preference on every unrelated edit.
+  if (Array.isArray(body.preferredWindows)) {
+    await setActivityWindows(
+      db,
+      c.req.param("id"),
+      body.preferredWindows as number[],
+      newId,
+    );
+  }
+
+  return c.body(null, 204);
+});
+
+/**
+ * Archived, not deleted - see `archiveActivity`. The slots it already produced
+ * are the history every past day and the missed list are drawn from.
+ */
+app.delete("/activities/:id", async (c) => {
+  await archiveActivity(c.get("db"), c.req.param("id"), c.get("now"));
   return c.body(null, 204);
 });
 

@@ -12,7 +12,8 @@
     "tauri": "tauri",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "clean": "git clean -xdf .cache .turbo dist node_modules"
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -27,6 +28,7 @@
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
     "@wiseroutine/design": "workspace:*",
+    "@wiseroutine/plans": "workspace:*",
     "nitro": "3.0.260610-beta",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -44,6 +46,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
+    "@wiseroutine/db": "workspace:*",
     "@wiseroutine/typescript-config": "workspace:*",
     "jsdom": "^30.0.1",
     "vite": "^8.2.1",

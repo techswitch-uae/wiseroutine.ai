@@ -329,8 +329,30 @@ button.wr-chip { cursor: pointer; }
    the padding, so this is breathing room the card gains and not height it
    loses. */
 .wr-daygrid-item {
+  position: relative;
   z-index: 1; min-width: 0; padding: 3px 0 4px; box-sizing: border-box;
   display: flex; flex-direction: column;
+}
+/* The card is its own handle. A grip glyph inside a 10-minute block would cost
+   more height than the block has. `touch-action` so a drag is a drag and not
+   the scroller taking the gesture first. */
+.wr-daygrid-item-movable { cursor: grab; touch-action: none; }
+.wr-daygrid-item-movable:focus-visible {
+  outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 16px;
+}
+/* Lift 3 and the drag ring, the same pair `.wr-drag-target` uses: one element
+   off the page at a time, and while a drag is live it is this one. */
+.wr-daygrid-item-moving { cursor: grabbing; z-index: 3; }
+.wr-daygrid-item-moving .wr-slot {
+  box-shadow: var(--wr-lift-3), inset 0 0 0 1.5px var(--color-accent);
+}
+/* What the drop will produce, said rather than left to be read off the ruler. */
+.wr-daygrid-range {
+  position: absolute; z-index: 4; top: -8px; left: 13px;
+  padding: 2px 9px; border-radius: 999px;
+  background: var(--color-accent-700); color: var(--color-neutral-100);
+  font: 600 10.5px var(--font-body); font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 /* Inside the grid the card owns the whole width - the row's own time column
    would repeat what the gutter already says. */
@@ -514,10 +536,23 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
   font: 600 13px var(--font-body); color: var(--wr-ink);
 }
 .wr-stepper-btn:hover { background: var(--color-accent-100); }
+.wr-stepper-btn:disabled { opacity: 0.38; cursor: default; box-shadow: none; }
+.wr-stepper-btn:disabled:hover { background: var(--wr-card); }
 .wr-stepper-value {
   font-family: var(--font-heading); font-size: 18px; min-width: 52px; text-align: center;
 }
 .wr-stepper-note { font: 400 11.5px/1.4 var(--font-body); color: var(--wr-text-muted); flex: 1; }
+/* Same control, filling a form column rather than sitting beside a slot. */
+.wr-stepper-wide { padding: 7px 8px; }
+.wr-stepper-wide .wr-stepper-value { flex: 1; }
+.wr-stepper-wide .wr-stepper-btn { width: 30px; height: 30px; flex: none; }
+
+/* One setting inside a form: inset, because it is not an object of its own. */
+.wr-switchrow {
+  display: flex; align-items: center; gap: 14px; padding: 13px 15px;
+  border-radius: 14px; background: var(--wr-recessed); box-shadow: var(--wr-inset);
+}
+.wr-switchrow-body { flex: 1; min-width: 0; display: grid; gap: 2px; }
 
 .wr-fit { display: flex; gap: 5px; align-items: flex-end; height: 26px; }
 .wr-fit-bar { flex: 1; height: 26px; border-radius: 5px; background: var(--wr-track); }
@@ -1239,3 +1274,39 @@ img.wr-avatar { object-fit: cover; }
   font: 400 16px/1 var(--font-body); color: rgba(245, 234, 216, 0.7);
 }
 .wr-toast-close:hover { color: var(--color-neutral-100); }
+
+/* ── Activities ────────────────────────────────────────────────────────────
+   The library is a palette of starting points, so its chips are dashed - the
+   kit's word for "not a real object on the page yet". */
+.wr-library { display: flex; flex-wrap: wrap; gap: 9px; }
+.wr-library-chip { text-align: left; }
+.wr-library-chip b { font-weight: 600; color: var(--color-text); }
+.wr-library-chip:hover:not(:disabled) { border-color: var(--color-accent); }
+.wr-library-chip:disabled { opacity: 0.45; cursor: default; }
+
+/* Two decisions of equal weight, so two equal columns - until the rail leaves
+   no room for them, at which point stacking beats squeezing. */
+.wr-activity-pair {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;
+}
+@media (max-width: 720px) { .wr-activity-pair { grid-template-columns: 1fr; } }
+.wr-activity-pair + .wr-field { margin-top: 16px; }
+.wr-activity-hint {
+  margin: 7px 0 0; font: 400 11.5px/1.5 var(--font-body); color: var(--wr-text-soft);
+}
+.wr-activity-foot {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--wr-hairline);
+}
+.wr-activity-note {
+  font: 400 11.5px/1.5 var(--font-body); color: var(--wr-text-muted); flex: 1; min-width: 180px;
+}
+
+.wr-activity-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 0; border-bottom: 1px solid var(--wr-hairline);
+}
+.wr-activity-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.wr-activity-row:first-child { padding-top: 0; }
+.wr-activity-row .wr-rule { height: 30px; flex: none; }
+.wr-activity-body { flex: 1; min-width: 0; }

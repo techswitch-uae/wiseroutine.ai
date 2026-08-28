@@ -18,6 +18,7 @@ import {
   getSessionToken,
   type TodayResponse,
 } from "../lib/api";
+import { notify } from "../lib/notify";
 import { SetupRail } from "../modules/setup-rail";
 import { DAY_HOURS_ANCHOR } from "./_app.settings";
 
@@ -194,6 +195,36 @@ const Today: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
+  /**
+   * Put a slot somewhere else, by hand.
+   *
+   * Optimistic, because the grid has already drawn the drop and putting the
+   * block back for a round trip would read as the drag failing. A refusal
+   * reloads, which is the only honest correction: the server's answer is the
+   * plan, not ours.
+   *
+   * The move also pins the slot server-side, so the next replan leaves it
+   * where it was put - see `moveSlot`.
+   */
+  const move = useCallback((key: string, startsAt: number, endsAt: number) => {
+    setData(
+      (current) =>
+        current && {
+          ...current,
+          slots: current.slots.map((slot) =>
+            slot.id === key
+              ? { ...slot, startsAt, endsAt, isLocked: true }
+              : slot,
+          ),
+        },
+    );
+
+    api.moveSlot(key, startsAt, endsAt).catch(() => {
+      notify("Couldn't move that. Putting it back.");
+      latest.current();
+    });
+  }, []);
+
   if (!data) {
     return (
       <p className="wr-body">
@@ -274,7 +305,18 @@ const Today: React.FC = () => {
         ) : null}
 
         {rows.length === 0 ? (
-          <DashedRow gutter={false}>
+          <DashedRow
+            gutter={false}
+            onClick={() => {
+              // The planner is the only thing that can fill a day, and it is
+              // one request. A row that said "plan your day" and could not be
+              // pressed was an instruction with nowhere to follow it.
+              void api
+                .plan()
+                .then(load)
+                .catch(() => notify("Couldn't plan your day. Try again."));
+            }}
+          >
             Nothing planned yet - plan your day
           </DashedRow>
         ) : (
@@ -283,10 +325,13 @@ const Today: React.FC = () => {
             dayEnd={data.dayEnd}
             timeZone={data.timeZone}
             now={now}
+            onMove={move}
             items={rows.map((row) => ({
               key: row.key,
               startsAt: row.startsAt,
               endsAt: row.endsAt,
+              movable: row.movable === true,
+              title: row.title,
               node: (
                 <Slot
                   variant={row.variant}

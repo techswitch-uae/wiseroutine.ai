@@ -30,15 +30,21 @@ import {
   Slot,
   SourceMark,
   StateRow,
+  Stepper,
+  SwitchRow,
   TimeStepper,
   type ToastMessage,
   Toasts,
   Toggle,
   UpdatePill,
 } from "./components";
-import { TODAY_FIXTURE } from "./fixtures";
+import { ACTIVITY_LIBRARY, TODAY_FIXTURE } from "./fixtures";
 import {
   AccountScreen,
+  type ActivityDraft,
+  ActivityForm,
+  ActivityLibrary,
+  ActivityRow,
   AppSidebar,
   CheckEmailScreen,
   type DayHoursDraft,
@@ -81,6 +87,96 @@ const Section: React.FC<{
     {children}
   </section>
 );
+
+/**
+ * The day grid with a block that can be picked up.
+ *
+ * Live rather than a still, because the whole point is what happens *during*
+ * the drag: the grid re-lays out under the cursor, so a drop onto an occupied
+ * stretch shows the lanes it will produce before the mouse comes up.
+ */
+const GalleryMovableDay: React.FC = () => {
+  const [at, setAt] = useState(GRID_DAY_START + 20 * 60_000);
+  const length = 10 * 60_000;
+
+  return (
+    <div style={{ width: 560 }}>
+      <DayGrid
+        dayStart={GRID_DAY_START}
+        dayEnd={GRID_DAY_START + 3 * 60 * 60_000}
+        timeZone="UTC"
+        onMove={(_key, startsAt) => setAt(startsAt)}
+        items={[
+          {
+            key: "m1",
+            startsAt: GRID_DAY_START + 60 * 60_000,
+            endsAt: GRID_DAY_START + 105 * 60_000,
+            node: (
+              <Slot
+                variant="meeting"
+                time=""
+                name="Product Operations"
+                meta="45 min"
+                source="M"
+              />
+            ),
+          },
+          {
+            key: "m2",
+            startsAt: GRID_DAY_START + 75 * 60_000,
+            endsAt: GRID_DAY_START + 105 * 60_000,
+            node: (
+              <Slot
+                variant="meeting"
+                time=""
+                name="Design review"
+                meta="30 min"
+                source="G"
+              />
+            ),
+          },
+          {
+            key: "stretch",
+            startsAt: at,
+            endsAt: at + length,
+            movable: true,
+            title: "Shoulder stretch",
+            node: (
+              <Slot
+                variant="recovery"
+                time=""
+                name="Shoulder stretch"
+                meta="10 min"
+              />
+            ),
+          },
+        ]}
+      />
+    </div>
+  );
+};
+
+/** The activity form drives a draft, so the gallery has to hold one. */
+const GalleryActivityForm: React.FC = () => {
+  const [draft, setDraft] = useState<ActivityDraft>({
+    name: "Shoulder stretch",
+    kind: "recovery",
+    sessionMinutes: 10,
+    perDay: 3,
+    land: "any",
+  });
+
+  return (
+    <ActivityForm
+      draft={draft}
+      origin="From the library · change anything"
+      note="Free covers two. A third asks you to swap one out or move to Pro."
+      onChange={setDraft}
+      onSubmit={() => undefined}
+      onCancel={() => undefined}
+    />
+  );
+};
 
 const Swatch: React.FC<{
   fill: string;
@@ -877,6 +973,110 @@ export const Gallery: React.FC = () => {
       </Section>
 
       <Section
+        title="Activities"
+        blurb="What the day is built out of. A library of starting points, the full form behind whichever one is picked, and the list of the ones that exist. Nothing in the library is a thing you have - it is a palette, and pressing a chip only opens the form."
+      >
+        <Row
+          name="Activity library"
+          tag="palette · dashed"
+          wide
+          why={
+            <>
+              Dashed chips, the kit's word for <b>not a real object yet</b> -
+              the same treatment an empty gap and a plan note get. The counter
+              against the title is the plan's limit stated before the choice is
+              made, rather than a refusal after it; at the limit the whole
+              palette greys out, because the answer is the same for every chip
+              in it.
+            </>
+          }
+        >
+          <ActivityLibrary
+            templates={ACTIVITY_LIBRARY}
+            used="0 of 2 used"
+            onPick={() => undefined}
+          />
+        </Row>
+
+        <Row
+          name="Activity form"
+          tag="form"
+          wide
+          why={
+            <>
+              Two steppers of equal weight, because "how long" and "how often"
+              are one decision made twice. The landing segments are a{" "}
+              <b>preference</b>, not a permission - the planner clamps them into
+              the nearest gap that will take the session, so the copy under them
+              says so rather than promising a fence it does not build. The note
+              beside the button states what the plan costs, in the plan's own
+              words.
+            </>
+          }
+        >
+          <GalleryActivityForm />
+        </Row>
+
+        <Row
+          name="Activity row"
+          tag="list"
+          wide
+          why={
+            <>
+              Pause comes before Remove. The free limit counts <i>active</i>{" "}
+              activities, so pausing is the swap the plan note talks about and
+              the only one that is reversible - a paused row keeps its rule in
+              neutral and says so with a static chip rather than dimming, which
+              would read as broken.
+            </>
+          }
+        >
+          <div style={{ width: 520 }}>
+            <ActivityRow
+              name="Shoulder stretch"
+              meta="10 min · 3 × day · any working hour"
+              isActive
+              onEdit={() => undefined}
+              onToggle={() => undefined}
+              onRemove={() => undefined}
+            />
+            <ActivityRow
+              name="Breathing"
+              meta="3 min · 2 × day · mornings"
+              isActive={false}
+              onEdit={() => undefined}
+              onToggle={() => undefined}
+              onRemove={() => undefined}
+            />
+          </div>
+        </Row>
+
+        <Row
+          name="Stepper / switch row"
+          tag="form"
+          why={
+            <>
+              The wide sibling of the time stepper: a field in a form rather
+              than a detail beside a slot, so it names itself and fills its
+              column. Both ends of the range <b>disable</b> - a control that
+              keeps accepting presses and never changes is worse than one that
+              stops. The switch row sinks to the inset surface, because one
+              setting inside a form is not an object in its own right.
+            </>
+          }
+        >
+          <div style={{ width: 320, display: "grid", gap: 14 }}>
+            <Stepper label="How long" value="1 min" canDecrease={false} />
+            <SwitchRow
+              title="Remind me when it starts"
+              note="Not wired to anything yet - shown here as the shape, not the feature."
+              checked
+            />
+          </div>
+        </Row>
+      </Section>
+
+      <Section
         title="Placement by hand"
         blurb="Free users put every slot where it goes, so the kit needs the intermediate states a scheduler would otherwise hide: the drag, the exact time, and the clash. All three are built from components above - nothing here is a new surface."
       >
@@ -1068,15 +1268,17 @@ export const Gallery: React.FC = () => {
       >
         <Row
           name="Set up module"
-          tag="rail · dismissable"
+          tag="rail · three real steps"
           why={
             <>
               Only the step in hand carries its explanation and its button - the
               ones after it are titles, because a checklist that argues for all
               of itself at once is a wall of text. The tick well is always drawn
-              so labels do not reflow as steps complete. Dismissing is
-              permanent, and the module also retires itself the moment a
-              calendar is connected.
+              so labels do not reflow as steps complete. Each step retires
+              itself by being <i>satisfied</i>, not pressed. Omit{" "}
+              <code>onDismiss</code> and there is no way out but finishing,
+              which is right when every step is something the app cannot work
+              without - the third specimen is that form.
             </>
           }
         >
@@ -1111,17 +1313,21 @@ export const Gallery: React.FC = () => {
               onDismiss={() => undefined}
             />
             <SetupModule
+              tone="dark"
               steps={[
                 { key: "cal", label: "Connect a calendar", done: true },
                 {
                   key: "act",
                   label: "Add two activities",
-                  detail: "Two is enough to see how a day fills in.",
-                  action: { label: "Add one", onClick: () => undefined },
+                  detail:
+                    "A stretch and something for your eyes is a good pair to start with.",
+                  action: {
+                    label: "Add an activity",
+                    onClick: () => undefined,
+                  },
                 },
                 { key: "hrs", label: "Confirm working hours" },
               ]}
-              onDismiss={() => undefined}
             />
           </div>
         </Row>
@@ -1238,6 +1444,28 @@ export const Gallery: React.FC = () => {
         title="The day as a surface"
         blurb="A ruled grid rather than a list of rows. A list gives every block its own start time and nothing to read it against, so a day of 11:58, 12:23, 12:48 looks like a series of mistakes - it is not, that is simply where the gaps were. The ruler is what makes that legible."
       >
+        <Row
+          name="Day grid / moving a block"
+          tag="drag · 5-minute snap"
+          wide
+          why={
+            <>
+              The card is its own handle - a grip glyph inside a ten-minute
+              block would cost more height than the block has - and a press on a
+              button inside it is still a press on that button. The drag re-lays
+              the grid out <b>live</b> rather than floating a copy over it: drop
+              this onto the two meetings and all three take a lane, in the same
+              maths that will be there once the mouse comes up. The ruler itself
+              is frozen for the duration, so the block cannot chase a target
+              that moves because it moved. Arrow keys do the same job five
+              minutes at a time, because a placement nobody can make without a
+              mouse is a placement half the people using this cannot make.
+            </>
+          }
+        >
+          <GalleryMovableDay />
+        </Row>
+
         <Row
           name="Day grid"
           tag="adaptive 5-minute rows"

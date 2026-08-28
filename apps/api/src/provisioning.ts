@@ -1,9 +1,6 @@
 import {
-  ACTIVITY_TEMPLATES,
   applyMigrations,
   type Credentials,
-  createActivity,
-  createUserDatabase,
   type Directory,
   markDatabaseReady,
   USER_MIGRATIONS,
@@ -68,42 +65,30 @@ async function createTursoDatabase(
 export interface ProvisionResult {
   credentials: Credentials;
   applied: string[];
-  seeded: number;
 }
 
 /**
- * Create, migrate and seed a user's database, then mark it ready.
+ * Create and migrate a user's database, then mark it ready.
  *
- * Safe to call again on a half-finished account: creation tolerates 409,
- * migrations track what they have applied, and seeding is skipped if the
- * database already has activities.
+ * Safe to call again on a half-finished account: creation tolerates 409 and
+ * migrations track what they have already applied.
  */
 export async function provisionUserDatabase(
   directory: Directory,
   env: ServerEnv,
   params: { userId: string; databaseName: string },
-  now: number,
-  newId: () => string,
 ): Promise<ProvisionResult> {
   await createTursoDatabase(env, params.databaseName);
 
   const credentials = userCredentials(env, params.databaseName);
   const { applied } = await applyMigrations(credentials, USER_MIGRATIONS);
 
-  const db = createUserDatabase(credentials);
-  let seeded = 0;
-
-  // Give a new account the starter library from screen 3e, so the first plan
-  // has something to place rather than an empty day.
-  const existing = await db.activity.count();
-  if (existing === 0) {
-    for (const template of ACTIVITY_TEMPLATES) {
-      await createActivity(db, template, now, newId);
-      seeded++;
-    }
-  }
-
+  // Nothing is seeded. A starter library used to be written here, which handed
+  // a free account six *active* activities against a limit of two - so the
+  // first thing anyone saw was a set-up step already impossible to satisfy.
+  // The library is a palette now: it lives in the design kit as
+  // `ACTIVITY_LIBRARY` and creates nothing until the user picks from it.
   await markDatabaseReady(directory, params.userId);
 
-  return { credentials, applied, seeded };
+  return { credentials, applied };
 }

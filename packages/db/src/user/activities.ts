@@ -117,71 +117,41 @@ export function toSchedulerActivity(row: ActivityRow): Activity {
   };
 }
 
-/** The starter library from screen 3e. Seeded into a user's database when it
- *  is provisioned. */
-export const ACTIVITY_TEMPLATES: readonly ActivityInput[] = [
-  {
-    name: "Back & shoulder stretch",
-    kind: "recovery",
-    minimumType: "countPerDay",
-    minimumValue: 3,
-    sessionMinutes: 10,
-    importance: "normal",
-    graceMinutes: 3,
-    bufferBeforeMeetingMinutes: 5,
-    anchorMinutes: [10 * 60, 15 * 60],
-  },
-  {
-    name: "Eye rest",
-    kind: "recovery",
-    minimumType: "countPerDay",
-    minimumValue: 4,
-    sessionMinutes: 5,
-    importance: "normal",
-    graceMinutes: 1,
-    bufferBeforeMeetingMinutes: 0,
-  },
-  {
-    name: "Deep work",
-    kind: "focus",
-    minimumType: "durationPerDay",
-    minimumValue: 120,
-    sessionMinutes: 25,
-    importance: "high",
-    graceMinutes: 10,
-    bufferBeforeMeetingMinutes: 5,
-    anchorMinutes: [9 * 60],
-  },
-  {
-    name: "Walk",
-    kind: "recovery",
-    minimumType: "countPerWeek",
-    minimumValue: 3,
-    sessionMinutes: 15,
-    importance: "low",
-    graceMinutes: 10,
-    bufferBeforeMeetingMinutes: 5,
-    anchorMinutes: [13 * 60],
-  },
-  {
-    name: "Meditation",
-    kind: "recovery",
-    minimumType: "countPerDay",
-    minimumValue: 1,
-    sessionMinutes: 10,
-    importance: "normal",
-    graceMinutes: 3,
-    bufferBeforeMeetingMinutes: 0,
-    anchorMinutes: [7 * 60],
-  },
-  {
-    name: "Hydration",
-    kind: "recovery",
-    minimumType: "countPerDay",
-    minimumValue: 4,
-    sessionMinutes: 5,
-    importance: "low",
-    graceMinutes: 1,
-    bufferBeforeMeetingMinutes: 0,
-  },
-];
+/**
+ * Replace an activity's preferred windows.
+ *
+ * Wholesale rather than a diff: the set is two or three rows and the caller
+ * always knows the whole answer, so reconciling row by row would be work with
+ * no reader.
+ */
+export async function setActivityWindows(
+  db: UserDatabase,
+  activityId: string,
+  anchorMinutes: readonly number[],
+  newId: () => string,
+): Promise<void> {
+  await db.activityWindow.deleteMany({ where: { activityId } });
+  for (const minutes of anchorMinutes) {
+    await db.activityWindow.create({
+      data: { id: newId(), activityId, anchorMinutes: minutes },
+    });
+  }
+}
+
+/**
+ * Take an activity out of the library for good.
+ *
+ * Archived rather than deleted: its slots are the history the missed list and
+ * every past day read, and a foreign key that suddenly points at nothing turns
+ * a completed week into blanks.
+ */
+export async function archiveActivity(
+  db: UserDatabase,
+  activityId: string,
+  now: number,
+): Promise<void> {
+  await updateActivity(db, activityId, {
+    archivedAt: at(now),
+    isActive: false,
+  });
+}

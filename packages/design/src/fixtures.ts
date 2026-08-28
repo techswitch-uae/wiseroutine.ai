@@ -1,4 +1,4 @@
-import type { TodaySlotFixture } from "./screens";
+import type { ActivityTemplate, TodaySlotFixture } from "./screens";
 
 /**
  * Sample data for the collection.
@@ -34,5 +34,67 @@ export const TODAY_FIXTURE: readonly TodaySlotFixture[] = [
     time: "13:05",
     name: "Eye rest",
     meta: "5 min · before three calls",
+  },
+];
+
+/**
+ * What "add an activity" starts from.
+ *
+ * A palette, not data: nothing here exists until someone picks it and presses
+ * Add. It used to be seeded into every new database, which gave a free account
+ * six active activities against a limit of two and made "0 of 2 used" a lie
+ * the first time anyone read it.
+ *
+ * Counts and lengths are the ones from the design. They are defaults, and the
+ * form exists to change them.
+ */
+export const ACTIVITY_LIBRARY: readonly ActivityTemplate[] = [
+  {
+    key: "shoulder-stretch",
+    name: "Shoulder stretch",
+    kind: "recovery",
+    sessionMinutes: 10,
+    perDay: 3,
+    land: "any",
+  },
+  {
+    key: "eye-rest",
+    name: "Eye rest",
+    kind: "recovery",
+    sessionMinutes: 5,
+    perDay: 4,
+    land: "any",
+  },
+  {
+    key: "walk",
+    name: "Walk",
+    kind: "recovery",
+    sessionMinutes: 15,
+    perDay: 1,
+    land: "afternoon",
+  },
+  {
+    key: "deep-work",
+    name: "Deep work",
+    kind: "focus",
+    sessionMinutes: 25,
+    perDay: 4,
+    land: "morning",
+  },
+  {
+    key: "breathing",
+    name: "Breathing",
+    kind: "recovery",
+    sessionMinutes: 3,
+    perDay: 2,
+    land: "any",
+  },
+  {
+    key: "water",
+    name: "Water",
+    kind: "recovery",
+    sessionMinutes: 1,
+    perDay: 6,
+    land: "any",
   },
 ];

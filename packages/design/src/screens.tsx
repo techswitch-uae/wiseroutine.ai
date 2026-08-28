@@ -22,6 +22,7 @@ import {
   Segmented,
   SelectField,
   Slot,
+  Stepper,
   TimeField,
   TimeStepper,
   Toggle,
@@ -932,4 +933,257 @@ export const PlacingScreen: React.FC<{ user?: ScreenUser }> = ({ user }) => (
       />
     </div>
   </AppFrame>
+);
+
+/* ── Activities ──────────────────────────────────────────────────────────── */
+
+/**
+ * Where in the day an activity should land.
+ *
+ * A preference, not a rule, and the words are chosen to say so. The planner
+ * resolves these into preferred instants and then places each session in the
+ * nearest gap that will take it - so "Mornings" pulls, it does not fence.
+ * Calling it a permission ("may only be placed in the morning") would describe
+ * a constraint the scheduler does not have.
+ */
+export type ActivityLanding = "any" | "morning" | "afternoon";
+
+/** Private: the form is the only thing that offers these, and exporting a
+ *  constant beside components is what breaks fast refresh for the whole file. */
+const LANDINGS: readonly { value: ActivityLanding; label: string }[] = [
+  { value: "any", label: "Any working hour" },
+  { value: "morning", label: "Mornings" },
+  { value: "afternoon", label: "Afternoons" },
+];
+
+/**
+ * An activity as the form holds it, before it is an activity.
+ *
+ * Deliberately not the API's shape: `perDay` and `sessionMinutes` are the two
+ * numbers a person actually decides ("ten minutes, three times a day"), and
+ * the caller turns them into the minimum the schema stores.
+ */
+export interface ActivityDraft {
+  name: string;
+  kind: "recovery" | "focus" | "task";
+  /** How long one session runs. */
+  sessionMinutes: number;
+  /** How many of them a day. */
+  perDay: number;
+  land: ActivityLanding;
+}
+
+/** One thing to start from. `key` is the identity - two entries may share a
+ *  name once the user has renamed one. */
+export interface ActivityTemplate extends ActivityDraft {
+  key: string;
+}
+
+/**
+ * The library, and the way out of it.
+ *
+ * Chips rather than a list of cards: these are starting points, not things
+ * that exist yet, and the dashed edge is the kit's word for "not a real object
+ * on the page". The last one carries no duration because it has none - it is
+ * the door to describing your own.
+ */
+export const ActivityLibrary: React.FC<{
+  templates: readonly ActivityTemplate[];
+  /** Shown against the title, e.g. "0 of 2 used". Omit on an unlimited plan. */
+  used?: string;
+  /** Null is "something else" - the caller starts an empty draft. */
+  onPick: (template: ActivityTemplate | null) => void;
+  /** Greys the whole library out at the plan's limit, so the choice is made
+   *  in one place rather than refused after the fact. */
+  disabled?: boolean;
+}> = ({ templates, used, onPick, disabled }) => (
+  <Card
+    title="Add an activity"
+    note="Start from one of these and adjust it, or describe your own. Everything is editable afterwards."
+    {...(used
+      ? { action: <span className="wr-setup-count">{used}</span> }
+      : {})}
+  >
+    <div className="wr-library">
+      {templates.map((template) => (
+        <button
+          key={template.key}
+          type="button"
+          className="wr-chip wr-chip-dashed wr-library-chip"
+          disabled={disabled}
+          onClick={() => onPick(template)}
+        >
+          <b>{template.name}</b> {template.sessionMinutes} min
+        </button>
+      ))}
+      <button
+        type="button"
+        className="wr-chip wr-chip-dashed wr-library-chip"
+        disabled={disabled}
+        onClick={() => onPick(null)}
+      >
+        <b>Something else</b>
+      </button>
+    </div>
+  </Card>
+);
+
+/**
+ * The activity itself, in full.
+ *
+ * Every field is one the scheduler reads. There is no "remind me" switch here
+ * even though the design carries one: nothing in the app sends a notification
+ * yet, and a switch that records a preference nobody acts on is a promise the
+ * product cannot keep. It goes in when the notification does.
+ */
+export const ActivityForm: React.FC<{
+  draft: ActivityDraft;
+  onChange: (next: ActivityDraft) => void;
+  onSubmit: () => void;
+  onCancel?: () => void;
+  /**
+   * Where this draft came from, said under the title. Its absence is what
+   * makes the name editable - a library pick is named already, and anything
+   * else has to be named by the person describing it.
+   */
+  origin?: string;
+  submitLabel?: string;
+  /** The sentence beside the button: what this costs on this plan. */
+  note?: React.ReactNode;
+  busy?: boolean;
+}> = ({
+  draft,
+  onChange,
+  onSubmit,
+  onCancel,
+  origin,
+  submitLabel = "Add activity",
+  note,
+  busy,
+}) => {
+  const set = <K extends keyof ActivityDraft>(
+    key: K,
+    value: ActivityDraft[K],
+  ) => onChange({ ...draft, [key]: value });
+
+  // Out of the JSX: a ternary whose branches are a literal and a variable is
+  // the shape that leaks a stray value into the tree when the variable is not
+  // a string.
+  const label = busy ? "Saving…" : submitLabel;
+
+  return (
+    <Card
+      title={draft.name || "New activity"}
+      {...(origin ? { note: origin } : {})}
+    >
+      {origin ? null : (
+        <Field
+          label="Name"
+          value={draft.name}
+          placeholder="Walk round the block"
+          onChange={(event) => set("name", event.target.value)}
+        />
+      )}
+
+      <div className="wr-activity-pair">
+        <Stepper
+          label="How long"
+          value={`${draft.sessionMinutes} min`}
+          // Five-minute steps below the hour, because that is the ruler the
+          // day is drawn on and a 7-minute block cannot be placed on it.
+          canDecrease={draft.sessionMinutes > 1}
+          canIncrease={draft.sessionMinutes < 120}
+          onStep={(direction) =>
+            set("sessionMinutes", stepMinutes(draft.sessionMinutes, direction))
+          }
+        />
+        <Stepper
+          label="How often"
+          value={`${draft.perDay} × day`}
+          canDecrease={draft.perDay > 1}
+          canIncrease={draft.perDay < 12}
+          onStep={(direction) => set("perDay", draft.perDay + direction)}
+        />
+      </div>
+
+      <div className="wr-field">
+        <span className="wr-label">When it should land</span>
+        <Segmented
+          label="When it should land"
+          options={LANDINGS}
+          value={draft.land}
+          onChange={(value) => set("land", value)}
+        />
+        <p className="wr-activity-hint">
+          A preference, not a rule - it lands as close to that as the day
+          allows.
+        </p>
+      </div>
+
+      <div className="wr-activity-foot">
+        <Button
+          variant="primary"
+          disabled={busy || draft.name.trim() === ""}
+          onClick={onSubmit}
+        >
+          {label}
+        </Button>
+        {onCancel ? (
+          <Button variant="quiet" onClick={onCancel}>
+            Cancel
+          </Button>
+        ) : null}
+        {note ? <span className="wr-activity-note">{note}</span> : null}
+      </div>
+    </Card>
+  );
+};
+
+/** One minute at a time under five, then five - so "1 min" is reachable and
+ *  an hour is not forty presses away. */
+const stepMinutes = (value: number, direction: -1 | 1): number => {
+  const step = value < 5 || (direction === -1 && value <= 5) ? 1 : 5;
+  return Math.min(120, Math.max(1, value + step * direction));
+};
+
+/**
+ * An activity that exists, in the list of them.
+ *
+ * Pause rather than delete is the first way out, because the free limit counts
+ * active ones - pausing is the swap the plan note talks about, and it keeps
+ * the history the missed list reads.
+ */
+export const ActivityRow: React.FC<{
+  name: string;
+  /** "10 min · 3 × day · mornings", composed by the caller. */
+  meta: string;
+  isActive: boolean;
+  onEdit?: () => void;
+  onToggle?: () => void;
+  onRemove?: () => void;
+  busy?: boolean;
+}> = ({ name, meta, isActive, onEdit, onToggle, onRemove, busy }) => (
+  <div className="wr-activity-row">
+    <span className={isActive ? "wr-rule" : "wr-rule wr-rule-neutral"} />
+    <div className="wr-activity-body">
+      <div className="wr-slot-name">{name}</div>
+      <div className="wr-slot-meta">{meta}</div>
+    </div>
+    {isActive ? null : <Chip variant="static">Paused</Chip>}
+    {onEdit ? (
+      <Button variant="quiet" onClick={onEdit}>
+        Edit
+      </Button>
+    ) : null}
+    {onToggle ? (
+      <Button variant="secondary" disabled={busy} onClick={onToggle}>
+        {isActive ? "Pause" : "Resume"}
+      </Button>
+    ) : null}
+    {onRemove ? (
+      <Button variant="quiet" disabled={busy} onClick={onRemove}>
+        Remove
+      </Button>
+    ) : null}
+  </div>
 );

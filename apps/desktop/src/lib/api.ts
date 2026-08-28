@@ -264,6 +264,43 @@ export interface CalendarsResponse {
   calendars: CalendarSummary[];
 }
 
+/**
+ * One activity as the server describes it.
+ *
+ * `minimum` is the schema's own shape - a type and a value, because "four
+ * times a day", "two hours a day" and "three times a week" are one column
+ * pair. The Activities screen only writes `countPerDay`; the other two are
+ * read back and shown, not offered.
+ */
+export interface ActivityResponse {
+  id: string;
+  name: string;
+  kind: "recovery" | "focus" | "task";
+  isActive: boolean;
+  minimum: { type: string; value: number };
+  sessionMinutes: number;
+  daysOfWeek: number;
+  importance: string;
+  graceMinutes: number;
+  bufferBeforeMeetingMinutes: number;
+  /** Minutes from local midnight the planner aims for. Empty is "anywhere". */
+  preferredWindows: number[];
+}
+
+/** Everything `POST /activities` and `PATCH /activities/:id` accept. Every
+ *  field is optional on the patch; `preferredWindows` left out means "leave
+ *  them alone", and `[]` means "nowhere in particular". */
+export interface ActivityInput {
+  name?: string;
+  kind?: "recovery" | "focus" | "task";
+  minimumType?: "countPerDay" | "durationPerDay" | "countPerWeek";
+  minimumValue?: number;
+  sessionMinutes?: number;
+  importance?: string;
+  isActive?: boolean;
+  preferredWindows?: number[];
+}
+
 export interface MissedItem {
   id: string;
   title: string;
@@ -550,6 +587,35 @@ export const api = {
   /** Ask for a sync now rather than at the next tick - the refresh button. */
   sync: () => request<{ ok: true }>("/sync", post({})),
 
+  /** Every activity that has not been archived, paused ones included. */
+  activities: () => request<ActivityResponse[]>("/activities"),
+
+  /** 402 when the plan's active limit is already reached - `ApiError.planLimit`
+   *  carries the server's own two sentences, which is what the screen shows. */
+  createActivity: (input: ActivityInput) =>
+    request<{ id: string }>("/activities", post(input)),
+
+  updateActivity: (id: string, patch: ActivityInput) =>
+    request<void>(`/activities/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  /** Archived server-side: the slots it already produced stay readable. */
+  removeActivity: (id: string) =>
+    request<void>(`/activities/${id}`, { method: "DELETE" }),
+
+  /**
+   * Put a slot somewhere else, by hand.
+   *
+   * Not queued when offline the way start/complete are. Those describe
+   * something that happened at a time we can still vouch for; a placement is a
+   * decision about a plan that may have been rewritten since, and replaying it
+   * an hour later would move a slot the user is no longer looking at.
+   */
+  moveSlot: (id: string, startsAt: number, endsAt: number) =>
+    request<void>(`/slots/${id}/move`, post({ startsAt, endsAt })),
+
   missed: () => request<MissedItem[]>("/missed"),
   plan: (trigger = "user_request") =>
     request<{ planRunId: string; placed: number; unplaced: unknown[] }>(
@@ -576,6 +642,10 @@ export interface TimelineRow {
   meta?: string;
   done?: boolean;
   slotId?: string;
+  /** Ours, so it can be moved. A meeting never is - we do not write back to
+   *  the calendar it came from, and a block that slides but changes nothing
+   *  would say we do. */
+  movable?: boolean;
 }
 
 export function buildTimeline(data: TodayResponse, now: number): TimelineRow[] {
@@ -595,6 +665,7 @@ export function buildTimeline(data: TodayResponse, now: number): TimelineRow[] {
       title: slot.title,
       meta: `${Math.round((slot.endsAt - slot.startsAt) / 60_000)} min`,
       done: slot.status === "completed",
+      movable: true,
     });
   }
 

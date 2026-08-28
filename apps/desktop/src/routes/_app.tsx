@@ -34,13 +34,14 @@ import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
 /**
  * The navigation, which is every page that exists.
  *
- * Week, Activities, Reminders and Calendars were listed here as the intended
- * information architecture. They had no routes, so each was a dead click - the
- * rail offered five destinations and reached two. The design kit still carries
- * them as the plan; this list is the product.
+ * Week and Reminders were listed here too as the intended information
+ * architecture. They had no routes, so each was a dead click - the rail
+ * offered five destinations and reached two. The design kit still carries them
+ * as the plan; this list is the product.
  */
 const NAV = [
   { key: "today", label: "Today", to: "/" },
+  { key: "activities", label: "Activities", to: "/activities" },
   { key: "calendars", label: "Calendars", to: "/calendars" },
   { key: "settings", label: "Settings", to: "/settings" },
 ] as const;

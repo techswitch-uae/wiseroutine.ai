@@ -347,21 +347,17 @@ export function createAuth(directory: Directory, env: ServerEnv) {
           /**
            * Signup provisions infrastructure.
            *
-           * One database per user means this is a Turso create, a migration
-           * run and a seed - awaited here, not deferred, because the session
-           * about to be issued is worthless until the database exists. It is
-           * idempotent, so a retried signup recovers rather than leaving half
-           * an account.
+           * One database per user means this is a Turso create and a migration
+           * run - awaited here, not deferred, because the session about to be
+           * issued is worthless until the database exists. It is idempotent, so
+           * a retried signup recovers rather than leaving half an account.
            */
           after: async (user) => {
-            await provisionUserDatabase(
-              directory,
-              env,
+            await provisionUserDatabase(directory, env, {
+              userId: user.id,
               // The name the insert actually used, not one recomputed here.
-              { userId: user.id, databaseName: String(user.databaseName) },
-              Date.now(),
-              () => crypto.randomUUID(),
-            );
+              databaseName: String(user.databaseName),
+            });
           },
         },
       },

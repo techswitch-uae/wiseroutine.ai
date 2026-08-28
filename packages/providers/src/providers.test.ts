@@ -179,10 +179,7 @@ describe("decodeIdToken", () => {
 });
 
 /** Answer one Graph call with a canned payload, then put `fetch` back. */
-async function withFetch<T>(
-  body: unknown,
-  run: () => Promise<T>,
-): Promise<T> {
+async function withFetch<T>(body: unknown, run: () => Promise<T>): Promise<T> {
   const real = globalThis.fetch;
   globalThis.fetch = (async () =>
     new Response(JSON.stringify(body), {

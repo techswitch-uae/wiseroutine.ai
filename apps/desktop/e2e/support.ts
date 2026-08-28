@@ -1,4 +1,5 @@
 import { test as base, expect } from "@playwright/test";
+import { API_URL as DEFAULT_API_URL, E2E_SECRET } from "./environment";
 
 /**
  * What a scenario needs before it can start clicking.
@@ -10,8 +11,16 @@ import { test as base, expect } from "@playwright/test";
  * rather than a loosened sign-in.
  */
 
-const API_URL = process.env.E2E_API_URL ?? "http://localhost:8787";
-const SECRET = process.env.E2E_SECRET ?? "";
+/**
+ * The Worker this run started - see `playwright.config.ts`.
+ *
+ * Still overridable, for the one case that is not a local run: pointing the
+ * suite at a deployed preview. Locally the defaults are the only correct
+ * answer, because the stack on those ports is the only one whose database
+ * this suite is allowed to empty.
+ */
+const API_URL = process.env.E2E_API_URL ?? DEFAULT_API_URL;
+const SECRET = process.env.E2E_SECRET ?? E2E_SECRET;
 
 /**
  * Where the app keeps its session token.
