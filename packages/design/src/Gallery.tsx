@@ -31,6 +31,8 @@ import {
   SourceMark,
   StateRow,
   TimeStepper,
+  type ToastMessage,
+  Toasts,
   Toggle,
   UpdatePill,
 } from "./components";
@@ -107,6 +109,7 @@ export const Gallery: React.FC = () => {
   const [email, setEmail] = useState("mara@studio.com");
   const [code, setCode] = useState("418");
   const [draftName, setDraftName] = useState("Mara Kovac");
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [hours, setHours] = useState("working");
   const [dayHours, setDayHours] = useState<DayHoursDraft>({
     dayStartMinutes: 8 * 60 + 30,
@@ -454,6 +457,71 @@ export const Gallery: React.FC = () => {
               onChange={setGrace}
             />
           </div>
+        </Row>
+
+        <Row
+          name="Toast"
+          tag="failure"
+          why={
+            <>
+              The other half of a control that commits on click. A toggle saves
+              itself, so <b>there is no button left to report through</b> - the
+              request fails a moment later and without this the only sign is the
+              switch quietly moving back. Every message here is something that
+              did not happen, which is why the layer is{" "}
+              <code>role="alert"</code> and never carries a success.
+              <br />
+              <br />
+              In-app rather than an OS notification: a system notification for
+              "couldn't save that" arrives outside the window the user is
+              looking at, needs a permission granted first, and is dropped
+              without trace by Do Not Disturb. Reach for the OS when the app is{" "}
+              <i>not</i> in front of the user - a slot starting, a session
+              ending.
+              <br />
+              <br />
+              The component takes a list and a dismiss; how long one lives is
+              the app's policy, not the component's.
+            </>
+          }
+        >
+          {/* Un-fixed so the card can be read in place. The live layer below
+              shows where it actually sits. */}
+          <div className="gl-toast-flow">
+            <Toasts
+              items={[
+                { id: "one", text: "The day must end after it starts" },
+                {
+                  id: "two",
+                  text: "No connection - that setting wasn't saved.",
+                },
+              ]}
+            />
+          </div>
+
+          <div className="gl-set">
+            <Button
+              variant="secondary"
+              onClick={() =>
+                setToasts((shown) => [
+                  ...shown,
+                  {
+                    id: String(shown.length + 1),
+                    text: "Couldn't save that setting. Try again.",
+                  },
+                ])
+              }
+            >
+              Raise one for real
+            </Button>
+          </div>
+
+          <Toasts
+            items={toasts}
+            onDismiss={(id) =>
+              setToasts((shown) => shown.filter((item) => item.id !== id))
+            }
+          />
         </Row>
       </Section>
 

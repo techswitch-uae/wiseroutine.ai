@@ -34,3 +34,7 @@
 .gl-elev { width: 150px; padding: 14px; border-radius: 14px; background: var(--wr-card); }
 .gl-elev b { font: 600 12px var(--font-body); }
 .gl-elev span { display: block; font: 400 10.5px var(--font-body); color: var(--wr-text-soft); margin-top: 2px; }
+/* The toast layer is fixed to the window; the catalogue needs to show the card
+   itself in the column beside its notes, so this one preview sits in flow. The
+   live layer in the same row still demonstrates where it really lands. */
+.gl-toast-flow .wr-toasts { position: static; }
