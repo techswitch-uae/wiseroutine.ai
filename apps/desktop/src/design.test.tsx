@@ -63,7 +63,7 @@ const handle = (container: HTMLElement, name: string): Element => {
   return el;
 };
 
-test("everything happening at once gets its own lane, and a lone block spans them", () => {
+test("everything happening at once gets its own column, shortest first", () => {
   const { container } = render(
     <DayGrid
       dayStart={at(9)}
@@ -76,24 +76,27 @@ test("everything happening at once gets its own lane, and a lone block spans the
         block("meeting-b", at(10), at(11)),
         block("stretch", at(10), at(10, 10)),
         block("eyes", at(10), at(10, 10)),
-        block("water", at(10), at(10, 10)),
+        block("water", at(10), at(10, 5)),
         block("alone", at(11, 30), at(11, 45)),
       ]}
     />,
   );
 
   const columns = [...container.querySelectorAll(".wr-daygrid-item")].map(
-    (el) => (el as HTMLElement).style.gridColumn,
+    (el) => (el as HTMLElement).style.left,
   );
 
-  // Five at once means five lanes, each one column wide and none shared.
+  // Six at once means six columns, each one column wide and none shared.
   const clashing = columns.slice(0, 5);
   expect(new Set(clashing).size).toBe(5);
-  for (const column of clashing) expect(column).toMatch(/span 1$/);
 
-  // The block with nothing beside it keeps the whole width. Without this one
+  // The block with nothing beside it keeps the whole width. Without this, one
   // clash at ten in the morning would narrow every other block in the day.
-  expect(columns[5]).toBe("2 / span 5");
+  const alone = [...container.querySelectorAll(".wr-daygrid-item")].find((el) =>
+    el.textContent?.includes("alone"),
+  ) as HTMLElement;
+  expect(alone.style.left).toBe("0%");
+  expect(alone.style.width).toBe("100%");
 });
 
 test("a movable block steps five minutes at a time from the keyboard", () => {

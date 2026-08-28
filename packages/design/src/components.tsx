@@ -1,5 +1,13 @@
 import type React from "react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  type DayScale,
+  dropAt,
+  layoutDay,
+  type PlacedBlock,
+  SNAP_MINUTES,
+  yOf,
+} from "./daygrid";
 import {
   clockOf,
   DAY_NAMES,
@@ -721,54 +729,50 @@ export type DayGridProps = {
   items: readonly DayGridItem[];
   /** Drawn only when it falls inside the window. */
   now?: number;
-  /**
-   * Height of a quarter-hour, and the only scale there is.
-   *
-   * The default fits a card in ten minutes and comfortably in fifteen.
-   * Anything shorter is a sliver with a clipped name, the way an eight-minute
-   * event is in every calendar - raise this to trade scroll for room.
-   */
+  /** Height of a quarter-hour. The scale, and the only one there is. */
   quarterStep?: number;
+  /** The shortest a block may be drawn - see `DayScale.minHeight`. */
+  minBlockHeight?: number;
   /** Fires once, on drop, with instants already snapped to the ruler. Without
    *  it nothing is draggable however the items are marked. */
   onMove?: (key: string, startsAt: number, endsAt: number) => void;
 };
 
-const STEP = 5 * 60_000;
 const QUARTER = 15 * 60_000;
 const HOUR = 60 * 60_000;
+
+/** How far the pointer travels before a press becomes a drag. Below this it is
+ *  a click, and a card that jumps on every click is unusable. */
+const DRAG_THRESHOLD = 4;
 
 /**
  * The day as a ruled surface.
  *
- * Every five minutes is the same height, everywhere. It did not used to be: a
- * stretch something occupied got room to be read and an empty one collapsed to
- * a line, on the argument that a uniform scale forces a bad choice either way -
- * fine enough to read a 15-minute block and the empty afternoon is a screen of
- * nothing, coarse enough to fit the day and every block is a crowded sliver.
+ * Every minute is the same height, everywhere. It did not used to be: a stretch
+ * something occupied got room to be read and an empty one collapsed to a line,
+ * on the argument that a uniform scale forces a bad choice either way - fine
+ * enough to read a short block and the empty afternoon is a screen of nothing,
+ * coarse enough to fit the day and every block is a sliver.
  *
  * That argument was right about the scroll and wrong about the cost. A ruler
  * that rescales as things move is a ruler you cannot drag on: picking a block
  * up changes what is occupied, which changes every row height, which moves the
  * target out from under the cursor. Nothing about a surface you place things on
- * by hand may depend on where the things currently are.
+ * by hand may depend on where the things currently are. The sliver problem is
+ * solved at the other end instead, by `minBlockHeight` - a block shorter than
+ * one line of text is drawn as one line of text, and everything above that is
+ * its true duration.
  *
- * The ruler is a real CSS grid of five-minute rows, not a stack of absolutely
- * positioned boxes, and that is the other half of the point. A row is
- * `minmax(floor, auto)`, so the browser grows it to whatever the card inside
- * actually needs and the line below moves with it. Measuring cards in JS to
- * guess a height is what made blocks overflow their slot before: a live card
- * wants 90px and a quarter-hour was hardcoded to 46, so it spilled over the
- * next one. Here that cannot happen, because nothing is hardcoded - the grid
- * asks the content.
+ * Blocks are positioned absolutely against that scale rather than laid into
+ * grid rows. With a uniform ruler the two draw identically, and absolute
+ * positioning buys the thing rows cannot: a block may be taller than its own
+ * duration without pushing anything else down.
  *
- * Blocks snap to the five-minute ruler. Two minutes of rounding is invisible;
- * a block drawn between the lines is not.
- *
- * Blocks can also be dragged to another time. A drag re-lays the grid out live
- * rather than floating a card over it, which is the honest preview: if the drop
- * lands on top of a meeting, the two appear side by side exactly as they will
- * once it is released, because it is the same lane maths either way.
+ * The drag is the ordinary two-part one. The card follows the cursor exactly,
+ * because a card that snaps as you move it feels like it is fighting you; a
+ * shadow behind it shows where it would actually land, snapped to five minutes
+ * and laid out through the same function as every other block - so the preview
+ * is not an impression of the drop, it *is* the drop, drawn early.
  */
 export const DayGrid: React.FC<DayGridProps> = ({
   dayStart,
@@ -777,6 +781,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
   items,
   now,
   quarterStep = 64,
+  minBlockHeight = 46,
   onMove,
 }) => {
   const label = new Intl.DateTimeFormat("en-GB", {
@@ -786,148 +791,75 @@ export const DayGrid: React.FC<DayGridProps> = ({
     hourCycle: "h23",
   });
 
-  /** The block under the cursor, at the time the cursor currently proposes. */
-  const [drag, setDrag] = useState<{
-    key: string;
-    startsAt: number;
-    endsAt: number;
-  } | null>(null);
-  const surface = useRef<HTMLDivElement>(null);
-  /** Where the pointer took hold inside the card, so a block does not jump its
-   *  own height the moment it is picked up. */
-  const grab = useRef(0);
-
-  // The ruler starts on a quarter, whatever time the day does, so every hour
-  // and quarter line lands exactly on a row boundary rather than near one.
-  const origin = Math.floor(dayStart / QUARTER) * QUARTER;
-  const rowCount = Math.max(1, Math.ceil((dayEnd - origin) / STEP));
-  const rowOf = (at: number) =>
-    Math.min(rowCount, Math.max(0, Math.round((at - origin) / STEP)));
-
-  // The dragged block reads from the cursor rather than from its own row, so
-  // everything below - lanes, spans, the drop it will produce - is computed
-  // once, off the same list.
-  const shown = drag
-    ? items.map((item) =>
-        item.key === drag.key
-          ? { ...item, startsAt: drag.startsAt, endsAt: drag.endsAt }
-          : item,
-      )
-    : items;
-
-  // Half-open, and never shorter than one row: a block the grid could draw as
-  // nothing is a block nobody can read or click.
-  const placed = shown
-    .map((item) => {
-      const from = rowOf(item.startsAt);
-      return {
-        item,
-        from,
-        to: Math.max(from + 1, rowOf(item.endsAt)),
-        lane: 0,
-        span: 1,
-      };
-    })
-    .sort((a, b) => a.from - b.from || a.to - b.to);
-
-  // Lanes, so two things at once sit side by side instead of on top of each
-  // other. A double-booked hour is a real hour - two calendars can and do
-  // disagree - and stacking the cards makes it look like a rendering fault
-  // rather than the clash it is.
-  const laneEnds: number[] = [];
-  for (const block of placed) {
-    const free = laneEnds.findIndex((end) => end <= block.from);
-    const lane = free === -1 ? laneEnds.length : free;
-    laneEnds[lane] = block.to;
-    block.lane = lane;
-  }
-  const laneCount = Math.max(1, laneEnds.length);
-
-  // Then widen anything with nothing beside it. Without this one clash at
-  // 10:15 halves every other block in the day, which reads as a column layout
-  // the day does not have.
-  // ponytail: O(n²) over one day's blocks - a sweep if a week view ever shares
-  // this grid.
-  for (const block of placed) {
-    while (
-      block.lane + block.span < laneCount &&
-      !placed.some(
-        (other) =>
-          other !== block &&
-          other.lane === block.lane + block.span &&
-          other.from < block.to &&
-          other.to > block.from,
-      )
-    ) {
-      block.span += 1;
-    }
-  }
-
-  // One height, everywhere, and fixed rather than a minimum. `auto` would let
-  // a card taller than its own duration push the line below it down, which is
-  // the same failure as the old adaptive scale wearing a smaller hat: pick a
-  // ten-minute block up and every row under it moves. A block shorter than its
-  // card is drawn as the sliver it is and clipped - see `.wr-daygrid-item`.
-  const rows = `repeat(${rowCount}, ${(quarterStep / (QUARTER / STEP)).toFixed(2)}px)`;
-
-  const ticks: number[] = [];
-  for (let at = origin; at < dayEnd; at += QUARTER) ticks.push(at);
+  const scale: DayScale = {
+    dayStart,
+    pxPerMinute: quarterStep / 15,
+    minHeight: minBlockHeight,
+  };
 
   /**
-   * Which instant a screen position points at.
+   * The drag in progress.
    *
-   * Read off the rendered ticks rather than computed from a scale, because
-   * this ruler is deliberately not linear - an idle stretch is collapsed to a
-   * line - and pixels-per-minute would land a drop an hour out. The ticks are
-   * the only thing that knows the real mapping, so they are what is asked.
-   *
-   * ponytail: measures every tick on each pointer move. Fine for one day's
-   * ~60 marks; cache the table at drag start if a week view shares this grid.
+   * `pointer` is where the cursor is, in client coordinates, and is what the
+   * floating card follows. `startsAt` is where the drop would land, snapped.
+   * They are deliberately two numbers rather than one derived from the other:
+   * the card must not snap, and the shadow must.
    */
-  const instantAt = (clientY: number): number => {
-    const marks = [
-      ...(surface.current?.querySelectorAll<HTMLElement>("[data-at]") ?? []),
-    ].map((el) => ({
-      at: Number(el.dataset.at),
-      top: el.getBoundingClientRect().top,
-    }));
+  const [drag, setDrag] = useState<{
+    key: string;
+    /** Where inside the card the pointer took hold, so it does not jump. */
+    grabX: number;
+    grabY: number;
+    x: number;
+    y: number;
+    startsAt: number;
+    endsAt: number;
+    /** False until the pointer has moved far enough to mean it. */
+    live: boolean;
+  } | null>(null);
 
-    const first = marks[0];
-    const last = marks.at(-1);
-    if (!first || !last) return dayStart;
-    if (clientY <= first.top) return first.at;
+  const surface = useRef<HTMLDivElement>(null);
 
-    for (let i = 1; i < marks.length; i += 1) {
-      const above = marks[i - 1] as { at: number; top: number };
-      const below = marks[i] as { at: number; top: number };
-      if (clientY < below.top) {
-        const span = below.top - above.top;
-        // A collapsed pair shares a pixel; there is nothing to interpolate.
-        const ratio = span > 0 ? (clientY - above.top) / span : 0;
-        return above.at + ratio * (below.at - above.at);
-      }
-    }
-    return last.at;
-  };
+  const height = yOf(dayEnd, scale);
 
-  /** Where a block of this length would land if dropped with its top here.
-   *  Snapped to the ruler, and never hanging off either end of the day. */
-  const propose = (item: DayGridItem, top: number) => {
-    const length = item.endsAt - item.startsAt;
-    const snapped = Math.round(instantAt(top) / STEP) * STEP;
-    const startsAt = Math.min(Math.max(snapped, dayStart), dayEnd - length);
-    return { key: item.key, startsAt, endsAt: startsAt + length };
-  };
+  // The shadow takes the dragged block's place in the layout, so the preview is
+  // laid out - column and all - by exactly the rules the drop will follow.
+  const shown =
+    drag?.live === true
+      ? items.map((item) =>
+          item.key === drag.key
+            ? { ...item, startsAt: drag.startsAt, endsAt: drag.endsAt }
+            : item,
+        )
+      : items;
+  const placed = layoutDay(shown, scale);
 
-  /** Commit, but only if the drop is somewhere else. A click that never moved
-   *  is a click, and must not spend a write saying nothing changed. */
-  const settle = () => {
-    if (!drag) return;
-    const from = items.find((item) => item.key === drag.key);
-    setDrag(null);
-    if (from && from.startsAt !== drag.startsAt) {
-      onMove?.(drag.key, drag.startsAt, drag.endsAt);
-    }
+  const ticks: number[] = [];
+  for (
+    let at = Math.ceil(dayStart / QUARTER) * QUARTER;
+    at < dayEnd;
+    at += QUARTER
+  ) {
+    ticks.push(at);
+  }
+
+  /**
+   * Where the top of the dragged card is, on the surface.
+   *
+   * Arithmetic against one rectangle read at the moment it is needed, rather
+   * than a table of element positions - the surface cannot move under its own
+   * drag, so this is exact for as long as the drag lasts.
+   */
+  const topOf = useCallback((clientY: number, grabY: number): number => {
+    const box = surface.current?.getBoundingClientRect();
+    return clientY - grabY - (box?.top ?? 0);
+  }, []);
+
+  const commit = (key: string, startsAt: number, endsAt: number) => {
+    const from = items.find((item) => item.key === key);
+    // A press that never moved is a press, and must not spend a write saying
+    // nothing changed.
+    if (from && from.startsAt !== startsAt) onMove?.(key, startsAt, endsAt);
   };
 
   const handles = (item: DayGridItem) => ({
@@ -940,62 +872,166 @@ export const DayGrid: React.FC<DayGridProps> = ({
       // handle. Without this every attempt to start a slot lifted it instead.
       if (event.button !== 0) return;
       if ((event.target as HTMLElement).closest("button")) return;
-      grab.current =
-        event.clientY - event.currentTarget.getBoundingClientRect().top;
-      event.currentTarget.setPointerCapture(event.pointerId);
+
+      // Stops the browser starting a text selection under the drag. It also
+      // suppresses the focus that a press would normally give, so that is done
+      // by hand - the keyboard move below needs the block focusable.
+      event.preventDefault();
+      event.currentTarget.focus();
+
+      const box = event.currentTarget.getBoundingClientRect();
       setDrag({
         key: item.key,
+        grabX: event.clientX - box.left,
+        grabY: event.clientY - box.top,
+        // The press point, and it stays the press point: until the drag goes
+        // live the update below returns unchanged, so the threshold is measured
+        // against where the press started rather than against the last move. A
+        // slow drag of two pixels a frame has to become a drag eventually.
+        x: event.clientX,
+        y: event.clientY,
         startsAt: item.startsAt,
         endsAt: item.endsAt,
+        live: false,
       });
     },
-    onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => {
-      if (drag?.key !== item.key) return;
-      setDrag(propose(item, event.clientY - grab.current));
-    },
-    onPointerUp: settle,
-    // Losing the pointer - a system gesture, a window switch - is not a drop.
-    onPointerCancel: () => setDrag(null),
     onKeyDown: (event: React.KeyboardEvent) => {
       const step =
-        event.key === "ArrowUp" ? -STEP : event.key === "ArrowDown" ? STEP : 0;
+        event.key === "ArrowUp"
+          ? -SNAP_MINUTES
+          : event.key === "ArrowDown"
+            ? SNAP_MINUTES
+            : 0;
       if (step === 0) return;
       event.preventDefault();
-      const length = item.endsAt - item.startsAt;
-      const startsAt = Math.min(
-        Math.max(item.startsAt + step, dayStart),
-        dayEnd - length,
+      const moved = dropAt(
+        yOf(item.startsAt, scale) + step * scale.pxPerMinute,
+        item,
+        scale,
+        dayEnd,
       );
-      if (startsAt !== item.startsAt) {
-        onMove?.(item.key, startsAt, startsAt + length);
-      }
+      commit(item.key, moved.startsAt, moved.endsAt);
     },
   });
+
+  const dragging = drag !== null;
+
+  /**
+   * What the drag needs from a render that may since have been replaced.
+   *
+   * The listeners below are attached once, when a drag starts, and outlive
+   * every render it causes - so they cannot close over props. A ref updated on
+   * every render is the smallest thing that keeps them current.
+   */
+  const latest = useRef({ items, scale, dayEnd, onMove });
+  useEffect(() => {
+    latest.current = { items, scale, dayEnd, onMove };
+  });
+
+  /**
+   * The drag itself: on the window, not on the block.
+   *
+   * The obvious place for these is the block being dragged, with
+   * `setPointerCapture` keeping the events coming once the cursor leaves it.
+   * That is what this used to do, and it broke in a way worth remembering: the
+   * layout used to hand blocks back in drawn order, so crossing another block
+   * changed this one's place in the list, React moved the DOM node to match,
+   * and moving a node releases its pointer capture. The drag froze mid-air.
+   *
+   * The layout no longer reorders, which fixes that. Listening on the window
+   * fixes the whole class of it: nothing about the drag depends any more on
+   * the dragged element keeping its identity, its position in the tree, or its
+   * capture - only on the pointer, which is the thing actually being followed.
+   *
+   * Escape cancels, and nothing selects text while a drag is live. The
+   * selection guard is on the body rather than the block, because the problem
+   * is not the block: a drag that wanders off the side of the calendar has the
+   * browser sweep a selection across whatever is out there.
+   */
+  useEffect(() => {
+    if (!dragging) return;
+
+    const onPointerMove = (event: PointerEvent) => {
+      setDrag((current) => {
+        if (!current) return current;
+
+        const live =
+          current.live ||
+          Math.abs(event.clientY - current.y) > DRAG_THRESHOLD ||
+          Math.abs(event.clientX - current.x) > DRAG_THRESHOLD;
+        if (!live) return current;
+
+        const { scale: at, dayEnd: end } = latest.current;
+        return {
+          ...current,
+          live,
+          x: event.clientX,
+          y: event.clientY,
+          ...dropAt(topOf(event.clientY, current.grabY), current, at, end),
+        };
+      });
+    };
+
+    const onPointerUp = () => {
+      setDrag((current) => {
+        if (current?.live === true) {
+          const { items: shown, onMove: move } = latest.current;
+          const from = shown.find((item) => item.key === current.key);
+          // A press that never moved is a press, and must not spend a write
+          // saying nothing changed.
+          if (from && from.startsAt !== current.startsAt) {
+            move?.(current.key, current.startsAt, current.endsAt);
+          }
+        }
+        return null;
+      });
+    };
+
+    // Losing the pointer - a system gesture, a window switch - is not a drop.
+    // The block goes back where it was and nothing is written.
+    const onCancel = () => setDrag(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDrag(null);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onCancel);
+    document.addEventListener("keydown", onKey);
+    document.body.classList.add("wr-dragging");
+
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onCancel);
+      document.removeEventListener("keydown", onKey);
+      document.body.classList.remove("wr-dragging");
+    };
+    // Only `dragging`. Everything else the listeners need is read through a
+    // ref or is stable by construction, because a dependency that changed mid
+    // drag would detach them in the middle of the gesture they are running.
+  }, [dragging, topOf]);
+
+  const dragged = drag?.live === true ? drag : null;
 
   return (
     <div
       ref={surface}
       className="wr-daygrid"
-      style={{
-        gridTemplateRows: rows,
-        gridTemplateColumns: `var(--wr-gutter) repeat(${laneCount}, minmax(0, 1fr))`,
-      }}
+      style={{ height, ...({ "--wr-quarter": `${quarterStep}px` } as object) }}
     >
       {ticks.map((at) => {
-        const row = rowOf(at);
         const onTheHour = at % HOUR === 0;
         return (
           <div
             key={at}
-            // The ruler a drag measures itself against - see `instantAt`.
             data-at={at}
             className={cx("wr-daygrid-tick", onTheHour && "wr-daygrid-hour")}
-            style={{ gridRow: row + 1, gridColumn: "1 / -1" }}
+            style={{ top: yOf(at, scale) }}
           >
             {/* The hour is what is read; the quarters are what a block is
                 measured against, and a number on each of them is forty numbers
-                down the side of a working day. The exact time of a drag is on
-                the block itself. */}
+                down the side of a working day. */}
             {onTheHour ? (
               <span className="wr-daygrid-label">
                 {label.format(new Date(at))}
@@ -1006,47 +1042,93 @@ export const DayGrid: React.FC<DayGridProps> = ({
       })}
 
       {now !== undefined && now >= dayStart && now <= dayEnd ? (
-        <div
-          className="wr-daygrid-now"
-          style={{ gridRow: rowOf(now) + 1, gridColumn: "1 / -1" }}
-        >
+        <div className="wr-daygrid-now" style={{ top: yOf(now, scale) }}>
           <span className="wr-daygrid-now-label">
             {label.format(new Date(now))}
           </span>
         </div>
       ) : null}
 
-      {placed.map(({ item, from, to, lane, span }) => {
-        const movable = onMove !== undefined && item.movable === true;
-        const moving = drag?.key === item.key;
-        return (
-          <div
-            key={item.key}
-            className={cx(
-              "wr-daygrid-item",
-              movable && "wr-daygrid-item-movable",
-              moving && "wr-daygrid-item-moving",
-            )}
-            style={{
-              gridRow: `${from + 1} / ${to + 1}`,
-              gridColumn: `${lane + 2} / span ${span}`,
-            }}
-            {...(movable ? handles(item) : {})}
-          >
-            {/* The range the drop would produce, stated rather than inferred
-                from where the card happens to sit. */}
-            {moving ? (
-              <span className="wr-daygrid-range">
-                {label.format(new Date(item.startsAt))}–
-                {label.format(new Date(item.endsAt))}
-              </span>
-            ) : null}
-            {item.node}
-          </div>
-        );
-      })}
+      <div className="wr-daygrid-lanes">
+        {placed.map(
+          ({ block, top, height: blockHeight, column, span, columns }) => {
+            const movable = onMove !== undefined && block.movable === true;
+            const isShadow = dragged?.key === block.key;
+            return (
+              <div
+                key={block.key}
+                className={cx(
+                  "wr-daygrid-item",
+                  movable && "wr-daygrid-item-movable",
+                  isShadow && "wr-daygrid-item-shadow",
+                )}
+                style={{
+                  top,
+                  height: blockHeight,
+                  left: `${(column / columns) * 100}%`,
+                  width: `${(span / columns) * 100}%`,
+                }}
+                {...(movable ? handles(block) : {})}
+              >
+                {block.node}
+              </div>
+            );
+          },
+        )}
+      </div>
+
+      {/* Fixed to the viewport and following the cursor exactly. Rendered
+          outside the lanes so nothing can clip it - the range label hanging off
+          its top edge was being cut off by the block's own overflow. */}
+      {dragged ? (
+        <div
+          className="wr-daygrid-float"
+          style={floatBox(surface.current, placed, dragged)}
+        >
+          <span className="wr-daygrid-range">
+            {label.format(new Date(dragged.startsAt))}–
+            {label.format(new Date(dragged.endsAt))}
+          </span>
+          {items.find((item) => item.key === dragged.key)?.node}
+        </div>
+      ) : null}
     </div>
   );
+};
+
+/**
+ * Where the floating card goes.
+ *
+ * It follows the cursor exactly, and stops at the edges of the day. Both halves
+ * matter: a card that snaps as you move it feels like it is fighting you, and a
+ * card that sails off over the header while its shadow is pinned to nine in the
+ * morning is two answers to one question. Clamped, the card and the shadow
+ * agree everywhere, including at the ends.
+ *
+ * It also keeps the width it had on the surface, so picking a block up does not
+ * resize it under the cursor.
+ */
+const floatBox = (
+  surface: HTMLElement | null,
+  placed: readonly PlacedBlock<DayGridItem>[],
+  drag: { key: string; x: number; y: number; grabX: number; grabY: number },
+): React.CSSProperties => {
+  const lanes = surface?.querySelector(".wr-daygrid-lanes");
+  const box = placed.find((entry) => entry.block.key === drag.key);
+  if (!lanes || !box) {
+    return { left: drag.x - drag.grabX, top: drag.y - drag.grabY };
+  }
+
+  const bounds = lanes.getBoundingClientRect();
+  const width = (bounds.width * box.span) / box.columns;
+  const clamp = (value: number, low: number, high: number) =>
+    Math.min(Math.max(value, low), Math.max(low, high));
+
+  return {
+    left: clamp(drag.x - drag.grabX, bounds.left, bounds.right - width),
+    top: clamp(drag.y - drag.grabY, bounds.top, bounds.bottom - box.height),
+    width,
+  };
 };
 
 export const DashedRow: React.FC<{

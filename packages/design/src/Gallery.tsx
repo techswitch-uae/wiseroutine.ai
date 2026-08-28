@@ -152,6 +152,23 @@ const GalleryMovableDay: React.FC = () => {
               />
             ),
           },
+          // Same length, same name, a few minutes below. Dragging one across
+          // the other is the case that broke: identical blocks have nothing to
+          // tell them apart but where they are, and where they are is the one
+          // thing changing.
+          {
+            key: "twin",
+            startsAt: GRID_DAY_START + 40 * 60_000,
+            endsAt: GRID_DAY_START + 40 * 60_000 + length,
+            node: (
+              <Slot
+                variant="recovery"
+                time=""
+                name="Shoulder stretch"
+                meta="10 min"
+              />
+            ),
+          },
         ]}
       />
     </div>
@@ -1494,16 +1511,21 @@ export const Gallery: React.FC = () => {
           wide
           why={
             <>
-              The card is its own handle - a grip glyph inside a ten-minute
-              block would cost more height than the block has - and a press on a
-              button inside it is still a press on that button. The drag re-lays
-              the grid out <b>live</b> rather than floating a copy over it: drop
-              this onto the two meetings and all three take a lane, in the same
-              maths that will be there once the mouse comes up. The ruler itself
-              is frozen for the duration, so the block cannot chase a target
-              that moves because it moved. Arrow keys do the same job five
-              minutes at a time, because a placement nobody can make without a
-              mouse is a placement half the people using this cannot make.
+              Two parts, answering different questions. The{" "}
+              <b>card follows the cursor exactly</b> - one that snapped as you
+              moved it would feel like it was fighting you - and stops at the
+              edges of the calendar rather than sailing off over the page. The{" "}
+              <b>shadow</b> behind it is where the drop lands: snapped to five
+              minutes and laid out by the same function as every other block, so
+              it is not an impression of the drop, it is the drop drawn early.
+              Push this onto the two meetings and all three take a column,
+              shortest on the left, exactly as they will once the mouse comes
+              up. The card is its own handle, a press on a button inside it is
+              still a press on that button, a four-pixel twitch is a click
+              rather than a drag, and Escape puts it back. Arrow keys do the
+              same job five minutes at a time, because a placement nobody can
+              make without a mouse is a placement half the people using this
+              cannot make.
             </>
           }
         >

@@ -9,11 +9,11 @@ fn greet() -> String {
 }
 
 /**
- * The mark in the macOS menu bar, and nothing behind it yet.
+ * The mark in the macOS menu bar, and the one thing behind it.
  *
- * No menu and no click handler on purpose: an icon that opens an empty menu is
- * worse than one that does nothing, because the empty menu is a promise. It is
- * here to say the app is running.
+ * Quit only. The icon is there to say the app is running, and the menu exists
+ * so that closing the window is not the same as stopping the app — which is
+ * the confusion a menu bar icon otherwise creates.
  *
  * `icon_as_template` is what makes it behave like every other menu bar icon.
  * The PNG is pure black plus alpha, and macOS paints it itself — dark on a
@@ -23,12 +23,29 @@ fn greet() -> String {
  */
 #[cfg(desktop)]
 fn menu_bar_icon(app: &tauri::App) -> tauri::Result<()> {
-  use tauri::{image::Image, tray::TrayIconBuilder};
+  use tauri::{
+    image::Image,
+    menu::{MenuBuilder, MenuItemBuilder},
+    tray::TrayIconBuilder,
+  };
+
+  let quit = MenuItemBuilder::with_id("quit", "Quit Wise Routine").build(app)?;
+  let menu = MenuBuilder::new(app).items(&[&quit]).build()?;
 
   // Compiled in rather than read from disk: the tray is built during setup,
   // before there is anywhere to have shipped a loose file to.
   let icon = Image::from_bytes(include_bytes!("../icons/tray.png"))?;
-  let tray = TrayIconBuilder::with_id("menu-bar").icon(icon);
+  let tray = TrayIconBuilder::with_id("menu-bar")
+    .icon(icon)
+    .menu(&menu)
+    .on_menu_event(|app, event| {
+      if event.id().as_ref() == "quit" {
+        // Ends the process rather than closing the window. There is no
+        // accelerator on it: the app menu already owns Cmd+Q, and a second
+        // registration of the same chord is a fight nobody wins.
+        app.exit(0);
+      }
+    });
 
   #[cfg(target_os = "macos")]
   let tray = tray.icon_as_template(true);

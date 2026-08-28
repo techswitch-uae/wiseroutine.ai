@@ -1,4 +1,5 @@
 export * from "./components";
+export * from "./daygrid";
 export * from "./fixtures";
 export * from "./layout";
 // Whole screens composed from the kit. Exported so the app can adopt one

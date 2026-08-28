@@ -271,24 +271,33 @@ button.wr-chip { cursor: pointer; }
 /* A real grid of five-minute rows. Rows are `minmax(floor, auto)`, so a row
    grows to whatever the card in it needs and the line below moves with it -
    which is why a block can no longer overflow into the next one. */
+/* ── The day as a surface ──────────────────────────────────────────────────
+   One uniform scale, and blocks positioned against it rather than laid into
+   rows. With a uniform ruler the two draw identically, and absolute positioning
+   buys the thing rows cannot: a block may be taller than its own duration - a
+   five-minute one has to be, or it is four pixels of nothing - without pushing
+   everything under it down. A surface you drag on must not resize as you drag
+   on it. */
 .wr-daygrid {
-  display: grid; column-gap: 8px;
-  /* The first hour's label is centred on its line, so half of it sits above
-     the grid's top edge. Harmless where the grid hangs free, sheared off the
-     moment it is inside a scroller - which is where it actually lives. The
-     padding is outside the row track, so every line and block moves down
-     together and none of the placement maths changes. */
-  padding-top: 8px;
+  position: relative;
+  /* The first hour's label is centred on its line, so half of it sits above the
+     grid's top edge. Harmless where the grid hangs free, sheared off the moment
+     it is inside a scroller - which is where it actually lives. */
+  padding-top: 8px; padding-bottom: 8px;
 }
-/* Ticks and blocks share cells on purpose: the ruler is drawn through the day,
-   not beside it. Zero height so a line never costs a row any space. */
+/* Where the blocks live: everything right of the gutter. Percentages inside it
+   are percentages of the day's width, which is what a column is measured in. */
+.wr-daygrid-lanes {
+  position: absolute; left: var(--wr-gutter); right: 0;
+  top: 8px; bottom: 8px;
+}
 /* The rule starts where the gutter ends, so it never runs through the time it
    is labelling - the number is read, the line is measured against, and they
    stop needing to share a pixel. Dotted throughout: this is a ruler behind the
    day, not a border between rows. */
 .wr-daygrid-tick {
-  position: relative; height: 0; align-self: start; z-index: 0;
-  margin-left: var(--wr-gutter);
+  position: absolute; left: var(--wr-gutter); right: 0; height: 0;
+  margin-top: 8px; z-index: 0;
   border-top: 1px dotted var(--wr-hairline);
 }
 /* Quarters are there to measure against; the hour is what is actually read. */
@@ -297,16 +306,15 @@ button.wr-chip { cursor: pointer; }
 .wr-daygrid-label {
   position: absolute; left: calc(-1 * var(--wr-gutter)); top: -7px;
   width: var(--wr-gutter);
-  font: 400 10.5px var(--font-body); color: var(--wr-text-soft);
+  font: 700 10.5px var(--font-body); color: var(--wr-text-muted);
   font-variant-numeric: tabular-nums; text-align: right; padding-right: 10px;
   box-sizing: border-box;
 }
-.wr-daygrid-hour .wr-daygrid-label { font-weight: 700; color: var(--wr-text-muted); }
 /* Now: the one accent line on the surface, so it cannot be mistaken for a
    gridline. */
 .wr-daygrid-now {
-  position: relative; height: 0; align-self: start; z-index: 2;
-  margin-left: var(--wr-gutter);
+  position: absolute; left: var(--wr-gutter); right: 0; height: 0;
+  margin-top: 8px; z-index: 2;
   border-top: 1.5px solid var(--color-accent);
 }
 .wr-daygrid-now::before {
@@ -319,49 +327,19 @@ button.wr-chip { cursor: pointer; }
   box-sizing: border-box; font: 700 10.5px var(--font-body);
   color: var(--color-accent-900); font-variant-numeric: tabular-nums;
 }
-/* Placed by row span, so its height *is* its duration - there is no second
-   opinion about where it ends. `min-width: 0` because a grid item defaults to
-   its content's minimum and a long meeting title would otherwise widen the
-   whole lane rather than ellipsing. */
-/* Inset from its own lines rather than sitting on them. The row grows to cover
-   the padding, so this is breathing room the card gains and not height it
-   loses. */
-/* `overflow: hidden` is what makes the ruler uniform: a card bigger than its
-   own duration is clipped rather than pushing the line below it down. */
+/* Its height *is* its duration - above the floor, where its height is one line
+   of text instead. Inset from its own lines rather than sitting on them. */
 .wr-daygrid-item {
-  position: relative;
-  z-index: 1; min-width: 0; padding: 3px 0 4px; box-sizing: border-box;
-  display: flex; flex-direction: column; overflow: hidden;
+  position: absolute; z-index: 1; box-sizing: border-box;
+  padding: 2px 3px 2px 0; min-width: 0;
+  display: flex; flex-direction: column;
 }
-/* The card is its own handle. A grip glyph inside a 10-minute block would cost
-   more height than the block has. `touch-action` so a drag is a drag and not
-   the scroller taking the gesture first. */
-.wr-daygrid-item-movable { cursor: grab; touch-action: none; }
-.wr-daygrid-item-movable:focus-visible {
-  outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 16px;
-}
-/* Lift 3 and the drag ring, the same pair `.wr-drag-target` uses: one element
-   off the page at a time, and while a drag is live it is this one. */
-.wr-daygrid-item-moving { cursor: grabbing; z-index: 3; }
-.wr-daygrid-item-moving .wr-slot {
-  box-shadow: var(--wr-lift-3), inset 0 0 0 1.5px var(--color-accent);
-}
-/* What the drop will produce, said rather than left to be read off the ruler. */
-.wr-daygrid-range {
-  position: absolute; z-index: 4; top: -8px; left: 13px;
-  padding: 2px 9px; border-radius: 999px;
-  background: var(--color-accent-700); color: var(--color-neutral-100);
-  font: 600 10.5px var(--font-body); font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-/* Inside the grid the card owns the whole width - the row's own time column
+/* Inside the surface the card owns the whole block - the row's own time column
    would repeat what the gutter already says. */
 .wr-daygrid-item .wr-slot-row { display: block; flex: 1; min-height: 0; }
 .wr-daygrid-item .wr-time { display: none; }
-/* `height`, not `min-height`: the block is exactly its duration, and a card
-   that wants more is cut off at the line rather than moving it. Tighter
-   padding than a card in a list, so a ten-minute block still has room for its
-   own name. */
+/* The card fills its block exactly. Tighter padding than a card in a list, so
+   the shortest block still has room for its own name. */
 .wr-daygrid-item .wr-slot {
   height: 100%; min-height: 0; box-sizing: border-box; overflow: hidden;
   padding-top: 8px; padding-bottom: 8px;
@@ -371,6 +349,56 @@ button.wr-chip { cursor: pointer; }
 .wr-daygrid-item .wr-slot-name,
 .wr-daygrid-item .wr-slot-meta {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Movable blocks. The card is its own handle - a grip glyph inside a short
+   block would cost more height than the block has. `touch-action` so a drag is
+   a drag and not the scroller taking the gesture first. */
+/* A slot card is a handle, not a paragraph - there is nothing in it worth
+   selecting, and a half-selected block under a drag looks broken. */
+.wr-daygrid-item-movable {
+  cursor: grab; touch-action: none;
+  user-select: none; -webkit-user-select: none;
+}
+.wr-daygrid-item-movable:focus-visible {
+  outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 16px;
+}
+/* Where it would land: the block's own outline, emptied. It is the layout the
+   drop will produce, so it is drawn in the layout rather than sketched over it
+   - lanes and all. */
+.wr-daygrid-item-shadow { cursor: grabbing; }
+.wr-daygrid-item-shadow .wr-slot {
+  background: var(--color-accent-100);
+  box-shadow: inset 0 0 0 1.5px var(--color-accent);
+  opacity: 0.85;
+}
+
+/* While a drag is live, nowhere selects. A drag that wanders off the side of
+   the calendar otherwise has the browser sweep a selection across the page
+   behind it. Set on the body, because by then the pointer is nowhere near the
+   grid. */
+body.wr-dragging { user-select: none; -webkit-user-select: none; cursor: grabbing; }
+
+/* The card under the cursor. Fixed to the viewport and following it exactly -
+   a card that snaps as you move it feels like it is fighting you, and the
+   shadow behind it is what tells the truth about where it lands. */
+.wr-daygrid-float {
+  position: fixed; z-index: 40; pointer-events: none;
+  padding: 2px 3px 2px 0; box-sizing: border-box;
+}
+.wr-daygrid-float .wr-slot-row { display: block; }
+.wr-daygrid-float .wr-time { display: none; }
+.wr-daygrid-float .wr-slot {
+  box-shadow: var(--wr-lift-3); padding-top: 8px; padding-bottom: 8px;
+}
+/* Outside the block, and outside anything that clips - which is why the float
+   is not inside the lanes. */
+.wr-daygrid-range {
+  position: absolute; z-index: 1; top: -9px; left: 13px;
+  padding: 2px 9px; border-radius: 999px;
+  background: var(--color-accent-700); color: var(--color-neutral-100);
+  font: 600 10.5px var(--font-body); font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .wr-slot-row { display: flex; gap: 12px; align-items: flex-start; }
