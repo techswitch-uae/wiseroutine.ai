@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
+  clockOf,
   DashedRow,
   DayGrid,
   HoursMenu,
@@ -93,6 +94,21 @@ const Today: React.FC = () => {
    *  running and setting state on a component that has gone. */
   const settling = useRef<ReturnType<typeof setTimeout>[]>([]);
 
+  /**
+   * The current `load`, for anything that runs later than the render it was
+   * set up in.
+   *
+   * `load` closes over the chosen range, so a timer holding the copy it was
+   * created with reloads the range that *was* on screen. That is exactly what
+   * happened: switching to the full day was silently undone a second later by
+   * the settle timers of a sync asked for before the switch, and it looked
+   * like the picker had ignored the click.
+   */
+  const latest = useRef(load);
+  useEffect(() => {
+    latest.current = load;
+  });
+
   const refresh = useCallback(() => {
     lastSync.current = Date.now();
     setSyncing(true);
@@ -109,11 +125,11 @@ const Today: React.FC = () => {
             // The spinner belongs to the first look; the later ones are
             // catching up quietly and should not make the button flicker.
             if (delay === SETTLE_MS[0]) setSyncing(false);
-            load();
+            latest.current();
           }, delay),
         );
       });
-  }, [load]);
+  }, []);
 
   useEffect(
     () => () => {
@@ -145,12 +161,12 @@ const Today: React.FC = () => {
   useEffect(() => {
     const caughtUp = () => {
       if (Date.now() - lastSync.current > SYNC_AFTER_AWAY_MS) refresh();
-      else load();
+      else latest.current();
     };
 
     globalThis.addEventListener?.("focus", caughtUp);
     return () => globalThis.removeEventListener?.("focus", caughtUp);
-  }, [load, refresh]);
+  }, [refresh]);
 
   /**
    * Send anything taken offline, then reload.
@@ -196,17 +212,20 @@ const Today: React.FC = () => {
     month: "long",
   }).format(new Date(data.dayStart));
 
-  // The user's zone, not this device's - the same rule the grid's gutter
-  // follows, so the boundary a line names is the one the ruler shows.
-  const clock = new Intl.DateTimeFormat("en-GB", {
-    timeZone: data.timeZone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
-  const hoursLabel = `${clock.format(new Date(data.dayStart))}–${clock.format(
-    new Date(data.dayEnd),
-  )}`;
+  /**
+   * The window, written the way the picker writes it.
+   *
+   * From the range's own minutes rather than by formatting `dayEnd`, because
+   * the full day ends at the next midnight and formats as "00:00" - a header
+   * reading "00:00–00:00" for the widest possible view. Minutes-from-midnight
+   * has a 24:00 and an instant does not.
+   */
+  const active = data.ranges.find((r) => r.key === data.range);
+  const hoursLabel = active
+    ? `${clockOf(active.startMinutes)}–${
+        active.endMinutes >= 24 * 60 ? "24:00" : clockOf(active.endMinutes)
+      }`
+    : "";
 
   return (
     <>
@@ -249,7 +268,7 @@ const Today: React.FC = () => {
           <OutsideRange
             edge="before"
             count={data.outside.before.length}
-            at={clock.format(new Date(data.dayStart))}
+            at={active ? clockOf(active.startMinutes) : ""}
             onExpand={() => setRange("full")}
           />
         ) : null}
@@ -302,7 +321,7 @@ const Today: React.FC = () => {
           <OutsideRange
             edge="after"
             count={data.outside.after.length}
-            at={clock.format(new Date(data.dayEnd))}
+            at={active ? clockOf(active.endMinutes) : ""}
             onExpand={() => setRange("full")}
           />
         ) : null}
