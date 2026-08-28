@@ -85,6 +85,24 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Why the server said no, in whatever shape it said it.
+ *
+ * Plan limits answer with JSON; `HTTPException` answers with the message as
+ * plain text. Reading only JSON quietly turned every one of those into `{}`,
+ * so the server's own sentence - which is the only thing that says *which* of
+ * two windows was inverted - never reached the screen, and every refusal
+ * showed the same generic line.
+ */
+async function refusal(response: Response): Promise<unknown> {
+  const text = await response.text().catch(() => "");
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text ? { message: text } : {};
+  }
+}
+
 async function send(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getSessionToken();
 
@@ -105,8 +123,7 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
   }
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new ApiError(response.status, body);
+    throw new ApiError(response.status, await refusal(response));
   }
   return response;
 }

@@ -5,10 +5,17 @@ import {
   useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
-import { AppFrame, Sidebar, UpdatePill, UserMenu } from "@wiseroutine/design";
+import {
+  AppFrame,
+  Sidebar,
+  Toasts,
+  UpdatePill,
+  UserMenu,
+} from "@wiseroutine/design";
 import { useEffect, useState } from "react";
 import { setAccount, useAccount } from "../lib/account";
 import { ApiError, api, getSessionToken, setSessionToken } from "../lib/api";
+import { dismiss, useToasts } from "../lib/notify";
 import "../lib/rail";
 import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
 
@@ -176,50 +183,57 @@ const AppLayout: React.FC = () => {
     select: (state) => state.matches.at(-1)?.staticData?.rail,
   });
 
+  // In the shell rather than on a page: a save started on Settings can fail
+  // after the user has moved to Today, and the message has to survive that.
+  const toasts = useToasts();
+
   return (
-    <AppFrame
-      chrome={false}
-      // Always the same width of page, whether or not this one has modules.
-      reserveRail
-      {...(Rail ? { rail: <Rail /> } : {})}
-      sidebar={
-        <Sidebar
-          items={NAV}
-          active={active}
-          onNavigate={(key) => {
-            const item = NAV.find((entry) => entry.key === key);
-            // Destinations without a route yet do nothing rather than
-            // navigating somewhere wrong. They are listed because they are the
-            // real IA, not because they are built.
-            if (item && "to" in item) void navigate({ to: item.to });
-          }}
-          user={
-            <UserMenu
-              // Name if the provider gave us one, address if not. `||` rather
-              // than `??` on purpose: an empty name is as absent as a null one,
-              // and rendering it would leave a nameless row and blank initials.
-              name={user?.name || user?.email || "Account"}
-              {...(user?.avatarUrl ? { avatarSrc: user.avatarUrl } : {})}
-              {...(user?.email !== undefined ? { email: user.email } : {})}
-              plan={user?.plan === "pro" ? "pro" : "free"}
-              items={USER_MENU}
-              onSelect={(key) => {
-                if (key === "signout") {
-                  setAccount(null);
-                  void api.signOut().then(() => navigate({ to: "/signin" }));
-                } else if (key === "settings") {
-                  void navigate({ to: "/settings" });
-                }
-              }}
-            />
-          }
-        >
-          <UpdateNotice />
-        </Sidebar>
-      }
-    >
-      <Outlet />
-    </AppFrame>
+    <>
+      <AppFrame
+        chrome={false}
+        // Always the same width of page, whether or not this one has modules.
+        reserveRail
+        {...(Rail ? { rail: <Rail /> } : {})}
+        sidebar={
+          <Sidebar
+            items={NAV}
+            active={active}
+            onNavigate={(key) => {
+              const item = NAV.find((entry) => entry.key === key);
+              // Destinations without a route yet do nothing rather than
+              // navigating somewhere wrong. They are listed because they are the
+              // real IA, not because they are built.
+              if (item && "to" in item) void navigate({ to: item.to });
+            }}
+            user={
+              <UserMenu
+                // Name if the provider gave us one, address if not. `||` rather
+                // than `??` on purpose: an empty name is as absent as a null one,
+                // and rendering it would leave a nameless row and blank initials.
+                name={user?.name || user?.email || "Account"}
+                {...(user?.avatarUrl ? { avatarSrc: user.avatarUrl } : {})}
+                {...(user?.email !== undefined ? { email: user.email } : {})}
+                plan={user?.plan === "pro" ? "pro" : "free"}
+                items={USER_MENU}
+                onSelect={(key) => {
+                  if (key === "signout") {
+                    setAccount(null);
+                    void api.signOut().then(() => navigate({ to: "/signin" }));
+                  } else if (key === "settings") {
+                    void navigate({ to: "/settings" });
+                  }
+                }}
+              />
+            }
+          >
+            <UpdateNotice />
+          </Sidebar>
+        }
+      >
+        <Outlet />
+      </AppFrame>
+      <Toasts items={toasts} onDismiss={dismiss} />
+    </>
   );
 };
 

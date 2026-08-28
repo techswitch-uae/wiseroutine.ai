@@ -1,6 +1,7 @@
 import type React from "react";
 import {
   Avatar,
+  Block,
   Button,
   Card,
   Chip,
@@ -216,6 +217,10 @@ export interface LinkedAccount {
  * different grants, and this page is only about the first - the note says so,
  * because "Disconnect Google" here could otherwise read as "stop syncing my
  * Google calendar", which it is not.
+ *
+ * One card holding hairline blocks, the way Calendars draws a connection and
+ * its calendars. Four raised cards said these were four objects of equal
+ * weight to the page rather than four parts of one.
  */
 export const AccountScreen: React.FC<{
   email: string;
@@ -226,9 +231,9 @@ export const AccountScreen: React.FC<{
   draftName?: string;
   onDraftNameChange?: (value: string) => void;
   onSaveName?: () => void;
-  /** True while a save is in flight; also disables an unchanged save. */
+  onCancelName?: () => void;
+  /** True while a save is in flight. */
   savingName?: boolean;
-  nameSaved?: boolean;
   accounts?: readonly LinkedAccount[];
   onDisconnect?: (account: LinkedAccount) => void;
   disconnecting?: string | null;
@@ -247,8 +252,8 @@ export const AccountScreen: React.FC<{
   draftName,
   onDraftNameChange,
   onSaveName,
+  onCancelName,
   savingName,
-  nameSaved,
   accounts = [],
   onDisconnect,
   disconnecting,
@@ -260,7 +265,11 @@ export const AccountScreen: React.FC<{
   problem,
 }) => {
   const draft = draftName ?? name;
-  const unchanged = draft.trim() === name.trim();
+  // A typed value is the one thing here that needs an explicit commit, so the
+  // pair appears exactly when there is something to commit and the button
+  // disappearing is the confirmation. A permanently disabled "Save" was
+  // reporting the same state with more furniture.
+  const nameChanged = draft.trim() !== name.trim();
 
   return (
     <div className="wr-account">
@@ -276,13 +285,32 @@ export const AccountScreen: React.FC<{
         </div>
       </div>
 
-      <Card title="Name">
-        <form
-          style={{ display: "flex", gap: 10, alignItems: "flex-end" }}
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSaveName?.();
-          }}
+      <Card>
+        <Block
+          title="Name"
+          note="Providers give us a name when you sign in with them. This overrides it."
+          {...(nameChanged
+            ? {
+                footer: (
+                  <>
+                    <Button
+                      variant="primary"
+                      onClick={onSaveName}
+                      disabled={savingName}
+                    >
+                      {savingName ? "Updating…" : "Update"}
+                    </Button>
+                    <Button
+                      variant="quiet"
+                      onClick={onCancelName}
+                      disabled={savingName}
+                    >
+                      Cancel
+                    </Button>
+                  </>
+                ),
+              }
+            : {})}
         >
           <Field
             aria-label="Name"
@@ -290,112 +318,97 @@ export const AccountScreen: React.FC<{
             onChange={(event) => onDraftNameChange?.(event.target.value)}
             placeholder="How should we address you?"
             autoComplete="name"
-            style={{ flex: 1 }}
           />
-          <Button
-            variant="commit"
-            type="submit"
-            disabled={savingName || unchanged}
+        </Block>
+
+        {timeZone ? (
+          <Block
+            title="Time zone"
+            note="Everything is scheduled in this zone - your day's start and end, and when each activity is due."
           >
-            {savingName ? "Saving…" : nameSaved && unchanged ? "Saved" : "Save"}
-          </Button>
-        </form>
-        <p className="wr-account-note">
-          Providers give us a name when you sign in with them. This overrides
-          it.
-        </p>
-      </Card>
-
-      {timeZone ? (
-        <Card title="Time zone">
-          <SelectField
-            aria-label="Time zone"
-            options={
-              // Always include the saved value, even if this build of the
-              // browser does not list it - otherwise the select silently shows
-              // the wrong zone as selected.
-              timeZoneOptions.includes(timeZone)
-                ? timeZoneOptions
-                : [timeZone, ...timeZoneOptions]
-            }
-            value={timeZone}
-            onChange={(event) => onTimeZoneChange?.(event.target.value)}
-          />
-          {deviceTimeZone && deviceTimeZone !== timeZone ? (
-            <div className="wr-account-actions">
-              <Button
-                variant="secondary"
-                onClick={() => onTimeZoneChange?.(deviceTimeZone)}
-              >
-                Use this device's zone ({deviceTimeZone})
-              </Button>
-            </div>
-          ) : null}
-          <p className="wr-account-note">
-            Everything is scheduled in this zone - your day's start and end, and
-            when each activity is due.
-          </p>
-        </Card>
-      ) : null}
-
-      <Card title="How you sign in">
-        {accounts.length === 0 ? (
-          <p className="wr-account-empty">
-            A code emailed to <b>{email}</b>. That always works, whether or not
-            a provider is connected.
-          </p>
-        ) : (
-          accounts.map((account) => (
-            <div className="wr-account-row" key={account.id}>
-              <span
-                className={`wr-provider-mark${
-                  account.provider === "microsoft"
-                    ? " wr-provider-microsoft"
-                    : ""
-                }`}
-                aria-hidden="true"
-              >
-                {account.provider === "google" ? "G" : "M"}
-              </span>
-              <div className="wr-account-row-main">
-                <div className="wr-account-row-name">
-                  {PROVIDER_NAMES[account.provider]}
-                </div>
-                {account.connectedAt ? (
-                  <div className="wr-account-row-note">
-                    Connected {account.connectedAt}
-                  </div>
-                ) : null}
+            <SelectField
+              aria-label="Time zone"
+              options={
+                // Always include the saved value, even if this build of the
+                // browser does not list it - otherwise the select silently
+                // shows the wrong zone as selected.
+                timeZoneOptions.includes(timeZone)
+                  ? timeZoneOptions
+                  : [timeZone, ...timeZoneOptions]
+              }
+              value={timeZone}
+              onChange={(event) => onTimeZoneChange?.(event.target.value)}
+            />
+            {deviceTimeZone && deviceTimeZone !== timeZone ? (
+              <div className="wr-account-actions">
+                <Button
+                  variant="secondary"
+                  onClick={() => onTimeZoneChange?.(deviceTimeZone)}
+                >
+                  Use this device's zone ({deviceTimeZone})
+                </Button>
               </div>
-              <Button
-                variant="secondary"
-                onClick={() => onDisconnect?.(account)}
-                disabled={disconnecting === account.id}
-              >
-                {disconnecting === account.id ? "Disconnecting…" : "Disconnect"}
-              </Button>
-            </div>
-          ))
-        )}
-
-        {problem ? (
-          <p className="wr-auth-problem" role="alert">
-            {problem}
-          </p>
+            ) : null}
+          </Block>
         ) : null}
 
-        <p className="wr-account-note">
-          Disconnecting only removes this way of signing in - your calendars
-          stay connected, and the emailed code still works.
-        </p>
-      </Card>
+        <Block
+          title="How you sign in"
+          note="Disconnecting only removes this way of signing in - your calendars stay connected, and the emailed code still works."
+        >
+          {accounts.length === 0 ? (
+            <p className="wr-account-empty">
+              A code emailed to <b>{email}</b>. That always works, whether or
+              not a provider is connected.
+            </p>
+          ) : (
+            accounts.map((account) => (
+              <div className="wr-account-row" key={account.id}>
+                <span
+                  className={`wr-provider-mark${
+                    account.provider === "microsoft"
+                      ? " wr-provider-microsoft"
+                      : ""
+                  }`}
+                  aria-hidden="true"
+                >
+                  {account.provider === "google" ? "G" : "M"}
+                </span>
+                <div className="wr-account-row-main">
+                  <div className="wr-account-row-name">
+                    {PROVIDER_NAMES[account.provider]}
+                  </div>
+                  {account.connectedAt ? (
+                    <div className="wr-account-row-note">
+                      Connected {account.connectedAt}
+                    </div>
+                  ) : null}
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={() => onDisconnect?.(account)}
+                  disabled={disconnecting === account.id}
+                >
+                  {disconnecting === account.id
+                    ? "Disconnecting…"
+                    : "Disconnect"}
+                </Button>
+              </div>
+            ))
+          )}
 
-      <Card title="This device">
-        <div className="wr-account-actions">
+          {problem ? (
+            <p className="wr-auth-problem" role="alert">
+              {problem}
+            </p>
+          ) : null}
+        </Block>
+
+        <Block title="This device">
           <Button variant="secondary" onClick={onSignOut}>
             Sign out
           </Button>
-        </div>
+        </Block>
       </Card>
     </div>
   );
@@ -420,8 +433,12 @@ export interface DayHoursDraft {
   showOutsideRange: boolean;
 }
 
-/** What is offered when the custom range is switched on with nothing in it.
- *  An empty label and 00:00–00:00 would be a range that cannot be saved. */
+/** Which block's typed values are being saved. */
+export type DayHoursBlock = "working" | "custom";
+
+/** What switching the custom range on starts from. An empty label and
+ *  00:00–00:00 would be a range the server refuses, so the switch would fail
+ *  the moment it was flipped. */
 const NEW_CUSTOM_RANGE: CustomRange = {
   label: "Evenings",
   startMinutes: 17 * 60,
@@ -442,55 +459,108 @@ const OPENS_ON = [
  * what is drawn. The note says so - it is the one thing on this screen with a
  * consequence beyond the timeline.
  *
- * Edits are held as a draft and committed with Update, the same as the
- * calendars page. Hours are not a toggle: half-typed values would otherwise
- * reach the server on their way to the ones the user meant, and each one is a
- * write plus a replan.
+ * Two ways to commit, decided by the control rather than by the screen. A
+ * toggle or a segmented choice *is* the decision, so it saves on click and the
+ * screen shows the new state at once; a typed value is not a decision until
+ * the typing stops, so hours and a name commit through Update inside their own
+ * block. A single Update at the foot of the section could not say which values
+ * it was about, and made switching a toggle a two-step act for no reason.
  */
 export const DayHoursSection: React.FC<{
+  /** What the server holds. */
+  saved: DayHoursDraft;
+  /** The same, plus whatever has been typed since. */
   draft: DayHoursDraft;
   onChange?: (patch: Partial<DayHoursDraft>) => void;
-  /** True once the draft differs from what is saved - shows Update/Cancel. */
-  dirty?: boolean;
-  onUpdate?: () => void;
-  onCancel?: () => void;
-  saving?: boolean;
-  problem?: string | null;
-}> = ({ draft, onChange, dirty, onUpdate, onCancel, saving, problem }) => {
+  /** Saved the moment it changes - every control that is not typed into. */
+  onCommit?: (patch: Partial<DayHoursDraft>) => void;
+  /** Save one block's typed values. */
+  onSave?: (block: DayHoursBlock) => void;
+  /** Throw them away and go back to `saved`. */
+  onCancel?: (block: DayHoursBlock) => void;
+  saving?: DayHoursBlock | null;
+}> = ({ saved, draft, onChange, onCommit, onSave, onCancel, saving }) => {
   const custom = draft.custom;
+
+  /** Update and Cancel, or nothing at all when there is nothing to commit. */
+  const commit = (block: DayHoursBlock, changed: boolean) =>
+    changed
+      ? {
+          footer: (
+            <>
+              <Button
+                variant="primary"
+                onClick={() => onSave?.(block)}
+                disabled={saving !== null && saving !== undefined}
+              >
+                {saving === block ? "Updating…" : "Update"}
+              </Button>
+              <Button
+                variant="quiet"
+                onClick={() => onCancel?.(block)}
+                disabled={saving !== null && saving !== undefined}
+              >
+                Cancel
+              </Button>
+            </>
+          ),
+        }
+      : {};
 
   return (
     <div className="wr-account">
-      <Card title="Working hours" note="Also the hours slots are placed in">
-        <div className="wr-hours-row">
-          <TimeField
-            label="Working hours start"
-            minutes={draft.dayStartMinutes}
-            onChange={(dayStartMinutes) => onChange?.({ dayStartMinutes })}
-          />
-          <span className="wr-hours-to">to</span>
-          <TimeField
-            label="Working hours end"
-            minutes={draft.dayEndMinutes}
-            onChange={(dayEndMinutes) => onChange?.({ dayEndMinutes })}
-          />
-        </div>
-      </Card>
+      <Card>
+        <Block
+          title="Working hours"
+          note="Also the hours slots are placed in"
+          {...commit(
+            "working",
+            draft.dayStartMinutes !== saved.dayStartMinutes ||
+              draft.dayEndMinutes !== saved.dayEndMinutes,
+          )}
+        >
+          <div className="wr-hours-row">
+            <TimeField
+              label="Working hours start"
+              minutes={draft.dayStartMinutes}
+              onChange={(dayStartMinutes) => onChange?.({ dayStartMinutes })}
+            />
+            <span className="wr-hours-to">to</span>
+            <TimeField
+              label="Working hours end"
+              minutes={draft.dayEndMinutes}
+              onChange={(dayEndMinutes) => onChange?.({ dayEndMinutes })}
+            />
+          </div>
+        </Block>
 
-      <Card
-        title="Custom range"
-        action={
-          <Toggle
-            label="Use a custom range"
-            checked={custom !== null}
-            onChange={(on) =>
-              onChange?.({ custom: on ? { ...NEW_CUSTOM_RANGE } : null })
-            }
-          />
-        }
-      >
-        {custom ? (
-          <>
+        <Block
+          title="Custom range"
+          note={
+            custom
+              ? "The label is what appears in the day view picker. One custom range for now."
+              : "A second window to switch the day to - your evenings, or the hours you are on call. One custom range for now."
+          }
+          action={
+            <Toggle
+              label="Use a custom range"
+              checked={custom !== null}
+              // Saved on click, with a range already in it: a switch that
+              // turned on and then needed a second press to exist is how the
+              // range ended up missing from the day view's picker.
+              onChange={(on) =>
+                onCommit?.({ custom: on ? { ...NEW_CUSTOM_RANGE } : null })
+              }
+            />
+          }
+          {...(custom
+            ? commit(
+                "custom",
+                JSON.stringify(custom) !== JSON.stringify(saved.custom),
+              )
+            : {})}
+        >
+          {custom ? (
             <div className="wr-hours-row">
               <Field
                 aria-label="Custom range name"
@@ -519,68 +589,34 @@ export const DayHoursSection: React.FC<{
                 }
               />
             </div>
-            <p className="wr-account-note">
-              The label is what appears in the day view picker. One custom range
-              for now.
-            </p>
-          </>
-        ) : (
-          <p className="wr-account-empty">
-            A second window to switch the day to - your evenings, or the hours
-            you are on call. One custom range for now.
-          </p>
-        )}
+          ) : null}
+        </Block>
+
+        <Block
+          title="Day opens on"
+          note="The range the timeline shows each morning"
+          action={
+            <Segmented
+              label="Day opens on"
+              options={OPENS_ON}
+              value={draft.dayOpensOn}
+              onChange={(dayOpensOn) => onCommit?.({ dayOpensOn })}
+            />
+          }
+        />
+
+        <Block
+          title="Show meetings outside the range"
+          note="Collapsed into a line at the top and bottom of the day"
+          action={
+            <Toggle
+              label="Show meetings outside the range"
+              checked={draft.showOutsideRange}
+              onChange={(showOutsideRange) => onCommit?.({ showOutsideRange })}
+            />
+          }
+        />
       </Card>
-
-      <Card>
-        <div className="wr-setting-row">
-          <div className="wr-setting-main">
-            <div className="wr-setting-name">Day opens on</div>
-            <div className="wr-setting-note">
-              The range the timeline shows each morning
-            </div>
-          </div>
-          <Segmented
-            label="Day opens on"
-            options={OPENS_ON}
-            value={draft.dayOpensOn}
-            onChange={(dayOpensOn) => onChange?.({ dayOpensOn })}
-          />
-        </div>
-
-        <div className="wr-setting-row">
-          <div className="wr-setting-main">
-            <div className="wr-setting-name">
-              Show meetings outside the range
-            </div>
-            <div className="wr-setting-note">
-              Collapsed into a line at the top and bottom of the day
-            </div>
-          </div>
-          <Toggle
-            label="Show meetings outside the range"
-            checked={draft.showOutsideRange}
-            onChange={(showOutsideRange) => onChange?.({ showOutsideRange })}
-          />
-        </div>
-      </Card>
-
-      {problem ? (
-        <p className="wr-auth-problem" role="alert">
-          {problem}
-        </p>
-      ) : null}
-
-      {dirty ? (
-        <div className="wr-confirm-actions">
-          <Button variant="primary" onClick={onUpdate} disabled={saving}>
-            {saving ? "Updating…" : "Update"}
-          </Button>
-          <Button variant="quiet" onClick={onCancel} disabled={saving}>
-            Cancel
-          </Button>
-        </div>
-      ) : null}
     </div>
   );
 };

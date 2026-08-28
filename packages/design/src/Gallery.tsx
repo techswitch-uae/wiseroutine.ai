@@ -1490,9 +1490,13 @@ export const Gallery: React.FC = () => {
           }
         >
           <DayHoursSection
+            // Showing an edit in flight: the working hours differ from what is
+            // saved, so that block - and only that block - offers a commit.
+            saved={{ ...dayHours, dayStartMinutes: 9 * 60 }}
             draft={dayHours}
             onChange={(patch) => setDayHours((d) => ({ ...d, ...patch }))}
-            dirty
+            onCommit={(patch) => setDayHours((d) => ({ ...d, ...patch }))}
+            saving={null}
           />
         </Row>
 

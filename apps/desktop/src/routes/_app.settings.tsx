@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   AccountScreen,
+  type DayHoursBlock,
   type DayHoursDraft,
   DayHoursSection,
   type LinkedAccount,
@@ -13,7 +14,14 @@ import {
   setAccount,
   useAccount,
 } from "../lib/account";
-import { ApiError, api, deviceTimeZone, OfflineError } from "../lib/api";
+import {
+  ApiError,
+  api,
+  deviceTimeZone,
+  OfflineError,
+  type SettingsPatch,
+} from "../lib/api";
+import { notify } from "../lib/notify";
 
 /**
  * Every zone this runtime knows, for the picker.
@@ -97,7 +105,6 @@ const Settings: React.FC = () => {
   const [accounts, setAccounts] = useState<LinkedAccount[]>([]);
 
   const [savingName, setSavingName] = useState(false);
-  const [nameSaved, setNameSaved] = useState(false);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -154,19 +161,17 @@ const Settings: React.FC = () => {
   const saveName = () => {
     const next = draftName.trim();
     setSavingName(true);
-    setProblem(null);
     api
       .updateName(next)
       .then(() => {
         // One write, both screens: the rail re-renders from the same store.
         patchAccount({ name: next });
         setDraftName(next);
-        setNameSaved(true);
       })
       .catch((cause: unknown) =>
-        setProblem(
+        notify(
           cause instanceof OfflineError
-            ? "No connection. Your name wasn't saved."
+            ? "No connection - your name wasn't saved."
             : "Couldn't save that name. Try again.",
         ),
       )
@@ -201,15 +206,10 @@ const Settings: React.FC = () => {
           name={name}
           avatarUrl={account?.avatarUrl ?? null}
           draftName={draftName}
-          onDraftNameChange={(value) => {
-            setDraftName(value);
-            // "Saved" describes the value in the field. The moment it changes
-            // it is describing something that is no longer true.
-            if (nameSaved) setNameSaved(false);
-          }}
+          onDraftNameChange={setDraftName}
           onSaveName={saveName}
+          onCancelName={() => setDraftName(name)}
           savingName={savingName}
-          nameSaved={nameSaved}
           accounts={accounts}
           onDisconnect={disconnect}
           disconnecting={disconnecting}
@@ -222,10 +222,9 @@ const Settings: React.FC = () => {
             // server rejected.
             const previous = account?.timeZone;
             patchAccount({ timeZone: zone });
-            setProblem(null);
             api.setTimeZone(zone).catch(() => {
               if (previous) patchAccount({ timeZone: previous });
-              setProblem("Couldn't change your time zone. Try again.");
+              notify("Couldn't change your time zone. Try again.");
             });
           }}
           onSignOut={() => {
@@ -245,91 +244,99 @@ const Settings: React.FC = () => {
 };
 
 /**
- * The day view's hours, edited as a draft.
+ * The day view's hours.
  *
  * Its own component so the draft can be seeded from an account that only
  * exists after the layout's session call lands - a hook in the parent would
  * have to hold a nullable draft and re-seed it, which is the shape that lets a
  * half-typed value survive a re-render as if it were saved.
  *
- * Update/Cancel rather than saving each control, the same as Calendars. Hours
- * are typed rather than toggled, so every keystroke would otherwise be a write
- * and a replan on its way to the value the user meant.
+ * Two ways to save, and which one a setting gets is decided by its control.
+ * See `DayHoursSection` for why; this side is where the optimism lives.
  */
 const DayHours: React.FC<{ account: Account }> = ({ account }) => {
   const saved = draftFrom(account);
   const [draft, setDraft] = useState<DayHoursDraft>(saved);
-  const [saving, setSaving] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [saving, setSaving] = useState<DayHoursBlock | null>(null);
+
+  /** The three custom columns, as `PATCH /settings` wants them: all set, or
+   *  all null. A label with no hours is not a range the picker can offer. */
+  const asPatch = (next: DayHoursDraft): SettingsPatch => ({
+    dayStartMinutes: next.dayStartMinutes,
+    dayEndMinutes: next.dayEndMinutes,
+    customRangeLabel: next.custom?.label.trim() ?? null,
+    customRangeStartMinutes: next.custom?.startMinutes ?? null,
+    customRangeEndMinutes: next.custom?.endMinutes ?? null,
+    dayOpensOn: next.dayOpensOn,
+    showOutsideRange: next.showOutsideRange,
+  });
+
+  /** What the store has to learn for Today to open on the right range. */
+  const remember = (next: DayHoursDraft) =>
+    patchAccount({
+      dayStartMinutes: next.dayStartMinutes,
+      dayEndMinutes: next.dayEndMinutes,
+      customRangeLabel: next.custom?.label.trim() ?? null,
+      customRangeStartMinutes: next.custom?.startMinutes ?? null,
+      customRangeEndMinutes: next.custom?.endMinutes ?? null,
+      dayOpensOn: next.dayOpensOn,
+      showOutsideRange: next.showOutsideRange,
+    });
+
+  const excuse = (cause: unknown): string =>
+    cause instanceof OfflineError
+      ? "No connection - that setting wasn't saved."
+      : cause instanceof ApiError && cause.status === 400
+        ? // The server's own words: it knows which window was inverted, and
+          // "try again" would not tell the user what to fix.
+          ((cause.body as { message?: string }).message ??
+          "Those hours don't make a range.")
+        : "Couldn't save that setting. Try again.";
 
   /**
-   * "Is there anything to update?" as a comparison, not a flag.
+   * A control that is itself the decision - a toggle, a segmented choice.
    *
-   * The same reasoning as the calendars page: a boolean somebody has to
-   * remember to set goes stale the first time a control is added, whereas this
-   * cannot - and Cancel becomes throwing the draft away rather than undoing a
-   * list of changes. Structural equality by serialising: the draft is five
-   * scalars and one small object, so this is cheaper than the render it guards.
+   * Applied on screen before the request, because the switch has already
+   * moved and holding the old state until the server agrees makes every click
+   * feel broken. A refusal puts it back and says so, which is the only honest
+   * way round: the screen must never keep showing a setting the server
+   * rejected.
    */
-  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+  const commit = (patch: Partial<DayHoursDraft>) => {
+    const next = { ...draft, ...patch };
+    const previous = saved;
+    setDraft(next);
+    remember(next);
 
-  const update = () => {
-    setSaving(true);
-    setProblem(null);
+    api.updateSettings(asPatch(next)).catch((cause: unknown) => {
+      setDraft(previous);
+      remember(previous);
+      notify(excuse(cause));
+    });
+  };
+
+  /** A typed value, committed on purpose. Not optimistic: the user is looking
+   *  at the button they just pressed, so the button is where the wait shows. */
+  const save = (block: DayHoursBlock) => {
+    setSaving(block);
     api
-      .updateSettings({
-        dayStartMinutes: draft.dayStartMinutes,
-        dayEndMinutes: draft.dayEndMinutes,
-        // All three or none - a label without hours is not a range the picker
-        // can offer, and the server refuses the halfway state.
-        customRangeLabel: draft.custom?.label.trim() ?? null,
-        customRangeStartMinutes: draft.custom?.startMinutes ?? null,
-        customRangeEndMinutes: draft.custom?.endMinutes ?? null,
-        dayOpensOn: draft.dayOpensOn,
-        showOutsideRange: draft.showOutsideRange,
-      })
-      .then(() => {
-        // One write, and the store is what Today reads its defaults from.
-        patchAccount({
-          dayStartMinutes: draft.dayStartMinutes,
-          dayEndMinutes: draft.dayEndMinutes,
-          customRangeLabel: draft.custom?.label.trim() ?? null,
-          customRangeStartMinutes: draft.custom?.startMinutes ?? null,
-          customRangeEndMinutes: draft.custom?.endMinutes ?? null,
-          dayOpensOn: draft.dayOpensOn,
-          showOutsideRange: draft.showOutsideRange,
-        });
-      })
-      .catch((cause: unknown) =>
-        setProblem(
-          cause instanceof OfflineError
-            ? "No connection. Your hours weren't saved."
-            : cause instanceof ApiError && cause.status === 400
-              ? // The server's own words: it knows which of the two windows was
-                // inverted, and "try again" would not tell the user what to fix.
-                ((cause.body as { message?: string }).message ??
-                "Those hours don't make a range.")
-              : "Couldn't save those hours. Try again.",
-        ),
-      )
-      .finally(() => setSaving(false));
+      .updateSettings(asPatch(draft))
+      .then(() => remember(draft))
+      // The draft is left alone on failure - the typed values stay on screen,
+      // the same promise the calendars page makes about unsaved ticks.
+      .catch((cause: unknown) => notify(excuse(cause)))
+      .finally(() => setSaving(null));
   };
 
   return (
     <DayHoursSection
+      saved={saved}
       draft={draft}
-      onChange={(patch) => {
-        setDraft((current) => ({ ...current, ...patch }));
-        setProblem(null);
-      }}
-      dirty={dirty}
-      onUpdate={update}
-      onCancel={() => {
-        setDraft(saved);
-        setProblem(null);
-      }}
+      onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
+      onCommit={commit}
+      onSave={save}
+      onCancel={() => setDraft(saved)}
       saving={saving}
-      problem={problem}
     />
   );
 };

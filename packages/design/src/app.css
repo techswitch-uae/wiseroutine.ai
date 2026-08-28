@@ -1186,22 +1186,56 @@ img.wr-avatar { object-fit: cover; }
 .wr-hours-name-field { flex: 1; min-width: 140px; }
 .wr-hours-name-field .wr-field-input { border-radius: 999px; padding: 9px 15px; }
 
-/* A setting that is a sentence and a control, not a labelled field. */
-.wr-setting-row {
-  display: flex; align-items: center; gap: 12px;
-  padding: 12px 0; border-top: 1px solid var(--wr-hairline);
-}
-.wr-setting-row:first-child { border-top: 0; padding-top: 0; }
-.wr-setting-row:last-child { padding-bottom: 0; }
-.wr-setting-main { flex: 1; min-width: 0; }
-.wr-setting-name { font: 600 13.5px var(--font-body); }
-.wr-setting-note {
-  font: 400 11.5px var(--font-body); color: var(--wr-text-soft); margin-top: 2px;
-}
-
 /* ── Settings, as sections one link can land on ────────────────────────────
    `scroll-margin-top` is what makes "Edit hours and ranges" arrive with the
    heading visible rather than flush against the top of the scroller. */
 .wr-settings { display: flex; flex-direction: column; gap: 30px; }
 .wr-settings-section { scroll-margin-top: 18px; }
 .wr-settings-title { margin: 0 0 14px; font-family: var(--font-heading); font-size: 22px; }
+
+/* ── One setting inside a card ─────────────────────────────────────────────
+   The same hairline-bordered block Calendars draws its providers and its
+   calendar list with. A card is the group; a block is one thing in it, and it
+   never carries a shadow - two elevations inside one card reads as two
+   different kinds of surface. */
+.wr-block {
+  padding: 12px 13px; border-radius: 13px;
+  border: 1px solid var(--wr-hairline); background: var(--wr-card);
+}
+.wr-block + .wr-block { margin-top: 9px; }
+.wr-block-head { display: flex; align-items: center; gap: 12px; }
+.wr-block-heading { flex: 1; min-width: 0; }
+.wr-block-title { margin: 0; font: 600 13px var(--font-body); color: var(--color-text); }
+.wr-block-note {
+  margin: 2px 0 0; font: 400 11.5px/1.45 var(--font-body); color: var(--wr-text-soft);
+}
+.wr-block-action { flex: none; display: flex; align-items: center; gap: 9px; }
+.wr-block-body { margin-top: 11px; }
+/* The commit belongs to the block, ruled off from the values it commits. */
+.wr-block-foot {
+  margin-top: 11px; padding-top: 11px;
+  border-top: 1px solid var(--wr-hairline);
+  display: flex; align-items: center; gap: 9px;
+}
+
+/* ── When something went wrong ─────────────────────────────────────────────
+   Above everything, out of the way of the rail's popovers, and never wider
+   than a sentence people will actually read. */
+.wr-toasts {
+  position: fixed; right: 18px; bottom: 18px; z-index: 60;
+  display: flex; flex-direction: column; gap: 8px;
+  max-width: min(360px, calc(100vw - 36px));
+}
+.wr-toast {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 11px 12px; border-radius: 13px;
+  background: var(--color-text); color: var(--color-neutral-100);
+  box-shadow: var(--wr-lift-3);
+  font: 500 12.5px/1.5 var(--font-body);
+}
+.wr-toast-text { flex: 1; min-width: 0; }
+.wr-toast-close {
+  flex: none; border: 0; background: none; cursor: pointer; padding: 0 2px;
+  font: 400 16px/1 var(--font-body); color: rgba(245, 234, 216, 0.7);
+}
+.wr-toast-close:hover { color: var(--color-neutral-100); }

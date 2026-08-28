@@ -1061,6 +1061,86 @@ export const BrandMark: React.FC<{ size?: number }> = ({ size = 28 }) => (
   </svg>
 );
 
+/**
+ * One setting inside a card.
+ *
+ * The card groups; the block is the thing itself. Calendars already draws this
+ * way - a raised card holding hairline-bordered rows - and settings was
+ * drawing every individual setting as its own raised card, which said each one
+ * was a separate object of the same weight as the group it belonged to.
+ *
+ * `footer` is where a save belongs. A typed value needs an explicit commit,
+ * and putting that commit at the foot of the block it commits makes it
+ * unambiguous which values it is about - a single Update under the whole
+ * section cannot say.
+ */
+export const Block: React.FC<{
+  title?: string;
+  /** The line under the title, for what the title cannot say. */
+  note?: string;
+  /** A control set against the title - a toggle, or a segmented choice. These
+   *  commit the moment they change, so they never appear in `footer`. */
+  action?: React.ReactNode;
+  children?: React.ReactNode;
+  /** Shown only when there is something to commit. */
+  footer?: React.ReactNode;
+}> = ({ title, note, action, children, footer }) => (
+  <section className="wr-block">
+    {title || note || action ? (
+      <header className="wr-block-head">
+        <div className="wr-block-heading">
+          {title ? <h4 className="wr-block-title">{title}</h4> : null}
+          {note ? <p className="wr-block-note">{note}</p> : null}
+        </div>
+        {action ? <div className="wr-block-action">{action}</div> : null}
+      </header>
+    ) : null}
+    {children ? <div className="wr-block-body">{children}</div> : null}
+    {footer ? <div className="wr-block-foot">{footer}</div> : null}
+  </section>
+);
+
+/* ── When something went wrong ───────────────────────────────────────────── */
+
+export interface ToastMessage {
+  id: string;
+  text: string;
+}
+
+/**
+ * What a failed background save says.
+ *
+ * A setting that commits on click has no button left to report through, so
+ * the failure needs somewhere else to appear - and it has to appear *near the
+ * thing*, which is why this is an in-app layer rather than an OS notification.
+ * A system notification for "couldn't save that toggle" arrives outside the
+ * window the user is looking at, needs a permission they have to grant first,
+ * and is silently dropped by Do Not Disturb.
+ *
+ * `alert`, not `status`: every message here is something that did not happen.
+ */
+export const Toasts: React.FC<{
+  items: readonly ToastMessage[];
+  onDismiss?: (id: string) => void;
+}> = ({ items, onDismiss }) =>
+  items.length === 0 ? null : (
+    <div className="wr-toasts" role="alert" aria-live="assertive">
+      {items.map((item) => (
+        <div className="wr-toast" key={item.id}>
+          <span className="wr-toast-text">{item.text}</span>
+          <button
+            type="button"
+            className="wr-toast-close"
+            aria-label="Dismiss"
+            onClick={() => onDismiss?.(item.id)}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+
 export type CardProps = {
   /**
    * What this card is. Rendered as the card's own heading rather than as a
