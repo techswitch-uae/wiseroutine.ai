@@ -1094,3 +1094,114 @@ img.wr-avatar { object-fit: cover; }
   color: rgba(245, 234, 216, 0.72);
 }
 .wr-card-dark .wr-setup-skip:hover { color: var(--color-neutral-100); }
+
+/* ── Which hours the day shows ─────────────────────────────────────────────
+   The trigger sits with the date, so it is the same round button as sync -
+   the only difference is which side of the line it lives on. Open, it goes
+   ink: the popover is the loudest thing on screen while it is up. */
+.wr-iconbtn-on,
+.wr-iconbtn-on:hover {
+  background: var(--color-text); color: var(--color-neutral-100);
+  box-shadow: 0 1px 3px rgba(46, 43, 37, 0.25);
+}
+
+.wr-hours { position: relative; }
+.wr-hours-pop {
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 20;
+  width: 296px; padding: 14px 15px 12px;
+  border-radius: var(--radius-md); background: var(--wr-card);
+  box-shadow: var(--wr-lift-3);
+}
+.wr-hours-title { padding: 0 3px; }
+.wr-hours-list { display: flex; flex-direction: column; gap: 2px; margin-top: 9px; }
+.wr-hours-opt {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 11px; border: 0; border-radius: 12px; cursor: pointer;
+  background: transparent; text-align: left; color: inherit;
+}
+.wr-hours-opt:hover { background: var(--wr-recessed); }
+.wr-hours-opt[aria-checked="true"] {
+  background: var(--wr-recessed); box-shadow: inset 0 0 0 1px var(--wr-hairline);
+}
+/* The mark is a ring that fills, not a tick: it says "one of these" before it
+   says which, which a tick on the chosen row alone does not. */
+.wr-hours-dot {
+  width: 15px; height: 15px; flex: none; border-radius: 999px;
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--color-text) 28%, transparent);
+}
+.wr-hours-opt[aria-checked="true"] .wr-hours-dot {
+  background: var(--color-accent);
+  box-shadow: inset 0 0 0 3.5px var(--wr-card), 0 0 0 1px var(--color-accent);
+}
+.wr-hours-name { flex: 1; min-width: 0; font: 500 12.5px var(--font-body); }
+.wr-hours-opt[aria-checked="true"] .wr-hours-name { font-weight: 600; }
+.wr-hours-span { font: 600 11.5px var(--font-body); color: var(--wr-text-soft); }
+
+.wr-hours-foot {
+  margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--wr-hairline);
+}
+.wr-hours-edit {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 9px 13px; border: 0; border-radius: 999px; cursor: pointer;
+  background: var(--wr-recessed); box-shadow: inset 0 0 0 1px var(--wr-hairline);
+  font: 600 12px var(--font-body); color: var(--color-accent-900);
+}
+.wr-hours-edit:hover { background: var(--color-accent-100); }
+.wr-hours-edit svg { margin-left: auto; }
+
+/* The date and the control that changes what is under it, as one cluster. */
+.wr-dayhead { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.wr-dayhead-text { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+
+/* ── What the range leaves out ─────────────────────────────────────────────
+   Dashed, because it is the same statement the empty row makes: something
+   belongs here and is not being drawn. */
+.wr-outside {
+  display: flex; align-items: center; gap: 12px;
+  margin: 0 0 6px var(--wr-gutter);
+  padding: 7px 13px; border-radius: 999px;
+  border: 1px dashed var(--wr-dashed);
+  font: 500 11.5px var(--font-body); color: var(--wr-text-muted);
+}
+.wr-outside-after { margin: 6px 0 0 var(--wr-gutter); }
+.wr-outside-text { flex: 1; min-width: 0; }
+.wr-outside-more {
+  flex: none; padding: 0; border: 0; background: none; cursor: pointer;
+  font: 600 11.5px var(--font-body); color: var(--color-accent-900);
+}
+.wr-outside-more:hover { text-decoration: underline; }
+
+/* ── Editing a window ────────────────────────────────────────────────────── */
+.wr-timefield {
+  flex: none; padding: 8px 15px; border: 0; border-radius: 999px;
+  background: var(--wr-recessed); box-shadow: inset 0 0 0 1px var(--wr-hairline);
+  font: 600 13px var(--font-body); color: var(--color-text);
+}
+.wr-timefield:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--color-accent); }
+.wr-timefield:disabled { color: var(--wr-text-soft); }
+
+.wr-hours-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wr-hours-to { font: 400 12px var(--font-body); color: var(--wr-text-soft); }
+/* The name earns the leftover width; the two times are fixed by their content. */
+.wr-hours-name-field { flex: 1; min-width: 140px; }
+.wr-hours-name-field .wr-field-input { border-radius: 999px; padding: 9px 15px; }
+
+/* A setting that is a sentence and a control, not a labelled field. */
+.wr-setting-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 0; border-top: 1px solid var(--wr-hairline);
+}
+.wr-setting-row:first-child { border-top: 0; padding-top: 0; }
+.wr-setting-row:last-child { padding-bottom: 0; }
+.wr-setting-main { flex: 1; min-width: 0; }
+.wr-setting-name { font: 600 13.5px var(--font-body); }
+.wr-setting-note {
+  font: 400 11.5px var(--font-body); color: var(--wr-text-soft); margin-top: 2px;
+}
+
+/* ── Settings, as sections one link can land on ────────────────────────────
+   `scroll-margin-top` is what makes "Edit hours and ranges" arrive with the
+   heading visible rather than flush against the top of the scroller. */
+.wr-settings { display: flex; flex-direction: column; gap: 30px; }
+.wr-settings-section { scroll-margin-top: 18px; }
+.wr-settings-title { margin: 0 0 14px; font-family: var(--font-heading); font-size: 22px; }

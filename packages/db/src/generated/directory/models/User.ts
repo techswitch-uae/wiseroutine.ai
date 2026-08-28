@@ -29,11 +29,15 @@ export type AggregateUser = {
 export type UserAvgAggregateOutputType = {
   dayStartMinutes: number | null
   dayEndMinutes: number | null
+  customRangeStartMinutes: number | null
+  customRangeEndMinutes: number | null
 }
 
 export type UserSumAggregateOutputType = {
   dayStartMinutes: number | null
   dayEndMinutes: number | null
+  customRangeStartMinutes: number | null
+  customRangeEndMinutes: number | null
 }
 
 export type UserMinAggregateOutputType = {
@@ -46,6 +50,11 @@ export type UserMinAggregateOutputType = {
   locale: string | null
   dayStartMinutes: number | null
   dayEndMinutes: number | null
+  customRangeLabel: string | null
+  customRangeStartMinutes: number | null
+  customRangeEndMinutes: number | null
+  dayOpensOn: string | null
+  showOutsideRange: boolean | null
   plan: string | null
   planSource: string | null
   planExpiresAt: Date | null
@@ -68,6 +77,11 @@ export type UserMaxAggregateOutputType = {
   locale: string | null
   dayStartMinutes: number | null
   dayEndMinutes: number | null
+  customRangeLabel: string | null
+  customRangeStartMinutes: number | null
+  customRangeEndMinutes: number | null
+  dayOpensOn: string | null
+  showOutsideRange: boolean | null
   plan: string | null
   planSource: string | null
   planExpiresAt: Date | null
@@ -90,6 +104,11 @@ export type UserCountAggregateOutputType = {
   locale: number
   dayStartMinutes: number
   dayEndMinutes: number
+  customRangeLabel: number
+  customRangeStartMinutes: number
+  customRangeEndMinutes: number
+  dayOpensOn: number
+  showOutsideRange: number
   plan: number
   planSource: number
   planExpiresAt: number
@@ -107,11 +126,15 @@ export type UserCountAggregateOutputType = {
 export type UserAvgAggregateInputType = {
   dayStartMinutes?: true
   dayEndMinutes?: true
+  customRangeStartMinutes?: true
+  customRangeEndMinutes?: true
 }
 
 export type UserSumAggregateInputType = {
   dayStartMinutes?: true
   dayEndMinutes?: true
+  customRangeStartMinutes?: true
+  customRangeEndMinutes?: true
 }
 
 export type UserMinAggregateInputType = {
@@ -124,6 +147,11 @@ export type UserMinAggregateInputType = {
   locale?: true
   dayStartMinutes?: true
   dayEndMinutes?: true
+  customRangeLabel?: true
+  customRangeStartMinutes?: true
+  customRangeEndMinutes?: true
+  dayOpensOn?: true
+  showOutsideRange?: true
   plan?: true
   planSource?: true
   planExpiresAt?: true
@@ -146,6 +174,11 @@ export type UserMaxAggregateInputType = {
   locale?: true
   dayStartMinutes?: true
   dayEndMinutes?: true
+  customRangeLabel?: true
+  customRangeStartMinutes?: true
+  customRangeEndMinutes?: true
+  dayOpensOn?: true
+  showOutsideRange?: true
   plan?: true
   planSource?: true
   planExpiresAt?: true
@@ -168,6 +201,11 @@ export type UserCountAggregateInputType = {
   locale?: true
   dayStartMinutes?: true
   dayEndMinutes?: true
+  customRangeLabel?: true
+  customRangeStartMinutes?: true
+  customRangeEndMinutes?: true
+  dayOpensOn?: true
+  showOutsideRange?: true
   plan?: true
   planSource?: true
   planExpiresAt?: true
@@ -277,6 +315,11 @@ export type UserGroupByOutputType = {
   locale: string
   dayStartMinutes: number
   dayEndMinutes: number
+  customRangeLabel: string | null
+  customRangeStartMinutes: number | null
+  customRangeEndMinutes: number | null
+  dayOpensOn: string
+  showOutsideRange: boolean
   plan: string
   planSource: string
   planExpiresAt: Date | null
@@ -322,6 +365,11 @@ export type UserWhereInput = {
   locale?: Prisma.StringFilter<"User"> | string
   dayStartMinutes?: Prisma.IntFilter<"User"> | number
   dayEndMinutes?: Prisma.IntFilter<"User"> | number
+  customRangeLabel?: Prisma.StringNullableFilter<"User"> | string | null
+  customRangeStartMinutes?: Prisma.IntNullableFilter<"User"> | number | null
+  customRangeEndMinutes?: Prisma.IntNullableFilter<"User"> | number | null
+  dayOpensOn?: Prisma.StringFilter<"User"> | string
+  showOutsideRange?: Prisma.BoolFilter<"User"> | boolean
   plan?: Prisma.StringFilter<"User"> | string
   planSource?: Prisma.StringFilter<"User"> | string
   planExpiresAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
@@ -351,6 +399,11 @@ export type UserOrderByWithRelationInput = {
   locale?: Prisma.SortOrder
   dayStartMinutes?: Prisma.SortOrder
   dayEndMinutes?: Prisma.SortOrder
+  customRangeLabel?: Prisma.SortOrderInput | Prisma.SortOrder
+  customRangeStartMinutes?: Prisma.SortOrderInput | Prisma.SortOrder
+  customRangeEndMinutes?: Prisma.SortOrderInput | Prisma.SortOrder
+  dayOpensOn?: Prisma.SortOrder
+  showOutsideRange?: Prisma.SortOrder
   plan?: Prisma.SortOrder
   planSource?: Prisma.SortOrder
   planExpiresAt?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -384,6 +437,11 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   locale?: Prisma.StringFilter<"User"> | string
   dayStartMinutes?: Prisma.IntFilter<"User"> | number
   dayEndMinutes?: Prisma.IntFilter<"User"> | number
+  customRangeLabel?: Prisma.StringNullableFilter<"User"> | string | null
+  customRangeStartMinutes?: Prisma.IntNullableFilter<"User"> | number | null
+  customRangeEndMinutes?: Prisma.IntNullableFilter<"User"> | number | null
+  dayOpensOn?: Prisma.StringFilter<"User"> | string
+  showOutsideRange?: Prisma.BoolFilter<"User"> | boolean
   plan?: Prisma.StringFilter<"User"> | string
   planSource?: Prisma.StringFilter<"User"> | string
   planExpiresAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
@@ -412,6 +470,11 @@ export type UserOrderByWithAggregationInput = {
   locale?: Prisma.SortOrder
   dayStartMinutes?: Prisma.SortOrder
   dayEndMinutes?: Prisma.SortOrder
+  customRangeLabel?: Prisma.SortOrderInput | Prisma.SortOrder
+  customRangeStartMinutes?: Prisma.SortOrderInput | Prisma.SortOrder
+  customRangeEndMinutes?: Prisma.SortOrderInput | Prisma.SortOrder
+  dayOpensOn?: Prisma.SortOrder
+  showOutsideRange?: Prisma.SortOrder
   plan?: Prisma.SortOrder
   planSource?: Prisma.SortOrder
   planExpiresAt?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -442,6 +505,11 @@ export type UserScalarWhereWithAggregatesInput = {
   locale?: Prisma.StringWithAggregatesFilter<"User"> | string
   dayStartMinutes?: Prisma.IntWithAggregatesFilter<"User"> | number
   dayEndMinutes?: Prisma.IntWithAggregatesFilter<"User"> | number
+  customRangeLabel?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
+  customRangeStartMinutes?: Prisma.IntNullableWithAggregatesFilter<"User"> | number | null
+  customRangeEndMinutes?: Prisma.IntNullableWithAggregatesFilter<"User"> | number | null
+  dayOpensOn?: Prisma.StringWithAggregatesFilter<"User"> | string
+  showOutsideRange?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
   plan?: Prisma.StringWithAggregatesFilter<"User"> | string
   planSource?: Prisma.StringWithAggregatesFilter<"User"> | string
   planExpiresAt?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
@@ -464,6 +532,11 @@ export type UserCreateInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -493,6 +566,11 @@ export type UserUncheckedCreateInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -522,6 +600,11 @@ export type UserUpdateInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -551,6 +634,11 @@ export type UserUncheckedUpdateInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -580,6 +668,11 @@ export type UserCreateManyInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -602,6 +695,11 @@ export type UserUpdateManyMutationInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -624,6 +722,11 @@ export type UserUncheckedUpdateManyInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -646,6 +749,11 @@ export type UserCountOrderByAggregateInput = {
   locale?: Prisma.SortOrder
   dayStartMinutes?: Prisma.SortOrder
   dayEndMinutes?: Prisma.SortOrder
+  customRangeLabel?: Prisma.SortOrder
+  customRangeStartMinutes?: Prisma.SortOrder
+  customRangeEndMinutes?: Prisma.SortOrder
+  dayOpensOn?: Prisma.SortOrder
+  showOutsideRange?: Prisma.SortOrder
   plan?: Prisma.SortOrder
   planSource?: Prisma.SortOrder
   planExpiresAt?: Prisma.SortOrder
@@ -661,6 +769,8 @@ export type UserCountOrderByAggregateInput = {
 export type UserAvgOrderByAggregateInput = {
   dayStartMinutes?: Prisma.SortOrder
   dayEndMinutes?: Prisma.SortOrder
+  customRangeStartMinutes?: Prisma.SortOrder
+  customRangeEndMinutes?: Prisma.SortOrder
 }
 
 export type UserMaxOrderByAggregateInput = {
@@ -673,6 +783,11 @@ export type UserMaxOrderByAggregateInput = {
   locale?: Prisma.SortOrder
   dayStartMinutes?: Prisma.SortOrder
   dayEndMinutes?: Prisma.SortOrder
+  customRangeLabel?: Prisma.SortOrder
+  customRangeStartMinutes?: Prisma.SortOrder
+  customRangeEndMinutes?: Prisma.SortOrder
+  dayOpensOn?: Prisma.SortOrder
+  showOutsideRange?: Prisma.SortOrder
   plan?: Prisma.SortOrder
   planSource?: Prisma.SortOrder
   planExpiresAt?: Prisma.SortOrder
@@ -695,6 +810,11 @@ export type UserMinOrderByAggregateInput = {
   locale?: Prisma.SortOrder
   dayStartMinutes?: Prisma.SortOrder
   dayEndMinutes?: Prisma.SortOrder
+  customRangeLabel?: Prisma.SortOrder
+  customRangeStartMinutes?: Prisma.SortOrder
+  customRangeEndMinutes?: Prisma.SortOrder
+  dayOpensOn?: Prisma.SortOrder
+  showOutsideRange?: Prisma.SortOrder
   plan?: Prisma.SortOrder
   planSource?: Prisma.SortOrder
   planExpiresAt?: Prisma.SortOrder
@@ -710,6 +830,8 @@ export type UserMinOrderByAggregateInput = {
 export type UserSumOrderByAggregateInput = {
   dayStartMinutes?: Prisma.SortOrder
   dayEndMinutes?: Prisma.SortOrder
+  customRangeStartMinutes?: Prisma.SortOrder
+  customRangeEndMinutes?: Prisma.SortOrder
 }
 
 export type UserScalarRelationFilter = {
@@ -731,6 +853,14 @@ export type BoolFieldUpdateOperationsInput = {
 
 export type IntFieldUpdateOperationsInput = {
   set?: number
+  increment?: number
+  decrement?: number
+  multiply?: number
+  divide?: number
+}
+
+export type NullableIntFieldUpdateOperationsInput = {
+  set?: number | null
   increment?: number
   decrement?: number
   multiply?: number
@@ -853,6 +983,11 @@ export type UserCreateWithoutSessionsInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -881,6 +1016,11 @@ export type UserUncheckedCreateWithoutSessionsInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -925,6 +1065,11 @@ export type UserUpdateWithoutSessionsInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -953,6 +1098,11 @@ export type UserUncheckedUpdateWithoutSessionsInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -981,6 +1131,11 @@ export type UserCreateWithoutAccountsInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -1009,6 +1164,11 @@ export type UserUncheckedCreateWithoutAccountsInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -1053,6 +1213,11 @@ export type UserUpdateWithoutAccountsInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1081,6 +1246,11 @@ export type UserUncheckedUpdateWithoutAccountsInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1109,6 +1279,11 @@ export type UserCreateWithoutSubscriptionInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -1137,6 +1312,11 @@ export type UserUncheckedCreateWithoutSubscriptionInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -1181,6 +1361,11 @@ export type UserUpdateWithoutSubscriptionInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1209,6 +1394,11 @@ export type UserUncheckedUpdateWithoutSubscriptionInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1237,6 +1427,11 @@ export type UserCreateWithoutPlanGrantsInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -1265,6 +1460,11 @@ export type UserUncheckedCreateWithoutPlanGrantsInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -1309,6 +1509,11 @@ export type UserUpdateWithoutPlanGrantsInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1337,6 +1542,11 @@ export type UserUncheckedUpdateWithoutPlanGrantsInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1365,6 +1575,11 @@ export type UserCreateWithoutScheduledWorkInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -1393,6 +1608,11 @@ export type UserUncheckedCreateWithoutScheduledWorkInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -1437,6 +1657,11 @@ export type UserUpdateWithoutScheduledWorkInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1465,6 +1690,11 @@ export type UserUncheckedUpdateWithoutScheduledWorkInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1493,6 +1723,11 @@ export type UserCreateWithoutWatchChannelsInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -1521,6 +1756,11 @@ export type UserUncheckedCreateWithoutWatchChannelsInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -1565,6 +1805,11 @@ export type UserUpdateWithoutWatchChannelsInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1593,6 +1838,11 @@ export type UserUncheckedUpdateWithoutWatchChannelsInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1621,6 +1871,11 @@ export type UserCreateWithoutDevicesInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -1649,6 +1904,11 @@ export type UserUncheckedCreateWithoutDevicesInput = {
   locale?: string
   dayStartMinutes?: number
   dayEndMinutes?: number
+  customRangeLabel?: string | null
+  customRangeStartMinutes?: number | null
+  customRangeEndMinutes?: number | null
+  dayOpensOn?: string
+  showOutsideRange?: boolean
   plan?: string
   planSource?: string
   planExpiresAt?: Date | string | null
@@ -1693,6 +1953,11 @@ export type UserUpdateWithoutDevicesInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1721,6 +1986,11 @@ export type UserUncheckedUpdateWithoutDevicesInput = {
   locale?: Prisma.StringFieldUpdateOperationsInput | string
   dayStartMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   dayEndMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  customRangeLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  customRangeStartMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  customRangeEndMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  dayOpensOn?: Prisma.StringFieldUpdateOperationsInput | string
+  showOutsideRange?: Prisma.BoolFieldUpdateOperationsInput | boolean
   plan?: Prisma.StringFieldUpdateOperationsInput | string
   planSource?: Prisma.StringFieldUpdateOperationsInput | string
   planExpiresAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1825,6 +2095,11 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   locale?: boolean
   dayStartMinutes?: boolean
   dayEndMinutes?: boolean
+  customRangeLabel?: boolean
+  customRangeStartMinutes?: boolean
+  customRangeEndMinutes?: boolean
+  dayOpensOn?: boolean
+  showOutsideRange?: boolean
   plan?: boolean
   planSource?: boolean
   planExpiresAt?: boolean
@@ -1855,6 +2130,11 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   locale?: boolean
   dayStartMinutes?: boolean
   dayEndMinutes?: boolean
+  customRangeLabel?: boolean
+  customRangeStartMinutes?: boolean
+  customRangeEndMinutes?: boolean
+  dayOpensOn?: boolean
+  showOutsideRange?: boolean
   plan?: boolean
   planSource?: boolean
   planExpiresAt?: boolean
@@ -1877,6 +2157,11 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   locale?: boolean
   dayStartMinutes?: boolean
   dayEndMinutes?: boolean
+  customRangeLabel?: boolean
+  customRangeStartMinutes?: boolean
+  customRangeEndMinutes?: boolean
+  dayOpensOn?: boolean
+  showOutsideRange?: boolean
   plan?: boolean
   planSource?: boolean
   planExpiresAt?: boolean
@@ -1899,6 +2184,11 @@ export type UserSelectScalar = {
   locale?: boolean
   dayStartMinutes?: boolean
   dayEndMinutes?: boolean
+  customRangeLabel?: boolean
+  customRangeStartMinutes?: boolean
+  customRangeEndMinutes?: boolean
+  dayOpensOn?: boolean
+  showOutsideRange?: boolean
   plan?: boolean
   planSource?: boolean
   planExpiresAt?: boolean
@@ -1911,7 +2201,7 @@ export type UserSelectScalar = {
   deletedAt?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "avatarUrl" | "emailVerified" | "timeZone" | "locale" | "dayStartMinutes" | "dayEndMinutes" | "plan" | "planSource" | "planExpiresAt" | "storeEventTitles" | "databaseName" | "databaseReady" | "lastSeenAt" | "createdAt" | "updatedAt" | "deletedAt", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "avatarUrl" | "emailVerified" | "timeZone" | "locale" | "dayStartMinutes" | "dayEndMinutes" | "customRangeLabel" | "customRangeStartMinutes" | "customRangeEndMinutes" | "dayOpensOn" | "showOutsideRange" | "plan" | "planSource" | "planExpiresAt" | "storeEventTitles" | "databaseName" | "databaseReady" | "lastSeenAt" | "createdAt" | "updatedAt" | "deletedAt", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   accounts?: boolean | Prisma.User$accountsArgs<ExtArgs>
   sessions?: boolean | Prisma.User$sessionsArgs<ExtArgs>
@@ -1958,10 +2248,31 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     timeZone: string
     locale: string
     /**
-     * Minutes from local midnight bounding the planning window.
+     * Minutes from local midnight bounding the planning window. Also the
+     * "working hours" range in the day view - the two are the same window, so
+     * there is one pair of columns rather than two that can disagree.
      */
     dayStartMinutes: number
     dayEndMinutes: number
+    /**
+     * One named range the day view can be switched to, e.g. "Studio evenings".
+     * All three null together: a label with no hours is not a range anyone can
+     * select, so the three are written and cleared as a unit.
+     */
+    customRangeLabel: string | null
+    customRangeStartMinutes: number | null
+    customRangeEndMinutes: number | null
+    /**
+     * "working" | "full" | "custom" - which range the day view opens on each
+     * morning. Falls back to working hours when it names a range that has since
+     * been deleted, so a stale value can never leave the day blank.
+     */
+    dayOpensOn: string
+    /**
+     * Collapse meetings outside the visible range into a line at the top and
+     * bottom of the day, rather than hiding them.
+     */
+    showOutsideRange: boolean
     /**
      * Resolved snapshot ("free" | "pro") so a request reads one column instead
      * of calling Stripe.
@@ -2433,6 +2744,11 @@ export interface UserFieldRefs {
   readonly locale: Prisma.FieldRef<"User", 'String'>
   readonly dayStartMinutes: Prisma.FieldRef<"User", 'Int'>
   readonly dayEndMinutes: Prisma.FieldRef<"User", 'Int'>
+  readonly customRangeLabel: Prisma.FieldRef<"User", 'String'>
+  readonly customRangeStartMinutes: Prisma.FieldRef<"User", 'Int'>
+  readonly customRangeEndMinutes: Prisma.FieldRef<"User", 'Int'>
+  readonly dayOpensOn: Prisma.FieldRef<"User", 'String'>
+  readonly showOutsideRange: Prisma.FieldRef<"User", 'Boolean'>
   readonly plan: Prisma.FieldRef<"User", 'String'>
   readonly planSource: Prisma.FieldRef<"User", 'String'>
   readonly planExpiresAt: Prisma.FieldRef<"User", 'DateTime'>

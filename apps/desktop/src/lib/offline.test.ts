@@ -30,8 +30,19 @@ const plan = (over: Partial<TodayResponse> = {}): TodayResponse => ({
   timeZone: "Europe/Rome",
   dayStart: NOON - 4 * HOUR,
   dayEnd: NOON + 6 * HOUR,
+  range: "working",
+  ranges: [
+    {
+      key: "working",
+      label: "Working hours",
+      startMinutes: 480,
+      endMinutes: 1080,
+    },
+    { key: "full", label: "Full day", startMinutes: 0, endMinutes: 1440 },
+  ],
   slots: [slot("a"), slot("b")],
   meetings: [],
+  outside: { before: [], after: [] },
   modules: [],
   ...over,
 });

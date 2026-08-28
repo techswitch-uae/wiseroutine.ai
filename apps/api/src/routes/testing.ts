@@ -90,10 +90,12 @@ testing.post("/reset", async (c) => {
  * where the real sign-in would have left it.
  */
 testing.post("/seed", async (c) => {
-  const body = await c.req.json<{
-    timeZone?: string;
-    plan?: "free" | "pro";
-  }>().catch(() => ({}) as Record<string, never>);
+  const body = await c.req
+    .json<{
+      timeZone?: string;
+      plan?: "free" | "pro";
+    }>()
+    .catch(() => ({}) as Record<string, never>);
 
   const directory = c.get("directory");
   const now = c.get("now");

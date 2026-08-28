@@ -138,9 +138,30 @@ export interface UserSettingsPatch {
   timeZone?: string;
   dayStartMinutes?: number;
   dayEndMinutes?: number;
+  /** Null clears the custom range. All three move together - see the schema. */
+  customRangeLabel?: string | null;
+  customRangeStartMinutes?: number | null;
+  customRangeEndMinutes?: number | null;
+  /** "working" | "full" | "custom" */
+  dayOpensOn?: string;
+  showOutsideRange?: boolean;
   /** Data minimisation: keep busy intervals, drop event titles. */
   storeEventTitles?: boolean;
 }
+
+/** Every key a caller may set, so the copy below cannot fall behind the type:
+ *  a field added to the patch and forgotten here is silently discarded. */
+const SETTINGS_KEYS = [
+  "timeZone",
+  "dayStartMinutes",
+  "dayEndMinutes",
+  "customRangeLabel",
+  "customRangeStartMinutes",
+  "customRangeEndMinutes",
+  "dayOpensOn",
+  "showOutsideRange",
+  "storeEventTitles",
+] as const satisfies readonly (keyof UserSettingsPatch)[];
 
 export async function updateUserSettings(
   directory: Directory,
@@ -148,13 +169,11 @@ export async function updateUserSettings(
   patch: UserSettingsPatch,
 ): Promise<void> {
   const data: UserSettingsPatch = {};
-  if (patch.timeZone !== undefined) data.timeZone = patch.timeZone;
-  if (patch.dayStartMinutes !== undefined)
-    data.dayStartMinutes = patch.dayStartMinutes;
-  if (patch.dayEndMinutes !== undefined)
-    data.dayEndMinutes = patch.dayEndMinutes;
-  if (patch.storeEventTitles !== undefined)
-    data.storeEventTitles = patch.storeEventTitles;
+  for (const key of SETTINGS_KEYS) {
+    // `null` is a value here - it is how the custom range is cleared - so this
+    // tests for absence rather than for falsiness.
+    if (patch[key] !== undefined) Object.assign(data, { [key]: patch[key] });
+  }
   if (Object.keys(data).length === 0) return;
 
   await directory.user.update({ where: { id: userId }, data });
@@ -176,6 +195,8 @@ export const USER_DEFAULTS = {
   locale: "en",
   dayStartMinutes: 480,
   dayEndMinutes: 1080,
+  dayOpensOn: "working",
+  showOutsideRange: true,
   plan: "free",
   planSource: "default",
   storeEventTitles: true,

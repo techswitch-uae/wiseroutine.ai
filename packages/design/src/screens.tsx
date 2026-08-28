@@ -18,9 +18,12 @@ import {
   PROVIDER_NAMES,
   ProviderButton,
   Rule,
+  Segmented,
   SelectField,
   Slot,
+  TimeField,
   TimeStepper,
+  Toggle,
 } from "./components";
 import { AppFrame, AuthFrame, PageHead, Sidebar, UserMenu } from "./layout";
 
@@ -394,6 +397,190 @@ export const AccountScreen: React.FC<{
           </Button>
         </div>
       </Card>
+    </div>
+  );
+};
+
+/* ── Day view hours ──────────────────────────────────────────────────────── */
+
+/** The one custom range, as the settings screen holds it while it is edited. */
+export interface CustomRange {
+  label: string;
+  startMinutes: number;
+  endMinutes: number;
+}
+
+export interface DayHoursDraft {
+  /** The working window - the same one the planner places into. */
+  dayStartMinutes: number;
+  dayEndMinutes: number;
+  /** Null when the user has not named a range. */
+  custom: CustomRange | null;
+  dayOpensOn: "working" | "full" | "custom";
+  showOutsideRange: boolean;
+}
+
+/** What is offered when the custom range is switched on with nothing in it.
+ *  An empty label and 00:00–00:00 would be a range that cannot be saved. */
+const NEW_CUSTOM_RANGE: CustomRange = {
+  label: "Evenings",
+  startMinutes: 17 * 60,
+  endMinutes: 22 * 60,
+};
+
+const OPENS_ON = [
+  { value: "working", label: "Working" },
+  { value: "full", label: "Full day" },
+  { value: "custom", label: "Custom" },
+] as const;
+
+/**
+ * Where the day view's ranges are configured.
+ *
+ * Working hours are first because they are not only a view: they are the
+ * window slots are placed in, so changing them changes the plan and not just
+ * what is drawn. The note says so - it is the one thing on this screen with a
+ * consequence beyond the timeline.
+ *
+ * Edits are held as a draft and committed with Update, the same as the
+ * calendars page. Hours are not a toggle: half-typed values would otherwise
+ * reach the server on their way to the ones the user meant, and each one is a
+ * write plus a replan.
+ */
+export const DayHoursSection: React.FC<{
+  draft: DayHoursDraft;
+  onChange?: (patch: Partial<DayHoursDraft>) => void;
+  /** True once the draft differs from what is saved - shows Update/Cancel. */
+  dirty?: boolean;
+  onUpdate?: () => void;
+  onCancel?: () => void;
+  saving?: boolean;
+  problem?: string | null;
+}> = ({ draft, onChange, dirty, onUpdate, onCancel, saving, problem }) => {
+  const custom = draft.custom;
+
+  return (
+    <div className="wr-account">
+      <Card title="Working hours" note="Also the hours slots are placed in">
+        <div className="wr-hours-row">
+          <TimeField
+            label="Working hours start"
+            minutes={draft.dayStartMinutes}
+            onChange={(dayStartMinutes) => onChange?.({ dayStartMinutes })}
+          />
+          <span className="wr-hours-to">to</span>
+          <TimeField
+            label="Working hours end"
+            minutes={draft.dayEndMinutes}
+            onChange={(dayEndMinutes) => onChange?.({ dayEndMinutes })}
+          />
+        </div>
+      </Card>
+
+      <Card
+        title="Custom range"
+        action={
+          <Toggle
+            label="Use a custom range"
+            checked={custom !== null}
+            onChange={(on) =>
+              onChange?.({ custom: on ? { ...NEW_CUSTOM_RANGE } : null })
+            }
+          />
+        }
+      >
+        {custom ? (
+          <>
+            <div className="wr-hours-row">
+              <Field
+                aria-label="Custom range name"
+                className="wr-hours-name-field"
+                value={custom.label}
+                placeholder="Name this range"
+                onChange={(event) =>
+                  onChange?.({
+                    custom: { ...custom, label: event.target.value },
+                  })
+                }
+              />
+              <TimeField
+                label="Custom range start"
+                minutes={custom.startMinutes}
+                onChange={(startMinutes) =>
+                  onChange?.({ custom: { ...custom, startMinutes } })
+                }
+              />
+              <span className="wr-hours-to">to</span>
+              <TimeField
+                label="Custom range end"
+                minutes={custom.endMinutes}
+                onChange={(endMinutes) =>
+                  onChange?.({ custom: { ...custom, endMinutes } })
+                }
+              />
+            </div>
+            <p className="wr-account-note">
+              The label is what appears in the day view picker. One custom range
+              for now.
+            </p>
+          </>
+        ) : (
+          <p className="wr-account-empty">
+            A second window to switch the day to - your evenings, or the hours
+            you are on call. One custom range for now.
+          </p>
+        )}
+      </Card>
+
+      <Card>
+        <div className="wr-setting-row">
+          <div className="wr-setting-main">
+            <div className="wr-setting-name">Day opens on</div>
+            <div className="wr-setting-note">
+              The range the timeline shows each morning
+            </div>
+          </div>
+          <Segmented
+            label="Day opens on"
+            options={OPENS_ON}
+            value={draft.dayOpensOn}
+            onChange={(dayOpensOn) => onChange?.({ dayOpensOn })}
+          />
+        </div>
+
+        <div className="wr-setting-row">
+          <div className="wr-setting-main">
+            <div className="wr-setting-name">
+              Show meetings outside the range
+            </div>
+            <div className="wr-setting-note">
+              Collapsed into a line at the top and bottom of the day
+            </div>
+          </div>
+          <Toggle
+            label="Show meetings outside the range"
+            checked={draft.showOutsideRange}
+            onChange={(showOutsideRange) => onChange?.({ showOutsideRange })}
+          />
+        </div>
+      </Card>
+
+      {problem ? (
+        <p className="wr-auth-problem" role="alert">
+          {problem}
+        </p>
+      ) : null}
+
+      {dirty ? (
+        <div className="wr-confirm-actions">
+          <Button variant="primary" onClick={onUpdate} disabled={saving}>
+            {saving ? "Updating…" : "Update"}
+          </Button>
+          <Button variant="quiet" onClick={onCancel} disabled={saving}>
+            Cancel
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 };

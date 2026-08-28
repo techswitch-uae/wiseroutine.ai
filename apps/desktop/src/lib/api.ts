@@ -152,13 +152,28 @@ export interface TodayMeeting {
   isAllDay: boolean;
 }
 
+/** One of the day view's ranges, as the server derives them. */
+export interface DayRange {
+  key: string;
+  label: string;
+  startMinutes: number;
+  endMinutes: number;
+}
+
 export interface TodayResponse {
   date: { year: number; month: number; day: number };
   timeZone: string;
   dayStart: number;
   dayEnd: number;
+  /** The range these bounds came from, which is not always the one asked for
+   *  - a range deleted since falls back rather than failing. */
+  range: string;
+  ranges: DayRange[];
   slots: TodaySlot[];
   meetings: TodayMeeting[];
+  /** Meetings the range does not cover, drawn as a line at each edge. Empty
+   *  when the user has turned that off. */
+  outside: { before: TodayMeeting[]; after: TodayMeeting[] };
   modules: string[];
 }
 
@@ -173,7 +188,30 @@ export interface SessionResponse {
     timeZone: string;
     plan: "free" | "pro";
     planSource: string;
+    /** The day view's hours, for the settings screen to edit. The Today page
+     *  does not read these - it takes its ranges from `/today`, which already
+     *  had to resolve them to answer at all. */
+    dayStartMinutes: number;
+    dayEndMinutes: number;
+    customRangeLabel: string | null;
+    customRangeStartMinutes: number | null;
+    customRangeEndMinutes: number | null;
+    dayOpensOn: string;
+    showOutsideRange: boolean;
   };
+}
+
+/** Everything `PATCH /settings` accepts. The three custom-range fields move
+ *  together - all set, or all null to clear it. */
+export interface SettingsPatch {
+  timeZone?: string;
+  dayStartMinutes?: number;
+  dayEndMinutes?: number;
+  customRangeLabel?: string | null;
+  customRangeStartMinutes?: number | null;
+  customRangeEndMinutes?: number | null;
+  dayOpensOn?: "working" | "full" | "custom";
+  showOutsideRange?: boolean;
 }
 
 /** One provider that can sign this account in. Not a calendar connection. */
@@ -430,13 +468,16 @@ export const api = {
    * an old plan presented as current is worse than an error.
    */
   async today(
-    at?: number,
+    options: { at?: number; range?: string } = {},
   ): Promise<TodayResponse & { stale: boolean; cachedAt: number }> {
     const now = Date.now();
+    const query = new URLSearchParams();
+    if (options.at) query.set("at", String(options.at));
+    if (options.range) query.set("range", options.range);
+    const suffix = query.size > 0 ? `?${query}` : "";
+
     try {
-      const data = await request<TodayResponse>(
-        `/today${at ? `?at=${at}` : ""}`,
-      );
+      const data = await request<TodayResponse>(`/today${suffix}`);
       cachePlan(data, now);
       return { ...withPending(data, pending()), stale: false, cachedAt: now };
     } catch (error) {
@@ -462,10 +503,15 @@ export const api = {
    * every load, so that a zone the user later chooses by hand is not
    * overwritten every time they open the app.
    */
-  setTimeZone: (timeZone: string) =>
+  setTimeZone: (timeZone: string) => api.updateSettings({ timeZone }),
+
+  /** Everything else on the settings page. One route, because the server
+   *  validates the day's window against the row as it will be - see
+   *  `PATCH /settings`. */
+  updateSettings: (patch: SettingsPatch) =>
     request<void>("/settings", {
       method: "PATCH",
-      body: JSON.stringify({ timeZone }),
+      body: JSON.stringify(patch),
     }),
 
   /** Every connected account and the calendars under it, selected or not. */

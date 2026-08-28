@@ -20,6 +20,20 @@ export interface Account {
   timeZone: string;
   /** Only ever rendered when it is an `https:` URL - see `Avatar`. */
   avatarUrl: string | null;
+  /**
+   * The day view's hours.
+   *
+   * Here rather than fetched by the settings page because the session already
+   * carries them: a second request for four numbers the layout has just been
+   * handed would only be a way for the two copies to disagree.
+   */
+  dayStartMinutes: number;
+  dayEndMinutes: number;
+  customRangeLabel: string | null;
+  customRangeStartMinutes: number | null;
+  customRangeEndMinutes: number | null;
+  dayOpensOn: "working" | "full" | "custom";
+  showOutsideRange: boolean;
 }
 
 let current: Account | null = null;

@@ -35,10 +35,10 @@ import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
 const NAV = [
   { key: "today", label: "Today", to: "/" },
   { key: "calendars", label: "Calendars", to: "/calendars" },
-  { key: "account", label: "Account", to: "/account" },
+  { key: "settings", label: "Settings", to: "/settings" },
 ] as const;
 
-/** Sign out and nothing else. Account is a destination in the rail above, and
+/** Sign out and nothing else. Settings is a destination in the rail above, and
  *  listing it twice made the menu look like it held more than it did. */
 const USER_MENU = [{ key: "signout", label: "Sign out" }] as const;
 
@@ -139,6 +139,19 @@ const AppLayout: React.FC = () => {
           plan: s.user.plan,
           timeZone: s.user.timeZone,
           avatarUrl: s.user.image ?? null,
+          dayStartMinutes: s.user.dayStartMinutes,
+          dayEndMinutes: s.user.dayEndMinutes,
+          customRangeLabel: s.user.customRangeLabel ?? null,
+          customRangeStartMinutes: s.user.customRangeStartMinutes ?? null,
+          customRangeEndMinutes: s.user.customRangeEndMinutes ?? null,
+          // A value the server does not recognise cannot reach here, but the
+          // column is a string and this is the boundary where it stops being
+          // one - a bad value would otherwise light up the wrong segment.
+          dayOpensOn:
+            s.user.dayOpensOn === "full" || s.user.dayOpensOn === "custom"
+              ? s.user.dayOpensOn
+              : "working",
+          showOutsideRange: s.user.showOutsideRange,
         });
       })
       .catch((cause: unknown) => {
@@ -194,8 +207,8 @@ const AppLayout: React.FC = () => {
                 if (key === "signout") {
                   setAccount(null);
                   void api.signOut().then(() => navigate({ to: "/signin" }));
-                } else if (key === "account") {
-                  void navigate({ to: "/account" });
+                } else if (key === "settings") {
+                  void navigate({ to: "/settings" });
                 }
               }}
             />

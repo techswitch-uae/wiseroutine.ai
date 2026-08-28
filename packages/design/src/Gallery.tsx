@@ -13,11 +13,13 @@ import {
   DragPlacement,
   Field,
   FitStrip,
+  HoursMenu,
   LiveStatus,
   Metric,
   Module,
   ModuleEmpty,
   NavItem,
+  OutsideRange,
   PlanNote,
   PlayGlyph,
   ProviderButton,
@@ -37,6 +39,8 @@ import {
   AccountScreen,
   AppSidebar,
   CheckEmailScreen,
+  type DayHoursDraft,
+  DayHoursSection,
   PlacingScreen,
   SignInScreen,
   SittingStreak,
@@ -103,6 +107,18 @@ export const Gallery: React.FC = () => {
   const [email, setEmail] = useState("mara@studio.com");
   const [code, setCode] = useState("418");
   const [draftName, setDraftName] = useState("Mara Kovac");
+  const [hours, setHours] = useState("working");
+  const [dayHours, setDayHours] = useState<DayHoursDraft>({
+    dayStartMinutes: 8 * 60 + 30,
+    dayEndMinutes: 17 * 60 + 30,
+    custom: {
+      label: "Studio evenings",
+      startMinutes: 17 * 60,
+      endMinutes: 22 * 60,
+    },
+    dayOpensOn: "working",
+    showOutsideRange: true,
+  });
 
   return (
     <div className="gl">
@@ -1387,6 +1403,96 @@ export const Gallery: React.FC = () => {
                 connectedAt: "12 August 2026",
               },
             ]}
+          />
+        </Row>
+
+        <Row
+          name="Hours shown"
+          tag="popover · day view"
+          why={
+            <>
+              Which hours the timeline covers. The trigger sits with the date
+              because it changes what is under it - the sync button on the far
+              side of that line goes and fetches instead, which is a different
+              class of act. Three ranges at most, and nothing configurable in
+              here: the way out is a link to the settings that own them.
+            </>
+          }
+        >
+          <div style={{ height: 250 }}>
+            <HoursMenu
+              ranges={[
+                {
+                  key: "working",
+                  label: "Working hours",
+                  startMinutes: 8 * 60 + 30,
+                  endMinutes: 17 * 60 + 30,
+                },
+                {
+                  key: "full",
+                  label: "Full day",
+                  startMinutes: 0,
+                  endMinutes: 1440,
+                },
+                {
+                  key: "custom",
+                  label: "Studio evenings",
+                  startMinutes: 17 * 60,
+                  endMinutes: 22 * 60,
+                },
+              ]}
+              value={hours}
+              onChange={setHours}
+            />
+          </div>
+        </Row>
+
+        <Row
+          name="Outside the range"
+          tag="line · day view"
+          why={
+            <>
+              What the chosen range leaves out, kept visible. Dashed, the same
+              as an empty row - both say "something belongs here and is not
+              drawn". Hiding them outright is the failure this prevents: a day
+              view that silently omits a meeting is worse than one showing too
+              many.
+            </>
+          }
+        >
+          <OutsideRange
+            edge="before"
+            count={2}
+            at="08:30"
+            onExpand={() => undefined}
+          />
+          <OutsideRange
+            edge="after"
+            count={1}
+            at="17:30"
+            onExpand={() => undefined}
+          />
+        </Row>
+
+        <Row
+          name="Day view hours"
+          tag="screen · settings"
+          wide
+          why={
+            <>
+              Where the ranges are configured. Working hours come first because
+              they are not only a view - they are the window slots are placed
+              in, so changing them changes the plan. Edits are a draft with
+              Update and Cancel, the same as Calendars: hours are typed, and
+              every keystroke reaching the server would be a write and a replan
+              on its way to the value the user meant.
+            </>
+          }
+        >
+          <DayHoursSection
+            draft={dayHours}
+            onChange={(patch) => setDayHours((d) => ({ ...d, ...patch }))}
+            dirty
           />
         </Row>
 

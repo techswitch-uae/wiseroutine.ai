@@ -133,6 +133,24 @@ const userFields = {
     input: false,
     defaultValue: () => USER_DEFAULTS.dayEndMinutes,
   },
+  // The custom day-view range. Optional rather than defaulted: an account
+  // that has never named one has no range, which is not the same as a range
+  // spanning nothing - and `required: false` is what lets it be cleared.
+  customRangeLabel: { type: "string", required: false, input: false },
+  customRangeStartMinutes: { type: "number", required: false, input: false },
+  customRangeEndMinutes: { type: "number", required: false, input: false },
+  dayOpensOn: {
+    type: "string",
+    required: true,
+    input: false,
+    defaultValue: () => USER_DEFAULTS.dayOpensOn,
+  },
+  showOutsideRange: {
+    type: "boolean",
+    required: true,
+    input: false,
+    defaultValue: () => USER_DEFAULTS.showOutsideRange,
+  },
   plan: {
     type: "string",
     required: true,
@@ -297,7 +315,25 @@ export function createAuth(directory: Directory, env: ServerEnv) {
 
     // In-memory counters would not limit anything: a Worker isolate is
     // per-colo and short-lived, and the endpoint being limited sends email.
-    rateLimit: { enabled: true, storage: "database" },
+    rateLimit: {
+      enabled: true,
+      storage: "database",
+      /**
+       * Except the one endpoint the app polls.
+       *
+       * Every rate-limited request is a read-modify-write *transaction* on
+       * `rateLimit`, and `/get-session` is asked on every mount, every focus
+       * and every sync tick - by two clients at once if a browser tab and the
+       * desktop window are both open. Against local `turso dev`, which is one
+       * SQLite file with one writer, those transactions collide with each
+       * other and with `touchLastSeen` and lose: `SQLITE_BUSY`, an unhandled
+       * throw out of the limiter, and a 500 on the session read at every cold
+       * start. Limiting it bought nothing anyway - it costs no email and no
+       * work, and it is already gated by a token. The limits that matter,
+       * sign-in and the emailed code, are untouched.
+       */
+      customRules: { "/get-session": false },
+    },
 
     user: {
       // Prisma's `avatarUrl` is Better Auth's `image`.

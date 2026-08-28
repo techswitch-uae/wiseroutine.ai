@@ -34,9 +34,27 @@ model User {
   timeZone String @default("UTC") @map("time_zone")
   locale   String @default("en")
 
-  /// Minutes from local midnight bounding the planning window.
+  /// Minutes from local midnight bounding the planning window. Also the
+  /// "working hours" range in the day view - the two are the same window, so
+  /// there is one pair of columns rather than two that can disagree.
   dayStartMinutes Int @default(480) @map("day_start_minutes")
   dayEndMinutes   Int @default(1080) @map("day_end_minutes")
+
+  /// One named range the day view can be switched to, e.g. "Studio evenings".
+  /// All three null together: a label with no hours is not a range anyone can
+  /// select, so the three are written and cleared as a unit.
+  customRangeLabel        String? @map("custom_range_label")
+  customRangeStartMinutes Int?    @map("custom_range_start_minutes")
+  customRangeEndMinutes   Int?    @map("custom_range_end_minutes")
+
+  /// "working" | "full" | "custom" - which range the day view opens on each
+  /// morning. Falls back to working hours when it names a range that has since
+  /// been deleted, so a stale value can never leave the day blank.
+  dayOpensOn String @default("working") @map("day_opens_on")
+
+  /// Collapse meetings outside the visible range into a line at the top and
+  /// bottom of the day, rather than hiding them.
+  showOutsideRange Boolean @default(true) @map("show_outside_range")
 
   /// Resolved snapshot ("free" | "pro") so a request reads one column instead
   /// of calling Stripe.

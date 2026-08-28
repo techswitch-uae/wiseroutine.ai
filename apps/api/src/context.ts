@@ -45,6 +45,13 @@ export interface SessionUser {
   timeZone: string;
   dayStartMinutes: number;
   dayEndMinutes: number;
+  /** The one named day-view range, or null if none has been configured. */
+  customRangeLabel: string | null;
+  customRangeStartMinutes: number | null;
+  customRangeEndMinutes: number | null;
+  /** "working" | "full" | "custom" - which range the day view opens on. */
+  dayOpensOn: string;
+  showOutsideRange: boolean;
   storeEventTitles: boolean;
   /** Null until the first request from their app. */
   lastSeenAt: number | null;
@@ -127,6 +134,11 @@ export const requireUser: MiddlewareHandler<App> = async (c, next) => {
     timeZone: session.user.timeZone,
     dayStartMinutes: session.user.dayStartMinutes,
     dayEndMinutes: session.user.dayEndMinutes,
+    customRangeLabel: session.user.customRangeLabel ?? null,
+    customRangeStartMinutes: session.user.customRangeStartMinutes ?? null,
+    customRangeEndMinutes: session.user.customRangeEndMinutes ?? null,
+    dayOpensOn: session.user.dayOpensOn,
+    showOutsideRange: session.user.showOutsideRange,
     storeEventTitles: session.user.storeEventTitles,
     lastSeenAt: session.user.lastSeenAt?.getTime() ?? null,
   });

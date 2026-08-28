@@ -6,6 +6,7 @@ import {
   seedActivity,
   seedCalendar,
   seedUser,
+  type TestUser,
   tomorrowNoon,
   userDb,
 } from "./test-support";
@@ -275,6 +276,169 @@ function weekdayNoon(): number {
   } while (at.getDay() === 0 || at.getDay() === 6);
   return at.getTime();
 }
+
+/**
+ * Which hours the day shows.
+ *
+ * The pure part - deriving the three ranges and falling back to a sane one -
+ * is covered in `dayRanges.test.ts`. These are the parts that need a real
+ * request: that the window actually narrows what comes back, that the
+ * meetings it excludes are reported rather than dropped, and that the server
+ * refuses a range it could not honour.
+ */
+describe("day view hours", () => {
+  /**
+   * A user whose zone is the one this runtime is in.
+   *
+   * workerd runs in UTC, so `setHours` below writes UTC hours. Against the
+   * default Europe/Rome that is a two-hour shift, and a meeting written as
+   * "07:00, before the day starts" lands at 09:00 and inside the window - the
+   * test would then be measuring the offset rather than the range.
+   */
+  const utcUser = () => seedUser({ timeZone: "UTC" });
+
+  /** A meeting at a fixed hour of the user's day, in the zone above. */
+  const meetingAt = async (
+    calendarId: string,
+    dayAt: number,
+    hour: number,
+    title: string,
+  ) => {
+    const at = new Date(dayAt);
+    at.setHours(hour, 0, 0, 0);
+    await userDb().externalEvent.create({
+      data: {
+        id: crypto.randomUUID(),
+        calendarId,
+        providerEventId: `evt-${title}`,
+        title,
+        startsAt: at,
+        endsAt: new Date(at.getTime() + 1_800_000),
+        updatedAt: new Date(),
+      },
+    });
+    return at.getTime();
+  };
+
+  type Day = {
+    range: string;
+    ranges: { key: string; label: string }[];
+    meetings: { title: string }[];
+    outside: { before: { title: string }[]; after: { title: string }[] };
+  };
+
+  const day = async (user: TestUser, at: number, range?: string) =>
+    (await (
+      await worker.default.fetch(
+        `http://api/today?at=${at}${range ? `&range=${range}` : ""}`,
+        { headers: user.headers },
+      )
+    ).json()) as Day;
+
+  test("a meeting outside the range is reported, not dropped", async () => {
+    const user = await utcUser();
+    const { calendarId } = await seedCalendar();
+    const at = weekdayNoon();
+
+    // 07:00 is before the 08:00 the day starts at; 12:00 is inside it.
+    await meetingAt(calendarId, at, 7, "Early");
+    await meetingAt(calendarId, at, 12, "Standup");
+
+    const working = await day(user, at);
+    expect(working.range).toBe("working");
+    expect(working.meetings.map((m) => m.title)).toEqual(["Standup"]);
+    // The failure this guards: a day view that silently omits a meeting.
+    expect(working.outside.before.map((m) => m.title)).toEqual(["Early"]);
+
+    const full = await day(user, at, "full");
+    expect(full.meetings.map((m) => m.title)).toEqual(["Early", "Standup"]);
+    expect(full.outside.before).toEqual([]);
+  });
+
+  test("turning the setting off empties the edges rather than the day", async () => {
+    const user = await utcUser();
+    const { calendarId } = await seedCalendar();
+    const at = weekdayNoon();
+    await meetingAt(calendarId, at, 7, "Early");
+
+    await worker.default.fetch("http://api/settings", {
+      method: "PATCH",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ showOutsideRange: false }),
+    });
+
+    const working = await day(user, at);
+    expect(working.outside).toEqual({ before: [], after: [] });
+    // Still readable at full day - the setting hides the summary, not the
+    // meeting.
+    expect((await day(user, at, "full")).meetings).toHaveLength(1);
+  });
+
+  test("a saved custom range becomes a range the day can be asked for", async () => {
+    const user = await utcUser();
+    const at = weekdayNoon();
+
+    expect((await day(user, at)).ranges.map((r) => r.key)).toEqual([
+      "working",
+      "full",
+    ]);
+    // Asking for one that does not exist falls back rather than failing.
+    expect((await day(user, at, "custom")).range).toBe("working");
+
+    const saved = await worker.default.fetch("http://api/settings", {
+      method: "PATCH",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        customRangeLabel: "  Studio evenings  ",
+        customRangeStartMinutes: 17 * 60,
+        customRangeEndMinutes: 22 * 60,
+        dayOpensOn: "custom",
+      }),
+    });
+    expect(saved.status).toBe(204);
+
+    const opened = await day(user, at);
+    expect(opened.range).toBe("custom");
+    // Trimmed on the way in: the label is rendered in a picker row.
+    expect(opened.ranges.at(-1)?.label).toBe("Studio evenings");
+  });
+
+  test("half a custom range is refused", async () => {
+    const user = await seedUser();
+    const patch = (body: unknown) =>
+      worker.default.fetch("http://api/settings", {
+        method: "PATCH",
+        headers: { ...user.headers, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    // A label with no hours would store a range `dayRanges` then refuses to
+    // offer - the setting would appear to save and not exist.
+    expect((await patch({ customRangeLabel: "Evenings" })).status).toBe(400);
+    expect(
+      (
+        await patch({
+          customRangeLabel: "Evenings",
+          customRangeStartMinutes: 22 * 60,
+          customRangeEndMinutes: 17 * 60,
+        })
+      ).status,
+    ).toBe(400);
+  });
+
+  // The check that catches a window inverted across two separate saves, which
+  // validating the patch alone would let through.
+  test("the day's window is checked against the row, not the patch", async () => {
+    const user = await seedUser();
+    const response = await worker.default.fetch("http://api/settings", {
+      method: "PATCH",
+      headers: { ...user.headers, "content-type": "application/json" },
+      // Ends at 07:00, against a start of 08:00 that is already stored.
+      body: JSON.stringify({ dayEndMinutes: 7 * 60 }),
+    });
+    expect(response.status).toBe(400);
+  });
+});
 
 describe("settings", () => {
   test("turning titles off erases the ones already stored", async () => {

@@ -1,8 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   DashedRow,
   DayGrid,
+  HoursMenu,
   IconButton,
+  OutsideRange,
   RefreshGlyph,
   Slot,
 } from "@wiseroutine/design";
@@ -16,6 +18,7 @@ import {
   type TodayResponse,
 } from "../lib/api";
 import { SetupRail } from "../modules/setup-rail";
+import { DAY_HOURS_ANCHOR } from "./_app.settings";
 
 /** What `api.today()` hands back: the plan plus where it came from. */
 type CachedToday = TodayResponse & { stale: boolean; cachedAt: number };
@@ -37,11 +40,23 @@ const SYNC_AFTER_AWAY_MS = 20_000;
 const SETTLE_MS = [1_200, 4_000, 10_000];
 
 const Today: React.FC = () => {
+  const navigate = useNavigate();
   const [data, setData] = useState<CachedToday | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [queued, setQueued] = useState(() => api.pendingCount());
   const [syncing, setSyncing] = useState(false);
+
+  /**
+   * Which hours are on screen, for as long as this window is open.
+   *
+   * Deliberately not saved. Switching to the evening to check something is
+   * looking, not a preference - the range the day *starts* on is a setting,
+   * and it lives in Settings where it can be seen and changed on purpose.
+   * Null means "whatever the server opens on", which is what the first load
+   * asks for and what the server answers with.
+   */
+  const [range, setRange] = useState<string | null>(null);
 
   const load = useCallback(() => {
     if (!getSessionToken()) {
@@ -49,7 +64,7 @@ const Today: React.FC = () => {
       return;
     }
     api
-      .today()
+      .today(range ? { range } : {})
       .then((response) => {
         setData(response);
         setQueued(api.pendingCount());
@@ -62,7 +77,7 @@ const Today: React.FC = () => {
             : "offline",
         );
       });
-  }, []);
+  }, [range]);
 
   /**
    * Sync now, then show what arrived.
@@ -181,16 +196,42 @@ const Today: React.FC = () => {
     month: "long",
   }).format(new Date(data.dayStart));
 
+  // The user's zone, not this device's - the same rule the grid's gutter
+  // follows, so the boundary a line names is the one the ruler shows.
+  const clock = new Intl.DateTimeFormat("en-GB", {
+    timeZone: data.timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  const hoursLabel = `${clock.format(new Date(data.dayStart))}–${clock.format(
+    new Date(data.dayEnd),
+  )}`;
+
   return (
     <>
       {data.stale ? (
         <SavedPlanNotice cachedAt={data.cachedAt} queued={queued} />
       ) : null}
 
+      {/* Split, per 7a: the control that changes what you are looking at sits
+          with the date it changes, and the one that goes and fetches sits on
+          the other side with the status it updates. */}
       <header className="wr-shell-head wr-shell-head-bar wr-page-bar">
-        <span style={{ fontFamily: "var(--font-heading)", fontSize: 20 }}>
-          {dayLabel}
-        </span>
+        <div className="wr-dayhead">
+          <HoursMenu
+            ranges={data.ranges}
+            value={data.range}
+            onChange={setRange}
+            onEdit={() =>
+              void navigate({ to: "/settings", hash: DAY_HOURS_ANCHOR })
+            }
+          />
+          <div className="wr-dayhead-text">
+            <span className="wr-page-date">{dayLabel}</span>
+            <span className="wr-page-helper">{hoursLabel}</span>
+          </div>
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <IconButton
             label={syncing ? "Syncing your calendars" : "Sync calendars now"}
@@ -204,6 +245,15 @@ const Today: React.FC = () => {
       </header>
 
       <div className="wr-page-scroll">
+        {data.outside.before.length > 0 ? (
+          <OutsideRange
+            edge="before"
+            count={data.outside.before.length}
+            at={clock.format(new Date(data.dayStart))}
+            onExpand={() => setRange("full")}
+          />
+        ) : null}
+
         {rows.length === 0 ? (
           <DashedRow gutter={false}>
             Nothing planned yet - plan your day
@@ -247,6 +297,15 @@ const Today: React.FC = () => {
             }))}
           />
         )}
+
+        {data.outside.after.length > 0 ? (
+          <OutsideRange
+            edge="after"
+            count={data.outside.after.length}
+            at={clock.format(new Date(data.dayEnd))}
+            onExpand={() => setRange("full")}
+          />
+        ) : null}
       </div>
     </>
   );

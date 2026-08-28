@@ -12,9 +12,14 @@ import { DIRECTORY_MIGRATIONS, USER_MIGRATIONS } from "./generated/migrations";
 describe("splitStatements", () => {
   const migrations = [...DIRECTORY_MIGRATIONS, ...USER_MIGRATIONS];
 
-  test("keeps every CREATE in the embedded migrations", () => {
+  test("keeps every statement in the embedded migrations", () => {
     for (const migration of migrations) {
-      const expected = (migration.sql.match(/^CREATE /gm) ?? []).length;
+      // Every statement in these files begins its own line with a verb; the
+      // count of those is what has to survive the split. Matching the verbs
+      // rather than only CREATE is what lets a migration alter a table -
+      // otherwise the first ALTER-only one fails this on the day it is added.
+      const expected = (migration.sql.match(/^(CREATE|ALTER|DROP) /gm) ?? [])
+        .length;
       expect(expected).toBeGreaterThan(0);
       expect(splitStatements(migration.sql)).toHaveLength(expected);
     }

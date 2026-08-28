@@ -45,6 +45,12 @@ import {
   requireUser,
   rootKey,
 } from "../context";
+import {
+  type DayRangeKey,
+  dayRanges,
+  FULL_DAY_MINUTES,
+  resolveRange,
+} from "../dayRanges";
 import { detectConflicts, planDay } from "../planning/planDay";
 import { accessTokenFor, type SyncDeps } from "../sync/engine";
 import { ensureWatch, stopWatch, type WatchDeps } from "../sync/watch";
@@ -478,6 +484,12 @@ app.patch("/settings", async (c) => {
     timeZone?: string;
     dayStartMinutes?: number;
     dayEndMinutes?: number;
+    /** All three together, or all three null to clear the range. */
+    customRangeLabel?: string | null;
+    customRangeStartMinutes?: number | null;
+    customRangeEndMinutes?: number | null;
+    dayOpensOn?: DayRangeKey;
+    showOutsideRange?: boolean;
     storeEventTitles?: boolean;
   };
   const body: SettingsBody = await c.req.json<SettingsBody>();
@@ -499,17 +511,97 @@ app.patch("/settings", async (c) => {
     }
   }
 
-  if (
-    body.dayStartMinutes !== undefined &&
-    body.dayEndMinutes !== undefined &&
-    body.dayEndMinutes <= body.dayStartMinutes
-  ) {
-    throw new HTTPException(400, {
-      message: "The day must end after it starts",
-    });
+  const user = c.get("user");
+
+  /**
+   * Minutes from local midnight, and a window that is actually a window.
+   *
+   * Checked against what the row will hold after this patch rather than
+   * against the patch alone: someone moving only the end of their day past a
+   * start they set last week would otherwise slip through, and an inverted
+   * window is not a cosmetic problem - it makes `dayBounds` return a range
+   * nothing can be placed in and the day comes back empty.
+   */
+  const window = (
+    name: string,
+    start: number | null | undefined,
+    end: number | null | undefined,
+  ) => {
+    for (const value of [start, end]) {
+      if (value === undefined || value === null) continue;
+      if (!Number.isInteger(value) || value < 0 || value > FULL_DAY_MINUTES) {
+        throw new HTTPException(400, {
+          message: `${name} must be a time of day`,
+        });
+      }
+    }
+    if (start != null && end != null && end <= start) {
+      throw new HTTPException(400, {
+        message: `${name} must end after it starts`,
+      });
+    }
+  };
+
+  window(
+    "The day",
+    body.dayStartMinutes ?? user.dayStartMinutes,
+    body.dayEndMinutes ?? user.dayEndMinutes,
+  );
+
+  /**
+   * The custom range is one value in three columns.
+   *
+   * Sending a label without hours - or hours without a label - would store
+   * half a range, which `dayRanges` then refuses to offer: the setting would
+   * appear to save and then not exist. Rejecting it here is what makes that
+   * impossible rather than merely unlikely.
+   */
+  const custom = [
+    body.customRangeLabel,
+    body.customRangeStartMinutes,
+    body.customRangeEndMinutes,
+  ];
+  if (custom.some((value) => value !== undefined)) {
+    if (custom.some((value) => value === undefined)) {
+      throw new HTTPException(400, {
+        message: "A custom range needs a name and both its hours",
+      });
+    }
+    const cleared = custom.every((value) => value === null);
+    if (!cleared && custom.some((value) => value === null)) {
+      throw new HTTPException(400, {
+        message: "A custom range needs a name and both its hours",
+      });
+    }
+    if (!cleared) {
+      if (String(body.customRangeLabel).trim() === "") {
+        throw new HTTPException(400, {
+          message: "Give the custom range a name",
+        });
+      }
+      window(
+        "The custom range",
+        body.customRangeStartMinutes,
+        body.customRangeEndMinutes,
+      );
+    }
   }
 
-  await updateUserSettings(c.get("directory"), c.get("user").userId, body);
+  if (
+    body.dayOpensOn !== undefined &&
+    !["working", "full", "custom"].includes(body.dayOpensOn)
+  ) {
+    throw new HTTPException(400, { message: "Unknown range" });
+  }
+
+  await updateUserSettings(c.get("directory"), c.get("user").userId, {
+    ...body,
+    // Store the name the user sees, without the whitespace they did not mean
+    // to type - it is rendered in a picker row, where a leading space shows.
+    ...(typeof body.customRangeLabel === "string"
+      ? { customRangeLabel: body.customRangeLabel.trim() }
+      : {}),
+  });
 
   if (body.storeEventTitles === false) {
     await forgetStoredTitles(c.get("db"));
@@ -526,25 +618,58 @@ app.get("/today", async (c) => {
   const at = Number(c.req.query("at") ?? c.get("now"));
 
   const date = localDateOf(at, user.timeZone);
+  // The client may ask for a range; if it asks for one that no longer exists
+  // it gets the working hours rather than an error - see `resolveRange`.
+  const range = resolveRange(user, c.req.query("range"));
   const bounds = dayBounds(
     date,
     user.timeZone,
-    user.dayStartMinutes,
-    user.dayEndMinutes,
+    range.startMinutes,
+    range.endMinutes,
   );
+
+  /**
+   * Meetings are read across the whole local day, not just the visible range.
+   *
+   * Narrowing the query to the range would make "show meetings outside it"
+   * unanswerable - the events that are outside are exactly the ones the query
+   * would have dropped. Reading the day and partitioning it here costs one
+   * indexed scan of at most a day's events and keeps the two answers
+   * consistent, which two queries against different windows would not.
+   */
+  const wholeDay = dayBounds(date, user.timeZone, 0, FULL_DAY_MINUTES);
 
   const [slots, events] = await Promise.all([
     listSlotsForRange(db, bounds.start, bounds.end),
-    listEventsInRange(db, bounds.start, bounds.end),
+    listEventsInRange(db, wholeDay.start, wholeDay.end),
   ]);
 
   const busy = toBusyBlocks(events);
+
+  // Only what the timeline needs to draw meetings; nothing extra leaves here.
+  const meetings = events
+    .filter((e) => busy.some((b) => e.start < b.end && b.start < e.end))
+    .map((e) => ({
+      id: e.id,
+      title: e.title ?? null,
+      startsAt: e.start,
+      endsAt: e.end,
+      isAllDay: e.isAllDay,
+    }));
+
+  // Half-open against the visible window: a meeting that ends exactly as the
+  // range opens belongs above it, not inside it as a zero-height block.
+  const inside = meetings.filter(
+    (m) => m.startsAt < bounds.end && m.endsAt > bounds.start,
+  );
 
   return c.json({
     date,
     timeZone: user.timeZone,
     dayStart: bounds.start,
     dayEnd: bounds.end,
+    range: range.key,
+    ranges: dayRanges(user),
     slots: slots.map((s) => ({
       id: s.id,
       title: s.title,
@@ -555,16 +680,15 @@ app.get("/today", async (c) => {
       isLocked: s.isLocked,
       conflictEventId: s.conflictEventId,
     })),
-    // Only what the timeline needs to draw meetings; nothing extra leaves here.
-    meetings: events
-      .filter((e) => busy.some((b) => e.start < b.end && b.start < e.end))
-      .map((e) => ({
-        id: e.id,
-        title: e.title ?? null,
-        startsAt: e.start,
-        endsAt: e.end,
-        isAllDay: e.isAllDay,
-      })),
+    meetings: inside,
+    // Empty rather than absent when the setting is off, so the client has one
+    // shape to render and no "is this feature on?" branch of its own.
+    outside: user.showOutsideRange
+      ? {
+          before: meetings.filter((m) => m.endsAt <= bounds.start),
+          after: meetings.filter((m) => m.startsAt >= bounds.end),
+        }
+      : { before: [], after: [] },
     modules: visibleModules(user.plan, []),
   });
 });

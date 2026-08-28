@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="Wise Routine">
+  <circle cx="60" cy="60" r="58" fill="#c67139"/>
+  <g transform="rotate(-90 60 60)" fill="none" stroke-width="18" stroke-linecap="round">
+    <circle cx="60" cy="60" r="38" stroke="#f2e0bd" stroke-dasharray="96 143" stroke-dashoffset="-10"/>
+    <circle cx="60" cy="60" r="38" stroke="#2e2b25" stroke-dasharray="54 185" stroke-dashoffset="-142"/>
+  </g>
+</svg>

@@ -1,5 +1,6 @@
 import type React from "react";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import { clockOf, minutesOf } from "./time";
 
 const cx = (...parts: (string | false | undefined)[]): string =>
   parts.filter(Boolean).join(" ");
@@ -32,6 +33,62 @@ export const RefreshGlyph: React.FC = () => (
       strokeLinejoin="round"
     />
   </svg>
+);
+
+/** The third and last inline glyph: the day-view hours control. Two ruled
+ *  lines with a handle on each, which is the range being moved. */
+export const HoursGlyph: React.FC = () => (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.75"
+    strokeLinecap="round"
+    role="img"
+  >
+    <title>Hours shown</title>
+    <path d="M4 8h10" />
+    <path d="M18 8h2" />
+    <path d="M4 16h4" />
+    <path d="M12 16h8" />
+    <circle cx="16" cy="8" r="2.2" />
+    <circle cx="10" cy="16" r="2.2" />
+  </svg>
+);
+
+/**
+ * One end of a window.
+ *
+ * `input type="time"` rather than a stepper or a custom picker: the platform
+ * already has the keyboard handling, the locale-correct display and the
+ * 12/24-hour preference, and none of that is worth reimplementing to get a
+ * pill with rounded corners.
+ *
+ * ponytail: the native control tops out at 23:59, so a day cannot be set to
+ * end at midnight itself. Nobody has asked to; a plain text field with parsing
+ * is the upgrade if they do.
+ */
+export const TimeField: React.FC<{
+  label: string;
+  minutes: number;
+  onChange?: (minutes: number) => void;
+  disabled?: boolean;
+}> = ({ label, minutes, onChange, disabled }) => (
+  <input
+    type="time"
+    className="wr-timefield"
+    aria-label={label}
+    value={clockOf(minutes)}
+    disabled={disabled}
+    onChange={(event) => {
+      const next = minutesOf(event.target.value);
+      // Mid-edit the field reads as empty; keeping the last good value beats
+      // storing a zero the user never typed.
+      if (next !== null) onChange?.(next);
+    }}
+  />
 );
 
 /* ── Actions ─────────────────────────────────────────────────────────────── */
@@ -285,6 +342,159 @@ export const IconButton: React.FC<IconButtonProps> = ({
   </button>
 );
 
+/* ── Which hours the day shows ───────────────────────────────────────────── */
+
+export interface HoursRange {
+  /** "working" | "full" | "custom" - stable, unlike the label. */
+  key: string;
+  /** What the row reads. The custom range is named by the user. */
+  label: string;
+  startMinutes: number;
+  endMinutes: number;
+}
+
+/**
+ * The hours picker: a round trigger and the ranges under it.
+ *
+ * It sits with the date rather than in the toolbar because it changes what the
+ * timeline below covers - it belongs to the thing it acts on. The toolbar on
+ * the other side is for going and fetching, which is a different class of act.
+ *
+ * Nothing configurable lives in here. Three rows and a way out to the settings
+ * that own them: a popover that could also edit the hours would be a settings
+ * page in a 300px box, reachable from one screen.
+ */
+export const HoursMenu: React.FC<{
+  ranges: readonly HoursRange[];
+  /** The key of the range on screen. */
+  value: string;
+  onChange?: (key: string) => void;
+  /** Takes the user to where the ranges are configured. */
+  onEdit?: () => void;
+}> = ({ ranges, value, onChange, onEdit }) => {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+
+  // Same rule as the user menu: a popover that survives a click elsewhere is a
+  // popover people fight with.
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointer = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="wr-hours" ref={root}>
+      <IconButton
+        label="Hours shown"
+        className={cx(open && "wr-iconbtn-on")}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((shown) => !shown)}
+      >
+        <HoursGlyph />
+      </IconButton>
+
+      {open ? (
+        <div className="wr-hours-pop" role="menu">
+          <div className="wr-label wr-hours-title">Hours shown</div>
+          <div className="wr-hours-list">
+            {ranges.map((range) => (
+              <button
+                key={range.key}
+                type="button"
+                role="menuitemradio"
+                aria-checked={range.key === value}
+                className="wr-hours-opt"
+                onClick={() => {
+                  setOpen(false);
+                  onChange?.(range.key);
+                }}
+              >
+                <span className="wr-hours-dot" aria-hidden="true" />
+                <span className="wr-hours-name">{range.label}</span>
+                <span className="wr-hours-span">
+                  {clockOf(range.startMinutes)}–
+                  {range.endMinutes >= 24 * 60
+                    ? "24:00"
+                    : clockOf(range.endMinutes)}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="wr-hours-foot">
+            <button
+              type="button"
+              className="wr-hours-edit"
+              onClick={() => {
+                setOpen(false);
+                onEdit?.();
+              }}
+            >
+              Edit hours and ranges
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M5 12h14" />
+                <path d="M13 6l6 6-6 6" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
+/**
+ * The meetings the chosen range does not cover, as one line.
+ *
+ * Hiding them outright is the failure this exists to prevent: someone looking
+ * at their evenings has no way to know a 09:00 exists, and a day view that
+ * silently omits meetings is worse than one that shows too many. So the day
+ * keeps its edges, and the edges say what is beyond them.
+ */
+export const OutsideRange: React.FC<{
+  edge: "before" | "after";
+  count: number;
+  /** The boundary the meetings fall outside of, already formatted. */
+  at: string;
+  /** Widens the view to the whole day. */
+  onExpand?: () => void;
+}> = ({ edge, count, at, onExpand }) => (
+  <div className={cx("wr-outside", `wr-outside-${edge}`)}>
+    <span className="wr-outside-text">
+      {count} {count === 1 ? "meeting" : "meetings"}{" "}
+      {edge === "before" ? "before" : "after"} {at}
+    </span>
+    {onExpand ? (
+      <button type="button" className="wr-outside-more" onClick={onExpand}>
+        Show the full day
+      </button>
+    ) : null}
+  </div>
+);
+
 export type ChipVariant =
   | "inset"
   | "selected"
@@ -335,7 +545,9 @@ export const Toggle: React.FC<ToggleProps> = ({ checked, onChange, label }) => (
 );
 
 export type SegmentedProps<T extends string> = {
-  options: readonly T[];
+  /** A bare string is its own label. Pass the object form when what the user
+   *  reads and what the value is are not the same word. */
+  options: readonly (T | { value: T; label: string })[];
   value: T;
   onChange?: (next: T) => void;
   label?: string;
@@ -348,17 +560,21 @@ export const Segmented = <T extends string>({
   label,
 }: SegmentedProps<T>): React.ReactElement => (
   <div className="wr-seg" role="group" aria-label={label}>
-    {options.map((opt) => (
-      <button
-        key={opt}
-        type="button"
-        aria-pressed={opt === value}
-        className="wr-seg-opt"
-        onClick={() => onChange?.(opt)}
-      >
-        {opt}
-      </button>
-    ))}
+    {options.map((option) => {
+      const opt =
+        typeof option === "string" ? { value: option, label: option } : option;
+      return (
+        <button
+          key={opt.value}
+          type="button"
+          aria-pressed={opt.value === value}
+          className="wr-seg-opt"
+          onClick={() => onChange?.(opt.value)}
+        >
+          {opt.label}
+        </button>
+      );
+    })}
   </div>
 );
 
