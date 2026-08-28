@@ -9,8 +9,8 @@ import { generateToken } from "../crypto";
  * Better Auth's own `/auth/sign-in/social` is mounted and works unchanged in a
  * browser: it redirects, the provider redirects back, and the session lands in
  * a cookie. The desktop app is the problem. Consent has to happen in the
- * *system* browser — a provider will not render its consent screen inside an
- * embedded webview, and Google actively blocks it — so the session is created
+ * *system* browser - a provider will not render its consent screen inside an
+ * embedded webview, and Google actively blocks it - so the session is created
  * in a browser that is not the app, and the cookie it sets is worthless to us.
  *
  * So the app is handed a claim ticket before the browser ever opens. The
@@ -22,7 +22,7 @@ import { generateToken } from "../crypto";
  *
  * The ticket is minted server-side on purpose. If the app chose it, someone
  * who could get a victim to start a sign-in with an attacker-chosen ticket
- * could then claim the victim's session — the same reason `routes/connect.ts`
+ * could then claim the victim's session - the same reason `routes/connect.ts`
  * keeps its OAuth state out of the caller's hands.
  */
 export const signin = new Hono<App>();
@@ -60,13 +60,13 @@ function parseProvider(value: unknown): Provider {
  *
  * Better Auth binds `state` to the browser that started the flow with a signed
  * cookie, and checks it on the callback. Minting the URL here would set that
- * cookie on the response to *this* fetch — a cross-origin XHR from the app,
- * whose cookies the browser discards — so the browser that then performs
+ * cookie on the response to *this* fetch - a cross-origin XHR from the app,
+ * whose cookies the browser discards - so the browser that then performs
  * consent would arrive at the callback carrying no state at all. Better Auth
  * calls that `state_mismatch`, and it is right to: it cannot tell our missing
  * cookie from an attacker replaying somebody else's callback.
  *
- * Unauthenticated by definition — this is how someone with no account gets
+ * Unauthenticated by definition - this is how someone with no account gets
  * one. Signing up and signing in are the same call: whether the address is
  * new is Better Auth's business, and the account it creates is provisioned by
  * the same `user.create` hook the emailed code goes through.
@@ -95,7 +95,7 @@ signin.post("/social/start", async (c) => {
  * The browser's first stop, and the reason this route exists.
  *
  * A top-level navigation, so every cookie Better Auth sets while building the
- * consent URL is set on *the browser that will complete the flow* — which is
+ * consent URL is set on *the browser that will complete the flow* - which is
  * the whole point. We then forward it on to the provider ourselves rather than
  * letting Better Auth redirect, because the callback and error URLs have to
  * carry our ticket.
@@ -127,7 +127,7 @@ signin.get("/social/go", async (c) => {
         provider: parked.provider,
         callbackURL: finish,
         // A refusal has to reach the same place a success does, or the app
-        // polls a ticket that will never be filled until it times out — and
+        // polls a ticket that will never be filled until it times out - and
         // the user watches a spinner instead of reading why it failed.
         errorCallbackURL: finish,
         // We do the redirecting, so that the cookies come back to us first.
@@ -165,7 +165,7 @@ signin.get("/social/go", async (c) => {
  * Where consent lands, in the browser.
  *
  * Better Auth has already created the session and set its cookie on the
- * redirect that got us here, so reading it back is just `getSession` — the
+ * redirect that got us here, so reading it back is just `getSession` - the
  * token that comes out is the same value the bearer plugin returns as
  * `set-auth-token` after an emailed code, which is why the app can use it
  * without knowing which way it signed in.
@@ -233,7 +233,7 @@ signin.post("/social/claim", async (c) => {
   }
 
   const stored = await c.env.CONFIG.get(ticketKey(body.ticket));
-  // Expired, already redeemed, or never existed — all the same answer, so a
+  // Expired, already redeemed, or never existed - all the same answer, so a
   // wrong guess learns nothing from the difference.
   if (!stored) return c.json({ status: "expired" });
 

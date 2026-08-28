@@ -30,7 +30,7 @@ const SYNC_AFTER_AWAY_MS = 20_000;
  * `POST /sync` schedules the work and returns; the fetching happens behind it.
  * One look after a beat was enough for an incremental sync and not nearly
  * enough for the first one after connecting an account, which is a whole
- * calendar's history — so that case showed an empty day and stayed that way
+ * calendar's history - so that case showed an empty day and stayed that way
  * until something else remounted the page. Three cheap reads spread over ten
  * seconds covers both without making the user press anything.
  */
@@ -70,7 +70,7 @@ const Today: React.FC = () => {
    * The server schedules and queues; the work itself finishes just after the
    * response. So this waits a beat before reloading rather than reloading
    * immediately onto data that has not landed yet. Anything slower than that
-   * is picked up by the next load — no press is ever lost, it just may show up
+   * is picked up by the next load - no press is ever lost, it just may show up
    * a moment later than the spinner suggests.
    */
   const lastSync = useRef(0);
@@ -114,7 +114,7 @@ const Today: React.FC = () => {
    *
    * Connecting a calendar finishes in a browser, so this window is not
    * involved and learns nothing on its own. Without this the day stayed as it
-   * was until something else happened to remount it — which is why connecting
+   * was until something else happened to remount it - which is why connecting
    * an account appeared to do nothing until you visited Calendars and came
    * back.
    *
@@ -141,7 +141,7 @@ const Today: React.FC = () => {
    * Send anything taken offline, then reload.
    *
    * On mount as well as on `online`, because the browser fires that event on
-   * regaining a network — not on the app being reopened somewhere with one.
+   * regaining a network - not on the app being reopened somewhere with one.
    */
   useEffect(() => {
     const drain = () => {
@@ -157,7 +157,7 @@ const Today: React.FC = () => {
   }, [load]);
 
   // The live slot is decided by the clock, so the timeline has to re-render as
-  // it passes. A minute is enough — nothing here changes faster than that.
+  // it passes. A minute is enough - nothing here changes faster than that.
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(timer);
@@ -206,7 +206,7 @@ const Today: React.FC = () => {
       <div className="wr-page-scroll">
         {rows.length === 0 ? (
           <DashedRow gutter={false}>
-            Nothing planned yet — plan your day
+            Nothing planned yet - plan your day
           </DashedRow>
         ) : (
           <DayGrid
@@ -255,7 +255,7 @@ const Today: React.FC = () => {
 /**
  * Shown only when the plan on screen came from storage rather than the server.
  *
- * A stale plan presented as current is worse than an error — someone would
+ * A stale plan presented as current is worse than an error - someone would
  * follow a routine that has since been replanned around a meeting they cannot
  * see. Saying when it was saved lets them judge that themselves.
  */
@@ -275,7 +275,7 @@ const SavedPlanNotice: React.FC<{ cachedAt: number; queued: number }> = ({
       color: "var(--wr-text-muted)",
     }}
   >
-    Offline — showing the plan saved at{" "}
+    Offline - showing the plan saved at{" "}
     {new Intl.DateTimeFormat("en-GB", {
       hour: "2-digit",
       minute: "2-digit",
@@ -291,7 +291,7 @@ export const Route = createFileRoute("/_app/")({
   component: Today,
   // The one page the set-up module belongs on: it is the empty day behind it
   // that makes the ask make sense. Calendars and Account declare nothing and
-  // so get no rail at all — asking someone to connect a calendar on the page
+  // so get no rail at all - asking someone to connect a calendar on the page
   // they are already connecting one from is worse than silence.
   staticData: { rail: SetupRail },
 });

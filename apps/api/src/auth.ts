@@ -15,7 +15,7 @@ import { provisionUserDatabase } from "./provisioning";
 /**
  * Authentication.
  *
- * Three ways in — a code emailed to the address, Google, or Microsoft — and
+ * Three ways in - a code emailed to the address, Google, or Microsoft - and
  * all three land on the same account when the address matches. What none of
  * them does is connect a calendar: that is a separate, later act with its own
  * consent and its own scopes (`routes/connect.ts`), which is what lets someone
@@ -28,7 +28,7 @@ import { provisionUserDatabase } from "./provisioning";
 
 const SESSION_DAYS = 30;
 
-/** Also the number in the email and on the screen — see `sendOtp`. */
+/** Also the number in the email and on the screen - see `sendOtp`. */
 const OTP_MINUTES = 10;
 
 /**
@@ -71,7 +71,7 @@ function configuredProviders(env: ServerEnv) {
             prompt: "select_account" as const,
             // Entra returns the avatar as base64 *in the profile*, which can
             // be large enough to blow the header limit and fail the whole
-            // sign-in. We show initials anyway (`Avatar`), so drop it —
+            // sign-in. We show initials anyway (`Avatar`), so drop it -
             // `undefined` rather than `null`, which is what the mapped-user
             // type accepts for "no value".
             mapProfileToUser: () => ({ image: undefined }),
@@ -85,7 +85,7 @@ function configuredProviders(env: ServerEnv) {
  * Fields the application owns on the user row.
  *
  * All `input: false`: they are readable through a session but nothing a client
- * sends can write them — otherwise a signup body could set its own `plan`.
+ * sends can write them - otherwise a signup body could set its own `plan`.
  * Every one has a database default except `databaseName`, which is generated
  * here because the column is NOT NULL and nothing else can supply it.
  */
@@ -184,7 +184,7 @@ async function sendOtp(env: ServerEnv, to: string, otp: string): Promise<void> {
     subject: `${otp} is your Wise Routine code`,
     // Built from lines rather than a string with `\n` escapes in it. The
     // escapes are correct JavaScript but invisible in review and easy to lose
-    // to a reformat — and losing them runs the code straight into the sentence
+    // to a reformat - and losing them runs the code straight into the sentence
     // after it, which is what shipped.
     text: [
       otp,
@@ -195,7 +195,7 @@ async function sendOtp(env: ServerEnv, to: string, otp: string): Promise<void> {
   });
 
   if (error) {
-    // `error.message` is Resend's own wording — safe to log, and specific
+    // `error.message` is Resend's own wording - safe to log, and specific
     // enough to tell an unverified domain from a bad key.
     throw new Error(`Resend refused: ${error.name}: ${error.message}`);
   }
@@ -215,13 +215,13 @@ export function createAuth(directory: Directory, env: ServerEnv) {
       "tauri://localhost",
       "http://tauri.localhost",
       // ponytail: the design gallery runs on its own Vite port (`pnpm design`)
-      // and is not APP_URL. Hardcoded, not configurable — one dev port.
+      // and is not APP_URL. Hardcoded, not configurable - one dev port.
       ...(env.ENVIRONMENT === "development" ? ["http://localhost:41100"] : []),
     ],
 
     /**
      * Better Auth catches its own errors and returns a response, so nothing
-     * reaches `api.onError` and a failed sign-in leaves no trace at all —
+     * reaches `api.onError` and a failed sign-in leaves no trace at all -
      * "couldn't send the code" on the client and a silent log on the server.
      * This is the only place that failure becomes visible.
      */
@@ -234,8 +234,8 @@ export function createAuth(directory: Directory, env: ServerEnv) {
     advanced: {
       database: { generateId: () => crypto.randomUUID() },
       /**
-       * Without this every caller shares one rate-limit bucket per path — the
-       * counters key on `no-trusted-ip` — so one person hammering sign-in
+       * Without this every caller shares one rate-limit bucket per path - the
+       * counters key on `no-trusted-ip` - so one person hammering sign-in
        * locks out everybody. Cloudflare sets `CF-Connecting-IP` itself on
        * every request that reaches a Worker and strips any client-supplied
        * copy, which is what makes it safe to trust here and would not be true
@@ -254,7 +254,7 @@ export function createAuth(directory: Directory, env: ServerEnv) {
      * Linking is on, and the rule is the provider's own word: Google asserts
      * `email_verified`, so a Google sign-in joins the account that already
      * owns that address. Microsoft is deliberately *not* in
-     * `trustedProviders` — Entra's `email` claim is tenant-mutable and never
+     * `trustedProviders` - Entra's `email` claim is tenant-mutable and never
      * verified by Microsoft, so trusting it would let a tenant administrator
      * mint a claim for an address they do not control and walk into that
      * account. A Microsoft sign-in on an address we already know therefore
@@ -268,8 +268,8 @@ export function createAuth(directory: Directory, env: ServerEnv) {
         /**
          * Take the name and picture when a provider is linked.
          *
-         * Without this, someone who signed up with an emailed code — which
-         * asks for nothing but an address — and *later* connected Google keeps
+         * Without this, someone who signed up with an emailed code - which
+         * asks for nothing but an address - and *later* connected Google keeps
          * an empty name for ever, and the sidebar has nothing to call them but
          * their own email address. The provider is the only thing that ever
          * knew their name, and a link is the moment it tells us.
@@ -278,7 +278,7 @@ export function createAuth(directory: Directory, env: ServerEnv) {
          * `emailVerified` on a link, and every application column we own is
          * `input: false`, so a provider profile cannot reach `plan` or
          * `databaseName`. Worth revisiting only when the app lets someone edit
-         * their own name — at that point a later link would overwrite it.
+         * their own name - at that point a later link would overwrite it.
          */
         updateUserInfoOnLink: true,
         /**
@@ -287,7 +287,7 @@ export function createAuth(directory: Directory, env: ServerEnv) {
          * Better Auth refuses by default, and for most applications it is
          * right: unlink the only account and you have locked yourself out.
          * Not here. Every account is reachable by a code emailed to its own
-         * address — that is the primary way in, not a fallback — so a provider
+         * address - that is the primary way in, not a fallback - so a provider
          * is only ever a shortcut, and refusing to remove the last one would
          * trap people in a sign-in method they no longer want.
          */
@@ -312,7 +312,7 @@ export function createAuth(directory: Directory, env: ServerEnv) {
            * Signup provisions infrastructure.
            *
            * One database per user means this is a Turso create, a migration
-           * run and a seed — awaited here, not deferred, because the session
+           * run and a seed - awaited here, not deferred, because the session
            * about to be issued is worthless until the database exists. It is
            * idempotent, so a retried signup recovers rather than leaving half
            * an account.
@@ -336,7 +336,7 @@ export function createAuth(directory: Directory, env: ServerEnv) {
         expiresIn: OTP_MINUTES * 60,
         // Three tries before the code is burned. Enough to survive a
         // transposed digit, few enough that guessing six digits is not a
-        // strategy — and the screen counts the remaining attempts down so a
+        // strategy - and the screen counts the remaining attempts down so a
         // wrong code is never a surprise dead end.
         allowedAttempts: 3,
         // Sign-in and sign-up are the same act: an address that proves it can

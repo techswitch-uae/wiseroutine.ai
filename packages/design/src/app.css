@@ -1,4 +1,4 @@
-/* Wise Routine — the application layer on top of the Organic design system.
+/* Wise Routine - the application layer on top of the Organic design system.
    Rules this file encodes (from "Wise Routine · interface kit"):
      · Three colours. Terracotta = recovery / the thing you can act on.
        Ink = focus and the one commitment per view. Sand = everything else.
@@ -13,7 +13,7 @@
 @import "@fontsource-variable/figtree";
 
 :root {
-  /* — grounds — */
+  /* - grounds - */
   --wr-page: #f6f1e8;            /* content ground */
   --wr-chrome: var(--color-neutral-200); /* window bar, sidebars, settings panes */
   --wr-card: var(--color-neutral-100);
@@ -22,12 +22,12 @@
   --wr-dashed: #cdbe9f;
   --wr-ink: var(--color-text);
 
-  /* — text ramp, raised so every muted step clears 4.5:1 at 11px — */
+  /* - text ramp, raised so every muted step clears 4.5:1 at 11px - */
   --wr-text-muted: color-mix(in srgb, var(--color-text) 74%, transparent);
   --wr-text-soft: color-mix(in srgb, var(--color-text) 70%, transparent);
   --wr-hairline: color-mix(in srgb, #2e2b25 10%, transparent);
 
-  /* — elevation: four steps, no more. Inset is the absence of one. — */
+  /* - elevation: four steps, no more. Inset is the absence of one. - */
   --wr-inset: inset 0 1px 2px rgba(46, 43, 37, 0.07);
   --wr-lift-1: 0 1px 2px rgba(46, 43, 37, 0.06), 0 4px 12px rgba(46, 43, 37, 0.07);
   --wr-lift-2: 0 1px 2px rgba(46, 43, 37, 0.06), 0 8px 20px rgba(46, 43, 37, 0.1);
@@ -37,7 +37,7 @@
   --wr-gutter: 48px;             /* the fixed time column */
   /* One column of prose, settings or a form. Every page that is a single
      column measures from this, so Account and Calendars cannot disagree about
-     how wide a page is — which they did, at 560 and 620, and it read as two
+     how wide a page is - which they did, at 560 and 620, and it read as two
      different apps. */
   --wr-measure: 560px;
 }
@@ -49,8 +49,8 @@ body { background: var(--wr-page); }
 .wr-elev-2 { box-shadow: var(--wr-lift-2); }
 .wr-elev-3 { box-shadow: var(--wr-lift-3); }
 
-/* — type — Caprasimo names a thing (screen, card, number); Figtree is read
-   as a sentence. A number the user scans is display type, not body type. — */
+/* - type - Caprasimo names a thing (screen, card, number); Figtree is read
+   as a sentence. A number the user scans is display type, not body type. - */
 .wr-display-30 { font-family: var(--font-heading); font-size: 30px; line-height: 1.1; }
 .wr-display-21 { font-family: var(--font-heading); font-size: 21px; line-height: 1.2; }
 .wr-body-strong { font: 600 13.5px var(--font-body); }
@@ -74,13 +74,13 @@ body { background: var(--wr-page); }
   cursor: not-allowed; background: var(--color-neutral-200); color: var(--wr-text-soft);
   box-shadow: inset 0 0 0 1px var(--wr-hairline);
 }
-.wr-btn-primary {           /* starts or schedules something — the physical act */
+.wr-btn-primary {           /* starts or schedules something - the physical act */
   background: var(--color-accent-700); color: #fff; box-shadow: var(--wr-lift-btn);
   padding-left: 18px;
 }
 .wr-btn-primary:hover { background: var(--color-accent-800); }
 .wr-btn-primary:active { background: var(--color-accent-900); }
-.wr-btn-commit {            /* confirms or saves a decision — one per view */
+.wr-btn-commit {            /* confirms or saves a decision - one per view */
   background: var(--color-text); color: var(--color-neutral-100); box-shadow: var(--wr-lift-btn);
 }
 .wr-btn-commit:hover { background: var(--color-neutral-800); }
@@ -90,7 +90,7 @@ body { background: var(--wr-page); }
   color: var(--color-accent-900); font-size: 12.5px; padding: 11px 20px;
 }
 .wr-btn-secondary:hover { background: var(--color-neutral-300); }
-.wr-btn-quiet {             /* text only — the escape route */
+.wr-btn-quiet {             /* text only - the escape route */
   color: var(--wr-text-soft); font-size: 12.5px; padding: 11px 16px;
 }
 .wr-btn-quiet:hover { color: var(--color-text); }
@@ -101,7 +101,7 @@ body { background: var(--wr-page); }
 .wr-btn-tall { padding: 14px 22px; }
 
 /* One row per provider, and the provider mark is a neutral badge like
-   .wr-source — provenance is not a category, so no brand colour and no logo
+   .wr-source - provenance is not a category, so no brand colour and no logo
    we would have to keep in step with someone else's brand guidelines. */
 .wr-btn-provider {
   width: 100%; justify-content: flex-start; gap: 11px;
@@ -119,7 +119,7 @@ body { background: var(--wr-page); }
   background: var(--color-accent-2-300); color: var(--color-accent-2-800);
 }
 
-/* — "or", between two ways of doing the same thing —
+/* - "or", between two ways of doing the same thing -
    NOT `.wr-rule`: that name belongs to the slot card's coloured kind marker,
    and reusing it silently gave every slot in the app 42px of vertical margin
    and two hairline pseudo-elements. Different thing, different name. */
@@ -133,7 +133,7 @@ body { background: var(--wr-page); }
 
 /* ── Text entry ────────────────────────────────────────────────────────────
    The kit had no field until sign-in needed one. A pill on the recessed sand,
-   and the accent ring is the focus state — never an outline the browser draws
+   and the accent ring is the focus state - never an outline the browser draws
    in its own blue. */
 .wr-field { display: block; }
 .wr-field-input {
@@ -176,7 +176,7 @@ body { background: var(--wr-page); }
   background: var(--color-neutral-100);
   box-shadow: inset 0 0 0 1.5px var(--color-accent);
 }
-/* A wrong code keeps its digits — the user has to be able to check them
+/* A wrong code keeps its digits - the user has to be able to check them
    against the email rather than retype six characters blind. */
 .wr-code-wrong .wr-code-box {
   background: var(--color-neutral-100);
@@ -214,7 +214,7 @@ body { background: var(--wr-page); }
   .wr-iconbtn-busy svg { animation: none; }
 }
 
-/* — chips: a choice made with one tap, or a static state marker — */
+/* - chips: a choice made with one tap, or a static state marker - */
 .wr-chip {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 6px 13px; border-radius: 999px; border: 0;
@@ -224,7 +224,7 @@ body { background: var(--wr-page); }
 button.wr-chip { cursor: pointer; }
 .wr-chip-selected { background: var(--color-accent-700); color: #fff; box-shadow: 0 1px 3px rgba(46, 43, 37, 0.25); }
 .wr-chip-ink { background: var(--color-text); color: var(--color-neutral-100); box-shadow: 0 1px 3px rgba(46, 43, 37, 0.25); }
-.wr-chip-static {           /* Done, Paused, a count — no shadow, no hover */
+.wr-chip-static {           /* Done, Paused, a count - no shadow, no hover */
   padding: 5px 11px; background: var(--color-neutral-100);
   box-shadow: inset 0 0 0 1px rgba(46, 43, 37, 0.16);
   font: 700 9.5px var(--font-body); letter-spacing: 0.07em; text-transform: uppercase;
@@ -232,8 +232,8 @@ button.wr-chip { cursor: pointer; }
 .wr-chip-dashed { background: transparent; box-shadow: none; border: 1px dashed var(--wr-dashed); padding: 7px 13px; color: var(--wr-text-soft); }
 .wr-chip-key { font: 600 10.5px ui-monospace, Menlo, monospace; padding: 4px 9px; }
 
-/* — toggle: turns a whole behaviour on. Off is an inset track; the row
-     itself never dims, because a dimmed row reads as unavailable. — */
+/* - toggle: turns a whole behaviour on. Off is an inset track; the row
+     itself never dims, because a dimmed row reads as unavailable. - */
 .wr-toggle {
   position: relative; flex: none; width: 38px; height: 22px; padding: 0;
   border: 0; border-radius: 999px; cursor: pointer;
@@ -247,7 +247,7 @@ button.wr-chip { cursor: pointer; }
 .wr-toggle[aria-checked="true"] { background: var(--color-accent); box-shadow: 0 1px 3px rgba(46, 43, 37, 0.28); }
 .wr-toggle[aria-checked="true"]::after { left: 19px; background: #fff; }
 
-/* — segmented: three-or-fewer mutually exclusive values, short labels — */
+/* - segmented: three-or-fewer mutually exclusive values, short labels - */
 .wr-seg {
   display: inline-flex; gap: 4px; padding: 3px; border-radius: 999px;
   background: var(--color-neutral-200); box-shadow: inset 0 1px 2px rgba(46, 43, 37, 0.08);
@@ -269,13 +269,13 @@ button.wr-chip { cursor: pointer; }
    The gutter is the same fixed column the list rows use, so a grid and a row
    never disagree about where the time sits. */
 /* A real grid of five-minute rows. Rows are `minmax(floor, auto)`, so a row
-   grows to whatever the card in it needs and the line below moves with it —
+   grows to whatever the card in it needs and the line below moves with it -
    which is why a block can no longer overflow into the next one. */
 .wr-daygrid {
   display: grid; column-gap: 8px;
   /* The first hour's label is centred on its line, so half of it sits above
      the grid's top edge. Harmless where the grid hangs free, sheared off the
-     moment it is inside a scroller — which is where it actually lives. The
+     moment it is inside a scroller - which is where it actually lives. The
      padding is outside the row track, so every line and block moves down
      together and none of the placement maths changes. */
   padding-top: 8px;
@@ -283,7 +283,7 @@ button.wr-chip { cursor: pointer; }
 /* Ticks and blocks share cells on purpose: the ruler is drawn through the day,
    not beside it. Zero height so a line never costs a row any space. */
 /* The rule starts where the gutter ends, so it never runs through the time it
-   is labelling — the number is read, the line is measured against, and they
+   is labelling - the number is read, the line is measured against, and they
    stop needing to share a pixel. Dotted throughout: this is a ruler behind the
    day, not a border between rows. */
 .wr-daygrid-tick {
@@ -321,7 +321,7 @@ button.wr-chip { cursor: pointer; }
   box-sizing: border-box; font: 700 10.5px var(--font-body);
   color: var(--color-accent-900); font-variant-numeric: tabular-nums;
 }
-/* Placed by row span, so its height *is* its duration — there is no second
+/* Placed by row span, so its height *is* its duration - there is no second
    opinion about where it ends. `min-width: 0` because a grid item defaults to
    its content's minimum and a long meeting title would otherwise widen the
    whole lane rather than ellipsing. */
@@ -332,7 +332,7 @@ button.wr-chip { cursor: pointer; }
   z-index: 1; min-width: 0; padding: 3px 0 4px; box-sizing: border-box;
   display: flex; flex-direction: column;
 }
-/* Inside the grid the card owns the whole width — the row's own time column
+/* Inside the grid the card owns the whole width - the row's own time column
    would repeat what the gutter already says. */
 .wr-daygrid-item .wr-slot-row { display: block; flex: 1; min-height: 0; }
 .wr-daygrid-item .wr-time { display: none; }
@@ -370,7 +370,7 @@ button.wr-chip { cursor: pointer; }
 .wr-slot-meta { font: 400 12px var(--font-body); color: var(--wr-text-soft); }
 .wr-slot-trailing { margin-left: auto; display: flex; align-items: center; gap: 12px; }
 
-.wr-slot-live {             /* exactly one per view — the slot startable now */
+.wr-slot-live {             /* exactly one per view - the slot startable now */
   display: block; padding: 14px 16px; border-radius: 16px; box-shadow: var(--wr-lift-3);
 }
 .wr-slot-live .wr-rule { height: 34px; background: var(--color-accent); }
@@ -383,7 +383,7 @@ button.wr-chip { cursor: pointer; }
 .wr-bar-fill { height: 100%; border-radius: 999px; background: var(--color-accent); }
 .wr-bar-ink .wr-bar-fill { background: var(--color-text); }
 
-/* — dashed: gaps, add rows, undated reminders. Never carries a shadow. — */
+/* - dashed: gaps, add rows, undated reminders. Never carries a shadow. - */
 .wr-dashed-row {
   flex: 1; display: flex; align-items: center; gap: 9px;
   min-height: 30px; padding: 10px 15px; border-radius: 14px;
@@ -400,7 +400,7 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
   width: 250px; padding: 17px 19px; border-radius: var(--radius-lg);
   background: var(--wr-card); box-shadow: var(--wr-lift-2);
 }
-.wr-module-attention {      /* the single loudest element — one per screen */
+.wr-module-attention {      /* the single loudest element - one per screen */
   padding: 18px; background: var(--color-text); color: var(--color-neutral-100);
   box-shadow: 0 3px 6px rgba(46, 43, 37, 0.14), 0 16px 34px rgba(46, 43, 37, 0.22);
 }
@@ -412,7 +412,7 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
   font: 600 12px var(--font-body); color: var(--wr-text-muted);
 }
 
-/* — metric: progress against a minimum, never a goal or a streak — */
+/* - metric: progress against a minimum, never a goal or a streak - */
 .wr-metric-head { display: flex; justify-content: space-between; font: 600 12px var(--font-body); margin-bottom: 5px; }
 .wr-metric-head span:last-child { color: var(--wr-text-muted); }
 .wr-metric .wr-bar { height: 6px; }
@@ -439,7 +439,7 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
 }
 .wr-navitem-count { margin-left: auto; font: 700 10.5px var(--font-body); padding: 1px 7px; border-radius: 999px; background: var(--wr-track); }
 
-/* one neutral mark per provider, always trailing the item it belongs to —
+/* one neutral mark per provider, always trailing the item it belongs to -
    provenance is not a category, so provider brand colours are not used */
 .wr-source {
   display: inline-flex; align-items: center; justify-content: center;
@@ -455,11 +455,11 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
   font: 600 12px var(--font-body); color: var(--wr-text-muted);
 }
 
-/* — app shell — the page never carries a headline; the date sits inline with a
-     helper sentence, and everything explanatory belongs in the rail. — */
+/* - app shell - the page never carries a headline; the date sits inline with a
+     helper sentence, and everything explanatory belongs in the rail. - */
 .wr-shell { max-width: 900px; margin: 0 auto; padding: 24px 26px 28px; }
 /* The date, the status and the sync control. Part of the frame, so it does not
-   move — see `.wr-page-bar`. The hairline is what separates it from the day
+   move - see `.wr-page-bar`. The hairline is what separates it from the day
    once the day has scrolled up behind it. */
 .wr-shell-head-bar {
   padding-bottom: 12px; margin-bottom: 2px;
@@ -493,7 +493,7 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
   display: flex; align-items: flex-start; padding: 10px 15px;
   font: 600 11.5px var(--font-body); color: var(--color-accent-900);
 }
-/* Lift 3, like the live slot — one element off the page at a time. The offset,
+/* Lift 3, like the live slot - one element off the page at a time. The offset,
    not a heavier shadow, is what separates it from its target. */
 .wr-drag-card {
   position: absolute; left: 34px; top: 34px; right: 34px;
@@ -573,7 +573,7 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
 img.wr-avatar { object-fit: cover; }
 
 /* ── Account ───────────────────────────────────────────────────────────────
-   Sections rather than a page headline — the app shell forbids one, and each
+   Sections rather than a page headline - the app shell forbids one, and each
    block here answers a different question about the account. */
 .wr-account { display: flex; flex-direction: column; gap: 22px; max-width: var(--wr-measure); }
 .wr-account-id { display: flex; align-items: center; gap: 13px; }
@@ -600,7 +600,7 @@ img.wr-avatar { object-fit: cover; }
 /* ── App frame ───────────────────────────────────────────────────────────── */
 
 .wr-frame-body { display: flex; align-items: stretch; min-height: 0; }
-/* The bare frame is the app itself — the OS window supplies the chrome, so
+/* The bare frame is the app itself - the OS window supplies the chrome, so
    this one has no reason to stop at the height of its content. Column flex
    rather than a height on the sidebar: the rail stretches because the row it
    sits in fills the window, which keeps `align-self: stretch` doing the work
@@ -614,13 +614,13 @@ img.wr-avatar { object-fit: cover; }
   height: 100vh;
   height: 100dvh;
 }
-/* `min-height: 0` on both — a flex child defaults to `min-height: auto` and
+/* `min-height: 0` on both - a flex child defaults to `min-height: auto` and
    refuses to shrink below its content, which makes any `overflow` on it inert
    and pushes the scrollbar back onto the page. */
 .wr-frame-bare .wr-frame-body { flex: 1; min-height: 0; }
 /* The rail itself must never be a scroll container. `overflow-y: auto` forces
-   `overflow-x` to `auto` as well, and that clipped the user popover — 208px
-   wide against a 200px rail — at exactly the edge where the day begins, which
+   `overflow-x` to `auto` as well, and that clipped the user popover - 208px
+   wide against a 200px rail - at exactly the edge where the day begins, which
    reads as the day covering it. So the *list* scrolls if it outgrows the
    window and the rail stays open, which is also what keeps the foot in place.
    `z-index` because the day's blocks are stacked; without it the rail is
@@ -629,7 +629,7 @@ img.wr-avatar { object-fit: cover; }
 .wr-frame-bare .wr-nav { min-height: 0; overflow-y: auto; }
 /* The page is a column, not a scroller: a bar that belongs to the layout and a
    body that scrolls under it. Sticky would also hold the bar in place, but the
-   bar would still be *inside* the scrolled content — one flick of momentum and
+   bar would still be *inside* the scrolled content - one flick of momentum and
    it lags, and anything with a shadow smears. This way it simply never moves,
    because it is never in the thing that moves. */
 .wr-frame-bare .wr-page {
@@ -658,7 +658,7 @@ img.wr-avatar { object-fit: cover; }
 }
 .wr-auth-page > * { flex: 1; }
 
-/* 560px and centred. One column of one question — past that the field grows
+/* 560px and centred. One column of one question - past that the field grows
    wider than anything anyone types into it, and the eye loses the line. */
 .wr-auth {
   border-radius: 16px; overflow: hidden; box-shadow: var(--wr-lift-2);
@@ -687,7 +687,7 @@ img.wr-avatar { object-fit: cover; }
   margin: 22px 0 0;
 }
 /* The "we are waiting on a browser" block. Inset, because it is context for
-   something happening elsewhere rather than a thing on this page to act on —
+   something happening elsewhere rather than a thing on this page to act on -
    and it always carries a way out, since the alternative is a screen the user
    can only escape by quitting. */
 .wr-auth-waiting {
@@ -713,7 +713,7 @@ img.wr-avatar { object-fit: cover; }
   font: 400 12.5px var(--font-body); color: var(--wr-text-muted);
 }
 .wr-auth-hint > :first-child { flex: 1; }
-/* A refusal the user can act on. Accent, not red — the system has no error
+/* A refusal the user can act on. Accent, not red - the system has no error
    colour, and this is a "check it and try again", not a catastrophe. */
 .wr-auth-problem {
   font: 400 12px/1.55 var(--font-body); color: var(--color-accent-900);
@@ -729,9 +729,12 @@ img.wr-avatar { object-fit: cover; }
   margin-left: 12px; font: 600 11px var(--font-body); color: var(--wr-text-muted);
 }
 
-.wr-brand { display: flex; align-items: center; gap: 9px; padding-left: 6px; }
-.wr-brand-mark { width: 20px; height: 20px; border-radius: 999px; background: var(--wr-ink); }
-.wr-brand-name { font-family: var(--font-heading); font-size: 15px; }
+/* The lockup, to the design's own measurements: a 28px mark, 10px of air, and
+   the name in the display face. `line-height: 1` because the wordmark is being
+   centred against a circle, not set as a line of text - leading would push it
+   off the mark's axis. */
+.wr-brand { display: flex; align-items: center; gap: 10px; padding-left: 6px; }
+.wr-brand-name { font-family: var(--font-heading); font-size: 15px; line-height: 1; }
 .wr-nav { display: flex; flex-direction: column; gap: 1px; }
 
 .wr-sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 12px; }
@@ -758,7 +761,7 @@ img.wr-avatar { object-fit: cover; }
 .wr-usermenu-trigger-name {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* Lift 3 — the floating-surface step, shared with the live slot and dialogs. */
+/* Lift 3 - the floating-surface step, shared with the live slot and dialogs. */
 .wr-usermenu-pop {
   position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; min-width: 208px;
   background: var(--wr-card); border-radius: var(--radius-md); box-shadow: var(--wr-lift-3);
@@ -807,7 +810,7 @@ img.wr-avatar { object-fit: cover; }
   font: 600 12px var(--font-body); color: var(--wr-text-muted); text-align: left;
 }
 .wr-update:hover { background: var(--color-accent-100); color: var(--color-text); }
-/* Mid-install it is a status, not a control — no hover, no pointer. */
+/* Mid-install it is a status, not a control - no hover, no pointer. */
 .wr-update-busy { cursor: default; background: var(--wr-card); }
 .wr-update-busy:hover { background: var(--wr-card); color: var(--wr-text-muted); }
 .wr-update-text {
@@ -843,7 +846,7 @@ img.wr-avatar { object-fit: cover; }
 .wr-frame-bare .wr-rail {
   min-height: 0; overflow-y: auto;
   /* A scroller clips at its padding box, and `overflow-y: auto` quietly makes
-     `overflow-x` clip too — which sheared the drop shadow off both sides of
+     `overflow-x` clip too - which sheared the drop shadow off both sides of
      every module. The padding gives the shadow somewhere to land; the matching
      negative margins hand that space back to the layout, so the modules stay
      exactly where they were and only the shadow gains room. */
@@ -851,7 +854,7 @@ img.wr-avatar { object-fit: cover; }
   margin: -8px -16px -20px;
   /* Explicit, because the 250px above has to keep meaning the width of the
      modules. Left to a border-box rule it would mean the width of the
-     scroller, and the padding would come out of the modules instead — which
+     scroller, and the padding would come out of the modules instead - which
      pushed them past the right edge and clipped the very shadow this is
      here to protect. */
   box-sizing: content-box;
@@ -865,12 +868,12 @@ img.wr-avatar { object-fit: cover; }
 }
 .wr-setup-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 11px; }
 /* The step is a block, not a row. The tick belongs to the label it marks, and
-   nothing below shares its indent — a paragraph and a button pushed 25px in to
+   nothing below shares its indent - a paragraph and a button pushed 25px in to
    clear a circle they have nothing to do with read as a nested list. */
 .wr-setup-step { display: grid; gap: 7px; }
 .wr-setup-row { display: flex; gap: 9px; align-items: center; }
 /* The tick well is always there, so labels line up whether or not a step is
-   done — a list that reflows as it is completed is hard to read down. */
+   done - a list that reflows as it is completed is hard to read down. */
 .wr-setup-tick {
   flex: none; width: 15px; height: 15px; border-radius: 999px;
   border: 1.5px solid var(--wr-hairline); box-sizing: border-box;
@@ -911,7 +914,7 @@ img.wr-avatar { object-fit: cover; }
 }
 .wr-sheet {
   /* One number for every edge of every sheet. Head, body and foot all measure
-     from it, so a new modal is content and nothing else — and the bottom edge
+     from it, so a new modal is content and nothing else - and the bottom edge
      cannot go missing again, which is what happened when each part carried its
      own hardcoded padding. */
   --wr-sheet-pad: 22px;
@@ -935,7 +938,7 @@ img.wr-avatar { object-fit: cover; }
   overflow-y: auto; min-height: 0;
 }
 /* With a foot below it the body stops at the rule, which supplies the edge
-   instead — otherwise the two paddings stack into a gap twice the size. */
+   instead - otherwise the two paddings stack into a gap twice the size. */
 .wr-sheet-body-above-foot { padding-bottom: 0; }
 .wr-sheet-foot {
   display: flex; align-items: center; gap: 10px;
@@ -1008,14 +1011,14 @@ img.wr-avatar { object-fit: cover; }
 
 /* ── The one raised block ──────────────────────────────────────────────────
    Every grouped thing is one of these: settings sections, and the modules in
-   the dashboard's rail. One padding, declared once — a module that sets its
+   the dashboard's rail. One padding, declared once - a module that sets its
    own is how the rail and the settings pages drifted apart in the first
    place. */
 .wr-card {
   background: var(--wr-card); border-radius: 15px;
   box-shadow: var(--wr-lift-1); padding: 16px 18px;
 }
-/* The inverted tone. Same block, same padding — only heavier, for the one
+/* The inverted tone. Same block, same padding - only heavier, for the one
    thing on a first run worth looking at. */
 .wr-card-dark {
   background: var(--color-text); color: var(--color-neutral-100);
@@ -1026,7 +1029,7 @@ img.wr-avatar { object-fit: cover; }
   gap: 12px; margin-bottom: 12px;
 }
 .wr-card-heading { min-width: 0; }
-/* A heading, not a field label — the same size and weight as the label it
+/* A heading, not a field label - the same size and weight as the label it
    replaced, so nothing changed size, only what owns the words. */
 .wr-card-title {
   margin: 0; font: 700 11px var(--font-body); color: var(--wr-text-muted);
@@ -1076,7 +1079,7 @@ img.wr-avatar { object-fit: cover; }
   color: rgba(245, 234, 216, 0.5);
 }
 .wr-card-dark .wr-setup-detail { color: rgba(245, 234, 216, 0.78); }
-/* Full width, because it is the only thing to do on this card — and it starts
+/* Full width, because it is the only thing to do on this card - and it starts
    at the same left edge as everything else, no longer pushed in to clear the
    tick. */
 .wr-setup-go {

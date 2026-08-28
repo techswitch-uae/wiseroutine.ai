@@ -4,7 +4,7 @@ import { at, atOrNull, type Directory, msOrNull } from "../client";
 /**
  * A fresh name for a user's Turso database.
  *
- * Turso database names are DNS labels — lowercase, alphanumeric and dashes —
+ * Turso database names are DNS labels - lowercase, alphanumeric and dashes -
  * so the uuid loses its hyphens. Deliberately *not* derived from the user id:
  * the id is not known until the row is inserted, and the name has to be part
  * of that same insert because the column is NOT NULL. Nothing depends on the
@@ -54,7 +54,7 @@ export async function markDatabaseReady(
  * Recompute the user's plan from grants and subscription, and cache it on the
  * user row so request paths read one column.
  *
- * Called by the Stripe webhook and whenever a grant changes — never on the hot
+ * Called by the Stripe webhook and whenever a grant changes - never on the hot
  * path.
  */
 export async function refreshUserPlan(
@@ -166,7 +166,7 @@ export async function updateUserSettings(
  * These mirror the `@default(...)` values in `prisma/directory.prisma`, and
  * `defaults.test.ts` fails if the two ever disagree. Both are needed: the
  * schema default covers a direct insert, while Better Auth demands an explicit
- * value for every field it knows is required — it validates its own field list
+ * value for every field it knows is required - it validates its own field list
  * before any hook runs, so "the database will fill it in" is not an answer it
  * accepts.
  */

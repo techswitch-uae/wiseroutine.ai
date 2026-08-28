@@ -6,7 +6,7 @@
  * would put a whole afternoon's activity in one minute, wreck the streaks and
  * progress they feed, and make the day's history a thing nobody can trust.
  *
- * So the client sends when it happened — which makes it untrusted input. A
+ * So the client sends when it happened - which makes it untrusted input. A
  * device clock can be wrong, and a caller can lie. The rule is narrow on
  * purpose: believe the claim only inside a window that a genuine offline
  * stretch fits in, and otherwise fall back to now.
@@ -21,7 +21,7 @@ export const MAX_REPLAY_AGE_MS = 7 * 86_400_000;
  *
  * Falling back to `now` rather than clamping to the edge of the window is
  * deliberate. Clamping invents a specific past that nothing observed; `now` is
- * at least true about one thing — when the server learned of it.
+ * at least true about one thing - when the server learned of it.
  */
 export function replayedAt(now: number, claimed: number | undefined): number {
   if (claimed === undefined || !Number.isFinite(claimed)) return now;

@@ -65,7 +65,7 @@ const asLocal = (instant: number) =>
     hourCycle: "h23",
   }).format(new Date(instant));
 
-/* ── The free/busy rules — the highest-risk logic in the project ─────────── */
+/* ── The free/busy rules - the highest-risk logic in the project ─────────── */
 
 describe("isBusy", () => {
   test("a plain accepted meeting is busy", () => {
@@ -193,7 +193,7 @@ describe("sessionsNeededToday", () => {
     ).toBe(0);
   });
 
-  // "Deep work — 2 h a day in 25 min blocks" from screen 3e.
+  // "Deep work - 2 h a day in 25 min blocks" from screen 3e.
   test("durationPerDay converts remaining minutes into whole sessions", () => {
     const a = activity({
       id: "deep-work",
@@ -387,7 +387,7 @@ describe("plan", () => {
     expect(new Set(result.placed.map((p) => p.start)).size).toBe(4);
   });
 
-  test("is deterministic — the same input yields the same plan", () => {
+  test("is deterministic - the same input yields the same plan", () => {
     const build = () =>
       input({
         busy: toBusyBlocks([
@@ -419,7 +419,7 @@ describe("localtime", () => {
     expect(zoneOffsetMs(winter, ZONE)).toBe(60 * 60_000); // CET
     expect(zoneOffsetMs(summer, ZONE)).toBe(2 * 60 * 60_000); // CEST
 
-    // 09:00 local is a *different* UTC instant in each — which is exactly why
+    // 09:00 local is a *different* UTC instant in each - which is exactly why
     // a recurring slot must be stored as local time plus zone, never as a
     // fixed UTC instant.
     expect(new Date(winter).getUTCHours()).toBe(8);

@@ -20,7 +20,7 @@ export const webhooks = new Hono<App>();
  *
  * With one database per user, a webhook cannot act directly: it only knows a
  * channel id. The directory maps that to a user, and the queue consumer opens
- * their database. Enqueue and return — never do provider work inline.
+ * their database. Enqueue and return - never do provider work inline.
  */
 async function enqueueFromChannel(
   c: Ctx,
@@ -62,7 +62,7 @@ async function enqueueFromChannel(
 /* ── Google Calendar push ────────────────────────────────────────────────── */
 
 /**
- * Google notifications carry **no body and no information about what changed** —
+ * Google notifications carry **no body and no information about what changed** -
  * everything is in headers. Treat one as "something changed, go run the sync
  * loop", never as data.
  *
@@ -125,7 +125,7 @@ webhooks.post("/microsoft", async (c) => {
 });
 
 /**
- * Lifecycle events — the difference between a sync that recovers and one that
+ * Lifecycle events - the difference between a sync that recovers and one that
  * dies in silence.
  *
  *  - `missed`: Graph knows it dropped changes. The only signal we get.
@@ -265,7 +265,7 @@ webhooks.post("/stripe", async (c) => {
       if (!customerId) break;
       const userId = await findUserByStripeCustomer(directory, customerId);
       if (!userId) break;
-      // past_due keeps access — dunning is Stripe's job, not a hard cutoff the
+      // past_due keeps access - dunning is Stripe's job, not a hard cutoff the
       // moment a card bounces.
       await upsertSubscription(
         directory,

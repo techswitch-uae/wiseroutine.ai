@@ -58,7 +58,7 @@ api.get("/health", (c) => c.text("OK"));
  * Resolves every Secrets Store binding and runs the full schema over the
  * result, so a secret that is absent, empty or the wrong shape fails the
  * deploy rather than the first request that happens to need it. The reason is
- * logged, not returned — which key is missing is not a stranger's business.
+ * logged, not returned - which key is missing is not a stranger's business.
  */
 api.get("/health/config", (c) => {
   try {
@@ -76,12 +76,12 @@ api.get("/health/config", (c) => {
 api.on(["GET", "POST"], "/auth/*", (c) => c.get("auth").handler(c.req.raw));
 
 // Seeding for the browser tests. Refuses in production, and does not exist at
-// all unless `E2E_SECRET` is configured — see routes/testing.ts.
+// all unless `E2E_SECRET` is configured - see routes/testing.ts.
 api.route("/test", testing);
 
 api.route("/connect", connect);
 // Deliberately not under /auth: that prefix is Better Auth's, and these are
-// ours — the ticket exchange that gets a browser-made session into the
+// ours - the ticket exchange that gets a browser-made session into the
 // desktop app. See routes/signin.ts.
 api.route("/signin", signin);
 api.route("/webhooks", webhooks);
@@ -105,7 +105,7 @@ const WORK_BATCH = 200;
  * Every work kind must map to a job the consumer handles.
  *
  * This used to be `kind === "grace_sweep" ? ... : "sync-calendar"`, which sent
- * a `renew_watch` row out as a sync — so the watch would never have been
+ * a `renew_watch` row out as a sync - so the watch would never have been
  * renewed even once something scheduled it. A total map means a new kind is a
  * type error rather than silently becoming a sync.
  */
@@ -133,7 +133,7 @@ function clientIds(config: ServerEnv): SyncDeps["clientIds"] {
  *
  * "Moves itself in 3 min if you don't start" has to fire whether or not the app
  * is open, so it is a server decision. With a database per user the sweep can
- * no longer scan everyone at once — the directory says whose turn it is, and
+ * no longer scan everyone at once - the directory says whose turn it is, and
  * this runs against that one person.
  */
 async function sweepGrace(
@@ -194,7 +194,7 @@ async function runSyncJob(
   const db = createUserDatabase(userCredentials(config, job.databaseName));
   const target = await getCalendarForSync(db, job.targetId);
 
-  // A revoked or reauth-needed connection is not a failure to retry — the user
+  // A revoked or reauth-needed connection is not a failure to retry - the user
   // has to reconnect, and hammering it just burns quota.
   if (target?.connectionStatus !== "active") return undefined;
 
@@ -250,7 +250,7 @@ async function runSyncJob(
  * Renew (or open) a calendar's push channel.
  *
  * Returns when to come back, which `completeWork` writes onto the same
- * directory row — so renewal reschedules itself for as long as the calendar
+ * directory row - so renewal reschedules itself for as long as the calendar
  * stays connected.
  */
 async function runWatchJob(
@@ -296,7 +296,7 @@ export default {
   /**
    * The cron ticker.
    *
-   * Cron cannot schedule per user — a Worker gets a handful of triggers, not one
+   * Cron cannot schedule per user - a Worker gets a handful of triggers, not one
    * per customer. And with a database per user it cannot scan for due work
    * either. So the directory's coordination table answers "what is due?" in one
    * indexed query, and this fans the answers out onto the queue.
@@ -342,7 +342,7 @@ export default {
       ctx.waitUntil(pruneProcessedEvents(directory, now - 30 * DAY));
 
       // A channel is renewed from its own `scheduled_work` row. If one is ever
-      // lost the calendar goes quiet with no error anywhere — the poll keeps
+      // lost the calendar goes quiet with no error anywhere - the poll keeps
       // working, so nothing looks broken. This reconciles from the channels
       // themselves, which is the only record that cannot drift.
       ctx.waitUntil(

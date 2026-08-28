@@ -13,7 +13,7 @@ import { ApiError, api, deviceTimeZone, OfflineError } from "../lib/api";
  *
  * `supportedValuesOf` is recent enough to be worth guarding: an older runtime
  * gets an empty list, and the screen falls back to offering just the saved
- * zone and this device's — which is the choice almost everyone needs anyway.
+ * zone and this device's - which is the choice almost everyone needs anyway.
  */
 function timeZoneOptions(): string[] {
   try {
@@ -26,7 +26,7 @@ function timeZoneOptions(): string[] {
 /**
  * The account page.
  *
- * Wiring only — the composition is `AccountScreen` in the kit. Everything here
+ * Wiring only - the composition is `AccountScreen` in the kit. Everything here
  * goes through Better Auth's own endpoints; there is no route of ours in front
  * of them because there is nothing of ours to add.
  */
@@ -52,7 +52,7 @@ const Account: React.FC = () => {
   const navigate = useNavigate();
 
   // The rail shows the same name and this page can change it, so neither owns
-  // it — see lib/account. Saving here updates the rail with no refetch.
+  // it - see lib/account. Saving here updates the rail with no refetch.
   const account = useAccount();
   const name = account?.name ?? "";
   const email = account?.email ?? "";
@@ -69,7 +69,7 @@ const Account: React.FC = () => {
   const [zones] = useState(timeZoneOptions);
   const device = deviceTimeZone();
 
-  /** Only the provider list — the identity is already in the store, put there
+  /** Only the provider list - the identity is already in the store, put there
    *  by the layout that guards this route. */
   const load = useCallback(async () => {
     const linked = await api.listAccounts();
@@ -129,7 +129,7 @@ const Account: React.FC = () => {
       .then(load)
       .catch((cause: unknown) =>
         setProblem(
-          // Unlinking sits behind a *fresh* session — Better Auth will not let
+          // Unlinking sits behind a *fresh* session - Better Auth will not let
           // a session days old detach a sign-in method, which is the right
           // call and a confusing 400 if we pass it through verbatim.
           cause instanceof ApiError && cause.status === 400

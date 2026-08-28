@@ -18,7 +18,7 @@ import type * as Prisma from "../internal/prismaNamespace"
  * 
  * It stores the session token itself rather than a hash of it, which is how
  * Better Auth looks a session up. The token is high-entropy, httpOnly on web
- * and held in the OS keychain on desktop, and rotates on its own schedule —
+ * and held in the OS keychain on desktop, and rotates on its own schedule -
  * but a directory dump is now enough to impersonate, which the previous
  * hand-rolled table was written to prevent. Accepted to avoid forking the
  * adapter; revisit if the directory is ever exposed more widely.

@@ -41,7 +41,7 @@ jobs:
       released: ${{ steps.release.outputs.release_created }}
       tag: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
-      # The commit the tag points at — the one carrying the version bump.
+      # The commit the tag points at - the one carrying the version bump.
       # Checking out `main` instead would race any commit merged behind it.
       sha: ${{ steps.release.outputs.sha }}
     steps:
@@ -100,14 +100,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
           # Signs the update artifacts so installed apps will accept them. This
-          # is Tauri's own key, and is not the OS code signature below — an
+          # is Tauri's own key, and is not the OS code signature below - an
           # update signed with it still shows an "unidentified developer"
           # warning on a fresh install if the bundle itself is unsigned.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
           # Gatekeeper. The certificate signs the bundle; notarisation is what
-          # actually clears it, and needs the Apple ID credentials as well —
+          # actually clears it, and needs the Apple ID credentials as well -
           # a signed-but-unnotarised app is still blocked on first launch.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -117,7 +117,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/desktop
-          # The release already exists — Release Please made it. Naming the tag
+          # The release already exists - Release Please made it. Naming the tag
           # attaches the installers and `latest.json` to that one rather than
           # opening a second, empty release beside it.
           tagName: ${{ needs.release-please.outputs.tag }}

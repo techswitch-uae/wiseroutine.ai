@@ -22,7 +22,7 @@ import { openExternal } from "../lib/open-external";
  * this screen would be furniture for an account that does not exist yet. It
  * also means the redirect below is the only place that decides who gets in.
  *
- * Every composition here comes from `@wiseroutine/design` — this file is the
+ * Every composition here comes from `@wiseroutine/design` - this file is the
  * wiring and nothing else. When a state needs a surface the kit does not have,
  * the fix belongs in the kit.
  */
@@ -40,7 +40,7 @@ const RESEND_SECONDS = 30;
  *
  * `account_not_linked` is the one worth spelling out. It happens when the
  * address already has an account but the provider's claim to it is not one we
- * trust on its own — Microsoft's email claim is tenant-mutable and never
+ * trust on its own - Microsoft's email claim is tenant-mutable and never
  * verified, so we will not join two identities on the strength of it. The way
  * through is the emailed code, which proves the same thing properly.
  */
@@ -52,7 +52,7 @@ function socialProblem(reason: string, provider: SocialProvider): string {
   if (reason === "expired") {
     return "That took too long. Try again.";
   }
-  return `${name} didn't complete the sign-in. Nothing changed — you can try again.`;
+  return `${name} didn't complete the sign-in. Nothing changed - you can try again.`;
 }
 
 const SignIn: React.FC = () => {
@@ -68,7 +68,7 @@ const SignIn: React.FC = () => {
    *
    * Separate from `busy` on purpose. They were one flag, and the result was a
    * screen that disabled everything and told the user it was "Sending…" an
-   * email it had never touched — for as long as the poll ran, with no way out.
+   * email it had never touched - for as long as the poll ran, with no way out.
    */
   const [waitingFor, setWaitingFor] = useState<SocialProvider | null>(null);
   /** Only set when we could not open a browser, so the user can do it. */
@@ -82,7 +82,7 @@ const SignIn: React.FC = () => {
    * Cancels a provider sign-in that is still waiting on the browser.
    *
    * Without this, leaving the screen leaves a poll running that would drop a
-   * session in minutes later, out of nowhere — the user having long since
+   * session in minutes later, out of nowhere - the user having long since
    * given up and gone somewhere else in the app.
    */
   const social = useRef<AbortController | null>(null);
@@ -104,7 +104,7 @@ const SignIn: React.FC = () => {
   /**
    * Turn a failure into something the user can act on.
    *
-   * A 500 is a server misconfiguration, not something retrying fixes — saying
+   * A 500 is a server misconfiguration, not something retrying fixes - saying
    * "try again" sends them round a loop. Each case gets its own answer, and
    * the code screen gets its own states rather than a sentence.
    */
@@ -116,7 +116,7 @@ const SignIn: React.FC = () => {
       return "Too many attempts. Wait a minute and try again.";
     }
     if (cause instanceof ApiError && cause.status >= 500) {
-      return "Something is wrong on our side — this isn't you. The server log says why.";
+      return "Something is wrong on our side - this isn't you. The server log says why.";
     }
     return sent
       ? "That code didn't work. Check it, or ask for a new one."
@@ -154,7 +154,7 @@ const SignIn: React.FC = () => {
    */
   const submitCode = (pasted?: string) => {
     // On paste the digits arrive as an argument because `code` is still a
-    // render behind — reading state here submits the previous value.
+    // render behind - reading state here submits the previous value.
     const value = pasted ?? code;
     if (value.length < 6 || busy) return;
     setBusy(true);
@@ -179,13 +179,13 @@ const SignIn: React.FC = () => {
   /**
    * Google or Microsoft.
    *
-   * Consent happens in a real browser — a provider will not render its consent
+   * Consent happens in a real browser - a provider will not render its consent
    * screen in an embedded webview, and in the packaged app navigating there
    * would replace the app itself. So: ask the server for a URL and a ticket,
    * open a browser, and only then start waiting.
    *
    * The order matters, and so does the return value of the open. Opening can
-   * fail — a popup blocker, a webview with no opener — and polling for a
+   * fail - a popup blocker, a webview with no opener - and polling for a
    * consent that was never shown is a spinner that runs until the ticket
    * expires. When it fails the user gets the link and can go by hand, which is
    * a delay rather than a dead end.
@@ -236,7 +236,7 @@ const SignIn: React.FC = () => {
           onCodeChange={(next) => {
             setCode(next);
             // The moment they start correcting it, stop telling them it was
-            // wrong — the message is about the code they had, not this one.
+            // wrong - the message is about the code they had, not this one.
             if (wrong) setWrong(false);
           }}
           onSubmit={submitCode}

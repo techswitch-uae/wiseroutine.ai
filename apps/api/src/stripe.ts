@@ -5,7 +5,7 @@ import type { ServerEnv } from "./env";
 /**
  * A Stripe client that works on Workers.
  *
- * `createFetchHttpClient` is mandatory — the SDK otherwise reaches for Node's
+ * `createFetchHttpClient` is mandatory - the SDK otherwise reaches for Node's
  * `http`, which does not exist here.
  */
 export function stripeClient(env: ServerEnv): Stripe {

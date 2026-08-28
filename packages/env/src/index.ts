@@ -4,7 +4,7 @@ import { z } from "zod";
  * Core configuration, and the machinery each package uses to declare its own.
  *
  * The next-forge shape, adapted: there, a package's `keys()` returns a parsed
- * env object and the package *calls it itself* — `packages/payments/index.ts`
+ * env object and the package *calls it itself* - `packages/payments/index.ts`
  * does `const { STRIPE_SECRET_KEY } = keys()`. Ours are dependency-injected
  * instead (`createDirectory({ url, authToken })`, `googleExchangeCode({
  * clientId, ... })`), so nothing under `packages/` reads the environment at
@@ -13,7 +13,7 @@ import { z } from "zod";
  *
  * So a package exports a **schema fragment** rather than a reader: it still
  * owns and documents its configuration contract, and deleting the package
- * deletes its requirements — but the app stays the only thing that touches the
+ * deletes its requirements - but the app stays the only thing that touches the
  * environment.
  *
  * Secrets are optional so the Worker boots with a partial config in local dev;

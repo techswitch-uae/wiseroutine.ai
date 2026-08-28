@@ -1,11 +1,11 @@
-# Setup — databases
+# Setup - databases
 
 Two tiers: one shared **directory** (login, sessions, billing, the cron
 coordination table) and **one database per user** (everything they own).
 
 | | directory | user databases |
 |---|---|---|
-| **local** | `turso dev` :41080 | `turso dev` :41081 — one database shared by every local user |
+| **local** | `turso dev` :41080 | `turso dev` :41081 - one database shared by every local user |
 | **dev** | `wiseroutine-directory-dev` | group `users-dev`, one per user |
 | **production** | `wiseroutine-directory` | group `users`, one per user |
 
@@ -35,14 +35,14 @@ turso db shell http://127.0.0.1:41081 < packages/db/migrations/user/0001_init.sq
 loses the schema *and* your account, and you re-run both migrations each time.
 
 Both migrations are needed. The user database also migrates itself at signup,
-so the second is belt-and-braces — but without it the first request against a
+so the second is belt-and-braces - but without it the first request against a
 user database fails and `pnpm api` gives you no hint why.
 
 Run them once. `applyMigrations` records what it has applied, so re-running is
 a no-op.
 
 `pnpm test` starts its own pair on **41090/41091** and migrates them itself
-(`apps/api/vitest.globalSetup.ts`) — deliberately in-memory, so each run starts
+(`apps/api/vitest.globalSetup.ts`) - deliberately in-memory, so each run starts
 clean. Separate ports on purpose: sharing 41080/41081 meant the suite quietly
 ran against your development databases, seeing their leftovers and writing its
 own. You can leave `pnpm api` running while you test.
@@ -57,8 +57,8 @@ server. The API stays on wrangler's own 8787.
 
 ### If a port is taken
 
-41080/41081/41090/41091 are used because low ports are magnets — 8080 for Docker, uvicorn,
-Spring and Jenkins, 8081 for Expo — and anything in the 3000-9000 range is
+41080/41081/41090/41091 are used because low ports are magnets - 8080 for Docker, uvicorn,
+Spring and Jenkins, 8081 for Expo - and anything in the 3000-9000 range is
 likely to be another project of yours. Worth knowing how this fails: `turso dev` binds `*:PORT`
 while most servers bind `127.0.0.1:PORT`, and the specific bind wins. So
 `turso dev` reports success, and the Worker silently talks to whatever else is
@@ -104,7 +104,7 @@ turso db show wiseroutine-directory --url
 ```
 
 Only the directory is migrated by hand. User databases are created **and**
-migrated at signup from `USER_MIGRATIONS` — see `apps/api/src/provisioning.ts`.
+migrated at signup from `USER_MIGRATIONS` - see `apps/api/src/provisioning.ts`.
 
 Two things that catch people:
 
@@ -121,11 +121,11 @@ Per environment, under `vars`:
 | var | where it comes from |
 |---|---|
 | `TURSO_DIRECTORY_URL` | the `turso db show … --url` output, whole |
-| `TURSO_USER_HOST` | that URL's host suffix — `acme.turso.io` from `libsql://wiseroutine-directory-acme.turso.io`. Same for both environments; it identifies the org, not the environment. |
-| `TURSO_ORG` | the bare slug — `acme`. Also `turso org list`. |
+| `TURSO_USER_HOST` | that URL's host suffix - `acme.turso.io` from `libsql://wiseroutine-directory-acme.turso.io`. Same for both environments; it identifies the org, not the environment. |
+| `TURSO_ORG` | the bare slug - `acme`. Also `turso org list`. |
 | `TURSO_GROUP` | `users-dev` or `users` |
 
-The tokens go to Cloudflare, not here — see [setup-api.md](setup-api.md).
+The tokens go to Cloudflare, not here - see [setup-api.md](setup-api.md).
 
 Locally `TURSO_USER_HOST` is a full `http://127.0.0.1:41081` URL rather than a
 suffix. That is intentional: `userDatabaseUrl` returns an `http` host as-is,
@@ -147,7 +147,7 @@ turso db shell wiseroutine-directory-dev < packages/db/migrations/directory/0002
 
 **A user-schema change fans out.** New user databases pick it up at creation;
 existing ones need a backfill job that walks the directory. That job does not
-exist — write it before the first user-schema change after launch, not during.
+exist - write it before the first user-schema change after launch, not during.
 
 **Dev and production migrate separately.** Applying to one does nothing for the
 other.

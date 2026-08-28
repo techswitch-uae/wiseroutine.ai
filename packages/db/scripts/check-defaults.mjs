@@ -6,7 +6,7 @@
  * Two places have to know: the schema, which the database enforces on a direct
  * insert, and `USER_DEFAULTS`, which Better Auth writes at signup because it
  * validates its own required-field list before any insert happens. Drift is
- * silent — a new account would simply get the wrong timezone, or the wrong
+ * silent - a new account would simply get the wrong timezone, or the wrong
  * plan.
  *
  * Runs as part of `generate`, which is when the schema changes.

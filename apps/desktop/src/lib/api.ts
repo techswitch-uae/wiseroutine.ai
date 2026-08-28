@@ -1,7 +1,7 @@
 /**
  * Typed client for the Worker API.
  *
- * The desktop app holds only a session token — provider refresh tokens never
+ * The desktop app holds only a session token - provider refresh tokens never
  * leave the server. Signing in is a code emailed to the user; connecting a
  * calendar is a separate step that completes in the system browser and returns
  * through the app's deep-link scheme.
@@ -30,7 +30,7 @@ export function getSessionToken(): string | null {
  *
  * `Intl` resolves it from the OS, so it follows the user across a flight
  * without anyone being asked. Falls back to UTC on the rare runtime that
- * cannot say — the same value the column already defaults to.
+ * cannot say - the same value the column already defaults to.
  */
 export function deviceTimeZone(): string {
   try {
@@ -58,7 +58,7 @@ export class OfflineError extends Error {
  * A provider sign-in that came back refused rather than unreachable.
  *
  * `reason` is Better Auth's own code, so the screen can answer the one case a
- * user can actually act on — `account_not_linked` — differently from a plain
+ * user can actually act on - `account_not_linked` - differently from a plain
  * "you pressed cancel".
  */
 export class SocialSignInError extends Error {
@@ -99,7 +99,7 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
       },
     });
   } catch {
-    // fetch only rejects when the request never completed — no DNS, no route,
+    // fetch only rejects when the request never completed - no DNS, no route,
     // no server. That is the one case worth retrying later.
     throw new OfflineError();
   }
@@ -168,7 +168,7 @@ export interface SessionResponse {
     email: string;
     name: string | null;
     /** Better Auth's `image`, mapped to `avatarUrl` in the database. Only ever
-     *  rendered when it is an `https:` URL — see `Avatar`. */
+     *  rendered when it is an `https:` URL - see `Avatar`. */
     image?: string | null;
     timeZone: string;
     plan: "free" | "pro";
@@ -189,7 +189,7 @@ export interface CalendarConnection {
   id: string;
   provider: "google" | "microsoft";
   email: string;
-  /** Anything other than "active" is a connection the user has to repair —
+  /** Anything other than "active" is a connection the user has to repair -
    *  a revoked token is silent otherwise, and the day just stops filling in. */
   status: string;
 }
@@ -249,7 +249,7 @@ async function slotAction(
  * Send everything waiting, oldest first.
  *
  * Order matters: start-then-complete on one slot has to arrive that way round.
- * A rejected action is dropped rather than retried forever — the slot was
+ * A rejected action is dropped rather than retried forever - the slot was
  * replanned or the day rolled over, and a queue that cannot drain is a queue
  * that blocks every later action behind it.
  */
@@ -291,7 +291,7 @@ async function announceTimeZone(): Promise<void> {
   try {
     await api.setTimeZone(deviceTimeZone());
   } catch {
-    // Not worth surfacing — the user is signed in either way.
+    // Not worth surfacing - the user is signed in either way.
   }
 }
 
@@ -322,12 +322,12 @@ export const api = {
    * Begin a provider sign-in. Returns the consent URL and the ticket to
    * redeem once the user has been through it.
    *
-   * Deliberately does *not* open the browser itself. Opening can fail — a
-   * popup blocker, a webview with no opener — and the caller is the only one
+   * Deliberately does *not* open the browser itself. Opening can fail - a
+   * popup blocker, a webview with no opener - and the caller is the only one
    * that can react to that: polling for a consent that was never shown is the
    * bug this split exists to prevent.
    *
-   * Which calendars the account syncs is a separate question entirely — see
+   * Which calendars the account syncs is a separate question entirely - see
    * `connectUrl`. Signing in with Google connects nothing.
    */
   startSocial: (provider: "google" | "microsoft") =>
@@ -379,7 +379,7 @@ export const api = {
   /**
    * The providers that can sign this account in.
    *
-   * Better Auth's own endpoint — there is no route of ours in front of it,
+   * Better Auth's own endpoint - there is no route of ours in front of it,
    * because there is nothing of ours to add. Note what these are *not*:
    * calendar connections, which live in the user's own database and are listed
    * by `/calendars`.
@@ -408,7 +408,7 @@ export const api = {
    * The current session, or `null`.
    *
    * Better Auth answers 200 with a literal `null` body for a token it does not
-   * recognise — expired, revoked, or issued by a database that has since been
+   * recognise - expired, revoked, or issued by a database that has since been
    * reset. That is not an error, so it must not be typed as one: a caller that
    * assumes a user here reads `.user` off null and throws somewhere far away
    * from the cause.
@@ -426,7 +426,7 @@ export const api = {
    * Today's plan, from the server if it can be reached and from the last
    * saved copy if it cannot.
    *
-   * `stale` is what the view needs to be honest about what it is showing —
+   * `stale` is what the view needs to be honest about what it is showing -
    * an old plan presented as current is worse than an error.
    */
   async today(
@@ -484,7 +484,7 @@ export const api = {
   disconnect: (connectionId: string) =>
     request<void>(`/connections/${connectionId}`, { method: "DELETE" }),
 
-  /** Ask for a sync now rather than at the next tick — the refresh button. */
+  /** Ask for a sync now rather than at the next tick - the refresh button. */
   sync: () => request<{ ok: true }>("/sync", post({})),
 
   missed: () => request<MissedItem[]>("/missed"),

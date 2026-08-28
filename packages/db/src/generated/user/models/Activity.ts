@@ -1005,7 +1005,7 @@ export type $ActivityPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     icon: string | null
     isActive: boolean
     /**
-     * "countPerDay" | "durationPerDay" | "countPerWeek" — deep work is 2 h a day
+     * "countPerDay" | "durationPerDay" | "countPerWeek" - deep work is 2 h a day
      * in 25 min blocks, eye rest is 4x a day, a walk is 3x a week. One table
      * has to express all three.
      */
@@ -1017,7 +1017,7 @@ export type $ActivityPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
      */
     daysOfWeek: number
     /**
-     * "low" | "normal" | "high" — wins the gap when two activities compete.
+     * "low" | "normal" | "high" - wins the gap when two activities compete.
      */
     importance: string
     /**
@@ -1026,7 +1026,7 @@ export type $ActivityPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
     graceMinutes: number
     bufferBeforeMeetingMinutes: number
     /**
-     * Modelled now, unused in v1 — write-back is a switch, not a migration.
+     * Modelled now, unused in v1 - write-back is a switch, not a migration.
      */
     writeToCalendar: boolean
     writeTargetConnectionId: string | null

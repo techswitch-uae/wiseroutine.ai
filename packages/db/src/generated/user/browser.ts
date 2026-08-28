@@ -84,13 +84,13 @@ export type Reminder = Prisma.ReminderModel
 export type PlanRun = Prisma.PlanRunModel
 /**
  * Model DashboardModule
- * Server state, not local UI state — the same set appears in the menu bar and
+ * Server state, not local UI state - the same set appears in the menu bar and
  * on the widget.
  */
 export type DashboardModule = Prisma.DashboardModuleModel
 /**
  * Model DeskSession
  * Coarse desk sessions for "sitting streak". Deliberately not a presence
- * sample firehose — the client detects idle locally and reports boundaries.
+ * sample firehose - the client detects idle locally and reports boundaries.
  */
 export type DeskSession = Prisma.DeskSessionModel

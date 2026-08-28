@@ -12,7 +12,7 @@ import { createUserDb } from "../env";
  * separate locks, each sufficient on its own:
  *
  *   1. Production refuses, whatever else is true.
- *   2. Nothing exists unless `E2E_SECRET` is configured — it is unset in every
+ *   2. Nothing exists unless `E2E_SECRET` is configured - it is unset in every
  *      deployed environment, so the routes are simply not there.
  *   3. Every call must present that secret.
  *
@@ -21,7 +21,7 @@ import { createUserDb } from "../env";
  *
  * Why this exists at all: signing in is a code emailed to a real address, and
  * connecting a calendar is a consent screen on Google's servers. Neither can
- * be driven by a test, so the test needs a door of its own — and one door with
+ * be driven by a test, so the test needs a door of its own - and one door with
  * three locks is safer than the alternative everybody reaches for, which is
  * loosening the real sign-in until a test can get through it.
  */
@@ -40,8 +40,8 @@ testing.use("*", async (c, next) => {
 /**
  * Empty both databases.
  *
- * Locally one libSQL database serves every user — `TURSO_USER_HOST` is an
- * http:// URL, so the per-user name is never resolved — which means scenarios
+ * Locally one libSQL database serves every user - `TURSO_USER_HOST` is an
+ * http:// URL, so the per-user name is never resolved - which means scenarios
  * are not isolated from each other by default. The first run of this skeleton
  * proved it: a later test saw the calendars an earlier one had seeded, and
  * looked for a set-up module the app was right not to show.
@@ -85,7 +85,7 @@ testing.post("/reset", async (c) => {
  * A signed-in user, without the email round trip.
  *
  * The session row is written directly, exactly as `test-support` does for the
- * handler tests — Better Auth reads one it did not write just the same. The
+ * handler tests - Better Auth reads one it did not write just the same. The
  * token comes back for the test to put in the browser's storage, which is
  * where the real sign-in would have left it.
  */
@@ -110,7 +110,7 @@ testing.post("/seed", async (c) => {
       storeEventTitles: true,
       // Locally `TURSO_USER_HOST` is an http:// URL, so one database serves
       // every user and the name is never resolved. This would need real
-      // provisioning anywhere else — which is another reason these routes stay
+      // provisioning anywhere else - which is another reason these routes stay
       // out of deployed environments.
       databaseName: `wr-e2e-${userId.slice(0, 8)}`,
       databaseReady: true,
@@ -138,7 +138,7 @@ testing.post("/seed", async (c) => {
  *
  * Stands in for the consent screen. The events are written straight into the
  * user's database rather than synced, because the point of a scenario is what
- * the app does with meetings that exist — not whether Google's API works.
+ * the app does with meetings that exist - not whether Google's API works.
  */
 testing.post("/calendar", requireUser, async (c) => {
   const body = await c.req.json<{

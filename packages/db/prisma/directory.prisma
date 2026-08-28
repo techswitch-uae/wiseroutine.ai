@@ -1,4 +1,4 @@
-// The directory database — one, shared.
+// The directory database - one, shared.
 //
 // Holds only what must be queried *across* users: login lookup, sessions,
 // billing, and the coordination table the cron ticker reads. Everything a user
@@ -55,7 +55,7 @@ model User {
   databaseReady Boolean @default(false) @map("database_ready")
 
   /// Last request from this user's app. Drives how often their calendars are
-  /// polled — see `syncInterval` in packages/scheduler. Null means they have
+  /// polled - see `syncInterval` in packages/scheduler. Null means they have
   /// never opened it, which counts as dormant rather than new.
   lastSeenAt DateTime? @map("last_seen_at")
 
@@ -78,7 +78,7 @@ model User {
 ///
 /// It stores the session token itself rather than a hash of it, which is how
 /// Better Auth looks a session up. The token is high-entropy, httpOnly on web
-/// and held in the OS keychain on desktop, and rotates on its own schedule —
+/// and held in the OS keychain on desktop, and rotates on its own schedule -
 /// but a directory dump is now enough to impersonate, which the previous
 /// hand-rolled table was written to prevent. Accepted to avoid forking the
 /// adapter; revisit if the directory is ever exposed more widely.
@@ -99,7 +99,7 @@ model Session {
   @@map("sessions")
 }
 
-/// One authentication method linked to a user — today only the email OTP
+/// One authentication method linked to a user - today only the email OTP
 /// credential Better Auth writes at signup.
 ///
 /// Note what is *not* here: calendar OAuth tokens. Connecting Google or
@@ -152,7 +152,7 @@ model Verification {
 /// Better Auth's rate-limit counters.
 ///
 /// Stored here rather than in memory because a Worker isolate is per-colo and
-/// short-lived, so an in-memory counter would not actually limit anything —
+/// short-lived, so an in-memory counter would not actually limit anything -
 /// and the endpoint being limited sends email, which costs money per request.
 model RateLimit {
   id String @id
@@ -205,7 +205,7 @@ model PlanGrant {
 /// The coordination table.
 ///
 /// With one database per user there is no way to ask "whose calendar is due?"
-/// or "whose slot has run out of grace?" — those were cross-user scans. So the
+/// or "whose slot has run out of grace?" - those were cross-user scans. So the
 /// answer is denormalised here, and the cron ticker reads exactly one indexed
 /// table before fanning out onto the queue. The per-user database still holds
 /// the authoritative state; this only says *when* to go look.
@@ -237,7 +237,7 @@ model ScheduledWork {
 /// Push-channel routing.
 ///
 /// A Google notification carries a channel id and a Graph one carries a
-/// resource path — neither says which user it is for, and with a database per
+/// resource path - neither says which user it is for, and with a database per
 /// user we must know that *before* we can open anything. So the mapping lives
 /// here, alongside the shared secret the webhook authenticates against.
 model WatchChannel {

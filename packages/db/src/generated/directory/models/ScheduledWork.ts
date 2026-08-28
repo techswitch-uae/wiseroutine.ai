@@ -17,7 +17,7 @@ import type * as Prisma from "../internal/prismaNamespace"
  * The coordination table.
  * 
  * With one database per user there is no way to ask "whose calendar is due?"
- * or "whose slot has run out of grace?" — those were cross-user scans. So the
+ * or "whose slot has run out of grace?" - those were cross-user scans. So the
  * answer is denormalised here, and the cron ticker reads exactly one indexed
  * table before fanning out onto the queue. The per-user database still holds
  * the authoritative state; this only says *when* to go look.

@@ -1987,7 +1987,7 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     databaseReady: boolean
     /**
      * Last request from this user's app. Drives how often their calendars are
-     * polled — see `syncInterval` in packages/scheduler. Null means they have
+     * polled - see `syncInterval` in packages/scheduler. Null means they have
      * never opened it, which counts as dormant rather than new.
      */
     lastSeenAt: Date | null

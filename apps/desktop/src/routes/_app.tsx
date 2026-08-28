@@ -16,7 +16,7 @@ import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
  * The app shell every signed-in page renders inside.
  *
  * A pathless layout route, so a new page is a file rather than a file plus a
- * remembered wrapper — the chrome cannot drift between screens because there
+ * remembered wrapper - the chrome cannot drift between screens because there
  * is only one copy of it.
  *
  * Sign-in lives outside this route. Guarding here rather than in each page
@@ -28,7 +28,7 @@ import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
  * The navigation, which is every page that exists.
  *
  * Week, Activities, Reminders and Calendars were listed here as the intended
- * information architecture. They had no routes, so each was a dead click — the
+ * information architecture. They had no routes, so each was a dead click - the
  * rail offered five destinations and reached two. The design kit still carries
  * them as the plan; this list is the product.
  */
@@ -49,7 +49,7 @@ const USER_MENU = [{ key: "signout", label: "Sign out" }] as const;
  * desktop, so the web build carries this component but never shows it.
  *
  * It re-checks on a timer as well as on mount. Someone who leaves the app open
- * for a fortnight — which is the normal way to use it — would otherwise only
+ * for a fortnight - which is the normal way to use it - would otherwise only
  * ever learn about a release by quitting, which is the one thing they are not
  * doing.
  */
@@ -103,11 +103,11 @@ const UpdateNotice: React.FC = () => {
 const AppLayout: React.FC = () => {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  // Shared with the account page, which can change the name — see lib/account.
+  // Shared with the account page, which can change the name - see lib/account.
   const user = useAccount();
 
   /**
-   * Resolve who is signed in — and notice when nobody is.
+   * Resolve who is signed in - and notice when nobody is.
    *
    * `beforeLoad` only proves a token *exists*; it cannot prove the server still
    * honours it. An expired or revoked one gets a 200 with a `null` body, and
@@ -132,7 +132,7 @@ const AppLayout: React.FC = () => {
         if (!s?.user) return signedOut();
         setAccount({
           // Null for anyone who signed up with an emailed code, and empty for
-          // an account that existed before a provider was linked to it —
+          // an account that existed before a provider was linked to it -
           // neither has ever told us a name. The email stands in.
           name: s.user.name ?? "",
           email: s.user.email,
@@ -144,7 +144,7 @@ const AppLayout: React.FC = () => {
       .catch((cause: unknown) => {
         if (cause instanceof ApiError && cause.status === 401)
           return signedOut();
-        // Anything else — offline, a 500 — is not proof of being signed out,
+        // Anything else - offline, a 500 - is not proof of being signed out,
         // and must not throw someone out of an app they can still read.
       });
 

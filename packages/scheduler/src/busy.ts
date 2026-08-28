@@ -121,7 +121,7 @@ export function toBusyBlocks(
   return blocks;
 }
 
-/** The complement of `busy` within `bounds` — the placeable gaps. */
+/** The complement of `busy` within `bounds` - the placeable gaps. */
 export function freeGaps(
   bounds: Interval,
   busy: readonly Interval[],

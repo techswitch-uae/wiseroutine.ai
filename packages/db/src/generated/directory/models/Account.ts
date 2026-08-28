@@ -14,7 +14,7 @@ import type * as Prisma from "../internal/prismaNamespace"
 
 /**
  * Model Account
- * One authentication method linked to a user — today only the email OTP
+ * One authentication method linked to a user - today only the email OTP
  * credential Better Auth writes at signup.
  * 
  * Note what is *not* here: calendar OAuth tokens. Connecting Google or

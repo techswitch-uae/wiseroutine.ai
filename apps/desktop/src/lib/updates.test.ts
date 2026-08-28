@@ -16,7 +16,7 @@ describe("trackDownload", () => {
     const progress = trackDownload();
     progress(started(1000));
     expect(progress(chunk(250))).toBe(25);
-    // The second chunk is 250 bytes, not 500 — the running total is kept here
+    // The second chunk is 250 bytes, not 500 - the running total is kept here
     // because the events never carry one.
     expect(progress(chunk(250))).toBe(50);
     expect(progress(chunk(500))).toBe(100);

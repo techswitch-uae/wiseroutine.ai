@@ -1,12 +1,12 @@
-// A single user's database — one of these per person.
+// A single user's database - one of these per person.
 //
 // There is no `userId` anywhere: the database *is* the tenant, so filtering by
 // user would be filtering by "the only one". That is the whole point of the
 // split, and it also means a query can never accidentally cross a user
 // boundary.
 //
-// Everything a user owns lives here. What must be queried across users —
-// login, sessions, billing, and the sync/grace coordination table — lives in
+// Everything a user owns lives here. What must be queried across users -
+// login, sessions, billing, and the sync/grace coordination table - lives in
 // the directory database instead (see directory.prisma).
 
 generator client {
@@ -31,7 +31,7 @@ model CalendarConnection {
   scopes            String
 
   /// "active" | "needs_reauth" | "revoked". The UI turns needs_reauth into
-  /// "reconnect your calendar" — a connection that dies silently is fatal.
+  /// "reconnect your calendar" - a connection that dies silently is fatal.
   status String @default("active")
 
   createdAt DateTime @map("created_at")
@@ -96,7 +96,7 @@ model CalendarSyncState {
 
   /// Google. Invalidated by 410 GONE and by ACL changes on the calendar.
   syncToken String? @map("sync_token")
-  /// Microsoft. The date window is frozen inside this token — re-baseline.
+  /// Microsoft. The date window is frozen inside this token - re-baseline.
   deltaLink String? @map("delta_link")
 
   lastFullSyncAt    DateTime? @map("last_full_sync_at")
@@ -128,7 +128,7 @@ model ExternalEvent {
 
   providerEventId String @map("provider_event_id")
 
-  /// Cross-calendar identity — how the same meeting on a work and a personal
+  /// Cross-calendar identity - how the same meeting on a work and a personal
   /// calendar is deduplicated.
   icalUid        String? @map("ical_uid")
   seriesMasterId String? @map("series_master_id")
@@ -174,7 +174,7 @@ model Activity {
 
   isActive Boolean @default(true) @map("is_active")
 
-  /// "countPerDay" | "durationPerDay" | "countPerWeek" — deep work is 2 h a day
+  /// "countPerDay" | "durationPerDay" | "countPerWeek" - deep work is 2 h a day
   /// in 25 min blocks, eye rest is 4x a day, a walk is 3x a week. One table
   /// has to express all three.
   minimumType    String @map("minimum_type")
@@ -184,14 +184,14 @@ model Activity {
   /// Sunday=0 bitmask.
   daysOfWeek Int @default(127) @map("days_of_week")
 
-  /// "low" | "normal" | "high" — wins the gap when two activities compete.
+  /// "low" | "normal" | "high" - wins the gap when two activities compete.
   importance String @default("normal")
 
   /// How long to wait before moving it to the next gap.
   graceMinutes               Int @default(3) @map("grace_minutes")
   bufferBeforeMeetingMinutes Int @default(0) @map("buffer_before_meeting_minutes")
 
-  /// Modelled now, unused in v1 — write-back is a switch, not a migration.
+  /// Modelled now, unused in v1 - write-back is a switch, not a migration.
   writeToCalendar         Boolean @default(false) @map("write_to_calendar")
   writeTargetConnectionId String? @map("write_target_connection_id")
 
@@ -333,7 +333,7 @@ model PlanRun {
   @@map("plan_runs")
 }
 
-/// Server state, not local UI state — the same set appears in the menu bar and
+/// Server state, not local UI state - the same set appears in the menu bar and
 /// on the widget.
 model DashboardModule {
   moduleKey String  @id @map("module_key")
@@ -344,7 +344,7 @@ model DashboardModule {
 }
 
 /// Coarse desk sessions for "sitting streak". Deliberately not a presence
-/// sample firehose — the client detects idle locally and reports boundaries.
+/// sample firehose - the client detects idle locally and reports boundaries.
 model DeskSession {
   id String @id
 

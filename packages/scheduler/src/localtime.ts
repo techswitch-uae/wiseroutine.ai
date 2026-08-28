@@ -7,7 +7,7 @@ import type { Instant, Minutes } from "./types";
  * instant before it reaches `plan()`. That conversion is where DST bugs live,
  * so it lives here, alone, and is tested directly.
  *
- * Uses `Intl` only — available in Workers, browsers and the Tauri renderer, so
+ * Uses `Intl` only - available in Workers, browsers and the Tauri renderer, so
  * this package still has zero dependencies.
  */
 
@@ -54,7 +54,7 @@ function readParts(
 }
 
 /** The zone's UTC offset, in milliseconds, *at a given instant*. Offsets are a
- *  function of (zone, instant) — which is exactly why we never store one. */
+ *  function of (zone, instant) - which is exactly why we never store one. */
 export function zoneOffsetMs(instant: Instant, timeZone: string): number {
   const p = readParts(instant, timeZone);
   return (
@@ -65,7 +65,7 @@ export function zoneOffsetMs(instant: Instant, timeZone: string): number {
 export interface ResolvedLocal {
   instant: Instant;
   /**
-   * True when the requested wall-clock time does not exist in this zone — the
+   * True when the requested wall-clock time does not exist in this zone - the
    * hour skipped by a spring-forward transition. The instant returned is the
    * shifted-forward equivalent.
    *
@@ -119,7 +119,7 @@ export function localDateOf(instant: Instant, timeZone: string): LocalDate {
  * `startMinutes`/`endMinutes` are minutes from local midnight (so 08:00 is 480).
  * Because both ends are resolved independently against the zone, a day that
  * gains or loses an hour to DST produces a window that is correspondingly
- * longer or shorter in real time — which is the correct behaviour.
+ * longer or shorter in real time - which is the correct behaviour.
  */
 export function dayBounds(
   date: LocalDate,

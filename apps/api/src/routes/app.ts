@@ -54,7 +54,7 @@ export const app = new Hono<App>();
  * Every authenticated request is a sign of life.
  *
  * This is middleware rather than something each view calls, so a week view or
- * a month view gets it by existing — there is no per-route line to forget, and
+ * a month view gets it by existing - there is no per-route line to forget, and
  * nothing to keep in step across handlers.
  *
  * Both effects run behind the response. The view is built from what is already
@@ -177,7 +177,7 @@ app.use("*", foreground);
  * Sync now, whatever the debounce thinks.
  *
  * `foreground` deliberately refuses to sync for someone actively using the app
- * — sixty provider passes an hour is worse than the poll it replaces. That is
+ * - sixty provider passes an hour is worse than the poll it replaces. That is
  * right as a default and wrong as the only option: when someone has just
  * changed something at the provider, or is watching a calendar that has not
  * appeared yet, they need a way to say "now". This is that way, and being an
@@ -191,8 +191,8 @@ app.use("*", foreground);
  *
  * Calendars were only ever discovered once, at connect. Nothing looked again,
  * so two things could not heal on their own: a connection whose first listing
- * failed stayed permanently empty — tokens, no calendars, nothing to sync and
- * no sign of it — and a calendar created at the provider after connecting
+ * failed stayed permanently empty - tokens, no calendars, nothing to sync and
+ * no sign of it - and a calendar created at the provider after connecting
  * never appeared at all.
  *
  * `upsertCalendars` keeps the user's `isSelected` choice, so rediscovery adds
@@ -253,7 +253,7 @@ async function rediscoverCalendars(c: Ctx): Promise<void> {
  * Sync now, whatever the debounce thinks.
  *
  * `foreground` deliberately refuses to sync for someone actively using the app
- * — sixty provider passes an hour is worse than the poll it replaces. That is
+ * - sixty provider passes an hour is worse than the poll it replaces. That is
  * right as a default and wrong as the only option: when someone has just
  * changed something at the provider, or is watching a calendar that has not
  * appeared yet, they need a way to say "now". This is that way, and being an
@@ -285,7 +285,7 @@ app.get("/calendars", async (c) => {
       id: conn.id,
       provider: conn.provider,
       email: conn.email,
-      // The UI turns this into "reconnect your calendar" — a connection that
+      // The UI turns this into "reconnect your calendar" - a connection that
       // dies silently is fatal to trust.
       status: conn.status,
     })),
@@ -347,7 +347,7 @@ app.patch("/calendars/:id", async (c) => {
  * Forget a connected account.
  *
  * Deselecting every calendar under it would stop the reading, but it would not
- * stop us holding a token for an account the user has finished with — so this
+ * stop us holding a token for an account the user has finished with - so this
  * removes the connection, its calendars, its events and its token together.
  *
  * The scheduled work lives in the directory rather than the user database, so
@@ -466,7 +466,7 @@ app.patch("/activities/:id", async (c) => {
 /**
  * Data minimisation is a first-class setting, not a hidden flag.
  *
- * With titles off we keep only busy intervals — the timeline still works, it
+ * With titles off we keep only busy intervals - the timeline still works, it
  * just says "Busy" instead of naming the meeting. Turning it off also erases
  * the titles already stored, so the promise holds backwards as well as forwards.
  *
@@ -595,7 +595,7 @@ app.post("/plan", async (c) => {
   );
 
   // Newly planned slots have grace periods, and the sweep is driven from the
-  // directory — so a plan has to leave a marker there or nothing will fire.
+  // directory - so a plan has to leave a marker there or nothing will fire.
   if (result.created > 0) {
     await scheduleWork(
       c.get("directory"),
@@ -620,8 +620,8 @@ app.post("/plan", async (c) => {
  *
  * Someone following their routine on a plane records four actions offline and
  * sends them on landing. Without `at`, all four land in the same minute hours
- * later, and the day's history — which is what progress and streaks are
- * computed from — becomes fiction. `replayedAt` is what keeps that claim
+ * later, and the day's history - which is what progress and streaks are
+ * computed from - becomes fiction. `replayedAt` is what keeps that claim
  * inside something a genuine offline stretch could produce.
  */
 async function actionAt(c: Ctx): Promise<number> {
@@ -698,7 +698,7 @@ app.post("/slots/:id/move", async (c) => {
 });
 
 /**
- * 3d — the honest list, with the recorded reason each item did not happen.
+ * 3d - the honest list, with the recorded reason each item did not happen.
  * The reasons come from the lifecycle log, not from a status column.
  */
 app.get("/missed", async (c) => {

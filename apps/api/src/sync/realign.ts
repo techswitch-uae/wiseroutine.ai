@@ -21,7 +21,7 @@ import {
  * found out by looking.
  *
  * Two things happen here, and only one of them is a paid feature. Marking the
- * conflict is not — a slot the app knows is buried must say so on every plan,
+ * conflict is not - a slot the app knows is buried must say so on every plan,
  * because a timeline that quietly lies is worse than one that says "this
  * clashes". *Moving* the slot is `plan.adaptive`, which is pro.
  */
@@ -43,7 +43,7 @@ export interface RealignOutcome {
  * Scoped to the local day the sync landed in.
  *
  * A meeting that moved three weeks out matters when that morning's plan runs,
- * not now — and re-planning every day inside the sync window would turn one
+ * not now - and re-planning every day inside the sync window would turn one
  * webhook into sixty days of solver work.
  */
 export async function realignAfterSync(
@@ -73,7 +73,7 @@ export async function realignAfterSync(
   if (actionable.length === 0) return { conflicts: 0, moved: 0 };
 
   // Free plans see the conflict and decide themselves. This is the same gate
-  // `POST /plan` applies to a `calendar_change` trigger — checked here too,
+  // `POST /plan` applies to a `calendar_change` trigger - checked here too,
   // because a push notification must not become a way around it.
   if (!can(deps.plan, { kind: "plan.adaptive" }).ok) {
     return { conflicts: actionable.length, moved: 0 };
@@ -93,7 +93,7 @@ export async function realignAfterSync(
   );
 
   // A replanned slot carries a fresh grace period, and the sweep that enforces
-  // it is driven from the directory — so a plan that does not leave a marker
+  // it is driven from the directory - so a plan that does not leave a marker
   // there is a plan whose slots never expire.
   if (result.created > 0) {
     await scheduleWork(

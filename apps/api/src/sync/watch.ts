@@ -18,7 +18,7 @@ import { accessTokenFor, type SyncDeps, type SyncTarget } from "./engine";
 /**
  * Push channels: opening them, and keeping them open.
  *
- * Without this, every webhook handler in `src/webhooks/` is unreachable —
+ * Without this, every webhook handler in `src/webhooks/` is unreachable -
  * nothing tells Google or Graph where to deliver. And a channel that is opened
  * once is not enough: neither provider lets one live for long, so a calendar
  * that is never renewed simply stops reporting changes after a few days, with
@@ -30,7 +30,7 @@ import { accessTokenFor, type SyncDeps, type SyncTarget } from "./engine";
 const GOOGLE_TTL_MS = 7 * 86_400_000;
 
 /**
- * Graph caps an event subscription at 4230 minutes — just under three days.
+ * Graph caps an event subscription at 4230 minutes - just under three days.
  * Asking for more is rejected outright, so this stays a little under.
  */
 const GRAPH_TTL_MS = 4_200 * 60_000;
@@ -39,8 +39,8 @@ const GRAPH_TTL_MS = 4_200 * 60_000;
  * Renew this far before expiry.
  *
  * Generous on purpose: a renewal is one API call, while missing the window
- * means a silent gap until the next poll. Google has no renewal API at all —
- * renewing is opening a new channel and stopping the old one — so there is an
+ * means a silent gap until the next poll. Google has no renewal API at all -
+ * renewing is opening a new channel and stopping the old one - so there is an
  * overlap where both deliver. `alreadyProcessed` and the sync token make that
  * harmless.
  */
@@ -143,7 +143,7 @@ async function openGoogleChannel(
     channelId,
     address: `${deps.apiUrl}/webhooks/google`,
     // Echoed back as X-Goog-Channel-Token, which is the webhook's only
-    // authentication — so it holds this opaque value and nothing else.
+    // authentication - so it holds this opaque value and nothing else.
     token: secret,
     ttlSeconds: GOOGLE_TTL_MS / 1000,
   });
@@ -177,7 +177,7 @@ async function openGraphSubscription(
   const expiresAt = now + GRAPH_TTL_MS;
 
   // Graph *does* have a renewal API, so an existing subscription is extended
-  // rather than replaced — no overlap window, and the delta token survives.
+  // rather than replaced - no overlap window, and the delta token survives.
   if (state?.watchChannelId && state.watchSecret) {
     try {
       await microsoftRenewSubscription({

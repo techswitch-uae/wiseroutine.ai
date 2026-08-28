@@ -14,7 +14,7 @@ import type * as Prisma from "../internal/prismaNamespace"
 
 /**
  * Model DashboardModule
- * Server state, not local UI state — the same set appears in the menu bar and
+ * Server state, not local UI state - the same set appears in the menu bar and
  * on the widget.
  */
 export type DashboardModuleModel = runtime.Types.Result.DefaultSelection<Prisma.$DashboardModulePayload>

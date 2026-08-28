@@ -59,7 +59,7 @@ describe("toSchedulerActivity", () => {
     ).toEqual({ type: "countPerWeek", value: 3 });
   });
 
-  // The row has no userId at all — the database is the tenant. If this ever
+  // The row has no userId at all - the database is the tenant. If this ever
   // grows one back, the two-tier split has been undone somewhere.
   test("a user activity row carries no user id", () => {
     expect(row()).not.toHaveProperty("userId");

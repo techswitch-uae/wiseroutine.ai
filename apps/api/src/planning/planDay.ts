@@ -213,7 +213,7 @@ const EDGE_THRESHOLD_MS = 5 * 60_000;
  * Find slots that a newly-synced meeting now sits on top of.
  *
  * The design explicitly allows the overlap to exist and be shown rather than
- * silently resolved, so this only classifies — it does not move anything.
+ * silently resolved, so this only classifies - it does not move anything.
  */
 export async function detectConflicts(
   db: UserDatabase,

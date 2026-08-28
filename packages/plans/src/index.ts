@@ -3,7 +3,7 @@
  *
  * One source of truth used by both sides: the Worker enforces it, the client
  * calls the same function to decide what to disable and which upsell to show.
- * The client call is a convenience — the server call is the truth.
+ * The client call is a convenience - the server call is the truth.
  */
 
 export type PlanId = "free" | "pro";
@@ -29,7 +29,7 @@ export const ALL_MODULES = [
 
 export type ModuleKey = (typeof ALL_MODULES)[number];
 
-/** 3f: "Up next" is Always on — it cannot be turned off on any plan. */
+/** 3f: "Up next" is Always on - it cannot be turned off on any plan. */
 export const PINNED_MODULES: readonly ModuleKey[] = ["up_next"];
 
 export interface PlanLimits {
@@ -164,7 +164,7 @@ export function resolvePlan(
     };
   }
 
-  // "past_due" still has access — dunning is Stripe's job, not a hard cutoff
+  // "past_due" still has access - dunning is Stripe's job, not a hard cutoff
   // the moment a card bounces.
   const ACTIVE = new Set(["active", "trialing", "past_due"]);
   if (subscription && ACTIVE.has(subscription.status)) {

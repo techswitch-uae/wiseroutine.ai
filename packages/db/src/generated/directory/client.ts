@@ -49,7 +49,7 @@ export type User = Prisma.UserModel
  * 
  * It stores the session token itself rather than a hash of it, which is how
  * Better Auth looks a session up. The token is high-entropy, httpOnly on web
- * and held in the OS keychain on desktop, and rotates on its own schedule —
+ * and held in the OS keychain on desktop, and rotates on its own schedule -
  * but a directory dump is now enough to impersonate, which the previous
  * hand-rolled table was written to prevent. Accepted to avoid forking the
  * adapter; revisit if the directory is ever exposed more widely.
@@ -57,7 +57,7 @@ export type User = Prisma.UserModel
 export type Session = Prisma.SessionModel
 /**
  * Model Account
- * One authentication method linked to a user — today only the email OTP
+ * One authentication method linked to a user - today only the email OTP
  * credential Better Auth writes at signup.
  * 
  * Note what is *not* here: calendar OAuth tokens. Connecting Google or
@@ -77,7 +77,7 @@ export type Verification = Prisma.VerificationModel
  * Better Auth's rate-limit counters.
  * 
  * Stored here rather than in memory because a Worker isolate is per-colo and
- * short-lived, so an in-memory counter would not actually limit anything —
+ * short-lived, so an in-memory counter would not actually limit anything -
  * and the endpoint being limited sends email, which costs money per request.
  */
 export type RateLimit = Prisma.RateLimitModel
@@ -97,7 +97,7 @@ export type PlanGrant = Prisma.PlanGrantModel
  * The coordination table.
  * 
  * With one database per user there is no way to ask "whose calendar is due?"
- * or "whose slot has run out of grace?" — those were cross-user scans. So the
+ * or "whose slot has run out of grace?" - those were cross-user scans. So the
  * answer is denormalised here, and the cron ticker reads exactly one indexed
  * table before fanning out onto the queue. The per-user database still holds
  * the authoritative state; this only says *when* to go look.
@@ -108,7 +108,7 @@ export type ScheduledWork = Prisma.ScheduledWorkModel
  * Push-channel routing.
  * 
  * A Google notification carries a channel id and a Graph one carries a
- * resource path — neither says which user it is for, and with a database per
+ * resource path - neither says which user it is for, and with a database per
  * user we must know that *before* we can open anything. So the mapping lives
  * here, alongside the shared secret the webhook authenticates against.
  */

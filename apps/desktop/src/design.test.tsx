@@ -21,6 +21,6 @@ test("each slot variant renders its own treatment", () => {
   expect(screen.getByText("Done")).toHaveClass("wr-chip");
   // Only the live slot marks its time as "now".
   expect(container.querySelectorAll(".wr-time-now")).toHaveLength(1);
-  // Meetings carry no category rule — the user cannot act on them.
+  // Meetings carry no category rule - the user cannot act on them.
   expect(container.querySelector(".wr-slot-meeting .wr-rule")).toBeNull();
 });

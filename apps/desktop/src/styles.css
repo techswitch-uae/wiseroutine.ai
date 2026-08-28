@@ -1,6 +1,6 @@
 @import "tailwindcss";
 /* The design system owns colour, type, radius, elevation and every component
-   class. Tailwind stays for one-off layout utilities only — never for colour,
+   class. Tailwind stays for one-off layout utilities only - never for colour,
    font or shadow, which must come from the tokens. */
 @import "@wiseroutine/design/styles.css";
 

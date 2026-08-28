@@ -2,7 +2,7 @@
  * What `check-secrets.mjs` and `push-secrets.mjs` both need.
  *
  * `wrangler.jsonc` is the declaration of which secrets an environment
- * requires — one `secrets_store_secrets` entry per binding. Both scripts read
+ * requires - one `secrets_store_secrets` entry per binding. Both scripts read
  * it rather than keeping their own list, so there is no second place to update
  * and no drift to detect.
  */
@@ -43,7 +43,7 @@ export function declared(env) {
 
   if ([...stores].some((id) => id.startsWith("REPLACE_WITH"))) {
     fail(
-      "wrangler.jsonc still has a placeholder store_id — run" +
+      "wrangler.jsonc still has a placeholder store_id - run" +
         " `pnpm wrangler secrets-store store list --remote` and paste the id in",
     );
   }
@@ -101,7 +101,7 @@ export function storeContents(storeId) {
 
   // An empty store is a non-zero exit with this message, not an empty list.
   // That is the state of a fresh account, and the right answer there is "all
-  // of them are missing, here is how to add one" — not "the listing failed",
+  // of them are missing, here is how to add one" - not "the listing failed",
   // which sends you looking for a permissions problem you don't have.
   if (output.includes("returned no secrets")) return new Map();
 

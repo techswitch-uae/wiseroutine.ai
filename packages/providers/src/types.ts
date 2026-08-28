@@ -62,7 +62,7 @@ export class ProviderError extends Error {
     return this.status === 429 || this.status >= 500;
   }
 
-  /** The token is dead — surface "reconnect your calendar" rather than
+  /** The token is dead - surface "reconnect your calendar" rather than
    *  retrying a revoked grant a hundred times through the queue. */
   get needsReauth(): boolean {
     return this.status === 401 || this.status === 403;
@@ -77,7 +77,7 @@ export class SyncTokenExpired extends Error {
   }
 }
 
-/** Extracted from an OIDC id_token without verification — we only ever read it
+/** Extracted from an OIDC id_token without verification - we only ever read it
  *  from a response we just made over TLS to the provider's own token endpoint. */
 export function decodeIdToken(idToken: string): Record<string, unknown> {
   const payload = idToken.split(".")[1];

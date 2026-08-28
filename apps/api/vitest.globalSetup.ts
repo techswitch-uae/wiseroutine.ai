@@ -9,13 +9,13 @@ import {
  * Two local libSQL servers for the test run.
  *
  * Turso is an HTTP service, not a Worker binding, so tests inside workerd
- * cannot open a local file — they need a real endpoint. `turso dev` serves
+ * cannot open a local file - they need a real endpoint. `turso dev` serves
  * exactly one database per instance, so we start two: one standing in for the
  * directory, one for user data.
  *
  * That means every test "user" shares a single user database. The two-tier
- * split is genuinely exercised — a query against the directory cannot see user
- * data and vice versa — but isolation *between* users is not, since a local
+ * split is genuinely exercised - a query against the directory cannot see user
+ * data and vice versa - but isolation *between* users is not, since a local
  * server has no concept of multiple databases. Worth knowing before relying on
  * these tests to prove tenant separation.
  */
@@ -42,7 +42,7 @@ function startServer(port: number): ChildProcess {
   });
   child.on("error", (error) => {
     throw new Error(
-      `Could not start \`turso dev\` on port ${port}. The Turso CLI is required to run these tests — see SETUP.md. (${error.message})`,
+      `Could not start \`turso dev\` on port ${port}. The Turso CLI is required to run these tests - see SETUP.md. (${error.message})`,
     );
   });
   servers.push(child);
@@ -53,7 +53,7 @@ function startServer(port: number): ChildProcess {
  * Refuse to run against a server we did not start.
  *
  * `turso dev` binds `*:PORT` while most servers bind `127.0.0.1:PORT`, and the
- * specific bind wins — so when something already holds the port, the spawn
+ * specific bind wins - so when something already holds the port, the spawn
  * fails quietly, `waitForServer` succeeds against the *other* process, and the
  * whole suite runs on someone else's database. Checking first turns that into
  * an error instead of a wrong answer.
@@ -66,7 +66,7 @@ async function assertPortFree(port: number): Promise<void> {
   }
   throw new Error(
     `Something is already listening on 127.0.0.1:${port}. The test suite needs ` +
-      `ports ${DIRECTORY_PORT} and ${USER_PORT} to itself — see docs/setup-database.md. ` +
+      `ports ${DIRECTORY_PORT} and ${USER_PORT} to itself - see docs/setup-database.md. ` +
       `(\`lsof -nP -iTCP:${port} -sTCP:LISTEN\` to find it.)`,
   );
 }

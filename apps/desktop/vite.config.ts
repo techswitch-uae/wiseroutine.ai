@@ -75,7 +75,7 @@ export default defineConfig(async () => ({
   clearScreen: false,
 
   // The prerender step boots a preview server. Keep it off the dev port, which
-  // `tauri dev` needs fixed — a build must not fail because it is taken.
+  // `tauri dev` needs fixed - a build must not fail because it is taken.
   preview: {
     port: 41200,
     strictPort: false,

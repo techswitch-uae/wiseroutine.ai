@@ -1,5 +1,5 @@
 export * from "./client";
-// Directory tier — one shared database. Login, sessions, billing, and the
+// Directory tier - one shared database. Login, sessions, billing, and the
 // coordination table the cron ticker reads.
 export * from "./directory/billing";
 export * from "./directory/schedule";
@@ -10,7 +10,7 @@ export type {
   User as UserRecord,
 } from "./generated/directory/client";
 export * from "./keys";
-// User tier — one database per person. Everything they own.
+// User tier - one database per person. Everything they own.
 export * from "./user/activities";
 export * from "./user/calendars";
 export * from "./user/events";

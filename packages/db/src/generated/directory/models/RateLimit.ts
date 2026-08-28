@@ -17,7 +17,7 @@ import type * as Prisma from "../internal/prismaNamespace"
  * Better Auth's rate-limit counters.
  * 
  * Stored here rather than in memory because a Worker isolate is per-colo and
- * short-lived, so an in-memory counter would not actually limit anything —
+ * short-lived, so an in-memory counter would not actually limit anything -
  * and the endpoint being limited sends email, which costs money per request.
  */
 export type RateLimitModel = runtime.Types.Result.DefaultSelection<Prisma.$RateLimitPayload>

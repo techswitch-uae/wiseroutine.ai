@@ -712,7 +712,7 @@ export type $CalendarSyncStatePayload<ExtArgs extends runtime.Types.Extensions.I
      */
     syncToken: string | null
     /**
-     * Microsoft. The date window is frozen inside this token — re-baseline.
+     * Microsoft. The date window is frozen inside this token - re-baseline.
      */
     deltaLink: string | null
     lastFullSyncAt: Date | null

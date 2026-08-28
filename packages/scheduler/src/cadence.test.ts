@@ -36,7 +36,7 @@ describe("syncInterval", () => {
   });
 
   // A device clock ahead of the server would otherwise compute a negative
-  // "since" — which must not read as ancient.
+  // "since" - which must not read as ancient.
   test("a timestamp in the future is treated as just now", () => {
     expect(syncInterval(NOW + HOUR, NOW)).toBe(ACTIVE_INTERVAL_MS);
   });
@@ -84,7 +84,7 @@ describe("shouldSyncOnForeground", () => {
   });
 
   // The threshold is derived from syncInterval, so it must never be shorter
-  // than the touch debounce — the middleware only asks it once touching has
+  // than the touch debounce - the middleware only asks it once touching has
   // already been allowed, and a shorter threshold would silently skip syncs.
   test("the sync threshold is always the longer of the two", () => {
     for (const since of [0, MINUTE, HOUR, 30 * HOUR]) {

@@ -4,7 +4,7 @@ import type { TodaySlotFixture } from "./screens";
  * Sample data for the collection.
  *
  * Separate from the screens so the gallery, a test and the app can read one
- * source — and so the screen modules stay components only.
+ * source - and so the screen modules stay components only.
  */
 export const TODAY_FIXTURE: readonly TodaySlotFixture[] = [
   {

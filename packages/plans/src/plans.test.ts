@@ -67,7 +67,7 @@ describe("resolvePlan", () => {
     ).toBe("stripe");
   });
 
-  test("past_due keeps access — dunning is not a hard cutoff", () => {
+  test("past_due keeps access - dunning is not a hard cutoff", () => {
     expect(
       resolvePlan({ subscription: { status: "past_due" } }, now).plan,
     ).toBe("pro");

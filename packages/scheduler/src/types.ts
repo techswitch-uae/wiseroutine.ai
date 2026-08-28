@@ -1,4 +1,4 @@
-/** Milliseconds since the epoch. The scheduler works only in instants —
+/** Milliseconds since the epoch. The scheduler works only in instants -
  *  every timezone and wall-clock concern is resolved by the caller before
  *  input reaches here. That is what keeps this package pure and testable. */
 export type Instant = number;
@@ -64,7 +64,7 @@ export interface Activity {
   minimum: Minimum;
   sessionMinutes: Minutes;
   importance: Importance;
-  /** Minutes before a meeting that must stay clear —
+  /** Minutes before a meeting that must stay clear -
    *  3e: "Never before a meeting · leaves 5 min". */
   bufferBeforeMeetingMinutes: Minutes;
   /** Days the activity may run on, as a Sunday=0 bitmask. 0b1111111 = every day. */

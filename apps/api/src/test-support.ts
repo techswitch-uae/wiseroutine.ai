@@ -10,7 +10,7 @@ import { generateToken } from "./crypto";
  * Test fixtures.
  *
  * Seeding goes through the same repositories and clients the application uses,
- * rather than raw SQL — with two schemas and a Date/number boundary, hand-written
+ * rather than raw SQL - with two schemas and a Date/number boundary, hand-written
  * SQL drifts silently.
  */
 
@@ -85,7 +85,7 @@ export async function seedUser(
  * Empty both databases.
  *
  * `turso dev` serves one database per instance, so every test user maps to the
- * same pair — tests that care about their own state must start from a clean
+ * same pair - tests that care about their own state must start from a clean
  * slate. The directory matters as much as the user database: rows keyed by a
  * fixed id (a webhook channel, say) collide with the previous test's leftovers.
  */
@@ -193,7 +193,7 @@ export async function seedCalendar(): Promise<{
   return { connectionId, calendarId };
 }
 
-/** Noon tomorrow — a deterministic point inside a day that has not started
+/** Noon tomorrow - a deterministic point inside a day that has not started
  *  yet, so planning tests do not depend on the wall clock. */
 export function tomorrowNoon(): number {
   return Date.now() + 86_400_000;

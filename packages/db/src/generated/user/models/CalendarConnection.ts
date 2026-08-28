@@ -630,7 +630,7 @@ export type $CalendarConnectionPayload<ExtArgs extends runtime.Types.Extensions.
     scopes: string
     /**
      * "active" | "needs_reauth" | "revoked". The UI turns needs_reauth into
-     * "reconnect your calendar" — a connection that dies silently is fatal.
+     * "reconnect your calendar" - a connection that dies silently is fatal.
      */
     status: string
     createdAt: Date

@@ -3,7 +3,7 @@ import type { TodayResponse } from "./api";
 /**
  * Enough of the app to follow your routine with no connection.
  *
- * Not a local database and not a sync engine — the day's plan is a few
+ * Not a local database and not a sync engine - the day's plan is a few
  * kilobytes of JSON and the actions taken against it are a short list. What it
  * buys is the case that actually happens: the plan was made this morning, you
  * are on a plane, and you want to start a focus block and tick it off.

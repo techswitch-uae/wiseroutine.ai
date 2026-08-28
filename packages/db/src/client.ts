@@ -12,7 +12,7 @@ import { PrismaClient as UserClient } from "./generated/user/client";
  * Two tiers.
  *
  * `Directory` is one shared database holding only what must be queried across
- * users — login, sessions, billing, and the coordination table the cron ticker
+ * users - login, sessions, billing, and the coordination table the cron ticker
  * reads. `UserDatabase` is one database per person, holding everything they
  * own. The split means a query physically cannot cross a user boundary.
  *
@@ -41,7 +41,7 @@ export function createUserDatabase(credentials: Credentials): UserDatabase {
  * All user databases sit in one Turso group, so a single group-scoped token
  * reaches all of them and only the name varies. In local development every
  * name resolves to the same `turso dev` server, which has no concept of
- * multiple databases — see `TURSO_USER_HOST`.
+ * multiple databases - see `TURSO_USER_HOST`.
  */
 export function userDatabaseUrl(databaseName: string, host: string): string {
   // A local dev server serves exactly one database, so the name is ignored.
@@ -52,8 +52,8 @@ export function userDatabaseUrl(databaseName: string, host: string): string {
 /**
  * Instant conversion at the storage boundary.
  *
- * The application works in epoch-millisecond numbers throughout — the scheduler
- * is built on them — while Prisma models instants as `DateTime`, because Prisma
+ * The application works in epoch-millisecond numbers throughout - the scheduler
+ * is built on them - while Prisma models instants as `DateTime`, because Prisma
  * range-checks `Int` at 32 bits and epoch ms is ~1.7e12. Converting here keeps
  * that mismatch in one place.
  *
@@ -100,7 +100,7 @@ export function splitStatements(sql: string): string[] {
  * Apply pending migrations to a libSQL database.
  *
  * Runs in the Worker as well as in Node, because provisioning a new user's
- * database happens at signup — which is also why the SQL is embedded in the
+ * database happens at signup - which is also why the SQL is embedded in the
  * bundle rather than read from disk.
  *
  * Applied names are tracked in `_migrations`, so this is safe to call on every

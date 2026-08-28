@@ -78,7 +78,7 @@ function orderDemands(
 ): Demand[] {
   // Scarcity: an activity that fits in few gaps should claim one before an
   // activity that fits anywhere takes it. Computed once against the initial
-  // gaps — an approximation, but a stable and explicable one.
+  // gaps - an approximation, but a stable and explicable one.
   const viableGaps = new Map<string, number>();
   for (const demand of demands) {
     const duration = demand.activity.sessionMinutes * MINUTE;
@@ -116,7 +116,7 @@ function orderDemands(
  * same input it always returns the same plan, which is what lets the quick-add
  * UI promise "this pushes deep work to 12:10" and be right.
  *
- * The caller resolves all wall-clock concerns first — `dayStart`/`dayEnd` and
+ * The caller resolves all wall-clock concerns first - `dayStart`/`dayEnd` and
  * `preferredAt` arrive as instants. To plan only the rest of the day, pass
  * `dayStart: max(localDayStart, now)`.
  */

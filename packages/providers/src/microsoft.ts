@@ -9,7 +9,7 @@ import { ProviderError, SyncTokenExpired } from "./types";
 /**
  * Microsoft Graph, over plain `fetch`.
  *
- * The Graph SDK works on Workers, but `@azure/identity` does not — it assumes
+ * The Graph SDK works on Workers, but `@azure/identity` does not - it assumes
  * `node:net`/`node:tls`. Since we need exactly one token grant and one delta
  * endpoint, hand-rolled fetch is both smaller and clearer.
  */
@@ -19,7 +19,7 @@ const API = "https://graph.microsoft.com/v1.0";
 
 /**
  * `Calendars.ReadBasic` returns the subject but **excludes body and
- * attachments** — everything the free/busy engine needs and nothing more,
+ * attachments** - everything the free/busy engine needs and nothing more,
  * which is a materially better privacy story than `Calendars.Read`.
  *
  * The subject arriving is a property of the *request*, not of this scope: a
@@ -51,7 +51,7 @@ export function microsoftAuthorizeUrl(params: {
   url.searchParams.set("scope", MICROSOFT_SCOPES.join(" "));
   url.searchParams.set("state", params.state);
   // Without this, a browser with a live Entra session is signed straight
-  // through on that account — so "connect another calendar" reconnects the one
+  // through on that account - so "connect another calendar" reconnects the one
   // already connected, and a second Microsoft account cannot be added at all.
   url.searchParams.set("prompt", "select_account");
   return url.toString();
@@ -115,7 +115,7 @@ async function api(
   const response = await fetch(url, {
     headers: {
       authorization: `Bearer ${accessToken}`,
-      // Without this, times come back in UTC — which is what we want, so we
+      // Without this, times come back in UTC - which is what we want, so we
       // deliberately do NOT send Prefer: outlook.timezone.
       "content-type": "application/json",
     },
@@ -252,7 +252,7 @@ export function normaliseMicrosoftEvent(
  *
  * A delta query without `$select` does not return the full event: Graph sends
  * a reduced default set, and `subject` is not reliably in it. The symptom is
- * silent and specific — occurrences come back with no subject and no
+ * silent and specific - occurrences come back with no subject and no
  * responseStatus, so a real meeting is stored as an untitled busy block and the
  * timeline says "Busy" for a calendar that is full of named events.
  *
@@ -293,7 +293,7 @@ export interface MicrosoftSyncParams {
  * One page of the delta loop.
  *
  * `/calendarView/delta` expands occurrences and exceptions for us, which is the
- * Graph equivalent of Google's `singleEvents=true` — its recurrence model is
+ * Graph equivalent of Google's `singleEvents=true` - its recurrence model is
  * proprietary, not RFC 5545, so writing our own expander would be a bug farm.
  *
  * The window is encoded into the token, so as real time advances the far edge
@@ -330,14 +330,14 @@ export async function microsoftSyncPage(
    *
    * Graph sends one `seriesMaster` carrying the subject and the recurrence
    * rule, and one `occurrence` per instance carrying the real times but **no
-   * subject** — it expects the occurrence to inherit it. Taking the payload at
+   * subject** - it expects the occurrence to inherit it. Taking the payload at
    * face value is therefore two bugs at once: every instance of every
    * recurring meeting is stored nameless and renders as "Busy", and each
    * master is stored as a booking of its own, putting a phantom busy block on
    * the free/busy map at the first instance's time.
    *
    * So: read the subjects off the masters, hand them down, and keep only the
-   * occurrences. A master is a template — nobody is ever busy because of one.
+   * occurrences. A master is a template - nobody is ever busy because of one.
    */
   const seriesTitles = new Map<string, string>();
   for (const item of items) {
@@ -347,7 +347,7 @@ export async function microsoftSyncPage(
   }
 
   for (const item of items) {
-    // A Graph tombstone carries ONLY the id — no other fields — so the delete
+    // A Graph tombstone carries ONLY the id - no other fields - so the delete
     // path must work from that alone.
     if (item["@removed"]) {
       deletedIds.push(String(item.id));
@@ -381,7 +381,7 @@ export async function microsoftSyncPage(
 /**
  * Create a change-notification subscription.
  *
- * Outlook `event` subscriptions last 10,080 minutes (just under 7 days) — a
+ * Outlook `event` subscriptions last 10,080 minutes (just under 7 days) - a
  * figure widely cited wrong. Renew at 50-70% of that. `lifecycleNotificationUrl`
  * is effectively mandatory: its `missed` event is the only signal that Graph
  * dropped changes, and `reauthorizationRequired` is how a subscription avoids
@@ -445,7 +445,7 @@ export async function microsoftRenewSubscription(params: {
  * The admin-consent URL.
  *
  * Many work tenants disable user consent entirely, so an employee cannot grant
- * even a low-privilege delegated permission — they get AADSTS65001 or
+ * even a low-privilege delegated permission - they get AADSTS65001 or
  * AADSTS90094 and, without this, a dead end. Sending them this link turns a
  * hard no into a slow yes.
  */

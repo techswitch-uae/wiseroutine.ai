@@ -25,13 +25,13 @@ const wasDismissed = (): boolean => {
 /**
  * The rail's set-up module, and the sheet its one button opens.
  *
- * Shown only while no calendar is being read — the module exists to fix
+ * Shown only while no calendar is being read - the module exists to fix
  * exactly that, so a connected account is the thing that retires it. Dismissal
  * is the other way out and is permanent, which is why it is remembered outside
  * React.
  *
- * The design's checklist had three steps. Two of them — adding activities and
- * confirming working hours — are not built, and a checklist that lists work
+ * The design's checklist had three steps. Two of them - adding activities and
+ * confirming working hours - are not built, and a checklist that lists work
  * the app cannot do is a promise it cannot keep, so only the real step is
  * here. The kit still carries all three for when they exist.
  */
@@ -69,7 +69,7 @@ export const SetupRail: React.FC = () => {
             key: "calendar",
             label: "Connect a calendar",
             detail:
-              "Google or Outlook. We only read your times — nothing is ever written back.",
+              "Google or Outlook. We only read your times - nothing is ever written back.",
             action: { label: "Connect", onClick: () => setConnecting(true) },
           },
         ]}

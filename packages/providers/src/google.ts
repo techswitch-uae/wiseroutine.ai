@@ -23,7 +23,7 @@ const API = "https://www.googleapis.com/calendar/v3";
  *
  * `calendar.events.readonly` gives event bodies (needed for the overlap UI);
  * `calendar.calendarlist.readonly` allows multi-calendar discovery. Neither is
- * a *restricted* scope, so no CASA security assessment applies — but declare
+ * a *restricted* scope, so no CASA security assessment applies - but declare
  * the full 12-month set up front, since adding one later forces re-verification.
  */
 export const GOOGLE_SCOPES = [
@@ -49,7 +49,7 @@ export function googleAuthorizeUrl(params: {
   // the classic "it worked once and never again" bug.
   url.searchParams.set("access_type", "offline");
   // `select_account` as well as `consent`: connecting a *second* calendar is
-  // the normal case — work and personal — and with only `consent` a browser
+  // the normal case - work and personal - and with only `consent` a browser
   // signed into one account re-consents that same account and silently
   // re-upserts the connection the user already had.
   url.searchParams.set("prompt", "select_account consent");
@@ -119,7 +119,7 @@ async function api(
     headers: { authorization: `Bearer ${accessToken}` },
   });
 
-  // 410 GONE means the sync token is dead — an ACL change on the calendar can
+  // 410 GONE means the sync token is dead - an ACL change on the calendar can
   // cause it. It is an expected code path, not an error.
   if (response.status === 410) throw new SyncTokenExpired("google");
   if (!response.ok) {
@@ -187,7 +187,7 @@ function parseTime(value: unknown): {
 } {
   const slot = (value ?? {}) as Record<string, unknown>;
   if (slot.date) {
-    // All-day events are floating — a calendar date, not an instant. Parsed as
+    // All-day events are floating - a calendar date, not an instant. Parsed as
     // UTC midnight and flagged, so downstream never treats it as a real time.
     return {
       at: Date.parse(`${String(slot.date)}T00:00:00Z`),
@@ -244,7 +244,7 @@ export interface GoogleSyncParams {
  *  - `nextSyncToken` appears **only on the last page**, so bailing out of
  *    pagination early means no token and a forced full resync next time. Page
  *    inside a queue consumer, never in a request handler.
- *  - a sync token cannot be combined with `timeMin`/`timeMax` — the window used
+ *  - a sync token cannot be combined with `timeMin`/`timeMax` - the window used
  *    on the initial full sync is baked into the token forever. Changing it
  *    means starting over.
  */
@@ -292,7 +292,7 @@ export async function googleWatch(params: {
   calendarId: string;
   channelId: string;
   address: string;
-  /** Echoed back as X-Goog-Channel-Token — our only authentication on the
+  /** Echoed back as X-Goog-Channel-Token - our only authentication on the
    *  webhook. Google's docs are explicit that it must not hold a real token. */
   token: string;
   ttlSeconds?: number;

@@ -7,7 +7,7 @@ import {
   revertIn,
 } from "./calendar-draft";
 
-/** Two accounts, two calendars each — the shape the rule exists for. */
+/** Two accounts, two calendars each - the shape the rule exists for. */
 const CALENDARS: DraftCalendar[] = [
   { id: "g1", connectionId: "google", isSelected: true },
   { id: "g2", connectionId: "google", isSelected: false },

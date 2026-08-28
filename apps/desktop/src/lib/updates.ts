@@ -2,8 +2,8 @@
  * Finding, downloading and installing a new version of the desktop app.
  *
  * Everything here is a no-op in a browser. The same frontend ships as the web
- * app, where there is nothing to update — the page reloads and it *is* the new
- * version — and where importing the plugin at all would drag Tauri's IPC into
+ * app, where there is nothing to update - the page reloads and it *is* the new
+ * version - and where importing the plugin at all would drag Tauri's IPC into
  * a bundle that has no host to talk to. So the host is feature-detected the
  * same way `openExternal` does it, and the plugin is imported dynamically
  * behind that check rather than at the top of the file.
@@ -14,7 +14,7 @@
 export interface AppUpdate {
   version: string;
   notes?: string;
-  /** The plugin's `Update`. Opaque on purpose — see `installUpdate`. */
+  /** The plugin's `Update`. Opaque on purpose - see `installUpdate`. */
   handle: {
     downloadAndInstall: (
       onEvent: (event: DownloadEvent) => void,
@@ -36,8 +36,8 @@ const inTauri = (): boolean => "__TAURI_INTERNALS__" in globalThis;
  * Worth its own function because the events do not carry one. The total
  * arrives once, at the start; every later event carries only the size of the
  * chunk that just landed, so the running total has to be kept here. A server
- * that sends no `Content-Length` — which is allowed, and which a redirect to a
- * CDN can produce — leaves us unable to say how far along we are, so this
+ * that sends no `Content-Length` - which is allowed, and which a redirect to a
+ * CDN can produce - leaves us unable to say how far along we are, so this
  * reports `null` rather than inventing a number that would stall at a lie.
  */
 export function trackDownload(): (event: DownloadEvent) => number | null {
@@ -65,7 +65,7 @@ export function trackDownload(): (event: DownloadEvent) => number | null {
 /**
  * Ask whether there is a newer version.
  *
- * `null` covers every "nothing to do here" case — the web build, an app that
+ * `null` covers every "nothing to do here" case - the web build, an app that
  * is already current, and an endpoint that could not be reached. A failed
  * check is deliberately not an error the user sees: they did not ask, and an
  * app that complains about its own update server on every launch is worse than

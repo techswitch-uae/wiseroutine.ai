@@ -17,7 +17,7 @@ import type * as Prisma from "../internal/prismaNamespace"
  * Push-channel routing.
  * 
  * A Google notification carries a channel id and a Graph one carries a
- * resource path — neither says which user it is for, and with a database per
+ * resource path - neither says which user it is for, and with a database per
  * user we must know that *before* we can open anything. So the mapping lives
  * here, alongside the shared secret the webhook authenticates against.
  */

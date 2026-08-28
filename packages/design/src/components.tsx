@@ -5,7 +5,7 @@ const cx = (...parts: (string | false | undefined)[]): string =>
   parts.filter(Boolean).join(" ");
 
 /** The one glyph the kit uses inline. Everything else is Lucide at
- *  stroke-width 2.75 — add `lucide-react` when the first screen needs it. */
+ *  stroke-width 2.75 - add `lucide-react` when the first screen needs it. */
 export const PlayGlyph: React.FC = () => (
   <svg
     width="10"
@@ -78,7 +78,7 @@ export const PROVIDER_NAMES = {
 export const ProviderButton: React.FC<
   Omit<ButtonProps, "variant"> & {
     provider: "google" | "microsoft";
-    /** Overrides "Continue with X" — used for the waiting state, where the
+    /** Overrides "Continue with X" - used for the waiting state, where the
      *  button has to say what it is now doing rather than what it offers. */
     label?: string;
   }
@@ -101,14 +101,14 @@ export const ProviderButton: React.FC<
   </button>
 );
 
-/** "or" — between two routes to the same place. */
+/** "or" - between two routes to the same place. */
 export const Rule: React.FC<{ children?: React.ReactNode }> = ({
   children = "or",
 }) => <div className="wr-divider">{children}</div>;
 
 export type FieldProps = React.InputHTMLAttributes<HTMLInputElement> & {
   /**
-   * Omit when a `Card` title is already naming this field — repeating it
+   * Omit when a `Card` title is already naming this field - repeating it
    * inside the card says the same word twice.
    *
    * A field with no visible label still needs a name for anyone not looking
@@ -141,7 +141,7 @@ export const Field: React.FC<FieldProps> = ({
 };
 
 export type SelectFieldProps = React.SelectHTMLAttributes<HTMLSelectElement> & {
-  /** Optional for the same reason as `Field`'s — see there. */
+  /** Optional for the same reason as `Field`'s - see there. */
   label?: string;
   options: readonly string[];
 };
@@ -190,7 +190,7 @@ export type CodeInputProps = {
   label?: string;
   autoFocus?: boolean;
   disabled?: boolean;
-  /** Fired when the last digit lands — including on paste, which is the
+  /** Fired when the last digit lands - including on paste, which is the
    *  point: the user copies six characters and never presses anything. */
   onComplete?: (value: string) => void;
 };
@@ -213,11 +213,11 @@ export const CodeInput: React.FC<CodeInputProps> = ({
         {Array.from({ length }, (_, index) => {
           const digit = digits[index];
           // The caret sits on the first empty box, and nowhere once the code
-          // is full — a caret past the last digit reads as "keep typing".
+          // is full - a caret past the last digit reads as "keep typing".
           const active = !wrong && index === digits.length && !disabled;
           return (
             <div
-              // biome-ignore lint/suspicious/noArrayIndexKey: a fixed-length row of positional boxes — the index is the identity, and there is no list to reorder.
+              // biome-ignore lint/suspicious/noArrayIndexKey: a fixed-length row of positional boxes - the index is the identity, and there is no list to reorder.
               key={index}
               className={cx(
                 "wr-code-box",
@@ -263,7 +263,7 @@ export type IconButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 /**
  * A round button carrying one glyph.
  *
- * For an action that is a verb the user already understands — refresh, close —
+ * For an action that is a verb the user already understands - refresh, close -
  * and would only be made longer by a word. Anything that needs explaining is a
  * `Button` with text on it instead.
  */
@@ -369,7 +369,7 @@ export type SlotVariant =
   | "recovery"
   | "live"
   | "meeting"
-  /** Proposed by the scheduler, not yet accepted — Pro only. Accent-100 with a
+  /** Proposed by the scheduler, not yet accepted - Pro only. Accent-100 with a
    *  ring and no shadow: it is not a real thing on the page, so it must not
    *  lift. Free shows a `DashedRow` in the same position instead. */
   | "suggested";
@@ -379,7 +379,7 @@ export type SlotProps = {
   time: string;
   name: string;
   meta?: string;
-  /** focus/recovery: the trailing element. Done state is a chip — never dim. */
+  /** focus/recovery: the trailing element. Done state is a chip - never dim. */
   done?: boolean;
   /** meeting: the provider mark, e.g. "G" or "O". */
   source?: string;
@@ -472,7 +472,7 @@ export const Slot: React.FC<SlotProps> = ({
   );
 };
 
-/** Protected gap, add row, undated reminder — the one "nothing here yet" look. */
+/** Protected gap, add row, undated reminder - the one "nothing here yet" look. */
 export interface DayGridItem {
   key: string;
   startsAt: number;
@@ -484,7 +484,7 @@ export type DayGridProps = {
   /** Epoch ms bounding the visible day. */
   dayStart: number;
   dayEnd: number;
-  /** The zone the labels are written in — the user's, never the device's. */
+  /** The zone the labels are written in - the user's, never the device's. */
   timeZone: string;
   items: readonly DayGridItem[];
   /** Drawn only when it falls inside the window. */
@@ -508,9 +508,9 @@ const HOUR = 60 * 60_000;
  * enough to fit the day on screen and every block is a crowded sliver.
  *
  * So time is not linear here. A stretch something occupies gets room to be
- * read; an empty one collapses to a line. Dead time still *exists* — the ruler
+ * read; an empty one collapses to a line. Dead time still *exists* - the ruler
  * keeps ticking through it, so nothing is hidden and the shape of the day
- * survives — it just stops costing a screen.
+ * survives - it just stops costing a screen.
  *
  * The ruler is a real CSS grid of five-minute rows, not a stack of absolutely
  * positioned boxes, and that is the whole point. A row is `minmax(floor, auto)`,
@@ -518,7 +518,7 @@ const HOUR = 60 * 60_000;
  * line below moves with it. Measuring cards in JS to guess a height is what
  * made blocks overflow their slot before: a live card wants 90px and a
  * quarter-hour was hardcoded to 46, so it spilled over the next one. Here that
- * cannot happen, because nothing is hardcoded — the grid asks the content.
+ * cannot happen, because nothing is hardcoded - the grid asks the content.
  *
  * Blocks snap to the five-minute ruler. Two minutes of rounding is invisible;
  * a block drawn between the lines is not.
@@ -562,8 +562,8 @@ export const DayGrid: React.FC<DayGridProps> = ({
     .sort((a, b) => a.from - b.from || a.to - b.to);
 
   // Lanes, so two things at once sit side by side instead of on top of each
-  // other. A double-booked hour is a real hour — two calendars can and do
-  // disagree — and stacking the cards makes it look like a rendering fault
+  // other. A double-booked hour is a real hour - two calendars can and do
+  // disagree - and stacking the cards makes it look like a rendering fault
   // rather than the clash it is.
   const laneEnds: number[] = [];
   for (const block of placed) {
@@ -577,7 +577,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
   // Then widen anything with nothing beside it. Without this one clash at
   // 10:15 halves every other block in the day, which reads as a column layout
   // the day does not have.
-  // ponytail: O(n²) over one day's blocks — a sweep if a week view ever shares
+  // ponytail: O(n²) over one day's blocks - a sweep if a week view ever shares
   // this grid.
   for (const block of placed) {
     while (
@@ -743,7 +743,7 @@ export const ModuleEmpty: React.FC<{
   </button>
 );
 
-/** Progress against a minimum — never a goal, never a streak to protect. */
+/** Progress against a minimum - never a goal, never a streak to protect. */
 export const Metric: React.FC<{
   label: string;
   value: string;
@@ -777,10 +777,78 @@ export const LiveStatus: React.FC<{ children: React.ReactNode }> = ({
   </span>
 );
 
+/**
+ * The stroke thickens as the mark shrinks.
+ *
+ * The design's own ramp, and it is not decoration: the two arcs are the whole
+ * idea, and at 16px a 12-unit stroke closes into a smudge you cannot read as
+ * two separate things. Sizes between the listed steps round down to the
+ * heavier stroke, which is the safe direction.
+ */
+const markStroke = (size: number): number =>
+  size >= 44
+    ? 12
+    : size >= 38
+      ? 13
+      : size >= 28
+        ? 14
+        : size >= 26
+          ? 15
+          : size >= 22
+            ? 16
+            : 18;
+
+/**
+ * The mark: a terracotta disc, with the day drawn round it.
+ *
+ * The sand arc is booked time and the ink arc is the slot placed in the gap
+ * after it - the product's one idea, at 28px. The ring starts at twelve
+ * o'clock, which is what the `rotate(-90)` is for: SVG arcs begin at three.
+ *
+ * Colours are literal rather than tokens on purpose. A logo that changes
+ * because someone retuned the interface palette is not a logo.
+ */
+export const BrandMark: React.FC<{ size?: number }> = ({ size = 28 }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 120 120"
+    // The wordmark beside it already says the name; a second copy here would
+    // be read out twice.
+    aria-hidden="true"
+    focusable="false"
+  >
+    <circle cx="60" cy="60" r="58" fill="#c67139" />
+    <g
+      transform="rotate(-90 60 60)"
+      fill="none"
+      strokeWidth={markStroke(size)}
+      strokeLinecap="round"
+    >
+      <circle
+        cx="60"
+        cy="60"
+        r="38"
+        stroke="#f2e0bd"
+        strokeDasharray="96 143"
+        strokeDashoffset="-10"
+      />
+      <circle
+        cx="60"
+        cy="60"
+        r="38"
+        stroke="#2e2b25"
+        strokeDasharray="54 185"
+        strokeDashoffset="-142"
+      />
+    </g>
+  </svg>
+);
+
 export type CardProps = {
   /**
    * What this card is. Rendered as the card's own heading rather than as a
-   * label on the control inside it — Account had four of these blocks naming
+   * label on the control inside it - Account had four of these blocks naming
    * themselves four different ways, two through a field label and two through
    * a loose span, and they read as four different kinds of object.
    */
@@ -790,7 +858,7 @@ export type CardProps = {
   /** An action belonging to this card, set against the title. */
   action?: React.ReactNode;
   /**
-   * "dark" is the inverted block from the design — same shape and padding,
+   * "dark" is the inverted block from the design - same shape and padding,
    * heavier. For the one thing on a first run worth looking at, and not for
    * anything competing with a neighbour.
    */
@@ -806,7 +874,7 @@ export type CardProps = {
  * drew them raised, which said the two pages were built out of different
  * materials when they are not.
  *
- * A card with no title is still a card — the grouping is the point, and the
+ * A card with no title is still a card - the grouping is the point, and the
  * heading is only there when the group needs naming.
  */
 export const Card: React.FC<CardProps> = ({
@@ -842,7 +910,7 @@ export interface SetupStep {
 
 export type SetupModuleProps = {
   steps: readonly SetupStep[];
-  /** Removes the module for good — the caller has to remember that. */
+  /** Removes the module for good - the caller has to remember that. */
   onDismiss: () => void;
   /**
    * "dark" is the one from the design: near-black, and the only object on the
@@ -859,7 +927,7 @@ export type SetupModuleProps = {
  *
  * A module in the rail rather than a wizard in front of the app. Someone who
  * has just signed in should be looking at their day, not at a sequence of
- * screens standing between them and it — and the day is the thing that makes
+ * screens standing between them and it - and the day is the thing that makes
  * the ask make sense, because it is visibly empty.
  *
  * Only the step in hand carries its explanation and its button. The ones after
@@ -942,7 +1010,7 @@ export const SetupModule: React.FC<SetupModuleProps> = ({
 /**
  * A centred sheet over a dimmed page.
  *
- * Used where a choice has to be finished before the app makes sense again —
+ * Used where a choice has to be finished before the app makes sense again -
  * picking a provider and then picking calendars. Escape and a click on the
  * backdrop both close it, because a dialog that can only be dismissed by the
  * one button it wants pressed is a trap.
@@ -1030,7 +1098,7 @@ export type CalendarProvider = (typeof CALENDAR_PROVIDERS)[number]["key"];
  */
 export const ProviderChoice: React.FC<{
   onChoose: (provider: CalendarProvider) => void;
-  /** The one being opened, if any — its row shows the wait. */
+  /** The one being opened, if any - its row shows the wait. */
   busy?: CalendarProvider | null;
 }> = ({ onChoose, busy }) => (
   <>
@@ -1060,7 +1128,7 @@ export const ProviderChoice: React.FC<{
         What we take, in plain terms
       </div>
       <p>
-        Event titles, times and busy status — that is all we read. We never
+        Event titles, times and busy status - that is all we read. We never
         write to your calendar, never open attachments, notes or attendee lists,
         and nothing leaves your machine except the times we need to schedule
         around.
@@ -1073,7 +1141,7 @@ export interface PickableCalendar {
   id: string;
   name: string;
   isSelected: boolean;
-  /** "32 events this week", "all-day only" — whatever helps them choose. */
+  /** "32 events this week", "all-day only" - whatever helps them choose. */
   note?: string;
   isPrimary?: boolean;
 }
@@ -1132,7 +1200,7 @@ export type UpdatePillProps = {
 };
 
 /**
- * "There is a new version" — the whole of it.
+ * "There is a new version" - the whole of it.
  *
  * A pill in the rail rather than a dialog. An update is not urgent and has no
  * decision in it worth interrupting someone mid-sentence for; it is a thing
@@ -1140,8 +1208,8 @@ export type UpdatePillProps = {
  * the one action it offered is already happening and the app is about to
  * restart underneath them.
  *
- * The bar is a width, not a spinner: a download that cannot report a total —
- * a redirect to a CDN that sends no `Content-Length` — gets a quiet
+ * The bar is a width, not a spinner: a download that cannot report a total -
+ * a redirect to a CDN that sends no `Content-Length` - gets a quiet
  * indeterminate stripe rather than a percentage nobody can trust.
  */
 export const UpdatePill: React.FC<UpdatePillProps> = ({
@@ -1171,7 +1239,7 @@ export const UpdatePill: React.FC<UpdatePillProps> = ({
       {installing ? null : <span className="wr-dot" />}
       <span className="wr-update-text">
         {problem
-          ? "Update failed — retry"
+          ? "Update failed - retry"
           : installing
             ? "Installing…"
             : `Update to ${version}`}
@@ -1212,7 +1280,7 @@ export const NavItem: React.FC<{
 );
 
 /** Paused / Off rows: state carried by a hollow rule, a chip or an inset
- *  surface — the system has no opacity-based disabled state. */
+ *  surface - the system has no opacity-based disabled state. */
 export const StateRow: React.FC<{
   name: string;
   leading: React.ReactNode;
@@ -1236,7 +1304,7 @@ export const StateRow: React.FC<{
 /**
  * A slot mid-drag: the target stretch, and the card following the cursor.
  *
- * Two elements rather than a `Slot` variant, because that is what it is — the
+ * Two elements rather than a `Slot` variant, because that is what it is - the
  * drop target reads its own range so the placement is legible even with the
  * card somewhere else. The card offsets down and right so both stay readable;
  * it does not tilt, scale or fade.
@@ -1273,7 +1341,7 @@ export const DragPlacement: React.FC<{
  * Setting a time by hand.
  *
  * The step size and the consequence are stated beside the value rather than
- * inferred from the widget — "5 min steps · ends 11:15" is the whole point,
+ * inferred from the widget - "5 min steps · ends 11:15" is the whole point,
  * since a stepper alone never says what it costs you.
  */
 export const TimeStepper: React.FC<{
@@ -1321,7 +1389,7 @@ export const FitStrip: React.FC<{
     <div className="wr-fit">
       {values.map((v, i) => (
         <span
-          // Position *is* the identity here — bar 3 is the third slice of the
+          // Position *is* the identity here - bar 3 is the third slice of the
           // window and nothing reorders. There is no state to mis-attach.
           // biome-ignore lint/suspicious/noArrayIndexKey: positional by nature
           key={i}
@@ -1341,7 +1409,7 @@ export const FitStrip: React.FC<{
  *
  * Two shapes, and which one you get is decided by whether there is a decision
  * to make. A genuine clash keeps its card and gains a second tier of escape
- * routes. A clash that resolves itself — a length change rather than a move —
+ * routes. A clash that resolves itself - a length change rather than a move -
  * drops to the inset surface with a neutral rule, because it is information
  * plus one button.
  */
@@ -1413,7 +1481,7 @@ export const ClashRow: React.FC<{
 /**
  * How the product mentions Pro.
  *
- * Dashed edge, no fill, no shadow — the same treatment as an empty gap,
+ * Dashed edge, no fill, no shadow - the same treatment as an empty gap,
  * because that is what it is: absence of a capability rather than of space. It
  * states what *would have* happened, in past tense, and never covers, blocks
  * or dims the thing the user is doing. One per screen at most, and never on
@@ -1436,7 +1504,7 @@ export const PlanNote: React.FC<{
   </div>
 );
 
-/** A keyboard hint — ⌘K, ↵, or a count. Monospace, never interactive. */
+/** A keyboard hint - ⌘K, ↵, or a count. Monospace, never interactive. */
 export const Keycap: React.FC<{
   children: React.ReactNode;
   tone?: "accent" | "neutral";
@@ -1452,14 +1520,14 @@ export const Keycap: React.FC<{
  * Providers do not agree on what a picture is. Google sends a URL; Entra sends
  * the image itself, base64 in the profile, big enough to blow past header
  * limits and far too big to sit in a database column that every session read
- * touches. So the rule is the narrow one: a real URL renders, anything else —
- * `data:`, a bare path, an empty string — is treated as no picture at all and
+ * touches. So the rule is the narrow one: a real URL renders, anything else -
+ * `data:`, a bare path, an empty string - is treated as no picture at all and
  * falls back to initials, which always work.
  */
 const isImageUrl = (src: string | null | undefined): src is string =>
   typeof src === "string" && /^https:\/\//i.test(src);
 
-/** The user's mark. Initials when there is no image — never an icon. */
+/** The user's mark. Initials when there is no image - never an icon. */
 export const Avatar: React.FC<{
   name: string;
   size?: number;

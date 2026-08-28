@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
  *
  * Two arrive here. A calendar connection reports back through `error` /
  * `connected`; a provider sign-in reports through `signin`, and that one is
- * being read in the *system browser* rather than in the app — the app itself
+ * being read in the *system browser* rather than in the app - the app itself
  * is elsewhere, holding a ticket and waiting for the server to fill it. So the
  * only useful thing this page can say in that case is "go back to the app".
  *
@@ -24,7 +24,7 @@ const AuthComplete: React.FC = () => {
     // Every outcome that means something is terminal *here*, because "here" is
     // usually the system browser rather than the app. Sending it to "/" asks a
     // browser with no session token to render the app, and the guard bounces it
-    // straight to a sign-in screen — which is what someone saw immediately
+    // straight to a sign-in screen - which is what someone saw immediately
     // after successfully connecting a calendar.
     if (error || signin || connected) return;
     void navigate({ to: "/", replace: true });
@@ -42,7 +42,7 @@ const AuthComplete: React.FC = () => {
         </h1>
         <p className="wr-body">
           You can close this window. Wise Routine is already pulling your
-          calendar in — it will appear on your day shortly.
+          calendar in - it will appear on your day shortly.
         </p>
       </main>
     );
@@ -56,7 +56,7 @@ const AuthComplete: React.FC = () => {
         </h1>
         <p className="wr-body">
           {signin === "ok"
-            ? "You can close this window — Wise Routine is already picking it up."
+            ? "You can close this window - Wise Routine is already picking it up."
             : "Nothing changed. Close this window and try again from the app."}
         </p>
       </main>
@@ -65,7 +65,7 @@ const AuthComplete: React.FC = () => {
 
   /**
    * Many work tenants disable user consent, so an employee cannot grant even a
-   * read-only calendar permission. That is not their mistake and not a bug —
+   * read-only calendar permission. That is not their mistake and not a bug -
    * an administrator has to approve the app once, for everyone. Giving them a
    * link to forward turns a dead end into a slow yes.
    */
@@ -126,18 +126,18 @@ const AuthComplete: React.FC = () => {
    *
    * Distinct from a refusal, because the two are not the same to the user and
    * are not the same to fix: nothing they did caused this, and the permission
-   * they just gave is still good — retrying picks up the same connection.
+   * they just gave is still good - retrying picks up the same connection.
    */
   if (error === "calendar_unavailable") {
     return (
       <main className="wr-shell" style={{ maxWidth: 460 }}>
         <h1 className="wr-display-30" style={{ marginBottom: 8 }}>
-          Almost — we couldn't read your calendars
+          Almost - we couldn't read your calendars
         </h1>
         <p className="wr-body" style={{ marginBottom: 16 }}>
           You granted access and that part worked. Reading the calendar list
           straight afterwards didn't, which is on us, not you. Try again in a
-          moment — you shouldn't have to grant anything twice.
+          moment - you shouldn't have to grant anything twice.
         </p>
         <Button
           variant="commit"

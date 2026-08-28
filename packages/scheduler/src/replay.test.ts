@@ -20,7 +20,7 @@ describe("replayedAt", () => {
     expect(replayedAt(NOW, Number.POSITIVE_INFINITY)).toBe(NOW);
   });
 
-  // A device clock running fast must not be able to record the future — the
+  // A device clock running fast must not be able to record the future - the
   // grace sweep reads these instants, and a slot completed "later today"
   // would sit there unresolved.
   test("the future collapses to now", () => {

@@ -15,7 +15,7 @@ import { type ServerEnv, userCredentials } from "./env";
  *
  * This is the cost of one database per user: signup is no longer a row insert,
  * it is a provisioning step that can fail halfway. So it is written to be
- * idempotent and re-runnable — `databaseReady` on the directory row is the
+ * idempotent and re-runnable - `databaseReady` on the directory row is the
  * only thing that says it finished, and nothing hands out a session until it
  * flips.
  */
@@ -26,7 +26,7 @@ const PLATFORM_API = "https://api.turso.tech/v1";
  * Ask Turso to create the database.
  *
  * A 409 means it already exists, which happens whenever signup is retried
- * after a partial failure — treated as success, not an error.
+ * after a partial failure - treated as success, not an error.
  */
 async function createTursoDatabase(
   env: ServerEnv,

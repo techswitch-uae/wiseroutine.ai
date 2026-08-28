@@ -47,7 +47,7 @@ describe("cachedPlan", () => {
 
   /**
    * The case that makes this worth a check: yesterday's plan is worse than no
-   * plan. Every time on it has passed, and its slot ids no longer exist — so
+   * plan. Every time on it has passed, and its slot ids no longer exist - so
    * following it would mean ticking off things that are gone.
    */
   test("a plan whose day has ended is refused", () => {

@@ -4,7 +4,7 @@
  * Its own module because the rule is not obvious and is easy to break by
  * accident: only one account may have unsaved changes at a time. Two accounts
  * each showing an Update button looks like two independent edits, but saving
- * one reloads from the server and silently throws the other away — so starting
+ * one reloads from the server and silently throws the other away - so starting
  * on a second account puts the first one back rather than leaving that trap
  * open.
  */

@@ -2,14 +2,14 @@
 /**
  * Refuse to deploy against a Secrets Store that is missing something.
  *
- * `wrangler.jsonc` is the list of secrets an environment requires — one
+ * `wrangler.jsonc` is the list of secrets an environment requires - one
  * `secrets_store_secrets` entry per binding. This checks every name actually
  * exists in the account store before `wrangler deploy` runs, so a forgotten
  * secret is a failed command rather than a 500 on the first request that
  * needs it.
  *
  * It can only check *presence*. Cloudflare never lets a stored secret be read
- * back — that is the point of the store — so whether the value is the right
+ * back - that is the point of the store - so whether the value is the right
  * shape is answered after the upload, by `GET /health/config`, which resolves
  * the bindings inside the Worker and runs the schema over them. Between the
  * two, "missing or invalid" fails the deploy.

@@ -4,7 +4,7 @@ import { at, type Directory, ms } from "../client";
  * The coordination table.
  *
  * With one database per user there is no way to ask "whose calendar is due?" or
- * "whose slot has run out of grace?" — on a shared database those were single
+ * "whose slot has run out of grace?" - on a shared database those were single
  * indexed scans. So the *timing* is denormalised here while the authoritative
  * state stays in the user's own database. The cron ticker reads one table and
  * fans out; the queue consumer opens the user's database and does the work.

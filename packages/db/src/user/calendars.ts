@@ -40,7 +40,7 @@ export function listConnections(db: UserDatabase) {
 }
 
 /** A connection whose token no longer works. The UI surfaces this as
- *  "reconnect your calendar" — a silently dead connection is fatal to trust. */
+ *  "reconnect your calendar" - a silently dead connection is fatal to trust. */
 export async function markNeedsReauth(
   db: UserDatabase,
   connectionId: string,
@@ -158,7 +158,7 @@ export async function setCalendarSelected(
  * Order matters and is not incidental: events reference calendars, sync state
  * and tokens reference their owners, so anything deleted out of order leaves a
  * row pointing at nothing. The events go because this is the one action that
- * means "forget this account" — deselecting a calendar keeps its events for a
+ * means "forget this account" - deselecting a calendar keeps its events for a
  * cheap re-select, but a disconnected account has no way back except fresh
  * consent, and holding someone's meetings after they revoked our access is
  * exactly the thing they were asking us to stop doing.

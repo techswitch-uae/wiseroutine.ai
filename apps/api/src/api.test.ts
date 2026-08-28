@@ -32,7 +32,7 @@ describe("health", () => {
   });
 
   // The gate `pnpm deploy:*` opens after uploading. The test environment is
-  // deliberately half-configured — no Stripe, no Google — so this proves the
+  // deliberately half-configured - no Stripe, no Google - so this proves the
   // check actually refuses rather than always passing.
   test("the config gate refuses an incomplete environment", async () => {
     const response = await worker.default.fetch("http://api/health/config");
@@ -313,7 +313,7 @@ describe("settings", () => {
     const { calendarId } = await seedCalendar();
     // A weekday, not simply tomorrow. `tomorrowNoon()` drifts with the wall
     // clock, and a day outside the user's working window has no room for a
-    // meeting — so this test passed Monday to Thursday and failed on a Friday,
+    // meeting - so this test passed Monday to Thursday and failed on a Friday,
     // for a reason that had nothing to do with calendars.
     const start = weekdayNoon();
 
@@ -346,8 +346,8 @@ describe("settings", () => {
     expect(off.status).toBe(204);
 
     // The bug this covers: deselecting cancelled future syncs but left every
-    // event already fetched in the table, so the meeting stayed on the day —
-    // and kept blocking the planner — no matter how often it was refreshed.
+    // event already fetched in the table, so the meeting stayed on the day -
+    // and kept blocking the planner - no matter how often it was refreshed.
     const after = await worker.default.fetch(dayAt, { headers: user.headers });
     expect(
       ((await after.json()) as { meetings: unknown[] }).meetings.length,
@@ -401,7 +401,7 @@ describe("settings", () => {
     const body = (await listed.json()) as { connections: unknown[] };
     expect(body.connections).toHaveLength(0);
 
-    // A repeat press is done, not an error — the account is gone either way.
+    // A repeat press is done, not an error - the account is gone either way.
     const again = await worker.default.fetch(
       `http://api/connections/${connectionId}`,
       { method: "DELETE", headers: user.headers },
@@ -495,8 +495,8 @@ describe("webhooks", () => {
 
 /**
  * The ticket exchange that carries a browser-made session into the desktop
- * app. The OAuth round-trip itself cannot be exercised here — it needs a real
- * provider — so what is checked is everything around it: that a ticket is
+ * app. The OAuth round-trip itself cannot be exercised here - it needs a real
+ * provider - so what is checked is everything around it: that a ticket is
  * required, that a redeemed or unknown one is refused without leaking which,
  * and that a provider this environment has no credentials for is a clean
  * refusal rather than a 500. The test environment deliberately has none.
@@ -516,7 +516,7 @@ describe("social sign-in handoff", () => {
 
   // The separation the whole design rests on: signing in with Google asks for
   // an identity and nothing else. If calendar scopes ever leak into this URL,
-  // "sign in" silently becomes "hand over your calendar" — and the consent
+  // "sign in" silently becomes "hand over your calendar" - and the consent
   // screen would say so, months before anyone read this file.
   //
   // Whether a provider is configured depends on the environment, so both
@@ -538,12 +538,12 @@ describe("social sign-in handoff", () => {
     };
     expect(ticket).toBeTruthy();
 
-    // `start` no longer talks to the provider — it points at our own route, so
+    // `start` no longer talks to the provider - it points at our own route, so
     // that the browser's navigation is what mints the consent URL.
     expect(new URL(url).pathname).toBe("/signin/social/go");
 
     const go = await worker.default.fetch(url, { redirect: "manual" });
-    // 302 to the app means the provider is unconfigured here — a refusal, not
+    // 302 to the app means the provider is unconfigured here - a refusal, not
     // a crash, and nothing more to assert.
     const location = go.headers.get("location") ?? "";
     if (!location.startsWith("http://api")) {
@@ -555,7 +555,7 @@ describe("social sign-in handoff", () => {
     const consent = new URL(location);
     const scope = consent.searchParams.get("scope") ?? "";
     expect(scope).not.toContain("calendar");
-    // Its own callback, not the calendar flow's — two grants, two redirects.
+    // Its own callback, not the calendar flow's - two grants, two redirects.
     expect(consent.searchParams.get("redirect_uri")).toContain(
       "/auth/callback/google",
     );
@@ -569,7 +569,7 @@ describe("social sign-in handoff", () => {
    * Better Auth binds the OAuth `state` to the browser with a signed cookie and
    * refuses the callback without it. Minting the consent URL from a route the
    * app calls by `fetch` sets that cookie on a cross-origin XHR response, which
-   * the browser throws away — so consent completed and then died as
+   * the browser throws away - so consent completed and then died as
    * `state_mismatch`, with nothing in the logs and a valid-looking URL.
    *
    * The cookie must ride on the redirect the *browser* follows. This asserts
@@ -588,7 +588,7 @@ describe("social sign-in handoff", () => {
 
     const go = await worker.default.fetch(url, { redirect: "manual" });
     const location = go.headers.get("location") ?? "";
-    // Unconfigured provider in this environment — nothing to bind.
+    // Unconfigured provider in this environment - nothing to bind.
     if (location.startsWith("http://api")) return;
 
     const state = new URL(location).searchParams.get("state");
@@ -597,7 +597,7 @@ describe("social sign-in handoff", () => {
     const cookies = go.headers.getSetCookie();
     const stateCookie = cookies.find((cookie) => cookie.includes("state="));
     expect(stateCookie).toBeDefined();
-    // Signed, so the cookie is `<state>.<signature>` — the state it commits to
+    // Signed, so the cookie is `<state>.<signature>` - the state it commits to
     // has to be the one the provider will hand back.
     expect(stateCookie).toContain(state as string);
   });

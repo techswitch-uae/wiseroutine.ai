@@ -3,7 +3,7 @@
  *
  * D1 is encrypted at rest, but that defends only against physical compromise.
  * It does nothing against SQL injection, a leaked Cloudflare API token with
- * D1:Edit, or a careless `SELECT *` — and any of those against plaintext tokens
+ * D1:Edit, or a careless `SELECT *` - and any of those against plaintext tokens
  * means permanent calendar access for every user. Application-layer encryption
  * is what turns a database read into a non-event.
  *
@@ -97,7 +97,7 @@ export async function open(
 }
 
 /** A 32-byte root key, base64. Generate once per environment and put it in
- *  Secrets Store — never in wrangler.jsonc, never in the repo. */
+ *  Secrets Store - never in wrangler.jsonc, never in the repo. */
 export function generateRootKey(): string {
   return toBase64(crypto.getRandomValues(new Uint8Array(32)));
 }

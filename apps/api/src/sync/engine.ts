@@ -132,7 +132,7 @@ export async function accessTokenFor(
  * The loop is the same for both providers: page until the provider hands back a
  * token, write only what changed, then persist the token. Google's
  * `nextSyncToken` arrives **only on the last page**, so this must run to
- * completion — which is why it lives in a queue consumer rather than a request
+ * completion - which is why it lives in a queue consumer rather than a request
  * handler, where a CPU limit could truncate it and silently force a full
  * resync every time.
  */

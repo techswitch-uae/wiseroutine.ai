@@ -27,7 +27,7 @@ import { AppFrame, AuthFrame, PageHead, Sidebar, UserMenu } from "./layout";
 /**
  * The collection: whole screens, composed only from the kit.
  *
- * Nothing here introduces a surface, a colour or an elevation of its own — if
+ * Nothing here introduces a surface, a colour or an elevation of its own - if
  * a screen needs something the components cannot express, that is a gap in the
  * components, not licence to style it locally. Keeping that rule is what makes
  * these useful as a check rather than decoration.
@@ -63,7 +63,7 @@ export type SocialProvider = "google" | "microsoft";
 /**
  * Sign in.
  *
- * The emailed code is the path the screen is built around — it is the one that
+ * The emailed code is the path the screen is built around - it is the one that
  * needs no provider to have approved us and no tenant administrator to have
  * said yes. Google and Microsoft sit under a rule as alternatives, and the
  * footnote does the work the buttons cannot: signing in with a provider is not
@@ -74,17 +74,17 @@ export const SignInScreen: React.FC<{
   email: string;
   onEmailChange?: (value: string) => void;
   onSubmit?: () => void;
-  /** Omit or empty to hide the rule and the buttons entirely — an environment
+  /** Omit or empty to hide the rule and the buttons entirely - an environment
    *  with no provider credentials must not offer a door that cannot open. */
   providers?: readonly SocialProvider[];
   onProvider?: (provider: SocialProvider) => void;
-  /** Sending the emailed code. Only the code path — a provider sign-in must
+  /** Sending the emailed code. Only the code path - a provider sign-in must
    *  not make this button claim it is sending anything. */
   busy?: boolean;
   /** Consent is open in a browser and we are waiting for it to come back. */
   waitingFor?: SocialProvider | null;
   onCancelWaiting?: () => void;
-  /** Set when the browser could not be opened for us — a popup blocker, or a
+  /** Set when the browser could not be opened for us - a popup blocker, or a
    *  webview with no opener. The user can still get there by hand, and a link
    *  they can click is the difference between a delay and a dead end. */
   consentUrl?: string | null;
@@ -187,7 +187,7 @@ export const SignInScreen: React.FC<{
         ) : null}
 
         <p className="wr-auth-foot">
-          Signing in with Google or Microsoft does not connect that calendar —
+          Signing in with Google or Microsoft does not connect that calendar -
           you choose calendars separately, after you are in.
         </p>
       </>
@@ -198,7 +198,7 @@ export const SignInScreen: React.FC<{
 /* ── Account ─────────────────────────────────────────────────────────────── */
 
 export interface LinkedAccount {
-  /** Better Auth's account row id — what an unlink is addressed to. */
+  /** Better Auth's account row id - what an unlink is addressed to. */
   id: string;
   provider: SocialProvider;
   /** When the provider was linked. */
@@ -210,14 +210,14 @@ export interface LinkedAccount {
  *
  * Three questions, three blocks: what we call you, how you get in, and how you
  * leave. Signing in with a provider and syncing that provider's calendar are
- * different grants, and this page is only about the first — the note says so,
+ * different grants, and this page is only about the first - the note says so,
  * because "Disconnect Google" here could otherwise read as "stop syncing my
  * Google calendar", which it is not.
  */
 export const AccountScreen: React.FC<{
   email: string;
   name: string;
-  /** Rendered only when it is an `https:` URL — see `Avatar`. */
+  /** Rendered only when it is an `https:` URL - see `Avatar`. */
   avatarUrl?: string | null;
   /** Draft name in the field, which is not the saved one until it is saved. */
   draftName?: string;
@@ -309,7 +309,7 @@ export const AccountScreen: React.FC<{
             aria-label="Time zone"
             options={
               // Always include the saved value, even if this build of the
-              // browser does not list it — otherwise the select silently shows
+              // browser does not list it - otherwise the select silently shows
               // the wrong zone as selected.
               timeZoneOptions.includes(timeZone)
                 ? timeZoneOptions
@@ -329,7 +329,7 @@ export const AccountScreen: React.FC<{
             </div>
           ) : null}
           <p className="wr-account-note">
-            Everything is scheduled in this zone — your day's start and end, and
+            Everything is scheduled in this zone - your day's start and end, and
             when each activity is due.
           </p>
         </Card>
@@ -382,7 +382,7 @@ export const AccountScreen: React.FC<{
         ) : null}
 
         <p className="wr-account-note">
-          Disconnecting only removes this way of signing in — your calendars
+          Disconnecting only removes this way of signing in - your calendars
           stay connected, and the emailed code still works.
         </p>
       </Card>
@@ -407,7 +407,7 @@ const countdown = (seconds: number): string =>
  *
  * Three states on one screen because they are the same screen: waiting, wrong,
  * and expired differ only in what the boxes are worth. A wrong code keeps its
- * digits — the user has to check them against the email, and clearing the
+ * digits - the user has to check them against the email, and clearing the
  * field makes them retype six characters from memory. An expired one stops
  * pretending the boxes matter and offers the two ways out.
  */
@@ -493,7 +493,7 @@ export const CheckEmailScreen: React.FC<{
           <p className="wr-auth-problem" role="alert">
             That code did not match. The digits stay so you can check them
             {attemptsLeft !== undefined
-              ? ` — ${attemptsLeft} ${attemptsLeft === 1 ? "attempt" : "attempts"} left.`
+              ? ` - ${attemptsLeft} ${attemptsLeft === 1 ? "attempt" : "attempts"} left.`
               : "."}
           </p>
         ) : null}
@@ -524,7 +524,7 @@ export const AppSidebar: React.FC<{
   <Sidebar
     items={NAV}
     active={active}
-    // The kit documents quick add even though the app has not bound it yet —
+    // The kit documents quick add even though the app has not bound it yet -
     // the catalogue is the plan, the app's own rail is the product.
     onQuickAdd={() => undefined}
     user={
@@ -565,7 +565,7 @@ export interface TodaySlotFixture {
 }
 
 /**
- * Today — the main window.
+ * Today - the main window.
  *
  * The timeline is one component repeated; the rail is modules. Exactly one
  * live slot and at most one ink module, both enforced by whoever supplies the
@@ -605,7 +605,7 @@ export const TodayScreen: React.FC<{
             Start now
           </Button>
           <Button variant="quiet" block>
-            Not now — find a later gap
+            Not now - find a later gap
           </Button>
         </Module>
 
@@ -653,7 +653,7 @@ export const TodayScreen: React.FC<{
 );
 
 /**
- * Placing one slot by hand — the four steps Free users go through.
+ * Placing one slot by hand - the four steps Free users go through.
  *
  * Shown as one screen because the steps are the argument: a scheduler hides
  * all of this, and the point of the Free plan is that the user does it.
@@ -704,7 +704,7 @@ export const PlacingScreen: React.FC<{ user?: ScreenUser }> = ({ user }) => (
     <div style={{ marginTop: 8 }}>
       <ClashRow
         name="Deep work · 11:25"
-        reason="5 min of overlap — shortening it to 20 min clears it"
+        reason="5 min of overlap - shortening it to 20 min clears it"
         action="Shorten"
       />
     </div>

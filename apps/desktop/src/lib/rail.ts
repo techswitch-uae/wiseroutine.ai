@@ -4,7 +4,7 @@ import type React from "react";
  * Which pages carry the right-hand module rail, and what goes in it.
  *
  * The shell used to render the rail for every signed-in page, which meant the
- * set-up module followed the user onto Calendars and Account — where it is
+ * set-up module followed the user onto Calendars and Account - where it is
  * noise at best, and at worst is asking them to connect a calendar on the page
  * they are already connecting one from.
  *

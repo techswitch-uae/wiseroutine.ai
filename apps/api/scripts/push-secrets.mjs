@@ -7,13 +7,13 @@
  *   pnpm --filter @wiseroutine/api secrets:push:prod -- --dry-run
  *
  * The file is `.env.dev` or `.env.prod` in this package, gitignored, holding
- * unprefixed names — `RESEND_API_KEY=re_...`, not `WR_PROD_RESEND_API_KEY`.
+ * unprefixed names - `RESEND_API_KEY=re_...`, not `WR_PROD_RESEND_API_KEY`.
  * The prefix belongs to the store, where dev and production share one account
  * namespace; the file already knows which environment it is.
  *
  * Which secrets exist is not this script's opinion. It reads the
- * `secrets_store_secrets` entries in `wrangler.jsonc` — the same list the
- * deploy preflight checks — so a secret can never be pushed that nothing
+ * `secrets_store_secrets` entries in `wrangler.jsonc` - the same list the
+ * deploy preflight checks - so a secret can never be pushed that nothing
  * binds, and one that is bound can never be quietly skipped.
  *
  * **This file is the weak point of the whole arrangement.** Until now the only
@@ -74,7 +74,7 @@ function parseEnvFile(path) {
     let value = line.slice(eq + 1).trim();
 
     // A quoted value is unwrapped once. An unquoted one keeps whatever is
-    // there, minus the trim above — the common paste error is a trailing
+    // there, minus the trim above - the common paste error is a trailing
     // space, not a deliberate one.
     const quoted = value.length >= 2 && /^(".*"|'.*')$/s.test(value);
     if (quoted) value = value.slice(1, -1);
@@ -91,11 +91,11 @@ function parseEnvFile(path) {
 
 /** Enough to catch a bad paste. Shape is the schema's job, and the deploy's
  *  `/health/config` gate is where it gets checked against the real value.
- *  Empty is not checked here — a blank line means "not set on this machine",
+ *  Empty is not checked here - a blank line means "not set on this machine",
  *  handled with the absent case below. */
 function problemWith(value) {
   if ([...value].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127)) {
-    return "contains a control character — probably a copied line break";
+    return "contains a control character - probably a copied line break";
   }
   if (/^['"]|['"]$/.test(value)) return "still has a stray quote";
   return null;
@@ -159,7 +159,7 @@ function main() {
   if (!existsSync(path)) {
     fail(
       `${FILE[env]} not found in apps/api. Create it with one KEY=value per` +
-        " line — see docs/setup-api.md for the list.",
+        " line - see docs/setup-api.md for the list.",
     );
   }
 
@@ -168,7 +168,7 @@ function main() {
   const existing = storeContents(storeId);
 
   console.log(
-    `[secrets] env=${env} file=${FILE[env]} declared=${names.length} — ${
+    `[secrets] env=${env} file=${FILE[env]} declared=${names.length} - ${
       dryRun ? "DRY RUN, nothing will be written" : "writing to Cloudflare"
     }`,
   );
@@ -184,8 +184,8 @@ function main() {
     if (wanted.has(key)) continue;
     console.warn(
       vars.has(key)
-        ? `  ${key} is a var, not a secret — the app does use it; set it in wrangler.jsonc under this environment's "vars", and delete it from ${FILE[env]}`
-        : `  ignored ${key} — nothing in wrangler.jsonc uses it`,
+        ? `  ${key} is a var, not a secret - the app does use it; set it in wrangler.jsonc under this environment's "vars", and delete it from ${FILE[env]}`
+        : `  ignored ${key} - nothing in wrangler.jsonc uses it`,
     );
   }
 
@@ -198,10 +198,10 @@ function main() {
 
     // A blank `KEY=` reads the same as a key that is not in the file at all.
     // That is what makes the generated template usable: fill in the two you
-    // have today, push, and come back for the rest — rather than being told
+    // have today, push, and come back for the rest - rather than being told
     // ten times that a value you have not obtained yet is invalid.
     if (value === undefined || value === "") {
-      console.warn(`  absent ${key} — left as it is in the store`);
+      console.warn(`  absent ${key} - left as it is in the store`);
       missing++;
       continue;
     }
@@ -217,7 +217,7 @@ function main() {
   }
 
   console.log(
-    `[secrets] done — failed=${failed} absent=${missing}${dryRun ? "" : "\n[secrets] a rotated value reaches the Worker as isolates recycle; deploy to force it"}`,
+    `[secrets] done - failed=${failed} absent=${missing}${dryRun ? "" : "\n[secrets] a rotated value reaches the Worker as isolates recycle; deploy to force it"}`,
   );
 
   // An absent key is not an error: it may already be in the store and simply

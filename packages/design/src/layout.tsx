@@ -1,13 +1,13 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
-import { Avatar, Keycap, NavItem } from "./components";
+import { Avatar, BrandMark, Keycap, NavItem } from "./components";
 
 /**
  * The app frame.
  *
  * Sand chrome, near-white page, lifted content. The window bar, the sidebar
  * and any settings pane share **one** tone (neutral-200) so nothing looks like
- * a different app — that single rule is what stops a settings screen reading
+ * a different app - that single rule is what stops a settings screen reading
  * as a separate product.
  *
  * The page never carries a headline. The date sits inline with a helper
@@ -40,14 +40,14 @@ export interface NavEntry {
  * The user row, and what it opens.
  *
  * A popover rather than a drawer: it is a short list of destinations, and the
- * sidebar is already the navigation. It sits at Lift 3 — the floating-surface
+ * sidebar is already the navigation. It sits at Lift 3 - the floating-surface
  * elevation, shared with the live slot and dialogs, because only one thing may
  * be off the page at a time.
  */
 export const UserMenu: React.FC<{
   name: string;
   email?: string;
-  /** Ignored unless it is an `https:` URL — see `Avatar`. */
+  /** Ignored unless it is an `https:` URL - see `Avatar`. */
   avatarSrc?: string | null;
   /** "free" reads as plain text; "pro" earns the chip. */
   plan?: "free" | "pro";
@@ -142,7 +142,7 @@ export const UserMenu: React.FC<{
  * The left rail.
  *
  * Brand, destinations, an optional module, then the two things that are always
- * within reach: quick add and the user. `children` is the module slot — the
+ * within reach: quick add and the user. `children` is the module slot - the
  * sidebar itself has no opinion about what goes there.
  */
 export const Sidebar: React.FC<{
@@ -164,7 +164,7 @@ export const Sidebar: React.FC<{
 }) => (
   <nav className="wr-sidebar">
     <div className="wr-brand">
-      <span className="wr-brand-mark" />
+      <BrandMark size={28} />
       <span className="wr-brand-name">Wise Routine</span>
     </div>
 
@@ -185,7 +185,7 @@ export const Sidebar: React.FC<{
 
     <div className="wr-sidebar-foot">
       {/* Only when something is listening. It rendered unconditionally, which
-          put a button and a ⌘K hint in the rail of an app that had neither —
+          put a button and a ⌘K hint in the rail of an app that had neither -
           a shortcut advertised and not bound is worse than one not offered. */}
       {onQuickAdd ? (
         <button type="button" className="wr-quickadd" onClick={onQuickAdd}>
@@ -199,7 +199,7 @@ export const Sidebar: React.FC<{
 );
 
 /**
- * Window bar, sidebar, content — the shape every screen is composed into.
+ * Window bar, sidebar, content - the shape every screen is composed into.
  *
  * `header` is the inline date-plus-helper line rather than a page title, and
  * `rail` is the right-hand module column. Both are optional so a screen that
@@ -215,7 +215,7 @@ export const AppFrame: React.FC<{
    * The app sets this everywhere. Without it the main content grew by the
    * width of the rail the moment you left Today, so the same settings form was
    * one width on Account and another on Calendars, and every navigation
-   * reflowed the page — which reads as two different apps rather than two
+   * reflowed the page - which reads as two different apps rather than two
    * pages of one.
    */
   reserveRail?: boolean;
@@ -244,7 +244,7 @@ export const AppFrame: React.FC<{
  * The frame for the screens that come before an account exists.
  *
  * Not `AppFrame` with the sidebar left out: there is no navigation to show and
- * no user to name, and the page *does* carry a headline here — which the app
+ * no user to name, and the page *does* carry a headline here - which the app
  * shell forbids. Two different rules, so two different frames.
  */
 export const AuthFrame: React.FC<{
@@ -264,7 +264,7 @@ export const AuthFrame: React.FC<{
   </div>
 );
 
-/** The inline date line. Not a headline — the system forbids one here. */
+/** The inline date line. Not a headline - the system forbids one here. */
 export const PageHead: React.FC<{
   date: string;
   helper?: string;

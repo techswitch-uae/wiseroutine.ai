@@ -15,7 +15,7 @@ import { providerKeys } from "@wiseroutine/providers";
  * here.
  */
 const billingKeys = {
-  // Move to `packages/payments/keys.ts` when that package exists — today
+  // Move to `packages/payments/keys.ts` when that package exists - today
   // Stripe is used only by `src/stripe.ts`, and a package holding one file
   // would be ceremony.
   STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional(),
@@ -57,7 +57,7 @@ export type ServerEnv = ReturnType<typeof env.parse>;
  * Each one is a Cloudflare Secrets Store binding in the deployed environments
  * (`wrangler.jsonc`) and a plain string from `.dev.vars` locally. Both arrive
  * on the same `env` key, so the only difference is whether the value needs
- * awaiting — which is what `resolveServerEnv` normalises away.
+ * awaiting - which is what `resolveServerEnv` normalises away.
  *
  * Anything *not* in this list is a var: public, environment-specific, and
  * committed in `wrangler.jsonc` where it can be read at a glance.
@@ -90,7 +90,7 @@ const isSecretBinding = (value: unknown): value is SecretBinding =>
  *
  * Reading ten Secrets Store bindings is ten awaits; doing that on every
  * request would put them in front of every route. Keyed on the bindings
- * object itself so a different environment — the test runner's, say — cannot
+ * object itself so a different environment - the test runner's, say - cannot
  * pick up another one's cached answer, and so nothing is retained after the
  * isolate goes away.
  */
@@ -137,7 +137,7 @@ export function resolveServerEnv(
  *
  * It checks presence; the fragments' own rules (a `re_` prefix, 32 bytes of
  * base64, a `whsec_` webhook secret) have already checked shape by the time
- * this runs. Together that is "missing or invalid" — which is as far as it can
+ * this runs. Together that is "missing or invalid" - which is as far as it can
  * go, since Cloudflare never lets anything read a stored secret back to
  * compare it against the vault.
  */
@@ -159,7 +159,7 @@ export function assertConfigured(config: ServerEnv): void {
   });
 
   // A var still holding its scaffold value is not configuration, it is a
-  // reminder — and an empty check waves it through. `wrangler.jsonc` ships
+  // reminder - and an empty check waves it through. `wrangler.jsonc` ships
   // with a REPLACE_WITH_* for every value that has to be filled in, so the
   // marker is worth failing on explicitly.
   const unfilled = Object.entries(config as unknown as Record<string, unknown>)
@@ -180,7 +180,7 @@ export function assertConfigured(config: ServerEnv): void {
 
 /**
  * Turso is reached over HTTP with a URL and a token, so a database is
- * configuration rather than a Worker binding — which is also why it can be
+ * configuration rather than a Worker binding - which is also why it can be
  * opened from anywhere, including a queue consumer or an auth hook.
  */
 export function directoryCredentials(env: ServerEnv): Credentials {

@@ -6,7 +6,7 @@ import { decodeIdToken, toCalendarEvent } from "./types";
 
 /**
  * Fixtures shaped like real provider payloads. These exist mainly to pin the
- * mapping of the fields that decide free/busy — the ones that make the product
+ * mapping of the fields that decide free/busy - the ones that make the product
  * look broken when they are wrong.
  */
 
@@ -200,7 +200,7 @@ async function withFetch<T>(
  * A recurring meeting arrives from `calendarView/delta` as two kinds of thing,
  * and taking the payload at face value gets both of them wrong: the occurrence
  * carries the times but no subject, and the master carries the subject but is
- * not a booking at all. That shipped — every recurring meeting rendered as
+ * not a booking at all. That shipped - every recurring meeting rendered as
  * "Busy", and every series added a phantom busy block at its first instance.
  */
 describe("microsoft recurring series", () => {

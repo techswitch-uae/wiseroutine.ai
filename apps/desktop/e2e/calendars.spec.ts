@@ -39,7 +39,7 @@ test("unticking a calendar takes its meetings off the day", async ({
   await page.goto("/calendars");
   await page.getByRole("checkbox", { name: "Work" }).uncheck();
 
-  // Update is what applies the ticks and asks for a sync — the ticks alone
+  // Update is what applies the ticks and asks for a sync - the ticks alone
   // change nothing, which is the behaviour being asserted.
   await page.getByRole("button", { name: "Update" }).click();
   await expect(page.getByRole("button", { name: "Update" })).toBeHidden();

@@ -8,13 +8,13 @@
 		"enabled": true
 	},
 	// ─────────────────────────────────────────────────────────────────────────
-	// Top level is *local only* — `wrangler dev` and the test suite.
+	// Top level is *local only* - `wrangler dev` and the test suite.
 	//
 	// Deliberately no `secrets_store_secrets` here: locally the same names come
 	// from `.dev.vars` as plain strings, which `resolveServerEnv` accepts either
 	// way. The deployed environments are under `env` below; wrangler does not
 	// inherit vars or bindings into a named environment, so each one repeats
-	// everything it needs. That repetition is the point — reading one block
+	// everything it needs. That repetition is the point - reading one block
 	// tells you exactly what that environment runs with.
 	// ─────────────────────────────────────────────────────────────────────────
 	"kv_namespaces": [
@@ -44,10 +44,10 @@
 		"ENVIRONMENT": "development",
 		"APP_URL": "http://localhost:41000",
 		"API_URL": "http://localhost:8787",
-		// Two local `turso dev` servers — see docs/setup-database.md.
+		// Two local `turso dev` servers - see docs/setup-database.md.
 		"TURSO_DIRECTORY_URL": "http://127.0.0.1:41080",
 		"TURSO_USER_HOST": "http://127.0.0.1:41081",
-		// Public identifiers, not secrets — the same dev registrations `env.dev`
+		// Public identifiers, not secrets - the same dev registrations `env.dev`
 		// uses. Without them here, a plain `wrangler dev` has no client id, so
 		// "Continue with Google" is hidden and connecting a calendar throws:
 		// both flows read these, and the top-level config is what `pnpm api`
@@ -59,7 +59,7 @@
 		// ───────────────────────────────────────────────────────────────────────
 		// Deployed dev. Its own Turso databases, its own queue, its own secrets.
 		// Nothing here is shared with production except the Secrets Store itself,
-		// which is account-wide — hence the WR_DEV_ / WR_PROD_ name prefixes.
+		// which is account-wide - hence the WR_DEV_ / WR_PROD_ name prefixes.
 		// ───────────────────────────────────────────────────────────────────────
 		"dev": {
 			"name": "wiseroutine-api-dev",

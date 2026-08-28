@@ -1,7 +1,7 @@
 /**
  * How often to poll a calendar when nobody has asked.
  *
- * The provider push channels are what actually keep a calendar fresh — a
+ * The provider push channels are what actually keep a calendar fresh - a
  * change arrives as a notification, and the sync runs within seconds. This
  * poll exists for the case where a notification never came: a channel that
  * expired early, a delivery Google dropped, a Graph subscription that lapsed.
@@ -14,7 +14,7 @@
  *
  * What this deliberately does *not* do is narrow the sync window per view.
  * Google refuses `timeMin`/`timeMax` alongside a `syncToken`, and Graph encodes
- * the range inside the delta token — so a window per view means a full fetch
+ * the range inside the delta token - so a window per view means a full fetch
  * per view instead of one incremental call. Cadence is the axis with room in
  * it; range is not.
  */
@@ -37,7 +37,7 @@ export const RECENT_WINDOW_MS = 24 * HOUR;
 /**
  * How long until this calendar should be polled again.
  *
- * `lastSeenAt` is null for an account that has never opened the app — a
+ * `lastSeenAt` is null for an account that has never opened the app - a
  * signup that connected a calendar and left. That is the dormant case, not the
  * active one, so it gets the longest interval rather than the shortest.
  */
@@ -60,11 +60,11 @@ export function syncInterval(
  * Two different questions, and conflating them is expensive.
  *
  * *Recording* that someone is here is one small write, and it should happen
- * often enough that `syncInterval` stays honest — debounced only enough that
+ * often enough that `syncInterval` stays honest - debounced only enough that
  * a chatty client does not write per request.
  *
  * *Syncing* is a provider call. Doing that on the same one-minute debounce
- * would mean sixty syncs an hour for someone with the app open — four times
+ * would mean sixty syncs an hour for someone with the app open - four times
  * worse than the fifteen-minute poll it is supposed to relieve.
  */
 export const TOUCH_DEBOUNCE_MS = MINUTE;

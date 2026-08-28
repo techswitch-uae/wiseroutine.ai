@@ -15,7 +15,7 @@ import type * as Prisma from "../internal/prismaNamespace"
 /**
  * Model DeskSession
  * Coarse desk sessions for "sitting streak". Deliberately not a presence
- * sample firehose — the client detects idle locally and reports boundaries.
+ * sample firehose - the client detects idle locally and reports boundaries.
  */
 export type DeskSessionModel = runtime.Types.Result.DefaultSelection<Prisma.$DeskSessionPayload>
 

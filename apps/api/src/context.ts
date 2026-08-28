@@ -19,7 +19,7 @@ import {
  * Cloudflare bindings.
  *
  * Note what is *not* here: the database. Turso is reached over HTTP with a URL
- * and a token, so it is configuration rather than a binding — which is also
+ * and a token, so it is configuration rather than a binding - which is also
  * why it can be opened from anywhere, including a queue consumer.
  */
 export interface Bindings {
@@ -99,7 +99,7 @@ export function rootKey(c: Ctx): string {
  * Session auth.
  *
  * One call resolves the session, the user's settings *and* which database to
- * open — every authenticated route needs all three, and against a remote
+ * open - every authenticated route needs all three, and against a remote
  * database three separate lookups would be three round trips. The application
  * columns ride along because they are declared as `additionalFields` on the
  * user in `src/auth.ts`.

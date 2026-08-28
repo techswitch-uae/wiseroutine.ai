@@ -58,8 +58,8 @@ const Calendars: React.FC = () => {
   /**
    * The ticks as the user has left them, before Update.
    *
-   * Kept apart from `calendars` — which stays as the server last described it
-   * — so "has anything changed?" is a comparison rather than a flag somebody
+   * Kept apart from `calendars` - which stays as the server last described it
+   * - so "has anything changed?" is a comparison rather than a flag somebody
    * has to remember to set, and Cancel is just throwing this away.
    */
   const [draft, setDraft] = useState<Draft>({});
@@ -110,7 +110,7 @@ const Calendars: React.FC = () => {
    *
    * Only one account may have unsaved changes at a time. Two sets of pending
    * ticks with an Update button each looks like two independent edits, but
-   * saving one used to reload the page and silently discard the other — so
+   * saving one used to reload the page and silently discard the other - so
    * rather than leaving that trap open, starting on a second account closes
    * the first one down.
    */
@@ -135,7 +135,7 @@ const Calendars: React.FC = () => {
    *
    * The sync is the point. Selecting a calendar has nothing to show until its
    * events are fetched, and deselecting one used to leave its meetings on the
-   * day indefinitely — so "Update" means both halves, and the reload after it
+   * day indefinitely - so "Update" means both halves, and the reload after it
    * is what proves to the user that it took.
    */
   const update = (connectionId: string, changed: readonly DraftCalendar[]) => {
@@ -187,7 +187,7 @@ const Calendars: React.FC = () => {
             note={
               connection.status === "active"
                 ? `Reading ${on} of ${under.length} calendars`
-                : "Needs reconnecting — we can't read this account right now"
+                : "Needs reconnecting - we can't read this account right now"
             }
             {...(confirming === connection.id
               ? {}

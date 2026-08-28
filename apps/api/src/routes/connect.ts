@@ -30,7 +30,7 @@ import { ensureWatch, type WatchDeps } from "../sync/watch";
  * Sign-in is an emailed code (`src/auth.ts`); this is a *later*, optional act
  * by someone already signed in. Keeping them apart is what lets a user exist
  * before Google has approved anything, and it keeps provider refresh tokens in
- * the user's own database — Better Auth would have put them in the shared
+ * the user's own database - Better Auth would have put them in the shared
  * directory.
  */
 export const connect = new Hono<App>();
@@ -57,7 +57,7 @@ function redirectUri(apiUrl: string, provider: Provider): string {
  * to be authenticated: the desktop app opens the result in the system browser,
  * where no authorization header would survive. Which account the calendar
  * attaches to is decided here, from the session, and carried in server-side
- * state — never in a query parameter the caller could change.
+ * state - never in a query parameter the caller could change.
  */
 connect.post("/:provider/start", requireUser, async (c) => {
   const provider = parseProvider(c.req.param("provider"));
@@ -196,12 +196,12 @@ connect.get("/:provider/callback", async (c) => {
   );
 
   /**
-   * The first call that actually uses the grant — and the first that can fail
+   * The first call that actually uses the grant - and the first that can fail
    * for reasons the user did nothing to cause: an API not enabled on the
    * project, a quota, a provider outage.
    *
    * Unhandled, it threw out of the callback and Google's browser tab landed on
-   * a raw 500 — after the user had already granted access, which is the worst
+   * a raw 500 - after the user had already granted access, which is the worst
    * possible moment to show someone a stack of JSON. The tokens are saved by
    * this point, so retrying re-uses the same connection row and repairs it;
    * what matters here is that the user is told, in the app, that it did not
@@ -232,7 +232,7 @@ connect.get("/:provider/callback", async (c) => {
    *
    * Nothing else was doing this. `upsertCalendars` marks them selected, but
    * the only places that schedule `sync_calendar` are the selection toggle,
-   * the push webhooks, and the foreground middleware — and that last one is
+   * the push webhooks, and the foreground middleware - and that last one is
    * deliberately debounced by `shouldSyncOnForeground`, so an active user
    * whose `lastSeenAt` was just touched does not trigger it. The result was a
    * calendar that connected successfully, reported success, and then showed
@@ -290,7 +290,7 @@ connect.get("/:provider/callback", async (c) => {
     const source = calendars[index];
     if (!source) continue;
 
-    // One calendar refusing a channel must not fail the connection — the rest
+    // One calendar refusing a channel must not fail the connection - the rest
     // still work, and the renewal tick retries this one.
     try {
       await ensureWatch(
@@ -308,7 +308,7 @@ connect.get("/:provider/callback", async (c) => {
     } catch (error) {
       // Google refuses to push to anything but HTTPS, so a channel can never
       // open against `http://localhost`. That is the expected state of every
-      // local machine, not a fault — and a stack trace here reads like the
+      // local machine, not a fault - and a stack trace here reads like the
       // connection broke when it did not. Sync still runs on the ticker.
       if (
         error instanceof ProviderError &&

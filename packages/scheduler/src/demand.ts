@@ -3,9 +3,9 @@ import type { Activity, Minutes } from "./types";
 export interface Progress {
   /** Sessions completed today. */
   completedToday: number;
-  /** Minutes completed today — only used by `durationPerDay`. */
+  /** Minutes completed today - only used by `durationPerDay`. */
   completedMinutesToday: Minutes;
-  /** Sessions completed so far this week — only used by `countPerWeek`. */
+  /** Sessions completed so far this week - only used by `countPerWeek`. */
   completedThisWeek: number;
 }
 

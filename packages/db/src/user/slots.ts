@@ -101,7 +101,7 @@ export async function getSlot(
  *
  * Every state change goes through here. The missed list and the adaptive
  * nudges in screen 3d are both derived from this table, with the reason
- * attached — "moved twice, then no gap under 20 min appeared" is a query over
+ * attached - "moved twice, then no gap under 20 min appeared" is a query over
  * these rows, not a string someone stored on the slot.
  */
 export async function recordSlotEvent(
@@ -297,7 +297,7 @@ export async function setSlotStatus(
 /**
  * Slots whose grace period has run out, inside this user's database.
  *
- * The cron ticker no longer scans every user — it reads the directory's
+ * The cron ticker no longer scans every user - it reads the directory's
  * coordination table and fans out. This runs once the user's database is open.
  */
 export interface ConflictMark {

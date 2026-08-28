@@ -930,7 +930,7 @@ export type $ExternalEventPayload<ExtArgs extends runtime.Types.Extensions.Inter
     calendarId: string
     providerEventId: string
     /**
-     * Cross-calendar identity — how the same meeting on a work and a personal
+     * Cross-calendar identity - how the same meeting on a work and a personal
      * calendar is deduplicated.
      */
     icalUid: string | null

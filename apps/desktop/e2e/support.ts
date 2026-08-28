@@ -5,7 +5,7 @@ import { expect, test as base } from "@playwright/test";
  *
  * Two things the app cannot be asked to do in a test: sign in, which is a code
  * emailed to a real address, and connect a calendar, which is a consent screen
- * on Google's servers. Both go through the Worker's seeding routes instead —
+ * on Google's servers. Both go through the Worker's seeding routes instead -
  * see `apps/api/src/routes/testing.ts` for why that is a door with three locks
  * rather than a loosened sign-in.
  */
@@ -59,7 +59,7 @@ async function seed<T>(
         "Is the Worker running with the same E2E_SECRET this run is using?",
     );
   }
-  // 204 from /reset — there is nothing to parse, and asking anyway throws.
+  // 204 from /reset - there is nothing to parse, and asking anyway throws.
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
@@ -69,7 +69,7 @@ async function seed<T>(
  *
  * Not optional: locally one database serves every user, so without this a
  * scenario sees whatever the previous one seeded. That is not a quirk of the
- * fixture — it is what the first run of these tests actually did.
+ * fixture - it is what the first run of these tests actually did.
  */
 base.beforeEach(async () => {
   await seed("/reset", {});
@@ -84,7 +84,7 @@ export const test = base.extend<{
       // The seeded user lives in this machine's zone, so "noon" means the
       // same thing to the test and to the server. Left at a fixed zone, a
       // meeting placed at local noon lands outside the working window
-      // whenever the runner is a few hours from it — which is a failure with
+      // whenever the runner is a few hours from it - which is a failure with
       // nothing to say about calendars.
       const user = await seed<SeededUser>("/seed", {
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -112,7 +112,7 @@ export const test = base.extend<{
 export { expect };
 
 /**
- * Noon today, in the seeded user's zone — which is this machine's.
+ * Noon today, in the seeded user's zone - which is this machine's.
  *
  * Today, not tomorrow: the day view asks the server for the current day and
  * offers no way to look at another one, so a meeting seeded anywhere else is
@@ -134,7 +134,7 @@ export function todayNoon(): number {
  *
  * Absence assertions are worthless without this. `toBeHidden()` is satisfied
  * by an element that does not exist, and immediately after a navigation
- * nothing exists yet — so a test asserting "the meeting is gone" passed
+ * nothing exists yet - so a test asserting "the meeting is gone" passed
  * whether or not it was, which is exactly what this skeleton's first
  * falsification run caught it doing.
  *

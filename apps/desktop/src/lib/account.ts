@@ -7,7 +7,7 @@ import { useSyncExternalStore } from "react";
  * belong to either: the rail loaded its copy once on mount and had no way to
  * learn that a save on another screen had made it stale.
  *
- * `useSyncExternalStore` rather than a context or a state library — React
+ * `useSyncExternalStore` rather than a context or a state library - React
  * ships it for exactly this shape of problem, and the whole store is one value
  * and three functions. It is deliberately not a cache: `setAccount` is called
  * by whoever just learned the truth from the server, and nothing here fetches.
@@ -18,7 +18,7 @@ export interface Account {
   plan: string;
   /** IANA zone every preferred window is evaluated in. */
   timeZone: string;
-  /** Only ever rendered when it is an `https:` URL — see `Avatar`. */
+  /** Only ever rendered when it is an `https:` URL - see `Avatar`. */
   avatarUrl: string | null;
 }
 
@@ -30,7 +30,7 @@ export function setAccount(next: Account | null): void {
   for (const notify of listeners) notify();
 }
 
-/** Change what you know without having to restate the rest — a name save
+/** Change what you know without having to restate the rest - a name save
  *  knows the new name and nothing else. A no-op when nobody is signed in. */
 export function patchAccount(patch: Partial<Account>): void {
   if (current) setAccount({ ...current, ...patch });

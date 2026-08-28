@@ -27,7 +27,7 @@ export interface UpsertResult {
  * Write only what actually changed.
  *
  * A blind re-upsert of every event on every sync is the difference between a
- * near-free bill and a large one — the provider's own `etag`/`changeKey` tells
+ * near-free bill and a large one - the provider's own `etag`/`changeKey` tells
  * us when a write would be a no-op, so we skip it.
  */
 export async function upsertEvents(
@@ -122,7 +122,7 @@ export async function tombstoneEvents(
  * Filtered by the calendar's own selection, not just by what has been synced.
  * Deselecting a calendar cancels its future syncs but leaves everything
  * already fetched sitting in the table, so without this the events kept
- * showing on the day — and, worse, kept blocking the planner — until someone
+ * showing on the day - and, worse, kept blocking the planner - until someone
  * deleted them by hand. Reading through the relation makes the toggle take
  * effect at once, and makes re-selecting free: the rows never went anywhere.
  */

@@ -4,7 +4,7 @@ import type { Bindings } from "./context";
 
 declare global {
   namespace Cloudflare {
-    // Augments the pool's own `cloudflare:test` types — the reference above
+    // Augments the pool's own `cloudflare:test` types - the reference above
     // must come first, or this replaces the module instead of extending it.
     interface Env extends Bindings {}
 

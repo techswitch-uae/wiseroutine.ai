@@ -89,7 +89,7 @@ export async function updateActivity(
   await db.activity.updateMany({ where: { id: activityId }, data: patch });
 }
 
-/** Paused, not deleted — 3e treats Paused as a first-class state, and the
+/** Paused, not deleted - 3e treats Paused as a first-class state, and the
  *  missed list still needs the activity's history. */
 export async function setActivityActive(
   db: UserDatabase,
