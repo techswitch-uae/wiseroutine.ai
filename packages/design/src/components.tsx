@@ -728,7 +728,9 @@ export type DayGridProps = {
   /** The zone the labels are written in - the user's, never the device's. */
   timeZone: string;
   items: readonly DayGridItem[];
-  /** Drawn only when it falls inside the window. */
+  /** Pins the now line to an instant, for the gallery and for tests. Left out,
+   *  the line is live and keeps its own minute-aligned clock - see `NowLine`.
+   *  Either way it is drawn only when it falls inside the window. */
   now?: number;
   /** Height of a quarter-hour. The scale, and the only one there is. */
   quarterStep?: number;
@@ -741,6 +743,83 @@ export type DayGridProps = {
 
 const QUARTER = 15 * 60_000;
 const HOUR = 60 * 60_000;
+
+/** How close the now label may come to an hour's before one has to give way. */
+const LABEL_CLEARANCE = 13;
+
+/**
+ * The line where the day has got to.
+ *
+ * It keeps its own clock, for two reasons. The line is the only thing on the
+ * page that changes every minute, and hoisting that into the page meant the
+ * whole day re-rendered on a timer to move one border a few pixels. And the
+ * timer that lived up there was a plain 60s interval started at mount, so it
+ * fired at whatever second the page happened to load: the system clock ticked
+ * over to a new minute and this line sat still for up to another 59 seconds.
+ * Waiting for the next minute boundary and re-arming from there is what makes
+ * it track the clock rather than drift alongside it.
+ *
+ * `at` pins it, for the gallery and for tests. Without it the line is live.
+ */
+const NowLine: React.FC<{
+  at?: number;
+  dayStart: number;
+  dayEnd: number;
+  scale: DayScale;
+  label: Intl.DateTimeFormat;
+}> = ({ at, dayStart, dayEnd, scale, label }) => {
+  const [tick, setTick] = useState(() => Date.now());
+
+  useEffect(() => {
+    // Pinned: there is nothing to follow.
+    if (at !== undefined) return;
+
+    let timer: ReturnType<typeof setTimeout>;
+    const atNextMinute = () => {
+      timer = setTimeout(
+        () => {
+          setTick(Date.now());
+          atNextMinute();
+        },
+        // Re-measured every time rather than a fixed 60s, so the line cannot
+        // drift away from the minute across a long session, or after the
+        // machine has been asleep.
+        60_000 - (Date.now() % 60_000),
+      );
+    };
+    atNextMinute();
+    return () => clearTimeout(timer);
+  }, [at]);
+
+  const now = at ?? tick;
+  if (now < dayStart || now > dayEnd) return null;
+
+  const top = yOf(now, scale);
+
+  /**
+   * Whether this label and the nearest hour's would sit on top of each other.
+   *
+   * Only the hours carry a number, so this is the only collision there is. When
+   * it happens the hour keeps its number and this one goes: the hour is the
+   * fixed thing the day is read against, and two numbers a few pixels apart are
+   * worse than one. The accent line and its dot still say exactly where now is.
+   */
+  const hour = Math.round(now / HOUR) * HOUR;
+  const crowded =
+    hour >= dayStart &&
+    hour <= dayEnd &&
+    Math.abs(yOf(hour, scale) - top) < LABEL_CLEARANCE;
+
+  return (
+    <div className="wr-daygrid-now" style={{ top }}>
+      {crowded ? null : (
+        <span className="wr-daygrid-now-label">
+          {label.format(new Date(now))}
+        </span>
+      )}
+    </div>
+  );
+};
 
 /** How far the pointer travels before a press becomes a drag. Below this it is
  *  a click, and a card that jumps on every click is unusable. */
@@ -1104,13 +1183,13 @@ export const DayGrid: React.FC<DayGridProps> = ({
         );
       })}
 
-      {now !== undefined && now >= dayStart && now <= dayEnd ? (
-        <div className="wr-daygrid-now" style={{ top: yOf(now, scale) }}>
-          <span className="wr-daygrid-now-label">
-            {label.format(new Date(now))}
-          </span>
-        </div>
-      ) : null}
+      <NowLine
+        {...(now !== undefined ? { at: now } : {})}
+        dayStart={dayStart}
+        dayEnd={dayEnd}
+        scale={scale}
+        label={label}
+      />
 
       <div className="wr-daygrid-lanes">
         {placed.map(

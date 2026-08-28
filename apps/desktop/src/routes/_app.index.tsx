@@ -188,11 +188,30 @@ const Today: React.FC = () => {
     return () => globalThis.removeEventListener?.("online", drain);
   }, [load]);
 
-  // The live slot is decided by the clock, so the timeline has to re-render as
-  // it passes. A minute is enough - nothing here changes faster than that.
+  /**
+   * The live slot is decided by the clock, so the timeline has to re-render as
+   * it passes.
+   *
+   * Not the now line, though - that keeps its own clock inside the grid, so
+   * moving it no longer costs a render of the whole day.
+   *
+   * Aligned to the minute rather than a plain interval started at mount. An
+   * unaligned one fires at whatever second the page happened to load, which
+   * left a slot going live up to 59 seconds after it actually did.
+   */
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(timer);
+    let timer: ReturnType<typeof setTimeout>;
+    const atNextMinute = () => {
+      timer = setTimeout(
+        () => {
+          setNow(Date.now());
+          atNextMinute();
+        },
+        60_000 - (Date.now() % 60_000),
+      );
+    };
+    atNextMinute();
+    return () => clearTimeout(timer);
   }, []);
 
   /**
@@ -320,7 +339,6 @@ const Today: React.FC = () => {
             dayStart={data.dayStart}
             dayEnd={data.dayEnd}
             timeZone={data.timeZone}
-            now={now}
             onMove={move}
             items={rows.map((row) => ({
               key: row.key,
