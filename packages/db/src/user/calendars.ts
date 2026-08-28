@@ -152,6 +152,43 @@ export async function setCalendarSelected(
   await db.calendar.update({ where: { id: calendarId }, data: { isSelected } });
 }
 
+/**
+ * Remove a connection and everything read through it.
+ *
+ * Order matters and is not incidental: events reference calendars, sync state
+ * and tokens reference their owners, so anything deleted out of order leaves a
+ * row pointing at nothing. The events go because this is the one action that
+ * means "forget this account" — deselecting a calendar keeps its events for a
+ * cheap re-select, but a disconnected account has no way back except fresh
+ * consent, and holding someone's meetings after they revoked our access is
+ * exactly the thing they were asking us to stop doing.
+ */
+export async function deleteConnection(
+  db: UserDatabase,
+  connectionId: string,
+): Promise<string[]> {
+  const calendars = await db.calendar.findMany({
+    where: { connectionId },
+    select: { id: true },
+  });
+  const ids = calendars.map((calendar) => calendar.id);
+
+  if (ids.length > 0) {
+    await db.externalEvent.deleteMany({ where: { calendarId: { in: ids } } });
+    await db.calendarSyncState.deleteMany({
+      where: { calendarId: { in: ids } },
+    });
+    await db.calendar.deleteMany({ where: { connectionId } });
+  }
+
+  await db.oAuthToken.deleteMany({ where: { connectionId } });
+  await db.calendarConnection.delete({ where: { id: connectionId } });
+
+  // The caller needs these to cancel the per-calendar work in the directory,
+  // which lives in a different database and cannot be part of this.
+  return ids;
+}
+
 /* ── Sync state ──────────────────────────────────────────────────────────── */
 
 export async function getSyncState(db: UserDatabase, calendarId: string) {

@@ -297,6 +297,103 @@ describe("settings", () => {
     expect(row?.title).toBeNull();
   });
 
+  test("deselecting a calendar takes its events off the day at once", async () => {
+    const user = await seedUser();
+    const { calendarId } = await seedCalendar();
+    const start = tomorrowNoon();
+
+    await userDb().externalEvent.create({
+      data: {
+        id: crypto.randomUUID(),
+        calendarId,
+        providerEventId: "evt-deselect",
+        title: "Standup",
+        startsAt: new Date(start),
+        endsAt: new Date(start + 1_800_000),
+        updatedAt: new Date(),
+      },
+    });
+
+    const dayAt = `http://api/today?at=${start}`;
+    const before = await worker.default.fetch(dayAt, { headers: user.headers });
+    expect(
+      ((await before.json()) as { meetings: unknown[] }).meetings.length,
+    ).toBe(1);
+
+    const off = await worker.default.fetch(
+      `http://api/calendars/${calendarId}`,
+      {
+        method: "PATCH",
+        headers: { ...user.headers, "content-type": "application/json" },
+        body: JSON.stringify({ isSelected: false }),
+      },
+    );
+    expect(off.status).toBe(204);
+
+    // The bug this covers: deselecting cancelled future syncs but left every
+    // event already fetched in the table, so the meeting stayed on the day —
+    // and kept blocking the planner — no matter how often it was refreshed.
+    const after = await worker.default.fetch(dayAt, { headers: user.headers });
+    expect(
+      ((await after.json()) as { meetings: unknown[] }).meetings.length,
+    ).toBe(0);
+
+    // And re-selecting costs nothing: the rows were never deleted.
+    await worker.default.fetch(`http://api/calendars/${calendarId}`, {
+      method: "PATCH",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ isSelected: true }),
+    });
+    const again = await worker.default.fetch(dayAt, { headers: user.headers });
+    expect(
+      ((await again.json()) as { meetings: unknown[] }).meetings.length,
+    ).toBe(1);
+  });
+
+  test("disconnecting an account takes its calendars and events with it", async () => {
+    const user = await seedUser();
+    const { calendarId, connectionId } = await seedCalendar();
+    const start = tomorrowNoon();
+
+    await userDb().externalEvent.create({
+      data: {
+        id: crypto.randomUUID(),
+        calendarId,
+        providerEventId: "evt-disconnect",
+        title: "Standup",
+        startsAt: new Date(start),
+        endsAt: new Date(start + 1_800_000),
+        updatedAt: new Date(),
+      },
+    });
+
+    const gone = await worker.default.fetch(
+      `http://api/connections/${connectionId}`,
+      { method: "DELETE", headers: user.headers },
+    );
+    expect(gone.status).toBe(204);
+
+    // Unlike deselecting, this one really does forget: holding someone's
+    // meetings after they disconnected the account is the thing they asked us
+    // to stop doing.
+    expect(await userDb().externalEvent.count()).toBe(0);
+    expect(await userDb().calendar.count()).toBe(0);
+    expect(await userDb().calendarConnection.count()).toBe(0);
+
+    const listed = await worker.default.fetch("http://api/calendars", {
+      headers: user.headers,
+    });
+    const body = (await listed.json()) as { connections: unknown[] };
+    expect(body.connections).toHaveLength(0);
+
+    // A repeat press is done, not an error — the account is gone either way.
+    const again = await worker.default.fetch(
+      `http://api/connections/${connectionId}`,
+      { method: "DELETE", headers: user.headers },
+    );
+    expect(again.status).toBe(204);
+  });
+
   test("a day that ends before it starts is refused", async () => {
     const user = await seedUser();
     const response = await worker.default.fetch("http://api/settings", {

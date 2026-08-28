@@ -209,10 +209,20 @@ export const AppFrame: React.FC<{
   sidebar: React.ReactNode;
   header?: React.ReactNode;
   rail?: React.ReactNode;
+  /**
+   * Keep the rail's column even on a page with no modules in it.
+   *
+   * The app sets this everywhere. Without it the main content grew by the
+   * width of the rail the moment you left Today, so the same settings form was
+   * one width on Account and another on Calendars, and every navigation
+   * reflowed the page — which reads as two different apps rather than two
+   * pages of one.
+   */
+  reserveRail?: boolean;
   children: React.ReactNode;
   /** Renders the traffic lights. Off inside the gallery, where it is noise. */
   chrome?: boolean;
-}> = ({ sidebar, header, rail, children, chrome = true }) => (
+}> = ({ sidebar, header, rail, reserveRail, children, chrome = true }) => (
   <div className={cx("wr-frame", !chrome && "wr-frame-bare")}>
     {chrome ? <WindowBar /> : null}
     <div className="wr-frame-body">
@@ -221,7 +231,9 @@ export const AppFrame: React.FC<{
         {header ? <div className="wr-page-head">{header}</div> : null}
         <div className="wr-page-body">
           <div className="wr-page-main">{children}</div>
-          {rail ? <aside className="wr-rail">{rail}</aside> : null}
+          {rail || reserveRail ? (
+            <aside className="wr-rail">{rail}</aside>
+          ) : null}
         </div>
       </main>
     </div>

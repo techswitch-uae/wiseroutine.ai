@@ -2,6 +2,7 @@ import type React from "react";
 import {
   Avatar,
   Button,
+  Card,
   Chip,
   ClashRow,
   CodeInput,
@@ -272,7 +273,7 @@ export const AccountScreen: React.FC<{
         </div>
       </div>
 
-      <section className="wr-account-sec">
+      <Card title="Name">
         <form
           style={{ display: "flex", gap: 10, alignItems: "flex-end" }}
           onSubmit={(event) => {
@@ -281,7 +282,7 @@ export const AccountScreen: React.FC<{
           }}
         >
           <Field
-            label="Name"
+            aria-label="Name"
             value={draft}
             onChange={(event) => onDraftNameChange?.(event.target.value)}
             placeholder="How should we address you?"
@@ -300,12 +301,12 @@ export const AccountScreen: React.FC<{
           Providers give us a name when you sign in with them. This overrides
           it.
         </p>
-      </section>
+      </Card>
 
       {timeZone ? (
-        <section className="wr-account-sec">
+        <Card title="Time zone">
           <SelectField
-            label="Time zone"
+            aria-label="Time zone"
             options={
               // Always include the saved value, even if this build of the
               // browser does not list it — otherwise the select silently shows
@@ -331,12 +332,10 @@ export const AccountScreen: React.FC<{
             Everything is scheduled in this zone — your day's start and end, and
             when each activity is due.
           </p>
-        </section>
+        </Card>
       ) : null}
 
-      <section className="wr-account-sec">
-        <span className="wr-label">How you sign in</span>
-
+      <Card title="How you sign in">
         {accounts.length === 0 ? (
           <p className="wr-account-empty">
             A code emailed to <b>{email}</b>. That always works, whether or not
@@ -386,16 +385,15 @@ export const AccountScreen: React.FC<{
           Disconnecting only removes this way of signing in — your calendars
           stay connected, and the emailed code still works.
         </p>
-      </section>
+      </Card>
 
-      <section className="wr-account-sec">
-        <span className="wr-label">This device</span>
+      <Card title="This device">
         <div className="wr-account-actions">
           <Button variant="secondary" onClick={onSignOut}>
             Sign out
           </Button>
         </div>
-      </section>
+      </Card>
     </div>
   );
 };

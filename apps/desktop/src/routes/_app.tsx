@@ -9,6 +9,7 @@ import { AppFrame, Sidebar, UpdatePill, UserMenu } from "@wiseroutine/design";
 import { useEffect, useState } from "react";
 import { setAccount, useAccount } from "../lib/account";
 import { ApiError, api, getSessionToken, setSessionToken } from "../lib/api";
+import "../lib/rail";
 import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
 
 /**
@@ -33,14 +34,13 @@ import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
  */
 const NAV = [
   { key: "today", label: "Today", to: "/" },
+  { key: "calendars", label: "Calendars", to: "/calendars" },
   { key: "account", label: "Account", to: "/account" },
 ] as const;
 
-/** Only the entries `onSelect` below actually does something with. */
-const USER_MENU = [
-  { key: "account", label: "Account" },
-  { key: "signout", label: "Sign out" },
-] as const;
+/** Sign out and nothing else. Account is a destination in the rail above, and
+ *  listing it twice made the menu look like it held more than it did. */
+const USER_MENU = [{ key: "signout", label: "Sign out" }] as const;
 
 /**
  * The rail's "there is a new version" pill, and nothing when there is not.
@@ -156,9 +156,19 @@ const AppLayout: React.FC = () => {
   const active =
     NAV.find((item) => "to" in item && item.to === pathname)?.key ?? "today";
 
+  // The page in hand decides. Read off the deepest match rather than the whole
+  // chain, so a layout route can never impose a rail on a child that did not
+  // ask for one.
+  const Rail = useRouterState({
+    select: (state) => state.matches.at(-1)?.staticData?.rail,
+  });
+
   return (
     <AppFrame
       chrome={false}
+      // Always the same width of page, whether or not this one has modules.
+      reserveRail
+      {...(Rail ? { rail: <Rail /> } : {})}
       sidebar={
         <Sidebar
           items={NAV}

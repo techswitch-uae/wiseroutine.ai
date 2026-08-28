@@ -14,6 +14,7 @@ import { Route as DesignRouteImport } from './routes/design'
 import { Route as SigninRouteImport } from './routes/signin'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppAccountRouteImport } from './routes/_app.account'
+import { Route as AppCalendarsRouteImport } from './routes/_app.calendars'
 import { Route as AuthCompleteRouteImport } from './routes/auth.complete'
 
 const AppRoute = AppRouteImport.update({
@@ -40,6 +41,11 @@ const AppAccountRoute = AppAccountRouteImport.update({
   path: '/account',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCalendarsRoute = AppCalendarsRouteImport.update({
+  id: '/calendars',
+  path: '/calendars',
+  getParentRoute: () => AppRoute,
+} as any)
 const AuthCompleteRoute = AuthCompleteRouteImport.update({
   id: '/auth/complete',
   path: '/auth/complete',
@@ -51,12 +57,14 @@ export interface FileRoutesByFullPath {
   '/design': typeof DesignRoute
   '/signin': typeof SigninRoute
   '/account': typeof AppAccountRoute
+  '/calendars': typeof AppCalendarsRoute
   '/auth/complete': typeof AuthCompleteRoute
 }
 export interface FileRoutesByTo {
   '/design': typeof DesignRoute
   '/signin': typeof SigninRoute
   '/account': typeof AppAccountRoute
+  '/calendars': typeof AppCalendarsRoute
   '/auth/complete': typeof AuthCompleteRoute
   '/': typeof AppIndexRoute
 }
@@ -66,20 +74,23 @@ export interface FileRoutesById {
   '/design': typeof DesignRoute
   '/signin': typeof SigninRoute
   '/_app/account': typeof AppAccountRoute
+  '/_app/calendars': typeof AppCalendarsRoute
   '/auth/complete': typeof AuthCompleteRoute
   '/_app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/design' | '/signin' | '/account' | '/auth/complete'
+  fullPaths:
+    '/' | '/design' | '/signin' | '/account' | '/calendars' | '/auth/complete'
   fileRoutesByTo: FileRoutesByTo
-  to: '/design' | '/signin' | '/account' | '/auth/complete' | '/'
+  to: '/design' | '/signin' | '/account' | '/calendars' | '/auth/complete' | '/'
   id:
     | '__root__'
     | '/_app'
     | '/design'
     | '/signin'
     | '/_app/account'
+    | '/_app/calendars'
     | '/auth/complete'
     | '/_app/'
   fileRoutesById: FileRoutesById
@@ -128,6 +139,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAccountRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/calendars': {
+      id: '/_app/calendars'
+      path: '/calendars'
+      fullPath: '/calendars'
+      preLoaderRoute: typeof AppCalendarsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/auth/complete': {
       id: '/auth/complete'
       path: '/auth/complete'
@@ -140,11 +158,13 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppAccountRoute: typeof AppAccountRoute
+  AppCalendarsRoute: typeof AppCalendarsRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppAccountRoute: AppAccountRoute,
+  AppCalendarsRoute: AppCalendarsRoute,
   AppIndexRoute: AppIndexRoute,
 }
 

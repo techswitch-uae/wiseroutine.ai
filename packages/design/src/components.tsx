@@ -1,4 +1,5 @@
 import type React from "react";
+import { useEffect } from "react";
 
 const cx = (...parts: (string | false | undefined)[]): string =>
   parts.filter(Boolean).join(" ");
@@ -106,7 +107,15 @@ export const Rule: React.FC<{ children?: React.ReactNode }> = ({
 }) => <div className="wr-divider">{children}</div>;
 
 export type FieldProps = React.InputHTMLAttributes<HTMLInputElement> & {
-  label: string;
+  /**
+   * Omit when a `Card` title is already naming this field — repeating it
+   * inside the card says the same word twice.
+   *
+   * A field with no visible label still needs a name for anyone not looking
+   * at it, so pass `aria-label` in that case. There is no sensible default:
+   * only the caller knows what the surrounding title says.
+   */
+  label?: string;
 };
 
 /** A labelled pill. The label is real, not a placeholder: a placeholder
@@ -117,19 +126,23 @@ export const Field: React.FC<FieldProps> = ({
   className,
   ...rest
 }) => {
-  const inputId = id ?? `wr-field-${label.toLowerCase().replace(/\W+/g, "-")}`;
+  const inputId =
+    id ?? `wr-field-${(label ?? "input").toLowerCase().replace(/\W+/g, "-")}`;
   return (
     <div className={cx("wr-field", className)}>
-      <label className="wr-label" htmlFor={inputId}>
-        {label}
-      </label>
+      {label ? (
+        <label className="wr-label" htmlFor={inputId}>
+          {label}
+        </label>
+      ) : null}
       <input id={inputId} className="wr-field-input" {...rest} />
     </div>
   );
 };
 
 export type SelectFieldProps = React.SelectHTMLAttributes<HTMLSelectElement> & {
-  label: string;
+  /** Optional for the same reason as `Field`'s — see there. */
+  label?: string;
   options: readonly string[];
 };
 
@@ -148,12 +161,15 @@ export const SelectField: React.FC<SelectFieldProps> = ({
   className,
   ...rest
 }) => {
-  const inputId = id ?? `wr-select-${label.toLowerCase().replace(/\W+/g, "-")}`;
+  const inputId =
+    id ?? `wr-select-${(label ?? "select").toLowerCase().replace(/\W+/g, "-")}`;
   return (
     <div className={cx("wr-field", className)}>
-      <label className="wr-label" htmlFor={inputId}>
-        {label}
-      </label>
+      {label ? (
+        <label className="wr-label" htmlFor={inputId}>
+          {label}
+        </label>
+      ) : null}
       <select id={inputId} className="wr-field-input wr-select" {...rest}>
         {options.map((option) => (
           <option key={option} value={option}>
@@ -759,6 +775,349 @@ export const LiveStatus: React.FC<{ children: React.ReactNode }> = ({
     <span className="wr-dot" />
     {children}
   </span>
+);
+
+export type CardProps = {
+  /**
+   * What this card is. Rendered as the card's own heading rather than as a
+   * label on the control inside it — Account had four of these blocks naming
+   * themselves four different ways, two through a field label and two through
+   * a loose span, and they read as four different kinds of object.
+   */
+  title?: string;
+  /** A line under the title, for the thing the title cannot say. */
+  note?: string;
+  /** An action belonging to this card, set against the title. */
+  action?: React.ReactNode;
+  /**
+   * "dark" is the inverted block from the design — same shape and padding,
+   * heavier. For the one thing on a first run worth looking at, and not for
+   * anything competing with a neighbour.
+   */
+  tone?: "light" | "dark";
+  children?: React.ReactNode;
+};
+
+/**
+ * The one raised block.
+ *
+ * Every grouped thing on a settings page is one of these: same ground, same
+ * radius, same lift. Calendars was drawing the same groups flat while Account
+ * drew them raised, which said the two pages were built out of different
+ * materials when they are not.
+ *
+ * A card with no title is still a card — the grouping is the point, and the
+ * heading is only there when the group needs naming.
+ */
+export const Card: React.FC<CardProps> = ({
+  title,
+  note,
+  action,
+  tone = "light",
+  children,
+}) => (
+  <section className={cx("wr-card", tone === "dark" && "wr-card-dark")}>
+    {title || note || action ? (
+      <header className="wr-card-head">
+        <div className="wr-card-heading">
+          {title ? <h3 className="wr-card-title">{title}</h3> : null}
+          {note ? <p className="wr-card-note">{note}</p> : null}
+        </div>
+        {action ? <div className="wr-card-action">{action}</div> : null}
+      </header>
+    ) : null}
+    {children}
+  </section>
+);
+
+export interface SetupStep {
+  key: string;
+  label: string;
+  /** Shown only while this is the step in hand. */
+  detail?: string;
+  done?: boolean;
+  /** The one action the step offers. Omit for a step that is only a tick. */
+  action?: { label: string; onClick: () => void };
+}
+
+export type SetupModuleProps = {
+  steps: readonly SetupStep[];
+  /** Removes the module for good — the caller has to remember that. */
+  onDismiss: () => void;
+  /**
+   * "dark" is the one from the design: near-black, and the only object on the
+   * page carrying that weight. It is for the first run, where the day behind
+   * it is empty and this is genuinely the thing to look at. "light" is the
+   * same module once it is one of several in the rail and no longer deserves
+   * to shout.
+   */
+  tone?: "light" | "dark";
+};
+
+/**
+ * The "you are not set up yet" module, and its own way out.
+ *
+ * A module in the rail rather than a wizard in front of the app. Someone who
+ * has just signed in should be looking at their day, not at a sequence of
+ * screens standing between them and it — and the day is the thing that makes
+ * the ask make sense, because it is visibly empty.
+ *
+ * Only the step in hand carries its explanation and its button. The ones after
+ * it are titles, because a checklist that argues for all of itself at once is
+ * a wall of text; the ones behind it are ticks.
+ */
+export const SetupModule: React.FC<SetupModuleProps> = ({
+  steps,
+  onDismiss,
+  tone = "light",
+}) => {
+  const done = steps.filter((step) => step.done).length;
+  const current = steps.find((step) => !step.done);
+
+  return (
+    <Card
+      tone={tone}
+      title="Set up"
+      action={
+        <span className="wr-setup-count">
+          {done} of {steps.length}
+        </span>
+      }
+    >
+      <ol className="wr-setup-steps">
+        {steps.map((step) => {
+          const active = step.key === current?.key;
+          return (
+            <li
+              key={step.key}
+              className={cx(
+                "wr-setup-step",
+                step.done && "wr-setup-step-done",
+                active && "wr-setup-step-active",
+              )}
+            >
+              {/* The tick belongs to the label it marks. Everything below is a
+                  sibling of that row rather than a child of it, so the detail
+                  and the button start at the step's own left edge instead of
+                  being pushed in to clear a circle they have nothing to do
+                  with. */}
+              <div className="wr-setup-row">
+                <span className="wr-setup-tick" aria-hidden="true">
+                  {step.done ? "✓" : null}
+                </span>
+                <span className="wr-setup-label">{step.label}</span>
+              </div>
+
+              {active && step.detail ? (
+                <p className="wr-setup-detail">{step.detail}</p>
+              ) : null}
+
+              {active && step.action ? (
+                tone === "dark" ? (
+                  <button
+                    type="button"
+                    className="wr-setup-go"
+                    onClick={step.action.onClick}
+                  >
+                    {step.action.label}
+                  </button>
+                ) : (
+                  <Button variant="primary" onClick={step.action.onClick}>
+                    {step.action.label}
+                  </Button>
+                )
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+
+      <button type="button" className="wr-setup-skip" onClick={onDismiss}>
+        Skip for now
+      </button>
+    </Card>
+  );
+};
+
+/**
+ * A centred sheet over a dimmed page.
+ *
+ * Used where a choice has to be finished before the app makes sense again —
+ * picking a provider and then picking calendars. Escape and a click on the
+ * backdrop both close it, because a dialog that can only be dismissed by the
+ * one button it wants pressed is a trap.
+ */
+export const Modal: React.FC<{
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+}> = ({ title, subtitle, onClose, children, footer }) => {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="wr-overlay">
+      {/* A real button rather than a click handler on the backdrop: it is
+          reachable by keyboard, it announces itself, and it removes the
+          stop-propagation dance that a clickable parent would need. */}
+      <button
+        type="button"
+        className="wr-overlay-back"
+        aria-label={`Close ${title}`}
+        onClick={onClose}
+      />
+      <div
+        className="wr-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <header className="wr-sheet-head">
+          <div>
+            <h2 className="wr-sheet-title">{title}</h2>
+            {subtitle ? <p className="wr-sheet-sub">{subtitle}</p> : null}
+          </div>
+          <IconButton label="Close" onClick={onClose}>
+            <span aria-hidden="true">×</span>
+          </IconButton>
+        </header>
+        <div
+          className={cx(
+            "wr-sheet-body",
+            footer !== undefined && "wr-sheet-body-above-foot",
+          )}
+        >
+          {children}
+        </div>
+        {footer ? <div className="wr-sheet-foot">{footer}</div> : null}
+      </div>
+    </div>
+  );
+};
+
+/** The providers we can read a calendar from. */
+const CALENDAR_PROVIDERS = [
+  {
+    key: "google" as const,
+    mark: "G",
+    name: "Google Calendar",
+    note: "Opens your browser to sign in",
+  },
+  {
+    key: "microsoft" as const,
+    mark: "M",
+    name: "Outlook / Microsoft 365",
+    note: "Work accounts may need an admin to approve",
+  },
+];
+
+export type CalendarProvider = (typeof CALENDAR_PROVIDERS)[number]["key"];
+
+/**
+ * Pick a provider, and say plainly what connecting one costs.
+ *
+ * The paragraph underneath is not boilerplate. This is the moment someone
+ * hands over their calendar, and "what we take, in plain terms" answers the
+ * question they are actually asking before they have to go looking for a
+ * privacy page to find it.
+ */
+export const ProviderChoice: React.FC<{
+  onChoose: (provider: CalendarProvider) => void;
+  /** The one being opened, if any — its row shows the wait. */
+  busy?: CalendarProvider | null;
+}> = ({ onChoose, busy }) => (
+  <>
+    <ul className="wr-providers">
+      {CALENDAR_PROVIDERS.map((provider) => (
+        <li key={provider.key} className="wr-provider">
+          <span className="wr-provider-mark" aria-hidden="true">
+            {provider.mark}
+          </span>
+          <div className="wr-provider-body">
+            <div className="wr-provider-name">{provider.name}</div>
+            <div className="wr-provider-note">{provider.note}</div>
+          </div>
+          <Button
+            variant="secondary"
+            onClick={() => onChoose(provider.key)}
+            disabled={busy !== null && busy !== undefined}
+          >
+            {busy === provider.key ? "Opening…" : "Connect"}
+          </Button>
+        </li>
+      ))}
+    </ul>
+
+    <div className="wr-provider-terms">
+      <div className="wr-provider-terms-title">
+        What we take, in plain terms
+      </div>
+      <p>
+        Event titles, times and busy status — that is all we read. We never
+        write to your calendar, never open attachments, notes or attendee lists,
+        and nothing leaves your machine except the times we need to schedule
+        around.
+      </p>
+    </div>
+  </>
+);
+
+export interface PickableCalendar {
+  id: string;
+  name: string;
+  isSelected: boolean;
+  /** "32 events this week", "all-day only" — whatever helps them choose. */
+  note?: string;
+  isPrimary?: boolean;
+}
+
+/**
+ * Which calendars to read.
+ *
+ * Only reading is on offer: the design had a "write my slots to" step, and it
+ * is deliberately not here, because the app does not write to anyone's
+ * calendar. Offering the choice would be describing a capability that does not
+ * exist.
+ */
+export const CalendarPicker: React.FC<{
+  calendars: readonly PickableCalendar[];
+  onToggle: (id: string, isSelected: boolean) => void;
+  /** Ids mid-flight, so a slow toggle cannot be double-pressed. */
+  pending?: readonly string[];
+}> = ({ calendars, onToggle, pending = [] }) => (
+  <ul className="wr-calpick">
+    {calendars.map((calendar) => (
+      <li key={calendar.id} className="wr-calpick-row">
+        <label className="wr-calpick-label">
+          <input
+            type="checkbox"
+            className="wr-calpick-box"
+            checked={calendar.isSelected}
+            disabled={pending.includes(calendar.id)}
+            onChange={(event) => onToggle(calendar.id, event.target.checked)}
+          />
+          <span className="wr-calpick-body">
+            <span className="wr-calpick-name">
+              {calendar.name}
+              {calendar.isPrimary ? (
+                <span className="wr-calpick-primary">primary</span>
+              ) : null}
+            </span>
+            {calendar.note ? (
+              <span className="wr-calpick-note">{calendar.note}</span>
+            ) : null}
+          </span>
+        </label>
+      </li>
+    ))}
+  </ul>
 );
 
 export type UpdatePillProps = {

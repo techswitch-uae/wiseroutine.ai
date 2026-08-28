@@ -3,6 +3,8 @@ import { useState } from "react";
 import "./gallery.css";
 import {
   Button,
+  CalendarPicker,
+  Card,
   Chip,
   ClashRow,
   CodeInput,
@@ -19,8 +21,10 @@ import {
   PlanNote,
   PlayGlyph,
   ProviderButton,
+  ProviderChoice,
   Rule,
   Segmented,
+  SetupModule,
   Slot,
   SourceMark,
   StateRow,
@@ -929,6 +933,180 @@ export const Gallery: React.FC = () => {
             <AppSidebar active="today">
               <SittingStreak value="52 min" note="A stretch is queued next" />
             </AppSidebar>
+          </div>
+        </Row>
+      </Section>
+
+      <Section
+        title="Blocks"
+        blurb="One raised block, used for every grouped thing on a settings page. Account had four of these naming themselves four different ways — two through a field label, two through a loose span — and Calendars drew the same groups flat, which said the two pages were built from different materials."
+      >
+        <Row
+          name="Card"
+          tag="title · note · action"
+          wide
+          why={
+            <>
+              The title is the card's own heading rather than a label on the
+              control inside it, which is why <code>Field</code> and{" "}
+              <code>SelectField</code> take an optional label: naming the card
+              and then naming the input says the same word twice. An unlabelled
+              field still needs an accessible name, so the caller passes{" "}
+              <code>aria-label</code> — only it knows what the title above says.
+            </>
+          }
+        >
+          <div style={{ width: 420, display: "grid", gap: 12 }}>
+            <Card title="Name">
+              <Field aria-label="Name" defaultValue="Mara K." />
+            </Card>
+            <Card
+              title="Google · mara@studio.com"
+              note="Reading 2 of 4 calendars"
+              action={<Button variant="quiet">Disconnect</Button>}
+            >
+              <CalendarPicker
+                calendars={[
+                  { id: "1", name: "Work", isSelected: true, isPrimary: true },
+                  { id: "2", name: "Personal", isSelected: false },
+                ]}
+                onToggle={() => undefined}
+              />
+            </Card>
+            <Card>A card with nothing to name is still a card.</Card>
+          </div>
+        </Row>
+      </Section>
+
+      <Section
+        title="Getting a calendar in"
+        blurb="The first run has one real problem: the day is empty because we cannot see the user's calendar. The rail says so and offers the one action that fixes it, rather than a wizard standing between them and the day that makes the ask make sense."
+      >
+        <Row
+          name="Set up module"
+          tag="rail · dismissable"
+          why={
+            <>
+              Only the step in hand carries its explanation and its button — the
+              ones after it are titles, because a checklist that argues for all
+              of itself at once is a wall of text. The tick well is always drawn
+              so labels do not reflow as steps complete. Dismissing is
+              permanent, and the module also retires itself the moment a
+              calendar is connected.
+            </>
+          }
+        >
+          <div style={{ width: 250, display: "grid", gap: 12 }}>
+            <SetupModule
+              tone="dark"
+              steps={[
+                {
+                  key: "cal",
+                  label: "Connect a calendar",
+                  detail:
+                    "Google or Outlook. We only read your times — nothing is ever written back.",
+                  action: { label: "Connect", onClick: () => undefined },
+                },
+                { key: "act", label: "Add two activities" },
+                { key: "hrs", label: "Confirm working hours" },
+              ]}
+              onDismiss={() => undefined}
+            />
+            <SetupModule
+              steps={[
+                {
+                  key: "cal",
+                  label: "Connect a calendar",
+                  detail:
+                    "Google or Outlook. We only read your times — nothing is ever written back.",
+                  action: { label: "Connect", onClick: () => undefined },
+                },
+                { key: "act", label: "Add two activities" },
+                { key: "hrs", label: "Confirm working hours" },
+              ]}
+              onDismiss={() => undefined}
+            />
+            <SetupModule
+              steps={[
+                { key: "cal", label: "Connect a calendar", done: true },
+                {
+                  key: "act",
+                  label: "Add two activities",
+                  detail: "Two is enough to see how a day fills in.",
+                  action: { label: "Add one", onClick: () => undefined },
+                },
+                { key: "hrs", label: "Confirm working hours" },
+              ]}
+              onDismiss={() => undefined}
+            />
+          </div>
+        </Row>
+
+        <Row
+          name="Provider choice"
+          tag="read-only"
+          wide
+          why={
+            <>
+              The paragraph underneath is not boilerplate. This is the moment
+              someone hands over their calendar, and it answers the question
+              they are actually asking before they have to go hunting for a
+              privacy page. The design also offered a "write my slots to" step;
+              it is gone, because the app does not write to anyone's calendar
+              and offering the choice would describe a capability that is not
+              there.
+            </>
+          }
+        >
+          <div style={{ width: 420 }}>
+            <ProviderChoice onChoose={() => undefined} />
+          </div>
+        </Row>
+
+        <Row
+          name="Calendar picker"
+          tag="which ones we read"
+          why={
+            <>
+              Shown after consent, and again on the Calendars page whenever
+              someone wants to change their mind. Toggling is optimistic — a
+              checkbox that waits on a round trip feels broken — and a refusal
+              puts it back rather than leaving the box claiming a state the
+              server rejected.
+            </>
+          }
+        >
+          <div style={{ width: 380 }}>
+            <CalendarPicker
+              calendars={[
+                {
+                  id: "1",
+                  name: "Work",
+                  isSelected: true,
+                  isPrimary: true,
+                  note: "32 events this week",
+                },
+                {
+                  id: "2",
+                  name: "Personal",
+                  isSelected: true,
+                  note: "6 events this week",
+                },
+                {
+                  id: "3",
+                  name: "Team holidays",
+                  isSelected: false,
+                  note: "all-day only",
+                },
+                {
+                  id: "4",
+                  name: "Birthdays",
+                  isSelected: false,
+                  note: "all-day only",
+                },
+              ]}
+              onToggle={() => undefined}
+            />
           </div>
         </Row>
       </Section>

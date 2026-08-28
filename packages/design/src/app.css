@@ -35,6 +35,11 @@
   --wr-lift-btn: 0 2px 4px rgba(46, 43, 37, 0.14), 0 8px 18px rgba(46, 43, 37, 0.2);
 
   --wr-gutter: 48px;             /* the fixed time column */
+  /* One column of prose, settings or a form. Every page that is a single
+     column measures from this, so Account and Calendars cannot disagree about
+     how wide a page is — which they did, at 560 and 620, and it read as two
+     different apps. */
+  --wr-measure: 560px;
 }
 
 body { background: var(--wr-page); }
@@ -562,15 +567,10 @@ img.wr-avatar { object-fit: cover; }
 /* ── Account ───────────────────────────────────────────────────────────────
    Sections rather than a page headline — the app shell forbids one, and each
    block here answers a different question about the account. */
-.wr-account { display: flex; flex-direction: column; gap: 22px; max-width: 560px; }
+.wr-account { display: flex; flex-direction: column; gap: 22px; max-width: var(--wr-measure); }
 .wr-account-id { display: flex; align-items: center; gap: 13px; }
 .wr-account-id-name { font: 600 15px var(--font-body); }
 .wr-account-id-email { font: 400 12.5px var(--font-body); color: var(--wr-text-muted); }
-.wr-account-sec {
-  background: var(--wr-card); border-radius: 15px; box-shadow: var(--wr-lift-1);
-  padding: 16px 18px;
-}
-.wr-account-sec > .wr-label { display: block; margin-bottom: 12px; }
 /* One linked provider. The mark is the same neutral badge the sign-in screen
    uses, so "Google" means the same thing in both places. */
 .wr-account-row {
@@ -654,7 +654,7 @@ img.wr-avatar { object-fit: cover; }
    wider than anything anyone types into it, and the eye loses the line. */
 .wr-auth {
   border-radius: 16px; overflow: hidden; box-shadow: var(--wr-lift-2);
-  max-width: 560px; margin: 0 auto;
+  max-width: var(--wr-measure); margin: 0 auto;
 }
 .wr-auth-bare { border-radius: 0; box-shadow: none; }
 .wr-auth-body { padding: 44px 52px 40px; background: var(--wr-page); }
@@ -781,6 +781,9 @@ img.wr-avatar { object-fit: cover; }
 .wr-page-head-left { display: flex; align-items: baseline; gap: 10px; }
 .wr-page-date { font-family: var(--font-heading); font-size: 20px; }
 .wr-page-helper { font: 600 12px var(--font-body); color: var(--wr-text-muted); }
+/* A single-column page. Not on `.wr-page-main` itself, because the day is a
+   full-width surface and must not be squeezed into a reading measure. */
+.wr-measure { max-width: var(--wr-measure); }
 .wr-page-body { display: flex; gap: 22px; align-items: flex-start; }
 .wr-page-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .wr-rail { width: 250px; flex: none; display: flex; flex-direction: column; gap: 12px; }
@@ -824,3 +827,259 @@ img.wr-avatar { object-fit: cover; }
 @media (prefers-reduced-motion: reduce) {
   .wr-update-bar-unknown .wr-update-bar-fill { animation: none; width: 100%; opacity: 0.5; }
 }
+
+/* ── The rail, and what sits in it ─────────────────────────────────────────
+   Its own scroller. The day and the modules are different lengths and neither
+   should drag the other: a long list of modules must not push the day off the
+   bottom of the window, and scrolling the day must not move them. */
+.wr-frame-bare .wr-rail {
+  min-height: 0; overflow-y: auto;
+  /* A scroller clips at its padding box, and `overflow-y: auto` quietly makes
+     `overflow-x` clip too — which sheared the drop shadow off both sides of
+     every module. The padding gives the shadow somewhere to land; the matching
+     negative margins hand that space back to the layout, so the modules stay
+     exactly where they were and only the shadow gains room. */
+  padding: 8px 16px 20px;
+  margin: -8px -16px -20px;
+  /* Explicit, because the 250px above has to keep meaning the width of the
+     modules. Left to a border-box rule it would mean the width of the
+     scroller, and the padding would come out of the modules instead — which
+     pushed them past the right edge and clipped the very shadow this is
+     here to protect. */
+  box-sizing: content-box;
+}
+
+/* ── Set up ────────────────────────────────────────────────────────────────
+   A Card like every other block; only the checklist inside it is its own. */
+.wr-setup-count {
+  font: 600 11px var(--font-body); color: var(--wr-text-soft);
+  font-variant-numeric: tabular-nums;
+}
+.wr-setup-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 11px; }
+/* The step is a block, not a row. The tick belongs to the label it marks, and
+   nothing below shares its indent — a paragraph and a button pushed 25px in to
+   clear a circle they have nothing to do with read as a nested list. */
+.wr-setup-step { display: grid; gap: 7px; }
+.wr-setup-row { display: flex; gap: 9px; align-items: center; }
+/* The tick well is always there, so labels line up whether or not a step is
+   done — a list that reflows as it is completed is hard to read down. */
+.wr-setup-tick {
+  flex: none; width: 15px; height: 15px; border-radius: 999px;
+  border: 1.5px solid var(--wr-hairline); box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+  font: 700 9px var(--font-body); color: var(--wr-page);
+}
+.wr-setup-step-done .wr-setup-tick {
+  background: var(--color-accent); border-color: var(--color-accent);
+}
+.wr-setup-label {
+  min-width: 0; font: 600 12px/1.35 var(--font-body); color: var(--wr-text-muted);
+}
+.wr-setup-step-active .wr-setup-label { color: var(--color-text); }
+.wr-setup-step-done .wr-setup-label {
+  color: var(--wr-text-soft); text-decoration: line-through;
+}
+.wr-setup-detail {
+  margin: 0; font: 400 11.5px/1.5 var(--font-body); color: var(--wr-text-muted);
+}
+.wr-setup-skip {
+  margin-top: 13px; padding: 0; border: 0; background: none; cursor: pointer;
+  font: 600 11.5px var(--font-body); color: var(--wr-text-soft);
+}
+.wr-setup-skip:hover { color: var(--color-text); text-decoration: underline; }
+
+/* ── Overlay sheet ─────────────────────────────────────────────────────────
+   Centred, dimmed behind. For a choice that has to be finished before the app
+   makes sense again. */
+.wr-overlay {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+/* The dim itself, and the second way out. A button rather than a handler on a
+   div: reachable by keyboard, and it announces what it does. */
+.wr-overlay-back {
+  position: absolute; inset: 0; border: 0; padding: 0; cursor: default;
+  background: rgba(32, 30, 29, 0.42);
+}
+.wr-sheet {
+  /* One number for every edge of every sheet. Head, body and foot all measure
+     from it, so a new modal is content and nothing else — and the bottom edge
+     cannot go missing again, which is what happened when each part carried its
+     own hardcoded padding. */
+  --wr-sheet-pad: 22px;
+  position: relative; width: 100%; max-width: 460px; max-height: 100%;
+  background: var(--wr-page); border-radius: 18px; box-shadow: var(--wr-lift-3);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.wr-sheet-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px;
+  padding: var(--wr-sheet-pad) var(--wr-sheet-pad) 14px;
+}
+.wr-sheet-title { margin: 0; font: 400 18px var(--font-heading); color: var(--color-text); }
+.wr-sheet-sub {
+  margin: 5px 0 0; font: 400 12px/1.5 var(--font-body); color: var(--wr-text-muted);
+}
+/* The body is the only part that scrolls, so the title and the action that
+   finishes the job never leave the screen. */
+.wr-sheet-body {
+  padding: 0 var(--wr-sheet-pad) var(--wr-sheet-pad);
+  overflow-y: auto; min-height: 0;
+}
+/* With a foot below it the body stops at the rule, which supplies the edge
+   instead — otherwise the two paddings stack into a gap twice the size. */
+.wr-sheet-body-above-foot { padding-bottom: 0; }
+.wr-sheet-foot {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: var(--wr-sheet-pad);
+  padding: 14px var(--wr-sheet-pad) var(--wr-sheet-pad);
+  border-top: 1px solid var(--wr-hairline);
+}
+
+/* ── Choosing a provider ───────────────────────────────────────────────── */
+.wr-providers { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.wr-provider {
+  display: flex; align-items: center; gap: 11px; padding: 11px 12px;
+  border: 1px solid var(--wr-hairline); border-radius: 13px; background: var(--wr-card);
+}
+.wr-provider-mark {
+  flex: none; width: 28px; height: 28px; border-radius: 999px;
+  background: var(--wr-recessed); display: flex; align-items: center;
+  justify-content: center; font: 700 12px var(--font-body); color: var(--wr-text-muted);
+}
+.wr-provider-body { flex: 1; min-width: 0; }
+.wr-provider-name { font: 600 12.5px var(--font-body); color: var(--color-text); }
+.wr-provider-note {
+  font: 400 11px/1.4 var(--font-body); color: var(--wr-text-soft);
+}
+.wr-provider-terms {
+  margin-top: 16px; padding: 12px 13px; border-radius: 12px;
+  background: var(--wr-recessed);
+}
+.wr-provider-terms-title {
+  font: 700 11px var(--font-body); color: var(--wr-text-muted);
+  text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px;
+}
+.wr-provider-terms p {
+  margin: 0; font: 400 11.5px/1.6 var(--font-body); color: var(--wr-text-muted);
+}
+
+/* ── Choosing calendars ────────────────────────────────────────────────── */
+.wr-calpick { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.wr-calpick-row { border-radius: 10px; }
+.wr-calpick-row:hover { background: var(--wr-recessed); }
+.wr-calpick-label {
+  display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px;
+  cursor: pointer;
+}
+.wr-calpick-box { margin: 1px 0 0; accent-color: var(--color-accent); flex: none; }
+.wr-calpick-body { min-width: 0; display: grid; gap: 2px; }
+.wr-calpick-name {
+  font: 600 12.5px var(--font-body); color: var(--color-text);
+  display: flex; align-items: center; gap: 7px;
+}
+.wr-calpick-primary {
+  font: 700 9px var(--font-body); text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--wr-text-soft); border: 1px solid var(--wr-hairline);
+  border-radius: 999px; padding: 1px 6px;
+}
+.wr-calpick-note { font: 400 11px var(--font-body); color: var(--wr-text-soft); }
+
+/* ── Asking before something irreversible ──────────────────────────────────
+   Inline where the action was, not a dialog: the thing being disconnected is
+   named right above it, and moving the question elsewhere would separate it
+   from its own context. */
+.wr-confirm {
+  padding: 12px 13px; border-radius: 12px;
+  background: var(--wr-recessed); border: 1px solid var(--wr-hairline);
+}
+.wr-confirm-text {
+  margin: 0 0 11px; font: 400 12px/1.6 var(--font-body); color: var(--wr-text-muted);
+}
+.wr-confirm-actions { display: flex; align-items: center; gap: 9px; }
+
+/* ── The one raised block ──────────────────────────────────────────────────
+   Every grouped thing is one of these: settings sections, and the modules in
+   the dashboard's rail. One padding, declared once — a module that sets its
+   own is how the rail and the settings pages drifted apart in the first
+   place. */
+.wr-card {
+  background: var(--wr-card); border-radius: 15px;
+  box-shadow: var(--wr-lift-1); padding: 16px 18px;
+}
+/* The inverted tone. Same block, same padding — only heavier, for the one
+   thing on a first run worth looking at. */
+.wr-card-dark {
+  background: var(--color-text); color: var(--color-neutral-100);
+  box-shadow: 0 3px 6px rgba(46, 43, 37, 0.14), 0 16px 34px rgba(46, 43, 37, 0.22);
+}
+.wr-card-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; margin-bottom: 12px;
+}
+.wr-card-heading { min-width: 0; }
+/* A heading, not a field label — the same size and weight as the label it
+   replaced, so nothing changed size, only what owns the words. */
+.wr-card-title {
+  margin: 0; font: 700 11px var(--font-body); color: var(--wr-text-muted);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.wr-card-note {
+  margin: 5px 0 0; font: 400 11.5px/1.5 var(--font-body); color: var(--wr-text-soft);
+}
+.wr-card-action { flex: none; }
+.wr-card-head + .wr-field { margin-top: 0; }
+.wr-card-dark .wr-card-title { color: rgba(245, 234, 216, 0.72); }
+.wr-card-dark .wr-card-note { color: rgba(245, 234, 216, 0.7); }
+
+/* ── Set up, on the dark card ──────────────────────────────────────────────
+   Only what the inversion changes. The structure is the same checklist. */
+.wr-card-dark .wr-setup-count {
+  color: var(--color-neutral-100);
+  padding: 1px 8px; border-radius: 999px; background: rgba(245, 234, 216, 0.16);
+  font-weight: 700;
+}
+.wr-card-dark .wr-setup-steps { gap: 10px; }
+/* The step in hand is lifted onto its own panel, which is what makes it read
+   as the current thing to do without a colour having to say so. */
+.wr-card-dark .wr-setup-step-active {
+  padding: 12px; border-radius: 13px; background: rgba(245, 234, 216, 0.12);
+}
+/* A ring drawn inside rather than a border: a border would grow the circle and
+   nudge the label sideways as steps complete. */
+.wr-card-dark .wr-setup-tick {
+  width: 16px; height: 16px; border: 0;
+  box-shadow: inset 0 0 0 1.5px rgba(245, 234, 216, 0.34);
+  color: var(--color-text);
+}
+.wr-card-dark .wr-setup-step-active .wr-setup-tick {
+  box-shadow: inset 0 0 0 1.5px rgba(245, 234, 216, 0.5);
+}
+.wr-card-dark .wr-setup-step-done .wr-setup-tick {
+  background: var(--color-neutral-100); box-shadow: none;
+}
+.wr-card-dark .wr-setup-label {
+  font: 400 12.5px var(--font-body); color: rgba(245, 234, 216, 0.82);
+}
+.wr-card-dark .wr-setup-step-active .wr-setup-label {
+  font-weight: 600; color: var(--color-neutral-100);
+}
+.wr-card-dark .wr-setup-step-done .wr-setup-label {
+  color: rgba(245, 234, 216, 0.5);
+}
+.wr-card-dark .wr-setup-detail { color: rgba(245, 234, 216, 0.78); }
+/* Full width, because it is the only thing to do on this card — and it starts
+   at the same left edge as everything else, no longer pushed in to clear the
+   tick. */
+.wr-setup-go {
+  width: 100%; padding: 9px; border: 0; border-radius: 999px; cursor: pointer;
+  background: var(--color-accent); color: #fff;
+  font: 600 11.5px var(--font-body); text-align: center;
+}
+.wr-setup-go:hover { background: var(--color-accent-900); }
+.wr-card-dark .wr-setup-skip {
+  width: 100%; text-align: left; margin-top: 14px; padding-top: 12px;
+  border-top: 1px solid rgba(245, 234, 216, 0.16);
+  color: rgba(245, 234, 216, 0.72);
+}
+.wr-card-dark .wr-setup-skip:hover { color: var(--color-neutral-100); }

@@ -184,6 +184,31 @@ export interface LinkedAccountResponse {
   scopes?: string[];
 }
 
+/** A provider account whose calendars we read. */
+export interface CalendarConnection {
+  id: string;
+  provider: "google" | "microsoft";
+  email: string;
+  /** Anything other than "active" is a connection the user has to repair —
+   *  a revoked token is silent otherwise, and the day just stops filling in. */
+  status: string;
+}
+
+/** One calendar inside a connection, and whether we read it. */
+export interface CalendarSummary {
+  id: string;
+  connectionId: string;
+  name: string;
+  isPrimary: boolean;
+  isSelected: boolean;
+  accessRole: string;
+}
+
+export interface CalendarsResponse {
+  connections: CalendarConnection[];
+  calendars: CalendarSummary[];
+}
+
 export interface MissedItem {
   id: string;
   title: string;
@@ -438,7 +463,26 @@ export const api = {
    * overwritten every time they open the app.
    */
   setTimeZone: (timeZone: string) =>
-    request<void>("/settings", { method: "PATCH", body: JSON.stringify({ timeZone }) }),
+    request<void>("/settings", {
+      method: "PATCH",
+      body: JSON.stringify({ timeZone }),
+    }),
+
+  /** Every connected account and the calendars under it, selected or not. */
+  calendars: () => request<CalendarsResponse>("/calendars"),
+
+  /** Read this calendar, or stop. The server schedules or cancels the sync
+   *  behind the response, so this returns as soon as the choice is recorded. */
+  selectCalendar: (id: string, isSelected: boolean) =>
+    request<void>(`/calendars/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ isSelected }),
+    }),
+
+  /** Forget an account: its calendars, its events and its token. Unlike
+   *  deselecting, there is no way back from this except fresh consent. */
+  disconnect: (connectionId: string) =>
+    request<void>(`/connections/${connectionId}`, { method: "DELETE" }),
 
   /** Ask for a sync now rather than at the next tick — the refresh button. */
   sync: () => request<{ ok: true }>("/sync", post({})),

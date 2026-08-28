@@ -2,6 +2,7 @@ import {
   cancelWork,
   countActiveActivities,
   createActivity,
+  deleteConnection,
   forgetStoredTitles,
   getCalendarForSync,
   listActivities,
@@ -21,11 +22,11 @@ import {
   updateUserSettings,
   upsertCalendars,
 } from "@wiseroutine/db";
+import { visibleModules } from "@wiseroutine/plans";
 import {
   googleListCalendars,
   microsoftListCalendars,
 } from "@wiseroutine/providers";
-import { visibleModules } from "@wiseroutine/plans";
 import {
   dayBounds,
   localDateOf,
@@ -337,6 +338,41 @@ app.patch("/calendars/:id", async (c) => {
   // toggle should not sit there while they happen.
   c.executionCtx.waitUntil(
     syncWatchToSelection(c, c.req.param("id"), body.isSelected),
+  );
+
+  return c.body(null, 204);
+});
+
+/**
+ * Forget a connected account.
+ *
+ * Deselecting every calendar under it would stop the reading, but it would not
+ * stop us holding a token for an account the user has finished with — so this
+ * removes the connection, its calendars, its events and its token together.
+ *
+ * The scheduled work lives in the directory rather than the user database, so
+ * it cannot be dropped in the same transaction and is cancelled per calendar
+ * here instead. A leftover job would find nothing and give up, but leaving one
+ * behind to fail quietly every tick is not a state worth shipping.
+ */
+app.delete("/connections/:id", async (c) => {
+  const id = c.req.param("id");
+  const db = c.get("db");
+
+  const connection = await db.calendarConnection.findUnique({ where: { id } });
+  // A repeat press, or an id from a stale page. Both should read as done
+  // rather than as an error, because the account is gone either way.
+  if (!connection) return c.body(null, 204);
+
+  const calendarIds = await deleteConnection(db, id);
+
+  const directory = c.get("directory");
+  const userId = c.get("user").userId;
+  await Promise.all(
+    calendarIds.flatMap((calendarId) => [
+      cancelWork(directory, userId, "sync_calendar", calendarId),
+      cancelWork(directory, userId, "renew_watch", calendarId),
+    ]),
   );
 
   return c.body(null, 204);

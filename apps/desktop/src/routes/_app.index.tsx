@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  Button,
   DashedRow,
   DayGrid,
   IconButton,
@@ -16,7 +15,7 @@ import {
   getSessionToken,
   type TodayResponse,
 } from "../lib/api";
-import { openExternal } from "../lib/open-external";
+import { SetupRail } from "../modules/setup-rail";
 
 /** What `api.today()` hands back: the plan plus where it came from. */
 type CachedToday = TodayResponse & { stale: boolean; cachedAt: number };
@@ -193,16 +192,6 @@ const Today: React.FC = () => {
             }))}
           />
         )}
-
-        <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
-          <Button
-            variant="secondary"
-            onClick={() => void api.plan().then(load)}
-          >
-            Re-plan today
-          </Button>
-          <ConnectCalendar />
-        </div>
       </div>
     </>
   );
@@ -243,46 +232,11 @@ const SavedPlanNotice: React.FC<{ cachedAt: number; queued: number }> = ({
   </div>
 );
 
-/**
- * Connecting a calendar is a separate, later act — consent completes in the
- * system browser.
- *
- * `openExternal` rather than a bare `open`: in the packaged app the webview
- * has no opener and would navigate away from the app, and in a browser the
- * popup blocker refuses a `window.open` issued after the round trip that
- * fetched the URL. When it cannot open one, say so instead of looking like
- * nothing happened.
- */
-const ConnectCalendar: React.FC = () => {
-  const [problem, setProblem] = useState<string | null>(null);
-
-  const connect = async (provider: "google" | "microsoft") => {
-    setProblem(null);
-    try {
-      const url = await api.connectUrl(provider);
-      if (!(await openExternal(url))) {
-        setProblem("Couldn't open your browser. Allow pop-ups and try again.");
-      }
-    } catch {
-      setProblem("Couldn't start that connection. Try again.");
-    }
-  };
-
-  return (
-    <>
-      <Button variant="quiet" onClick={() => void connect("google")}>
-        Connect Google
-      </Button>
-      <Button variant="quiet" onClick={() => void connect("microsoft")}>
-        Connect Outlook
-      </Button>
-      {problem ? (
-        <span className="wr-body" role="alert">
-          {problem}
-        </span>
-      ) : null}
-    </>
-  );
-};
-
-export const Route = createFileRoute("/_app/")({ component: Today });
+export const Route = createFileRoute("/_app/")({
+  component: Today,
+  // The one page the set-up module belongs on: it is the empty day behind it
+  // that makes the ask make sense. Calendars and Account declare nothing and
+  // so get no rail at all — asking someone to connect a calendar on the page
+  // they are already connecting one from is worse than silence.
+  staticData: { rail: SetupRail },
+});

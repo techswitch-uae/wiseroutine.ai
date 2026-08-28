@@ -116,7 +116,16 @@ export async function tombstoneEvents(
   });
 }
 
-/** Everything still live in a window, ready to be turned into busy blocks. */
+/**
+ * Everything still live in a window, ready to be turned into busy blocks.
+ *
+ * Filtered by the calendar's own selection, not just by what has been synced.
+ * Deselecting a calendar cancels its future syncs but leaves everything
+ * already fetched sitting in the table, so without this the events kept
+ * showing on the day — and, worse, kept blocking the planner — until someone
+ * deleted them by hand. Reading through the relation makes the toggle take
+ * effect at once, and makes re-selecting free: the rows never went anywhere.
+ */
 export async function listEventsInRange(
   db: UserDatabase,
   from: number,
@@ -127,6 +136,7 @@ export async function listEventsInRange(
       deletedAt: null,
       startsAt: { lt: at(to) },
       endsAt: { gte: at(from) },
+      calendar: { isSelected: true },
     },
   });
 
