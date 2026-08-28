@@ -6,7 +6,7 @@ import {
   RefreshGlyph,
   Slot,
 } from "@wiseroutine/design";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   api,
@@ -19,6 +19,22 @@ import { SetupRail } from "../modules/setup-rail";
 
 /** What `api.today()` hands back: the plan plus where it came from. */
 type CachedToday = TodayResponse & { stale: boolean; cachedAt: number };
+
+/** How long away from the window counts as long enough to re-sync on return,
+ *  rather than merely reloading what the server already had. */
+const SYNC_AFTER_AWAY_MS = 20_000;
+
+/**
+ * When to look again after asking for a sync.
+ *
+ * `POST /sync` schedules the work and returns; the fetching happens behind it.
+ * One look after a beat was enough for an incremental sync and not nearly
+ * enough for the first one after connecting an account, which is a whole
+ * calendar's history — so that case showed an empty day and stayed that way
+ * until something else remounted the page. Three cheap reads spread over ten
+ * seconds covers both without making the user press anything.
+ */
+const SETTLE_MS = [1_200, 4_000, 10_000];
 
 const Today: React.FC = () => {
   const [data, setData] = useState<CachedToday | null>(null);
@@ -57,19 +73,69 @@ const Today: React.FC = () => {
    * is picked up by the next load — no press is ever lost, it just may show up
    * a moment later than the spinner suggests.
    */
+  const lastSync = useRef(0);
+  /** Outstanding settle timers, so leaving the page does not leave them
+   *  running and setting state on a component that has gone. */
+  const settling = useRef<ReturnType<typeof setTimeout>[]>([]);
+
   const refresh = useCallback(() => {
+    lastSync.current = Date.now();
     setSyncing(true);
+
+    for (const timer of settling.current) clearTimeout(timer);
+    settling.current = [];
+
     api
       .sync()
-      .then(() => new Promise((resolve) => setTimeout(resolve, 1200)))
       .catch(() => undefined)
       .finally(() => {
-        setSyncing(false);
-        load();
+        settling.current = SETTLE_MS.map((delay) =>
+          setTimeout(() => {
+            // The spinner belongs to the first look; the later ones are
+            // catching up quietly and should not make the button flicker.
+            if (delay === SETTLE_MS[0]) setSyncing(false);
+            load();
+          }, delay),
+        );
       });
   }, [load]);
 
+  useEffect(
+    () => () => {
+      for (const timer of settling.current) clearTimeout(timer);
+    },
+    [],
+  );
+
   useEffect(load, [load]);
+
+  /**
+   * Catch up when the window comes back.
+   *
+   * Connecting a calendar finishes in a browser, so this window is not
+   * involved and learns nothing on its own. Without this the day stayed as it
+   * was until something else happened to remount it — which is why connecting
+   * an account appeared to do nothing until you visited Calendars and came
+   * back.
+   *
+   * A reload alone is not enough, either. The connect callback *queues* the
+   * first sync rather than running it, so the events are still arriving when
+   * the window regains focus and a straight reload would land on an empty day.
+   * Coming back after a while therefore syncs and then reloads, the same thing
+   * the refresh button does.
+   *
+   * Throttled, because alt-tabbing is not a request for a sync. Inside the
+   * window, a plain reload still picks up anything the server already has.
+   */
+  useEffect(() => {
+    const caughtUp = () => {
+      if (Date.now() - lastSync.current > SYNC_AFTER_AWAY_MS) refresh();
+      else load();
+    };
+
+    globalThis.addEventListener?.("focus", caughtUp);
+    return () => globalThis.removeEventListener?.("focus", caughtUp);
+  }, [load, refresh]);
 
   /**
    * Send anything taken offline, then reload.
