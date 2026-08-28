@@ -187,3 +187,51 @@ test("a mask is named by the set it is, not the days it lists", () => {
   // form disables its own save on it, and the server refuses it outright.
   expect(daysLabel(0)).toBe("No days picked");
 });
+
+/**
+ * The now line's label, and the one thing it has to get out of the way of.
+ *
+ * Only the hours carry a number on the ruler, so an hour's label is the only
+ * thing this one can collide with. When they would sit on top of each other
+ * the hour keeps its number: it is the fixed thing the day is read against,
+ * and two numbers a few pixels apart are worse than one. The line and its dot
+ * still say where now is.
+ */
+// Built in UTC because the grid below is told to label in UTC. Local time here
+// would put every expected number an offset out, which says nothing about the
+// component.
+const NINE_AM = Date.UTC(2026, 0, 5, 9, 0, 0, 0);
+const day = { dayStart: NINE_AM, dayEnd: NINE_AM + 8 * 3_600_000 };
+
+test("the now label steps aside when it would land on an hour", () => {
+  // 10:22 is nowhere near an hour at this scale, so both numbers are readable.
+  const clear = render(
+    <DayGrid {...day} timeZone="UTC" items={[]} now={NINE_AM + 82 * 60_000} />,
+  );
+  expect(clear.container.querySelector(".wr-daygrid-now-label")).not.toBeNull();
+
+  // 10:01 is one minute past the hour — about four pixels at the default
+  // scale, so the two numbers would be printed over each other.
+  const crowded = render(
+    <DayGrid {...day} timeZone="UTC" items={[]} now={NINE_AM + 61 * 60_000} />,
+  );
+  expect(crowded.container.querySelector(".wr-daygrid-now-label")).toBeNull();
+  // The line itself never goes: losing the number is not losing the position.
+  expect(crowded.container.querySelector(".wr-daygrid-now")).not.toBeNull();
+});
+
+test("a pinned now line shows its instant; a past day shows none", () => {
+  // Pinned: the gallery and these tests need a line that stays put.
+  const pinned = render(
+    <DayGrid {...day} timeZone="UTC" items={[]} now={NINE_AM + 30 * 60_000} />,
+  );
+  expect(
+    pinned.container.querySelector(".wr-daygrid-now-label")?.textContent,
+  ).toBe("09:30");
+
+  // Live: no `now` prop at all. The day is in the past here, so the line is
+  // correctly absent rather than pinned to nothing — which is also the guard
+  // that keeps it off yesterday's grid.
+  const live = render(<DayGrid {...day} timeZone="UTC" items={[]} />);
+  expect(live.container.querySelector(".wr-daygrid-now")).toBeNull();
+});
