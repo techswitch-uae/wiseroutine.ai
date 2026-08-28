@@ -1,7 +1,10 @@
 import {
   type DayScale,
   dropAt,
+  EDGE_ZONE,
+  edgeScroll,
   layoutDay,
+  MAX_SCROLL_SPEED,
   snap,
   yOf,
 } from "@wiseroutine/design";
@@ -238,5 +241,45 @@ describe("two of the same, crossing", () => {
     const out = layout(twins(32));
     expect(out.dragged?.column).not.toBe(out.still?.column);
     expect(out.dragged?.columns).toBe(2);
+  });
+});
+
+/**
+ * Scrolling the day along with the drag.
+ *
+ * The browser will not do this: it auto-scrolls for its own native drags and
+ * for a text selection being swept, and this is deliberately neither - so
+ * without it a block simply stops at the edge of the screen with more day
+ * underneath it.
+ */
+describe("scrolling at the edges", () => {
+  const bounds = { top: 100, bottom: 500 };
+
+  test("nothing happens in the middle", () => {
+    expect(edgeScroll(300, bounds)).toBe(0);
+    // Just outside the zone at both ends, so the zone's own edge is covered.
+    expect(edgeScroll(100 + EDGE_ZONE, bounds)).toBe(0);
+    expect(edgeScroll(500 - EDGE_ZONE, bounds)).toBe(0);
+  });
+
+  test("it scrolls towards whichever edge the pointer is near", () => {
+    expect(edgeScroll(110, bounds)).toBeLessThan(0);
+    expect(edgeScroll(490, bounds)).toBeGreaterThan(0);
+  });
+
+  test("gentler at the edge of the zone than on the edge itself", () => {
+    const entering = edgeScroll(500 - EDGE_ZONE + 1, bounds);
+    const arrived = edgeScroll(500, bounds);
+    expect(entering).toBeGreaterThan(0);
+    expect(arrived).toBeGreaterThan(entering);
+    expect(arrived).toBeLessThanOrEqual(MAX_SCROLL_SPEED);
+  });
+
+  test("a pointer dragged clean off the container keeps it scrolling", () => {
+    // Capped rather than accelerating away, and emphatically not zero: the
+    // moment it most needs to scroll is the moment the pointer has run out of
+    // screen and stopped moving.
+    expect(edgeScroll(900, bounds)).toBe(MAX_SCROLL_SPEED);
+    expect(edgeScroll(-400, bounds)).toBe(-MAX_SCROLL_SPEED);
   });
 });

@@ -102,7 +102,13 @@ const GalleryMovableDay: React.FC = () => {
   const length = 10 * 60_000;
 
   return (
-    <div style={{ width: 560 }}>
+    // Short and scrolling, the way the day is in the app - a specimen that
+    // fits its own content cannot show the one thing worth showing here, which
+    // is the day bringing itself along when a block reaches the edge.
+    <div
+      className="gl-day-scroller"
+      style={{ width: 560, maxHeight: 300, overflowY: "auto" }}
+    >
       <DayGrid
         dayStart={GRID_DAY_START}
         dayEnd={GRID_DAY_START + 3 * 60 * 60_000}

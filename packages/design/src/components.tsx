@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   type DayScale,
   dropAt,
+  edgeScroll,
   layoutDay,
   type PlacedBlock,
   SNAP_MINUTES,
@@ -746,6 +747,27 @@ const HOUR = 60 * 60_000;
 const DRAG_THRESHOLD = 4;
 
 /**
+ * The thing that scrolls when this element does not fit.
+ *
+ * A drag has to find this for itself. The browser auto-scrolls for its own
+ * native drags and for a text selection being swept - and this is neither, on
+ * purpose, so nothing scrolls unless we do it. Falls back to the page, which is
+ * what scrolls when nothing closer does.
+ */
+const scrollerOf = (element: Element | null): Element | null => {
+  for (let node = element?.parentElement; node; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      node.scrollHeight > node.clientHeight
+    ) {
+      return node;
+    }
+  }
+  return document.scrollingElement;
+};
+
+/**
  * The day as a ruled surface.
  *
  * Every minute is the same height, everywhere. It did not used to be: a stretch
@@ -923,9 +945,9 @@ export const DayGrid: React.FC<DayGridProps> = ({
    * every render it causes - so they cannot close over props. A ref updated on
    * every render is the smallest thing that keeps them current.
    */
-  const latest = useRef({ items, scale, dayEnd, onMove });
+  const latest = useRef({ items, scale, dayEnd, onMove, drag });
   useEffect(() => {
-    latest.current = { items, scale, dayEnd, onMove };
+    latest.current = { items, scale, dayEnd, onMove, drag };
   });
 
   /**
@@ -994,6 +1016,46 @@ export const DayGrid: React.FC<DayGridProps> = ({
       if (event.key === "Escape") setDrag(null);
     };
 
+    /**
+     * Bring the day with you when the block reaches an edge.
+     *
+     * On a frame loop rather than on pointer moves, because the pointer stops
+     * moving the moment it reaches the edge - it has nowhere left to go - and
+     * that is exactly when the scrolling has to start. The drop is recomputed
+     * every frame for the same reason: the cursor is still, but the day is
+     * sliding underneath it, so the time under the cursor is changing.
+     */
+    const scroller = scrollerOf(surface.current);
+    let frame = requestAnimationFrame(function tick() {
+      frame = requestAnimationFrame(tick);
+
+      const current = latest.current.drag;
+      if (!current?.live || !scroller) return;
+
+      const box =
+        scroller === document.scrollingElement
+          ? { top: 0, bottom: window.innerHeight }
+          : scroller.getBoundingClientRect();
+
+      const by = edgeScroll(current.y, box);
+      if (by === 0) return;
+
+      const from = scroller.scrollTop;
+      scroller.scrollTop = from + by;
+      // Nothing moved: already at the end of the day, so there is nothing to
+      // recompute and no reason to spend a render saying so.
+      if (scroller.scrollTop === from) return;
+
+      setDrag((held) => {
+        if (!held) return held;
+        const { scale: at, dayEnd: end } = latest.current;
+        return {
+          ...held,
+          ...dropAt(topOf(held.y, held.grabY), held, at, end),
+        };
+      });
+    });
+
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onCancel);
@@ -1001,6 +1063,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
     document.body.classList.add("wr-dragging");
 
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onCancel);

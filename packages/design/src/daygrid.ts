@@ -204,3 +204,39 @@ export function dropAt(
   );
   return { startsAt, endsAt: startsAt + length };
 }
+
+/**
+ * How far to scroll this frame, with the pointer here.
+ *
+ * A drag has to do this itself. The browser auto-scrolls for its own native
+ * drags and for a text selection being swept, and this is deliberately
+ * neither - so without this the block simply stops at the edge of the screen
+ * with more day underneath it.
+ *
+ * Zero anywhere comfortably inside the edges, then linear: gentle where the
+ * zone begins and quickest right on the edge. Linear because a curve here is a
+ * thing to tune rather than a thing to understand.
+ */
+export function edgeScroll(
+  pointerY: number,
+  bounds: { top: number; bottom: number },
+  zone = EDGE_ZONE,
+  max = MAX_SCROLL_SPEED,
+): number {
+  const speed = (depth: number) =>
+    Math.ceil((Math.min(depth, zone) / zone) * max);
+
+  const above = pointerY - bounds.top;
+  const below = bounds.bottom - pointerY;
+  // Past the edge entirely - the pointer left the container - counts as being
+  // right on it rather than as being nowhere, or a drag dragged clean off the
+  // window would stop scrolling exactly when it most needs to.
+  if (above < zone) return -speed(zone - above);
+  if (below < zone) return speed(zone - below);
+  return 0;
+}
+
+/** How close to an edge the pointer has to be before the day starts scrolling
+ *  itself, and how fast it goes when the pointer is right on it. */
+export const EDGE_ZONE = 64;
+export const MAX_SCROLL_SPEED = 22;
