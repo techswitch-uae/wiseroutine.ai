@@ -316,3 +316,43 @@ test("a day already planned is not re-planned when it is opened again", async ({
   await dayShown(page);
   await expect(placed).toHaveAttribute("aria-label", moved as string);
 });
+
+test("dragging a slot to the edge scrolls the day along with it", async ({
+  page,
+  signIn,
+}) => {
+  const user = await signIn(CALENDARS);
+  // Enough activity to fill the day past the height of its own scroller, so
+  // there is somewhere to scroll to.
+  await seedActivity(user.token, {
+    name: "Eye rest",
+    sessionMinutes: 5,
+    minimumType: "countPerDay",
+    minimumValue: 6,
+  });
+
+  await page.goto("/");
+  await dayShown(page);
+
+  const scroller = page.locator(".wr-page-scroll");
+  const block = page.locator(".wr-daygrid-item-movable").first();
+  await expect(block).toBeVisible();
+
+  const before = await scroller.evaluate((el) => el.scrollTop);
+  const box = (await block.boundingBox()) as { x: number; y: number };
+  const frame = (await scroller.boundingBox()) as { y: number; height: number };
+
+  // Real mouse events, because this is the one part of the drag the browser
+  // has to be doing for itself: `requestAnimationFrame` does not run in a page
+  // nobody is rendering, so the scroll loop cannot be exercised any other way.
+  await page.mouse.move(box.x + 40, box.y + 10);
+  await page.mouse.down();
+  // Park inside the bottom edge zone and stop, the way a pointer does when it
+  // runs out of screen. Nothing moves from here on; the day has to come to it.
+  await page.mouse.move(box.x + 40, frame.y + frame.height - 10, { steps: 10 });
+  await expect
+    .poll(() => scroller.evaluate((el) => el.scrollTop), { timeout: 4000 })
+    .toBeGreaterThan(before + 40);
+
+  await page.mouse.up();
+});
