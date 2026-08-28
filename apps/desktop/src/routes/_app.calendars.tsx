@@ -166,124 +166,134 @@ const Calendars: React.FC = () => {
   if (!loaded) return <p className="wr-body">Loading your calendars…</p>;
 
   return (
-    <div className="wr-measure" style={{ display: "grid", gap: 26 }}>
-      {problem ? (
-        <p className="wr-auth-problem" role="alert">
-          {problem}
-        </p>
-      ) : null}
+    // The scroller is full width so its scrollbar sits at the page edge; the
+    // reading measure is a column inside it.
+    <div className="wr-page-scroll">
+      <div className="wr-measure" style={{ display: "grid", gap: 26 }}>
+        {problem ? (
+          <p className="wr-auth-problem" role="alert">
+            {problem}
+          </p>
+        ) : null}
 
-      {connections.map((connection) => {
-        const under = calendars.filter(
-          (cal) => cal.connectionId === connection.id,
-        );
-        const on = under.filter((cal) => draft[cal.id]).length;
-        const changed = changedIn(draft, calendars, connection.id);
+        {connections.map((connection) => {
+          const under = calendars.filter(
+            (cal) => cal.connectionId === connection.id,
+          );
+          const on = under.filter((cal) => draft[cal.id]).length;
+          const changed = changedIn(draft, calendars, connection.id);
 
-        return (
-          <Card
-            key={connection.id}
-            title={`${PROVIDER_NAME[connection.provider] ?? connection.provider} · ${connection.email}`}
-            note={
-              connection.status === "active"
-                ? `Reading ${on} of ${under.length} calendars`
-                : "Needs reconnecting - we can't read this account right now"
-            }
-            {...(confirming === connection.id
-              ? {}
-              : {
-                  action: (
-                    <Button
-                      variant="quiet"
-                      onClick={() => setConfirming(connection.id)}
-                      disabled={saving !== null}
-                    >
-                      Disconnect
-                    </Button>
-                  ),
-                })}
-          >
-            {confirming === connection.id ? (
-              // Asked before doing, because this one cannot be undone from
-              // inside the app: getting the account back means going through
-              // the provider's consent screen again.
-              <div className="wr-confirm" role="alert">
-                <p className="wr-confirm-text">
-                  Disconnect <b>{connection.email}</b>? Its calendars and the
-                  meetings we read from them are deleted. Slots already placed
-                  stay where they are, and reconnecting means signing in again.
-                </p>
-                <div className="wr-confirm-actions">
-                  <Button
-                    variant="primary"
-                    onClick={() => disconnect(connection.id)}
-                    disabled={saving !== null}
-                  >
-                    {saving === connection.id ? "Disconnecting…" : "Disconnect"}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => setConfirming(null)}
-                    disabled={saving !== null}
-                  >
-                    Keep it
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <CalendarPicker
-                  calendars={under.map((cal) => ({
-                    id: cal.id,
-                    name: cal.name,
-                    isSelected: draft[cal.id] === true,
-                    isPrimary: cal.isPrimary,
-                  }))}
-                  onToggle={(id, isSelected) =>
-                    toggle(connection.id, id, isSelected)
-                  }
-                />
-                {changed.length > 0 ? (
-                  <div className="wr-confirm-actions" style={{ marginTop: 10 }}>
+          return (
+            <Card
+              key={connection.id}
+              title={`${PROVIDER_NAME[connection.provider] ?? connection.provider} · ${connection.email}`}
+              note={
+                connection.status === "active"
+                  ? `Reading ${on} of ${under.length} calendars`
+                  : "Needs reconnecting - we can't read this account right now"
+              }
+              {...(confirming === connection.id
+                ? {}
+                : {
+                    action: (
+                      <Button
+                        variant="quiet"
+                        onClick={() => setConfirming(connection.id)}
+                        disabled={saving !== null}
+                      >
+                        Disconnect
+                      </Button>
+                    ),
+                  })}
+            >
+              {confirming === connection.id ? (
+                // Asked before doing, because this one cannot be undone from
+                // inside the app: getting the account back means going through
+                // the provider's consent screen again.
+                <div className="wr-confirm" role="alert">
+                  <p className="wr-confirm-text">
+                    Disconnect <b>{connection.email}</b>? Its calendars and the
+                    meetings we read from them are deleted. Slots already placed
+                    stay where they are, and reconnecting means signing in
+                    again.
+                  </p>
+                  <div className="wr-confirm-actions">
                     <Button
                       variant="primary"
-                      // Only this account's ticks. A single Update that
-                      // silently applied another account's pending changes
-                      // too would be a surprise, and the button sits under
-                      // one of them.
-                      onClick={() => update(connection.id, changed)}
+                      onClick={() => disconnect(connection.id)}
                       disabled={saving !== null}
                     >
-                      {saving === connection.id ? "Updating…" : "Update"}
+                      {saving === connection.id
+                        ? "Disconnecting…"
+                        : "Disconnect"}
                     </Button>
                     <Button
-                      variant="quiet"
-                      onClick={() => {
-                        setDraft((all) =>
-                          revertIn(all, calendars, connection.id),
-                        );
-                        setEditing(null);
-                      }}
+                      variant="secondary"
+                      onClick={() => setConfirming(null)}
                       disabled={saving !== null}
                     >
-                      Cancel
+                      Keep it
                     </Button>
                   </div>
-                ) : null}
-              </>
-            )}
-          </Card>
-        );
-      })}
+                </div>
+              ) : (
+                <>
+                  <CalendarPicker
+                    calendars={under.map((cal) => ({
+                      id: cal.id,
+                      name: cal.name,
+                      isSelected: draft[cal.id] === true,
+                      isPrimary: cal.isPrimary,
+                    }))}
+                    onToggle={(id, isSelected) =>
+                      toggle(connection.id, id, isSelected)
+                    }
+                  />
+                  {changed.length > 0 ? (
+                    <div
+                      className="wr-confirm-actions"
+                      style={{ marginTop: 10 }}
+                    >
+                      <Button
+                        variant="primary"
+                        // Only this account's ticks. A single Update that
+                        // silently applied another account's pending changes
+                        // too would be a surprise, and the button sits under
+                        // one of them.
+                        onClick={() => update(connection.id, changed)}
+                        disabled={saving !== null}
+                      >
+                        {saving === connection.id ? "Updating…" : "Update"}
+                      </Button>
+                      <Button
+                        variant="quiet"
+                        onClick={() => {
+                          setDraft((all) =>
+                            revertIn(all, calendars, connection.id),
+                          );
+                          setEditing(null);
+                        }}
+                        disabled={saving !== null}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </Card>
+          );
+        })}
 
-      <Card
-        title={
-          connections.length > 0 ? "Connect another" : "Connect a calendar"
-        }
-        note="You can add more later, and disconnect any of them without losing your slots."
-      >
-        <ProviderChoice onChoose={connect} busy={busy} />
-      </Card>
+        <Card
+          title={
+            connections.length > 0 ? "Connect another" : "Connect a calendar"
+          }
+          note="You can add more later, and disconnect any of them without losing your slots."
+        >
+          <ProviderChoice onChoose={connect} busy={busy} />
+        </Card>
+      </div>
     </div>
   );
 };

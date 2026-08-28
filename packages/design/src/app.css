@@ -40,6 +40,9 @@
      how wide a page is - which they did, at 560 and 620, and it read as two
      different apps. */
   --wr-measure: 560px;
+  /* Room kept clear on the right of a scroller for the scrollbar to live in.
+     Wide enough for macOS's overlay bar and the gap it floats in. */
+  --wr-scroll-lane: 12px;
 }
 
 body { background: var(--wr-page); }
@@ -710,7 +713,20 @@ img.wr-avatar { object-fit: cover; }
   display: flex; flex-direction: column;
 }
 .wr-page-bar { flex: none; }
-.wr-page-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+/* The scroller every page's content sits in.
+   `padding-right` is the scrollbar's lane. macOS draws an overlay scrollbar —
+   it takes no layout width and paints straight over whatever is beneath it,
+   which on the day meant a bar sliding down through the hour lines and the
+   block titles. Reserving the lane costs nothing when no scrollbar is showing,
+   and stops it landing on the content when one is. */
+.wr-page-scroll {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding-right: var(--wr-scroll-lane);
+  box-sizing: border-box;
+}
+/* The fixed bar is a sibling of the scroller, not inside it, so it needs the
+   same lane or its right edge stops short of the content underneath it. */
+.wr-page-bar { padding-right: var(--wr-scroll-lane); box-sizing: border-box; }
 /* The page's own wrappers sit between `.wr-page` and the scroller, so they are
    the ones that have to pass the window's height down. They did not: the body
    was `align-items: flex-start` and neither it nor the main column could
