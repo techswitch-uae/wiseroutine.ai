@@ -1,5 +1,5 @@
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { clockOf, minutesOf } from "./time";
 
 const cx = (...parts: (string | false | undefined)[]): string =>
@@ -1084,21 +1084,36 @@ export const Block: React.FC<{
   children?: React.ReactNode;
   /** Shown only when there is something to commit. */
   footer?: React.ReactNode;
-}> = ({ title, note, action, children, footer }) => (
-  <section className="wr-block">
-    {title || note || action ? (
-      <header className="wr-block-head">
-        <div className="wr-block-heading">
-          {title ? <h4 className="wr-block-title">{title}</h4> : null}
-          {note ? <p className="wr-block-note">{note}</p> : null}
-        </div>
-        {action ? <div className="wr-block-action">{action}</div> : null}
-      </header>
-    ) : null}
-    {children ? <div className="wr-block-body">{children}</div> : null}
-    {footer ? <div className="wr-block-foot">{footer}</div> : null}
-  </section>
-);
+}> = ({ title, note, action, children, footer }) => {
+  // Names the section after its own heading, so the block is a landmark
+  // rather than an anonymous <section>: "the Update inside Working hours" is
+  // then something a screen reader - and a test - can actually address, where
+  // before the only way to tell two Updates apart was which class they sat in.
+  const headingId = useId();
+
+  return (
+    <section
+      className="wr-block"
+      {...(title ? { "aria-labelledby": headingId } : {})}
+    >
+      {title || note || action ? (
+        <header className="wr-block-head">
+          <div className="wr-block-heading">
+            {title ? (
+              <h4 className="wr-block-title" id={headingId}>
+                {title}
+              </h4>
+            ) : null}
+            {note ? <p className="wr-block-note">{note}</p> : null}
+          </div>
+          {action ? <div className="wr-block-action">{action}</div> : null}
+        </header>
+      ) : null}
+      {children ? <div className="wr-block-body">{children}</div> : null}
+      {footer ? <div className="wr-block-foot">{footer}</div> : null}
+    </section>
+  );
+};
 
 /* ── When something went wrong ───────────────────────────────────────────── */
 

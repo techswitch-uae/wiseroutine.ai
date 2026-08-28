@@ -1,4 +1,4 @@
-import { expect, test as base } from "@playwright/test";
+import { test as base, expect } from "@playwright/test";
 
 /**
  * What a scenario needs before it can start clicking.
@@ -64,21 +64,40 @@ async function seed<T>(
   return (await response.json()) as T;
 }
 
-/**
- * Nothing left over from the last scenario.
- *
- * Not optional: locally one database serves every user, so without this a
- * scenario sees whatever the previous one seeded. That is not a quirk of the
- * fixture - it is what the first run of these tests actually did.
- */
-base.beforeEach(async () => {
-  await seed("/reset", {});
-});
-
 export const test = base.extend<{
+  /** Nothing left over from the last scenario. It hands the test nothing -
+   *  it only has to have run. */
+  clean: undefined;
   /** A signed-in user, already in the browser's storage. */
   signIn: (calendars?: SeedCalendar[]) => Promise<SeededUser>;
 }>({
+  /**
+   * Empty both databases before every scenario.
+   *
+   * Not optional: locally one database serves every user, so without this a
+   * scenario sees whatever the previous one seeded. That is not a quirk of the
+   * fixture - it is what the first run of these tests actually did.
+   *
+   * An auto fixture rather than the `beforeEach` this used to be. A hook
+   * registered at the top level of an imported module attaches to the suite
+   * that happened to import it *first*, and this module is imported by every
+   * spec file - so the moment there was a second one, it got no reset at all
+   * and quietly inherited the previous file's calendars. It cost an afternoon
+   * to find, because the symptom was one duplicated meeting in one assertion
+   * and the suite passed whenever that file was run on its own. A fixture
+   * belongs to whoever uses it, so this cannot happen again.
+   */
+  clean: [
+    // Playwright reads a fixture's dependencies off the destructuring pattern
+    // below, so one that needs none still has to destructure nothing.
+    // biome-ignore lint/correctness/noEmptyPattern: required by Playwright
+    async ({}, use) => {
+      await seed("/reset", {});
+      await use(undefined);
+    },
+    { auto: true },
+  ],
+
   signIn: async ({ page }, use) => {
     await use(async (calendars) => {
       // The seeded user lives in this machine's zone, so "noon" means the
@@ -112,22 +131,34 @@ export const test = base.extend<{
 export { expect };
 
 /**
- * Noon today, in the seeded user's zone - which is this machine's.
+ * A wall-clock hour today, in the seeded user's zone - which is this machine's.
  *
  * Today, not tomorrow: the day view asks the server for the current day and
  * offers no way to look at another one, so a meeting seeded anywhere else is
  * simply not on the screen under test.
  *
- * Noon, not "now": the working window is 09:00–17:00, and a suite that runs
- * in the evening would place its meeting outside it and fail for a reason
- * that has nothing to do with the code. Midday is inside the window whatever
- * time the tests are actually run.
+ * A fixed hour, not "now": a suite that runs in the evening would otherwise
+ * place its meeting wherever the clock happened to be and fail for a reason
+ * that has nothing to do with the code. Every window a test asserts against
+ * is written in these same hours, so the two cannot drift apart.
  */
-export function todayNoon(): number {
+export function todayAt(hour: number, minute = 0): number {
   const at = new Date();
-  at.setHours(12, 0, 0, 0);
+  at.setHours(hour, minute, 0, 0);
   return at.getTime();
 }
+
+/** Midday - inside the default 08:00–18:00 working window whatever time the
+ *  tests are actually run. */
+export const todayNoon = (): number => todayAt(12);
+
+/** Half an hour from `hour`, which is long enough to be a meeting and short
+ *  enough that two of them fit inside any window a test sets. */
+export const meetingAt = (title: string, hour: number, minute = 0) => ({
+  title,
+  startsAt: todayAt(hour, minute),
+  endsAt: todayAt(hour, minute) + 1_800_000,
+});
 
 /**
  * Wait until the day has actually rendered.

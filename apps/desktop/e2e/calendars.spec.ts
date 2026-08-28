@@ -11,7 +11,11 @@ import { dayShown, expect, test, todayNoon } from "./support";
  */
 
 const NOON = todayNoon();
-const MEETING = { title: "Design review", startsAt: NOON, endsAt: NOON + 3_600_000 };
+const MEETING = {
+  title: "Design review",
+  startsAt: NOON,
+  endsAt: NOON + 3_600_000,
+};
 
 test("a meeting from a connected calendar shows on the day", async ({
   page,
