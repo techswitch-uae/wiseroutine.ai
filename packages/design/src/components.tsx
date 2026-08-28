@@ -1,6 +1,14 @@
 import type React from "react";
 import { useEffect, useId, useRef, useState } from "react";
-import { clockOf, minutesOf } from "./time";
+import {
+  clockOf,
+  DAY_NAMES,
+  daysLabel,
+  minutesOf,
+  runsOnDay,
+  toggleDay,
+  WEEK_ORDER,
+} from "./time";
 
 const cx = (...parts: (string | false | undefined)[]): string =>
   parts.filter(Boolean).join(" ");
@@ -713,11 +721,14 @@ export type DayGridProps = {
   items: readonly DayGridItem[];
   /** Drawn only when it falls inside the window. */
   now?: number;
-  /** Height of a quarter-hour nothing is happening in. */
-  idleStep?: number;
-  /** Height of a quarter-hour something occupies. Must comfortably fit a slot
-   *  card, or a 15-minute block cannot be drawn at its true size. */
-  busyStep?: number;
+  /**
+   * Height of a quarter-hour, and the only scale there is.
+   *
+   * The default fits a card in ten minutes and comfortably in fifteen.
+   * Anything shorter is a sliver with a clipped name, the way an eight-minute
+   * event is in every calendar - raise this to trade scroll for room.
+   */
+  quarterStep?: number;
   /** Fires once, on drop, with instants already snapped to the ruler. Without
    *  it nothing is draggable however the items are marked. */
   onMove?: (key: string, startsAt: number, endsAt: number) => void;
@@ -728,32 +739,36 @@ const QUARTER = 15 * 60_000;
 const HOUR = 60 * 60_000;
 
 /**
- * The day as a ruled surface, scaled to where the day actually is.
+ * The day as a ruled surface.
  *
- * A uniform scale forces one bad choice or the other: fine enough to read a
- * 15-minute block and the empty afternoon is a screen of nothing, coarse
- * enough to fit the day on screen and every block is a crowded sliver.
+ * Every five minutes is the same height, everywhere. It did not used to be: a
+ * stretch something occupied got room to be read and an empty one collapsed to
+ * a line, on the argument that a uniform scale forces a bad choice either way -
+ * fine enough to read a 15-minute block and the empty afternoon is a screen of
+ * nothing, coarse enough to fit the day and every block is a crowded sliver.
  *
- * So time is not linear here. A stretch something occupies gets room to be
- * read; an empty one collapses to a line. Dead time still *exists* - the ruler
- * keeps ticking through it, so nothing is hidden and the shape of the day
- * survives - it just stops costing a screen.
+ * That argument was right about the scroll and wrong about the cost. A ruler
+ * that rescales as things move is a ruler you cannot drag on: picking a block
+ * up changes what is occupied, which changes every row height, which moves the
+ * target out from under the cursor. Nothing about a surface you place things on
+ * by hand may depend on where the things currently are.
  *
  * The ruler is a real CSS grid of five-minute rows, not a stack of absolutely
- * positioned boxes, and that is the whole point. A row is `minmax(floor, auto)`,
- * so the browser grows it to whatever the card inside actually needs and the
- * line below moves with it. Measuring cards in JS to guess a height is what
- * made blocks overflow their slot before: a live card wants 90px and a
- * quarter-hour was hardcoded to 46, so it spilled over the next one. Here that
- * cannot happen, because nothing is hardcoded - the grid asks the content.
+ * positioned boxes, and that is the other half of the point. A row is
+ * `minmax(floor, auto)`, so the browser grows it to whatever the card inside
+ * actually needs and the line below moves with it. Measuring cards in JS to
+ * guess a height is what made blocks overflow their slot before: a live card
+ * wants 90px and a quarter-hour was hardcoded to 46, so it spilled over the
+ * next one. Here that cannot happen, because nothing is hardcoded - the grid
+ * asks the content.
  *
  * Blocks snap to the five-minute ruler. Two minutes of rounding is invisible;
  * a block drawn between the lines is not.
  *
  * Blocks can also be dragged to another time. A drag re-lays the grid out live
- * rather than floating a card over it, which is the honest preview: if the
- * drop lands on top of a meeting, the two appear side by side exactly as they
- * will once it is released, because it is the same lane maths either way.
+ * rather than floating a card over it, which is the honest preview: if the drop
+ * lands on top of a meeting, the two appear side by side exactly as they will
+ * once it is released, because it is the same lane maths either way.
  */
 export const DayGrid: React.FC<DayGridProps> = ({
   dayStart,
@@ -761,8 +776,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
   timeZone,
   items,
   now,
-  idleStep = 13,
-  busyStep = 46,
+  quarterStep = 64,
   onMove,
 }) => {
   const label = new Intl.DateTimeFormat("en-GB", {
@@ -849,26 +863,12 @@ export const DayGrid: React.FC<DayGridProps> = ({
     }
   }
 
-  // A row is tall only where something needs it to be. `auto` is the ceiling,
-  // not the floor: these are minimums the content may exceed.
-  //
-  // Read off `items` rather than `placed`, so a drag never rescales the ruler
-  // it is being measured against. Collapsing the stretch a block just left
-  // would slide every line under the cursor upwards, and the block would chase
-  // a target that moves because it moved.
-  const occupied = new Array<boolean>(rowCount).fill(false);
-  for (const item of items) {
-    const from = rowOf(item.startsAt);
-    const to = Math.max(from + 1, rowOf(item.endsAt));
-    for (let row = from; row < to && row < rowCount; row += 1) {
-      occupied[row] = true;
-    }
-  }
-  const perRow = (busy: boolean) =>
-    (busy ? busyStep : idleStep) / (QUARTER / STEP);
-  const rows = occupied
-    .map((busy) => `minmax(${perRow(busy).toFixed(2)}px, auto)`)
-    .join(" ");
+  // One height, everywhere, and fixed rather than a minimum. `auto` would let
+  // a card taller than its own duration push the line below it down, which is
+  // the same failure as the old adaptive scale wearing a smaller hat: pick a
+  // ten-minute block up and every row under it moves. A block shorter than its
+  // card is drawn as the sliver it is and clipped - see `.wr-daygrid-item`.
+  const rows = `repeat(${rowCount}, ${(quarterStep / (QUARTER / STEP)).toFixed(2)}px)`;
 
   const ticks: number[] = [];
   for (let at = origin; at < dayEnd; at += QUARTER) ticks.push(at);
@@ -984,22 +984,19 @@ export const DayGrid: React.FC<DayGridProps> = ({
       {ticks.map((at) => {
         const row = rowOf(at);
         const onTheHour = at % HOUR === 0;
-        // A collapsed quarter has no room for its own number, and a column of
-        // colliding numbers is worse than none.
-        const busy = occupied[row] === true;
         return (
           <div
             key={at}
             // The ruler a drag measures itself against - see `instantAt`.
             data-at={at}
-            className={cx(
-              "wr-daygrid-tick",
-              onTheHour && "wr-daygrid-hour",
-              !busy && "wr-daygrid-idle",
-            )}
+            className={cx("wr-daygrid-tick", onTheHour && "wr-daygrid-hour")}
             style={{ gridRow: row + 1, gridColumn: "1 / -1" }}
           >
-            {busy || onTheHour ? (
+            {/* The hour is what is read; the quarters are what a block is
+                measured against, and a number on each of them is forty numbers
+                down the side of a working day. The exact time of a drag is on
+                the block itself. */}
+            {onTheHour ? (
               <span className="wr-daygrid-label">
                 {label.format(new Date(at))}
               </span>
@@ -1894,6 +1891,50 @@ export const Stepper: React.FC<{
         +
       </button>
     </div>
+  </div>
+);
+
+/**
+ * Which days of the week something happens on.
+ *
+ * Seven toggles and nothing else - no "every day / weekdays / custom" mode
+ * above them. All seven on *is* every day, so a mode selector would be a
+ * second control saying what the first one already shows, and the two would
+ * have to be kept in step. The summary underneath does that job instead: it
+ * names the sets people actually mean rather than listing five day names and
+ * leaving the reader to notice they add up to "weekdays".
+ *
+ * Turning the last day off is allowed. It produces an activity that never
+ * runs, which is a thing to *say* - the summary says it - rather than a click
+ * to silently swallow.
+ */
+export const DayPicker: React.FC<{
+  label?: string;
+  /** The seven-bit mask, Sunday = bit 0. */
+  value: number;
+  onChange?: (next: number) => void;
+}> = ({ label = "Which days", value, onChange }) => (
+  <div className="wr-field">
+    <span className="wr-label">{label}</span>
+    <div className="wr-days" role="group" aria-label={label}>
+      {WEEK_ORDER.map((day) => {
+        const name = DAY_NAMES[day];
+        const on = runsOnDay(value, day);
+        return (
+          <button
+            key={name}
+            type="button"
+            className={cx("wr-day", on && "wr-day-on")}
+            aria-pressed={on}
+            aria-label={name}
+            onClick={() => onChange?.(toggleDay(value, day))}
+          >
+            {name.slice(0, 1)}
+          </button>
+        );
+      })}
+    </div>
+    <p className="wr-activity-hint">{daysLabel(value)}</p>
   </div>
 );
 

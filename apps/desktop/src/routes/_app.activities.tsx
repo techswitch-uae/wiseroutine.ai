@@ -6,7 +6,11 @@ import {
   ActivityLibrary,
   ActivityRow,
   type ActivityTemplate,
+  Button,
   Card,
+  daysLabel,
+  EVERY_DAY,
+  Modal,
   PlanNote,
 } from "@wiseroutine/design";
 import { PLANS } from "@wiseroutine/plans";
@@ -22,9 +26,12 @@ import { notify } from "../lib/notify";
  * and the full form behind whichever one is picked. Nothing in the library
  * exists until it is added - it is a palette, not a list of things you have.
  *
- * The free plan's limit is on *active* activities, so pausing frees a place.
- * That is why the row offers Pause before Remove: swapping is the intended
- * move at the limit, and removing is the irreversible one.
+ * The form is a sheet rather than a third block on the page. Configuring one
+ * activity is a job with an end, and leaving the library and the list live
+ * behind it invited exactly the mistake it looks like it invites: picking a
+ * second template halfway through filling in the first.
+ *
+ * Pausing is deliberately not offered yet - see `Yours` below.
  */
 
 /** Where the two named landings aim. Mid-morning and mid-afternoon rather than
@@ -59,6 +66,7 @@ const draftOf = (row: ActivityResponse): ActivityDraft => ({
   kind: row.kind,
   sessionMinutes: row.sessionMinutes,
   perDay: row.minimum.type === "countPerDay" ? row.minimum.value : 1,
+  days: row.daysOfWeek,
   land: landingOf(row.preferredWindows),
 });
 
@@ -67,15 +75,17 @@ const EMPTY: ActivityDraft = {
   kind: "recovery",
   sessionMinutes: 10,
   perDay: 3,
+  days: EVERY_DAY,
   land: "any",
 };
 
-/** What the form is currently editing, and where it came from. */
+/** What the sheet is currently editing, and which of the two jobs it is. */
 interface Editing {
   draft: ActivityDraft;
   /** Set for a library pick, so the name is the template's rather than typed. */
   origin?: string;
-  /** Set when this is an existing activity rather than a new one. */
+  /** Set when this is an existing activity rather than a new one. It is what
+   *  decides every label in the sheet: Update against Add. */
   id?: string;
 }
 
@@ -100,8 +110,8 @@ const Activities: React.FC = () => {
   const [rows, setRows] = useState<readonly ActivityResponse[] | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [saving, setSaving] = useState(false);
-  /** The row whose Pause or Remove is in flight, so one row's spinner cannot
-   *  appear on another's buttons. */
+  /** The row whose Remove is in flight, so one row's spinner cannot appear on
+   *  another's buttons. */
   const [working, setWorking] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
@@ -118,12 +128,14 @@ const Activities: React.FC = () => {
   useEffect(load, [load]);
 
   /**
-   * Re-plan the day, quietly.
+   * Re-plan today, quietly.
    *
-   * Adding an activity that never appears on Today is the whole feature
-   * failing, so this runs after every change. It is deliberately not awaited
-   * into the button's spinner: the activity is saved either way, and a
-   * planner that is briefly behind is not a failed save.
+   * Today plans itself the first time it is opened, but only once - the plan
+   * run is the marker. So a change made after that has to say so, or the day
+   * on screen would keep the shape it had before this edit until tomorrow.
+   *
+   * Deliberately not awaited into the button's spinner: the activity is saved
+   * either way, and a planner briefly behind is not a failed save.
    */
   const replan = () => {
     void api.plan().catch(() => undefined);
@@ -141,6 +153,7 @@ const Activities: React.FC = () => {
       minimumType: "countPerDay" as const,
       minimumValue: draft.perDay,
       sessionMinutes: draft.sessionMinutes,
+      daysOfWeek: draft.days,
       preferredWindows: windowsOf(draft.land),
     };
 
@@ -169,17 +182,15 @@ const Activities: React.FC = () => {
       .finally(() => setSaving(false));
   };
 
-  const act = (id: string, run: Promise<unknown>, failure: string) => {
+  const remove = (id: string) => {
     setWorking(id);
-    run
+    api
+      .removeActivity(id)
       .then(() => {
         load();
         replan();
       })
-      .catch((cause: unknown) => {
-        const refusal = cause instanceof ApiError ? cause.planLimit : undefined;
-        notify(refusal ? `${refusal.reason} ${refusal.upsell}` : failure);
-      })
+      .catch(() => notify("Couldn't remove that activity. Try again."))
       .finally(() => setWorking(null));
   };
 
@@ -193,6 +204,7 @@ const Activities: React.FC = () => {
               kind: template.kind,
               sessionMinutes: template.sessionMinutes,
               perDay: template.perDay,
+              days: template.days,
               land: template.land,
             },
             origin: "From the library · change anything",
@@ -211,34 +223,26 @@ const Activities: React.FC = () => {
         <h2 className="wr-settings-title">Activities</h2>
 
         {rows.length > 0 ? (
+          // No Pause here yet. The free limit counts active activities, so
+          // pausing is a real way to swap one out - but it is going to be a
+          // Pro capability, and shipping it to everyone first and taking it
+          // away later is the one order that cannot be done kindly. Remove is
+          // the way out until then; the kit still carries the control.
           <Card
             title="Yours"
-            note="Pausing one frees a place without losing what it has already done."
+            note="Each one is placed into the gaps your calendar leaves, on the days you picked."
           >
             {rows.map((row) => (
               <ActivityRow
                 key={row.id}
                 name={row.name}
-                meta={`${row.sessionMinutes} min · ${howOften(row)} · ${
-                  LANDING_WORD[landingOf(row.preferredWindows)]
-                }`}
+                meta={`${row.sessionMinutes} min · ${howOften(row)} · ${daysLabel(
+                  row.daysOfWeek,
+                )} · ${LANDING_WORD[landingOf(row.preferredWindows)]}`}
                 isActive={row.isActive}
                 busy={working === row.id}
                 onEdit={() => setEditing({ draft: draftOf(row), id: row.id })}
-                onToggle={() =>
-                  act(
-                    row.id,
-                    api.updateActivity(row.id, { isActive: !row.isActive }),
-                    "Couldn't change that activity. Try again.",
-                  )
-                }
-                onRemove={() =>
-                  act(
-                    row.id,
-                    api.removeActivity(row.id),
-                    "Couldn't remove that activity. Try again.",
-                  )
-                }
+                onRemove={() => remove(row.id)}
               />
             ))}
           </Card>
@@ -261,45 +265,90 @@ const Activities: React.FC = () => {
         {/* Only free ever reaches a limit, so there is only one note. Pro's
             caveat - that a busy day may not fit them all - belongs on the form
             instead, which is the moment someone is about to add another. */}
-        {atLimit && editing === null ? (
+        {atLimit ? (
           <div style={{ marginTop: 14 }}>
             <PlanNote title="Free keeps two active at a time">
-              Pause one you are not using to make room, or move to Pro for as
+              Remove one you are not using to make room, or move to Pro for as
               many as you like.
             </PlanNote>
           </div>
         ) : null}
 
-        {editing ? (
-          <div style={{ marginTop: 14 }}>
-            <ActivityForm
-              draft={editing.draft}
-              {...(editing.origin ? { origin: editing.origin } : {})}
-              submitLabel={editing.id ? "Save changes" : "Add activity"}
-              busy={saving}
-              note={
-                editing.id
-                  ? "Changes apply to the rest of today when the day is next planned."
-                  : plan === "free"
-                    ? "Free covers two. A third asks you to swap one out or move to Pro."
-                    : "Pro does not limit these. A really busy day may still not fit them all."
-              }
-              onChange={(draft) => setEditing({ ...editing, draft })}
-              onSubmit={save}
-              onCancel={() => {
-                setEditing(null);
-                setProblem(null);
-              }}
-            />
-          </div>
-        ) : null}
-
-        {problem ? (
+        {problem && !editing ? (
           <p className="wr-auth-problem" role="alert" style={{ marginTop: 12 }}>
             {problem}
           </p>
         ) : null}
       </section>
+
+      {editing ? (
+        <Modal
+          // The activity names itself. "Edit activity" over a form whose first
+          // line is the activity's name says nothing the form does not.
+          title={editing.draft.name || "New activity"}
+          subtitle={
+            editing.id
+              ? "Changes apply to the rest of today as soon as you save."
+              : (editing.origin ??
+                "Describe it, and it gets placed into the gaps your calendar leaves.")
+          }
+          onClose={() => {
+            setEditing(null);
+            setProblem(null);
+          }}
+          footer={
+            <>
+              <Button
+                variant="primary"
+                // A nameless activity and one that runs on no day are the two
+                // that can never be placed. The server refuses both; this only
+                // saves the user finding that out from a round trip.
+                disabled={
+                  saving ||
+                  editing.draft.name.trim() === "" ||
+                  editing.draft.days === 0
+                }
+                onClick={save}
+              >
+                {editing.id ? "Update" : "Add"}
+              </Button>
+              <Button
+                variant="quiet"
+                onClick={() => {
+                  setEditing(null);
+                  setProblem(null);
+                }}
+              >
+                Cancel
+              </Button>
+              {/* Only on the way in. Editing one you already have costs
+                  nothing, so there is nothing to say about the plan. */}
+              {editing.id ? null : (
+                <span className="wr-activity-note">
+                  {plan === "free"
+                    ? "Free covers two. A third asks you to swap one out or move to Pro."
+                    : "Pro does not limit these. A really busy day may still not fit them all."}
+                </span>
+              )}
+            </>
+          }
+        >
+          <ActivityForm
+            draft={editing.draft}
+            named={editing.origin !== undefined}
+            onChange={(draft) => setEditing({ ...editing, draft })}
+          />
+          {problem ? (
+            <p
+              className="wr-auth-problem"
+              role="alert"
+              style={{ marginTop: 12 }}
+            >
+              {problem}
+            </p>
+          ) : null}
+        </Modal>
+      ) : null}
     </div>
   );
 };

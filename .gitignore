@@ -34,3 +34,8 @@ test-results
 playwright-report
 blob-report
 .playwright
+
+# Design canvas exports. Large, machine-generated, and re-downloadable from the
+# Claude Design project they came from — the project is the source, not these.
+Wise Routine*.html
+*.dc.html

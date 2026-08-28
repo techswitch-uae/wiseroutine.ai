@@ -1,4 +1,5 @@
 import type { ActivityTemplate, TodaySlotFixture } from "./screens";
+import { EVERY_DAY } from "./time";
 
 /**
  * Sample data for the collection.
@@ -55,6 +56,7 @@ export const ACTIVITY_LIBRARY: readonly ActivityTemplate[] = [
     kind: "recovery",
     sessionMinutes: 10,
     perDay: 3,
+    days: EVERY_DAY,
     land: "any",
   },
   {
@@ -63,6 +65,7 @@ export const ACTIVITY_LIBRARY: readonly ActivityTemplate[] = [
     kind: "recovery",
     sessionMinutes: 5,
     perDay: 4,
+    days: EVERY_DAY,
     land: "any",
   },
   {
@@ -71,6 +74,7 @@ export const ACTIVITY_LIBRARY: readonly ActivityTemplate[] = [
     kind: "recovery",
     sessionMinutes: 15,
     perDay: 1,
+    days: EVERY_DAY,
     land: "afternoon",
   },
   {
@@ -79,6 +83,7 @@ export const ACTIVITY_LIBRARY: readonly ActivityTemplate[] = [
     kind: "focus",
     sessionMinutes: 25,
     perDay: 4,
+    days: EVERY_DAY,
     land: "morning",
   },
   {
@@ -87,6 +92,7 @@ export const ACTIVITY_LIBRARY: readonly ActivityTemplate[] = [
     kind: "recovery",
     sessionMinutes: 3,
     perDay: 2,
+    days: EVERY_DAY,
     land: "any",
   },
   {
@@ -95,6 +101,7 @@ export const ACTIVITY_LIBRARY: readonly ActivityTemplate[] = [
     kind: "recovery",
     sessionMinutes: 1,
     perDay: 6,
+    days: EVERY_DAY,
     land: "any",
   },
 ];

@@ -23,6 +23,15 @@ import {
 
 export const ENGINE_VERSION = "1.0.0";
 
+/** The key a plan run is filed under. Spelled once, because `GET /today` asks
+ *  "has this day been planned?" with it and this module answers with it. */
+export const localDateKey = (date: {
+  year: number;
+  month: number;
+  day: number;
+}): string =>
+  `${date.year}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`;
+
 export type PlanTrigger =
   | "morning"
   | "calendar_change"
@@ -149,7 +158,7 @@ export async function planDay(
   const planRunId = await createPlanRun(
     db,
     {
-      localDate: `${date.year}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`,
+      localDate: localDateKey(date),
       trigger: params.trigger,
       engineVersion: ENGINE_VERSION,
       inputsHash: await hashInputs({

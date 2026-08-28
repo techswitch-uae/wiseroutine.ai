@@ -305,19 +305,15 @@ const Today: React.FC = () => {
         ) : null}
 
         {rows.length === 0 ? (
+          // The only empty day left: nothing has been added to place. Anything
+          // that exists is placed the moment this page is opened - see
+          // `fillDay` on the Worker - so there is no "press to plan" here to
+          // press.
           <DashedRow
             gutter={false}
-            onClick={() => {
-              // The planner is the only thing that can fill a day, and it is
-              // one request. A row that said "plan your day" and could not be
-              // pressed was an instruction with nowhere to follow it.
-              void api
-                .plan()
-                .then(load)
-                .catch(() => notify("Couldn't plan your day. Try again."));
-            }}
+            onClick={() => void navigate({ to: "/activities" })}
           >
-            Nothing planned yet - plan your day
+            Nothing on today yet - add an activity
           </DashedRow>
         ) : (
           <DayGrid

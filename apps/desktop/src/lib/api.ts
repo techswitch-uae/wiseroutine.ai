@@ -296,6 +296,8 @@ export interface ActivityInput {
   minimumType?: "countPerDay" | "durationPerDay" | "countPerWeek";
   minimumValue?: number;
   sessionMinutes?: number;
+  /** The seven-bit mask, Sunday = bit 0. The server refuses zero. */
+  daysOfWeek?: number;
   importance?: string;
   isActive?: boolean;
   preferredWindows?: number[];

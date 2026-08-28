@@ -1,6 +1,6 @@
 {
-  "short_name": "Tauri TanStack App",
-  "name": "Tauri TanStack Start React Template",
+  "short_name": "Wise Routine",
+  "name": "Wise Routine",
   "icons": [
     {
       "src": "favicon.ico",
@@ -20,6 +20,6 @@
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "theme_color": "#c67139",
+  "background_color": "#f6f1e8"
 }

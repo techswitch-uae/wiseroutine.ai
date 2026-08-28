@@ -1,5 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { DayGrid, Slot } from "@wiseroutine/design";
+import {
+  DayGrid,
+  DayPicker,
+  daysLabel,
+  EVERY_DAY,
+  Slot,
+  WEEKDAYS,
+  WEEKENDS,
+} from "@wiseroutine/design";
 import { expect, test } from "vitest";
 
 // The one rule worth a test: the slot variant decides the treatment, and the
@@ -128,4 +136,51 @@ test("a block cannot be walked off the end of the day", () => {
   // written rather than a slot being pushed past midnight.
   fireEvent.keyDown(handle(container, "stretch"), { key: "ArrowDown" });
   expect(moves).toEqual([]);
+});
+
+/**
+ * The week is stored Sunday-first and read Monday-first.
+ *
+ * Two conventions in one control is exactly where an off-by-one hides, and the
+ * cost of getting it wrong is an activity that runs on the wrong days without
+ * ever saying so.
+ */
+test("the day picker is read Monday first, whatever order the bits are in", () => {
+  const { container } = render(
+    <DayPicker value={WEEKDAYS} onChange={() => {}} />,
+  );
+
+  expect(
+    [...container.querySelectorAll(".wr-day")].map((el) =>
+      el.getAttribute("aria-label"),
+    ),
+  ).toEqual([
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+  ]);
+
+  // Monday through Friday lit, and the weekend not - read off the mask, not
+  // off the position, which is the pair that has to agree.
+  expect(
+    [...container.querySelectorAll(".wr-day")].map((el) =>
+      el.getAttribute("aria-pressed"),
+    ),
+  ).toEqual(["true", "true", "true", "true", "true", "false", "false"]);
+});
+
+test("a mask is named by the set it is, not the days it lists", () => {
+  expect(daysLabel(EVERY_DAY)).toBe("Every day");
+  expect(daysLabel(WEEKDAYS)).toBe("Weekdays");
+  expect(daysLabel(WEEKENDS)).toBe("Weekends");
+  // Monday first here too, or the summary would disagree with the row above it.
+  expect(daysLabel(0b0101010)).toBe("Mon, Wed & Fri");
+  expect(daysLabel(1 << 2)).toBe("Tue");
+  // An activity on no days never runs. Saying so is the whole point - the
+  // form disables its own save on it, and the server refuses it outright.
+  expect(daysLabel(0)).toBe("No days picked");
 });

@@ -137,6 +137,7 @@ export async function seedActivity(
     minimumType: string;
     minimumValue: number;
     sessionMinutes: number;
+    daysOfWeek: number;
     isActive: boolean;
   }> = {},
 ): Promise<string> {
@@ -152,6 +153,7 @@ export async function seedActivity(
       minimumType: overrides.minimumType ?? "countPerDay",
       minimumValue: overrides.minimumValue ?? 2,
       sessionMinutes: overrides.sessionMinutes ?? 10,
+      daysOfWeek: overrides.daysOfWeek ?? 0b1111111,
       createdAt: new Date(),
     },
   });

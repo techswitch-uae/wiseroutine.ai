@@ -16,6 +16,7 @@ size it is asked for.
 | `wordmark-on-ink.svg` | The same in cream, for dark grounds. |
 | `logo.svg` | Mark + ink wordmark. The default lockup. |
 | `logo-on-ink.svg` | Mark + cream wordmark. |
+| `mark-mono.svg` | One-colour mark, for the macOS menu bar and anywhere monochrome. |
 
 ## The mark does not change colour
 
@@ -29,6 +30,20 @@ light, cream `#f5ead8` on dark.
 
 Colours are literal, not tokens. A logo that changes because someone retuned
 the interface palette is not a logo.
+
+## The monochrome one is a template image, not a greyscale copy
+
+`mark-mono.svg` is pure black with the two arcs told apart by opacity rather
+than hue, because that is what macOS wants: it reads only the alpha channel of
+a menu bar icon and paints the shape itself — dark on a light bar, light on a
+dark one. One file covers both appearances.
+
+The terracotta disc is dropped there. Flattened to one colour it is a solid
+blob that says nothing, and the arcs were always the idea; without the disc
+holding them in they take the room it was using.
+
+The app's menu bar icon is generated from it into
+`apps/desktop/src-tauri/icons/tray.png`.
 
 ## Why two marks
 

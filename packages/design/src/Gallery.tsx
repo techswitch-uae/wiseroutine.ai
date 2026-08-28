@@ -10,6 +10,7 @@ import {
   CodeInput,
   DashedRow,
   DayGrid,
+  DayPicker,
   DragPlacement,
   Field,
   FitStrip,
@@ -54,6 +55,7 @@ import {
   SittingStreak,
   TodayScreen,
 } from "./screens";
+import { EVERY_DAY, WEEKDAYS } from "./time";
 
 /** A fixed 09:00 UTC, so the specimen never shifts with the clock. */
 const GRID_DAY_START = Date.UTC(2026, 7, 27, 9, 0, 0);
@@ -156,25 +158,42 @@ const GalleryMovableDay: React.FC = () => {
   );
 };
 
-/** The activity form drives a draft, so the gallery has to hold one. */
+/** Live, because the interesting part is what the summary line says as the
+ *  mask changes. */
+const GalleryDayPicker: React.FC = () => {
+  const [days, setDays] = useState(WEEKDAYS);
+  return <DayPicker value={days} onChange={setDays} />;
+};
+
+/**
+ * The activity form drives a draft, so the gallery has to hold one.
+ *
+ * Shown in a card here and in a sheet in the app - which is the point of the
+ * form carrying no frame of its own. The footer below is the app's, rebuilt,
+ * because the labels are the interesting part: Add against Update is decided
+ * by whether the activity already exists.
+ */
 const GalleryActivityForm: React.FC = () => {
   const [draft, setDraft] = useState<ActivityDraft>({
     name: "Shoulder stretch",
     kind: "recovery",
     sessionMinutes: 10,
     perDay: 3,
+    days: EVERY_DAY,
     land: "any",
   });
 
   return (
-    <ActivityForm
-      draft={draft}
-      origin="From the library · change anything"
-      note="Free covers two. A third asks you to swap one out or move to Pro."
-      onChange={setDraft}
-      onSubmit={() => undefined}
-      onCancel={() => undefined}
-    />
+    <Card title={draft.name} note="From the library · change anything">
+      <ActivityForm draft={draft} named onChange={setDraft} />
+      <div className="wr-activity-foot">
+        <Button variant="primary">Add</Button>
+        <Button variant="quiet">Cancel</Button>
+        <span className="wr-activity-note">
+          Free covers two. A third asks you to swap one out or move to Pro.
+        </span>
+      </div>
+    </Card>
   );
 };
 
@@ -1000,21 +1019,46 @@ export const Gallery: React.FC = () => {
 
         <Row
           name="Activity form"
-          tag="form"
+          tag="fields only"
           wide
           why={
             <>
-              Two steppers of equal weight, because "how long" and "how often"
-              are one decision made twice. The landing segments are a{" "}
+              No frame of its own: the app puts it in a sheet, this puts it in a
+              card, and a component that draws its own card would be two frames
+              deep in the first of those with no way to take one off. Two
+              steppers of equal weight, because "how long" and "how often" are
+              one decision made twice. The landing segments are a{" "}
               <b>preference</b>, not a permission - the planner clamps them into
               the nearest gap that will take the session, so the copy under them
-              says so rather than promising a fence it does not build. The note
-              beside the button states what the plan costs, in the plan's own
-              words.
+              says so rather than promising a fence it does not build. The one
+              committing button says which job this is: <b>Add</b> for something
+              that does not exist yet, <b>Update</b> for something that does.
             </>
           }
         >
           <GalleryActivityForm />
+        </Row>
+
+        <Row
+          name="Day picker"
+          tag="7-bit mask"
+          why={
+            <>
+              Seven toggles and no "every day / weekdays / custom" mode above
+              them - all seven on <i>is</i> every day, and a mode selector would
+              be a second control saying what the first already shows. The
+              summary underneath does that job instead, naming the sets people
+              actually mean rather than listing five days and leaving you to
+              notice they add up to "weekdays". Stored Sunday-first, because
+              that is what <code>getDay()</code> and the scheduler use; read
+              Monday-first, because nobody wants their weekend split across both
+              ends of the row.
+            </>
+          }
+        >
+          <div style={{ width: 320 }}>
+            <GalleryDayPicker />
+          </div>
         </Row>
 
         <Row

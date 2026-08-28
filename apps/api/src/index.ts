@@ -136,13 +136,25 @@ function clientIds(config: ServerEnv): SyncDeps["clientIds"] {
  * no longer scan everyone at once - the directory says whose turn it is, and
  * this runs against that one person.
  */
+/**
+ * How far back the auto-mover looks.
+ *
+ * Generous enough to cover the longest grace an activity sets plus a sweep
+ * that arrived late, and short enough that a slot placed at nine this morning
+ * is left where it is rather than dragged to now and then marked missed.
+ *
+ * ponytail: one number for everyone, where the grace itself is per activity.
+ * Read `graceMinutes` through the slot's activity once a slot carries it.
+ */
+const GRACE_WINDOW = 30 * MINUTE;
+
 async function sweepGrace(
   job: SyncJob,
   config: ServerEnv,
   now: number,
 ): Promise<number | undefined> {
   const db = createUserDatabase(userCredentials(config, job.databaseName));
-  const due = await slotsPastGrace(db, now, 200);
+  const due = await slotsPastGrace(db, now, 200, GRACE_WINDOW);
 
   for (const slot of due) {
     // Thrash cap: after two automatic moves in a day, stop guessing and let the

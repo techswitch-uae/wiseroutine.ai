@@ -8,6 +8,7 @@ import {
   ClashRow,
   CodeInput,
   DashedRow,
+  DayPicker,
   DragPlacement,
   Field,
   FitStrip,
@@ -968,8 +969,11 @@ export interface ActivityDraft {
   kind: "recovery" | "focus" | "task";
   /** How long one session runs. */
   sessionMinutes: number;
-  /** How many of them a day. */
+  /** How many of them, on each day it runs. */
   perDay: number;
+  /** Which days it runs on, as the stored seven-bit mask. `EVERY_DAY` is the
+   *  default and the one most activities keep. */
+  days: number;
   land: ActivityLanding;
 }
 
@@ -1029,7 +1033,12 @@ export const ActivityLibrary: React.FC<{
 );
 
 /**
- * The activity itself, in full.
+ * The activity itself, in full - fields only.
+ *
+ * No frame of its own, because it is always inside one: the app puts it in a
+ * sheet, the gallery in a card. A component that draws its own card and is
+ * then dropped into a dialog is two frames deep, and the caller has no way to
+ * take one off.
  *
  * Every field is one the scheduler reads. There is no "remind me" switch here
  * even though the design carries one: nothing in the app sends a notification
@@ -1039,44 +1048,24 @@ export const ActivityLibrary: React.FC<{
 export const ActivityForm: React.FC<{
   draft: ActivityDraft;
   onChange: (next: ActivityDraft) => void;
-  onSubmit: () => void;
-  onCancel?: () => void;
   /**
-   * Where this draft came from, said under the title. Its absence is what
-   * makes the name editable - a library pick is named already, and anything
-   * else has to be named by the person describing it.
+   * True when the draft came from the library and is already named. The name
+   * field appears only when it did not - a library pick has a name, and
+   * anything else has to be given one by the person describing it.
    */
-  origin?: string;
-  submitLabel?: string;
-  /** The sentence beside the button: what this costs on this plan. */
-  note?: React.ReactNode;
-  busy?: boolean;
-}> = ({
-  draft,
-  onChange,
-  onSubmit,
-  onCancel,
-  origin,
-  submitLabel = "Add activity",
-  note,
-  busy,
-}) => {
+  named?: boolean;
+}> = ({ draft, onChange, named }) => {
   const set = <K extends keyof ActivityDraft>(
     key: K,
     value: ActivityDraft[K],
   ) => onChange({ ...draft, [key]: value });
 
-  // Out of the JSX: a ternary whose branches are a literal and a variable is
-  // the shape that leaks a stray value into the tree when the variable is not
-  // a string.
-  const label = busy ? "Saving…" : submitLabel;
-
+  // One stack with one gap, rather than each field remembering to space itself
+  // off the one above it. That is how the day picker ended up flush against
+  // the landing segments underneath it.
   return (
-    <Card
-      title={draft.name || "New activity"}
-      {...(origin ? { note: origin } : {})}
-    >
-      {origin ? null : (
+    <div className="wr-activity-form">
+      {named ? null : (
         <Field
           label="Name"
           value={draft.name}
@@ -1089,8 +1078,8 @@ export const ActivityForm: React.FC<{
         <Stepper
           label="How long"
           value={`${draft.sessionMinutes} min`}
-          // Five-minute steps below the hour, because that is the ruler the
-          // day is drawn on and a 7-minute block cannot be placed on it.
+          // Five-minute steps above five, because that is the ruler the day is
+          // drawn on and a 7-minute block cannot be placed on it.
           canDecrease={draft.sessionMinutes > 1}
           canIncrease={draft.sessionMinutes < 120}
           onStep={(direction) =>
@@ -1106,6 +1095,12 @@ export const ActivityForm: React.FC<{
         />
       </div>
 
+      <DayPicker
+        label="Which days"
+        value={draft.days}
+        onChange={(days) => set("days", days)}
+      />
+
       <div className="wr-field">
         <span className="wr-label">When it should land</span>
         <Segmented
@@ -1119,23 +1114,7 @@ export const ActivityForm: React.FC<{
           allows.
         </p>
       </div>
-
-      <div className="wr-activity-foot">
-        <Button
-          variant="primary"
-          disabled={busy || draft.name.trim() === ""}
-          onClick={onSubmit}
-        >
-          {label}
-        </Button>
-        {onCancel ? (
-          <Button variant="quiet" onClick={onCancel}>
-            Cancel
-          </Button>
-        ) : null}
-        {note ? <span className="wr-activity-note">{note}</span> : null}
-      </div>
-    </Card>
+    </div>
   );
 };
 

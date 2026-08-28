@@ -28,30 +28,22 @@ const step = (page: Page, label: string): Locator =>
 const progress = (page: Page): Locator =>
   setUp(page).locator(".wr-setup-count");
 
-/**
- * Working hours that contain whatever time this suite is run at.
- *
- * The planner places from *now* onward, so an account whose working day has
- * already ended has nowhere to put anything - which is correct, and would fail
- * this scenario every evening for a reason that has nothing to do with
- * activities.
- */
-async function hoursAroundNow(token: string): Promise<void> {
-  const clock = new Date();
-  const minutes = clock.getHours() * 60 + clock.getMinutes();
-  const response = await fetch(`${API_URL}/settings`, {
-    method: "PATCH",
+/** Create an activity without going near the UI, so what a scenario opens
+ *  Today with is not also a scenario about the Activities page. */
+async function seedActivity(
+  token: string,
+  input: Record<string, unknown>,
+): Promise<void> {
+  const response = await fetch(`${API_URL}/activities`, {
+    method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({
-      dayStartMinutes: Math.max(0, minutes - 60),
-      dayEndMinutes: Math.min(24 * 60, Math.max(minutes + 120, 120)),
-    }),
+    body: JSON.stringify(input),
   });
   if (!response.ok) {
-    throw new Error(`could not widen the working day: ${response.status}`);
+    throw new Error(`could not seed an activity: ${response.status}`);
   }
 }
 
@@ -69,10 +61,15 @@ async function openActivities(page: Page): Promise<void> {
   ).toBeVisible();
 }
 
+/** The configuration sheet, whichever job opened it. */
+const sheet = (page: Page): Locator => page.getByRole("dialog");
+
 /** Pick a template, take whatever it suggests, and add it. */
 async function add(page: Page, name: string): Promise<void> {
   await libraryChip(page, name).click();
-  await page.getByRole("button", { name: "Add activity" }).click();
+  await expect(sheet(page)).toBeVisible();
+  await sheet(page).getByRole("button", { name: "Add", exact: true }).click();
+  await expect(sheet(page)).toBeHidden();
   await expect(activity(page, name)).toBeVisible();
 }
 
@@ -144,7 +141,7 @@ test("a new account starts with nothing, and the counter says so", async ({
   await expect(page.locator(".wr-activity-row")).toHaveCount(0);
 });
 
-test("free keeps two, and pausing one makes room for another", async ({
+test("free keeps two, and removing one makes room for another", async ({
   page,
   signIn,
 }) => {
@@ -159,19 +156,23 @@ test("free keeps two, and pausing one makes room for another", async ({
   await expect(libraryChip(page, "Walk")).toBeDisabled();
   await expect(page.getByText("Free keeps two active at a time")).toBeVisible();
 
-  // Pausing is the swap the note talks about: it frees a place and keeps the
-  // activity, where removing would not.
+  // Remove is the only way out for now. Pausing would keep the activity and
+  // free the place, and it is going to be a Pro capability - so it is not
+  // offered to everyone first and taken away afterwards.
   await activity(page, "Eye rest")
-    .getByRole("button", { name: "Pause" })
+    .getByRole("button", { name: "Remove" })
     .click();
-  await expect(activity(page, "Eye rest").getByText("Paused")).toBeVisible();
+  await expect(activity(page, "Eye rest")).toHaveCount(0);
   await expect(page.getByText("1 of 2 used")).toBeVisible();
 
   await add(page, "Walk");
   await expect(page.getByText("2 of 2 used")).toBeVisible();
 });
 
-test("an edit survives a reload", async ({ page, signIn }) => {
+test("an edit survives a reload, and says Update rather than Add", async ({
+  page,
+  signIn,
+}) => {
   await signIn();
   await openActivities(page);
   await add(page, "Shoulder stretch");
@@ -179,30 +180,139 @@ test("an edit survives a reload", async ({ page, signIn }) => {
   await activity(page, "Shoulder stretch")
     .getByRole("button", { name: "Edit" })
     .click();
-  await page.getByRole("button", { name: "How long: more" }).click();
-  await page.getByRole("button", { name: "Mornings" }).click();
-  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(sheet(page)).toBeVisible();
+  // Which job the sheet is doing is said on its one committing button.
+  await expect(
+    sheet(page).getByRole("button", { name: "Add", exact: true }),
+  ).toHaveCount(0);
+
+  await sheet(page).getByRole("button", { name: "How long: more" }).click();
+  await sheet(page).getByRole("button", { name: "Mornings" }).click();
+  await sheet(page).getByRole("button", { name: "Update" }).click();
+  await expect(sheet(page)).toBeHidden();
 
   await page.reload();
   await expect(
-    activity(page, "Shoulder stretch").getByText("15 min · 3 × day · mornings"),
+    activity(page, "Shoulder stretch").getByText(
+      "15 min · 3 × day · Every day · mornings",
+    ),
   ).toBeVisible();
+});
+
+/* ── Which days it runs on ───────────────────────────────────────────────── */
+
+test("days are picked in the sheet, read back in words, and enforced", async ({
+  page,
+  signIn,
+}) => {
+  await signIn();
+  await openActivities(page);
+
+  await libraryChip(page, "Walk").click();
+  // Every day to begin with - the default nearly everything keeps.
+  await expect(sheet(page).getByText("Every day")).toBeVisible();
+
+  await sheet(page).getByRole("button", { name: "Saturday" }).click();
+  await sheet(page).getByRole("button", { name: "Sunday" }).click();
+  await expect(sheet(page).getByText("Weekdays")).toBeVisible();
+
+  await sheet(page).getByRole("button", { name: "Add", exact: true }).click();
+  await expect(
+    activity(page, "Walk").getByText("15 min · 1 × day · Weekdays"),
+  ).toBeVisible();
+});
+
+test("an activity on no days cannot be saved", async ({ page, signIn }) => {
+  await signIn();
+  await openActivities(page);
+  await libraryChip(page, "Eye rest").click();
+
+  for (const day of [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+  ]) {
+    await sheet(page).getByRole("button", { name: day }).click();
+  }
+
+  // It would be placed on no day and say nothing about it.
+  await expect(sheet(page).getByText("No days picked")).toBeVisible();
+  await expect(
+    sheet(page).getByRole("button", { name: "Add", exact: true }),
+  ).toBeDisabled();
 });
 
 /* ── On the day ──────────────────────────────────────────────────────────── */
 
 test("an added activity is planned onto today", async ({ page, signIn }) => {
-  const user = await signIn(CALENDARS);
-  await hoursAroundNow(user.token);
+  await signIn(CALENDARS);
   await openActivities(page);
   await add(page, "Shoulder stretch");
 
   await page.goto("/");
   await dayShown(page);
 
-  // Planned by the server after the activity was created - the day is the
-  // only place the whole chain can be seen to have worked.
+  // The whole day is planned whatever the clock says, so this holds at nine in
+  // the evening as well as at nine in the morning - which is the bug that
+  // started this: an activity added after six placed nothing, and Today drew
+  // an empty ruler with no explanation on it.
   await expect(
     page.locator(".wr-daygrid-item", { hasText: "Shoulder stretch" }).first(),
   ).toBeVisible();
+});
+
+test("opening the day places the activities, with nobody having asked", async ({
+  page,
+  signIn,
+}) => {
+  const user = await signIn(CALENDARS);
+
+  // Straight into the database, and nothing plans it. Days ahead are never
+  // filled in, so until someone opens this day there is nothing on it.
+  await seedActivity(user.token, {
+    name: "Eye rest",
+    sessionMinutes: 5,
+    minimumType: "countPerDay",
+    minimumValue: 2,
+  });
+
+  await page.goto("/");
+  await dayShown(page);
+
+  await expect(
+    page.locator(".wr-daygrid-item", { hasText: "Eye rest" }),
+  ).toHaveCount(2);
+});
+
+test("a day already planned is not re-planned when it is opened again", async ({
+  page,
+  signIn,
+}) => {
+  const user = await signIn(CALENDARS);
+  await seedActivity(user.token, {
+    name: "Eye rest",
+    sessionMinutes: 5,
+    minimumType: "countPerDay",
+    minimumValue: 1,
+  });
+
+  await page.goto("/");
+  await dayShown(page);
+  const placed = page.locator(".wr-daygrid-item", { hasText: "Eye rest" });
+  await expect(placed).toHaveCount(1);
+
+  // Moved by hand, then the day is opened again. A second plan would put it
+  // back where the planner wanted it, which is the whole reason a day is
+  // decided once rather than on every load.
+  await placed.focus();
+  await page.keyboard.press("ArrowDown");
+  const moved = await placed.getAttribute("aria-label");
+
+  await page.reload();
+  await dayShown(page);
+  await expect(placed).toHaveAttribute("aria-label", moved as string);
 });

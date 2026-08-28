@@ -343,9 +343,24 @@ export async function slotsPastGrace(
   db: UserDatabase,
   now: number,
   limit: number,
+  /**
+   * How far back to look.
+   *
+   * Without it the sweep matched every planned slot ever, however old. A slot
+   * that started this morning is not "just past its grace period": moving it
+   * five minutes on says nothing, and doing that twice buries it in the missed
+   * list. The auto-move is for a slot whose moment is passing right now;
+   * anything older has already been missed, and saying so is the missed list's
+   * job rather than this one's.
+   */
+  window: number,
 ): Promise<SlotRow[]> {
   const rows = await db.slot.findMany({
-    where: { status: "planned", startsAt: { lte: at(now) }, isLocked: false },
+    where: {
+      status: "planned",
+      startsAt: { lte: at(now), gt: at(now - window) },
+      isLocked: false,
+    },
     orderBy: { startsAt: "asc" },
     take: limit,
   });

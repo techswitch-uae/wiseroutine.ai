@@ -1,0 +1,22 @@
+<!-- The mark for a macOS menu bar, and anywhere else it has to be one colour.
+
+     Not a greyscale copy of the logo. A menu bar icon is a *template image*:
+     macOS reads only the alpha channel and paints it itself — black on a light
+     bar, white on a dark one, and inverted again when the bar is selected. So
+     everything here is black, and the two arcs are told apart by opacity
+     rather than by hue. Give this to anything that renders monochrome and it
+     will do the right thing in both appearances without a second file.
+
+     The terracotta disc is gone. Flattened to one colour it is a solid blob
+     that says nothing, and the two arcs were always the idea — booked time,
+     and the slot placed in the gap after it. Without the disc holding them in
+     they get the room it was using: the same geometry, scaled 1.21 about the
+     centre, so the design's proportions survive and only the frame changes. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="44" height="44">
+  <g transform="translate(60 60) scale(1.21) translate(-60 -60)">
+    <g transform="rotate(-90 60 60)" fill="none" stroke="#000" stroke-width="13" stroke-linecap="round">
+      <circle cx="60" cy="60" r="38" stroke-opacity="0.35" stroke-dasharray="96 143" stroke-dashoffset="-10"/>
+      <circle cx="60" cy="60" r="38" stroke-dasharray="54 185" stroke-dashoffset="-142"/>
+    </g>
+  </g>
+</svg>

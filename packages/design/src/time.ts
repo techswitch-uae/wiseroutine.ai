@@ -21,3 +21,63 @@ export const minutesOf = (clock: string): number | null => {
   if (hours > 23 || minutes > 59) return null;
   return hours * 60 + minutes;
 };
+
+/**
+ * Which days an activity runs on, as the seven-bit mask the schema stores.
+ *
+ * Sunday is bit 0, which is `Date.getDay()`'s own numbering and the
+ * scheduler's - so the mask can be tested against a weekday without anyone
+ * having to remember a second convention.
+ */
+export const EVERY_DAY = 0b1111111;
+export const WEEKDAYS = 0b0111110;
+export const WEEKENDS = 0b1000001;
+
+/** Sunday first, to match the bit order. */
+export const DAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
+
+/**
+ * The order a week is read in, which is not the order it is stored in.
+ *
+ * The mask is Sunday-first because `Date.getDay()` is and the scheduler tests
+ * it directly - changing that would mean a conversion at every comparison. A
+ * week starting on Sunday is only a numbering convention, though, and nobody
+ * reading a day picker wants their weekend split across both ends of it. So
+ * the bits stay where they are and the display walks them in this order.
+ */
+export const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
+
+export const runsOnDay = (mask: number, day: number): boolean =>
+  (mask & (1 << day)) !== 0;
+
+export const toggleDay = (mask: number, day: number): number =>
+  mask ^ (1 << day);
+
+/**
+ * The mask in words.
+ *
+ * The three sets people actually mean get their own name, because "Mon, Tue,
+ * Wed, Thu & Fri" is a list you have to read to discover it says "weekdays".
+ * Everything else is spelled out, and an empty mask says what it costs rather
+ * than rendering as an empty line.
+ */
+export const daysLabel = (mask: number): string => {
+  if (mask === EVERY_DAY) return "Every day";
+  if (mask === WEEKDAYS) return "Weekdays";
+  if (mask === WEEKENDS) return "Weekends";
+
+  const picked = WEEK_ORDER.filter((day) => runsOnDay(mask, day)).map((day) =>
+    DAY_NAMES[day].slice(0, 3),
+  );
+  if (picked.length === 0) return "No days picked";
+  if (picked.length === 1) return picked[0] as string;
+  return `${picked.slice(0, -1).join(", ")} & ${picked.at(-1)}`;
+};

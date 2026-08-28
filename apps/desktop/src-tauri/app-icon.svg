@@ -1,0 +1,21 @@
+<!-- The source every app icon is generated from: `pnpm icons`.
+
+     Its own file rather than a link to packages/design/assets/mark.svg, because
+     an app icon is not the same problem as a logo. Edit here, then regenerate;
+     everything in icons/ is build output.
+
+     The padding is the point. macOS sizes every icon against a common grid —
+     roughly an 824px content box inside a 1024px canvas — so a mark drawn full
+     bleed comes out visibly larger than every neighbour in the Dock. The mark
+     itself is untouched: it is the design's own geometry inside a group scaled
+     to 80% about the centre, so the disc, the arcs and the stroke keep their
+     exact proportions to one another and only the whole thing gets smaller. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="1024" height="1024">
+  <g transform="translate(12 12) scale(0.8)">
+    <circle cx="60" cy="60" r="60" fill="#c67139"/>
+    <g transform="rotate(-90 60 60)" fill="none" stroke-width="13" stroke-linecap="round">
+      <circle cx="60" cy="60" r="38" stroke="#f2e0bd" stroke-dasharray="96 143" stroke-dashoffset="-10"/>
+      <circle cx="60" cy="60" r="38" stroke="#2e2b25" stroke-dasharray="54 185" stroke-dashoffset="-142"/>
+    </g>
+  </g>
+</svg>

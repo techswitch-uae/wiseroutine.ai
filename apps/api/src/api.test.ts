@@ -1,4 +1,5 @@
 import { exports as worker } from "cloudflare:workers";
+import { slotsPastGrace } from "@wiseroutine/db";
 import { beforeEach, describe, expect, test } from "vitest";
 import { accessTokenFor } from "./sync/engine";
 import {
@@ -851,5 +852,185 @@ describe("social sign-in handoff", () => {
     );
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toContain("signin=failed");
+  });
+});
+
+/**
+ * Activities repeat, and nothing is written ahead for them.
+ *
+ * The alternative - filling days into the table as far forward as anyone might
+ * look - is a plan nobody has seen going stale on disk. So a day is planned
+ * the first time it is opened, and these are the four rules that makes:
+ * planned once, not re-planned, never for a day that is over, and never for an
+ * account with nothing to place.
+ */
+describe("planning a day on open", () => {
+  const open = async (user: TestUser, at: number) =>
+    worker.default.fetch(`http://api/today?at=${at}`, {
+      headers: user.headers,
+    });
+
+  /** Tomorrow, so the day under test has not ended whatever time this runs. */
+  const AHEAD = () => tomorrowNoon();
+
+  const slotsOf = async (response: Response) =>
+    ((await response.json()) as { slots: { title: string }[] }).slots;
+
+  test("a day plans itself the first time it is opened", async () => {
+    const user = await seedUser();
+    await seedActivity({ name: "Eye rest", minimumValue: 2 });
+
+    const slots = await slotsOf(await open(user, AHEAD()));
+    expect(slots).toHaveLength(2);
+    expect(slots.every((s) => s.title === "Eye rest")).toBe(true);
+  });
+
+  test("an activity added after the day was planned is placed on the next look", async () => {
+    const user = await seedUser();
+    const at = AHEAD();
+
+    await seedActivity({ name: "Eye rest", minimumValue: 1 });
+    expect(await slotsOf(await open(user, at))).toHaveLength(1);
+
+    // The rule a user would state: it should run today, it has no slot on
+    // today, so the day gets planned again. Nobody presses anything.
+    await seedActivity({ name: "Shoulder stretch", minimumValue: 1 });
+    const slots = await slotsOf(await open(user, at));
+    expect(slots.map((s) => s.title).sort()).toEqual([
+      "Eye rest",
+      "Shoulder stretch",
+    ]);
+  });
+
+  test("an activity that does not run today does not drag the day into a replan", async () => {
+    const user = await seedUser({ timeZone: "Europe/Rome" });
+    const at = AHEAD();
+    const weekday = new Date(
+      new Date(at).toLocaleString("en-US", { timeZone: "Europe/Rome" }),
+    ).getDay();
+
+    await seedActivity({ name: "Eye rest", minimumValue: 1 });
+    await open(user, at);
+
+    // Never due, so never missing - otherwise a Sunday-only activity would
+    // have every other day of the week re-planning itself forever.
+    await seedActivity({
+      name: "Weekly walk",
+      daysOfWeek: 0b1111111 & ~(1 << weekday),
+    });
+    await open(user, at);
+    expect(await userDb().planRun.count()).toBe(1);
+  });
+
+  test("opening it again does not plan it again", async () => {
+    const user = await seedUser();
+    await seedActivity();
+
+    const at = AHEAD();
+    await open(user, at);
+    await open(user, at);
+
+    // Two runs would mean every load re-decides a day the user may already
+    // have moved things around in.
+    expect(await userDb().planRun.count()).toBe(1);
+  });
+
+  test("a day wholly behind us is left alone", async () => {
+    const user = await seedUser();
+    await seedActivity();
+
+    // History is not replanned. Today after working hours still is - the whole
+    // working day is placed whatever the clock says, so someone opening the
+    // app in the evening sees the shape their day was meant to have.
+    await open(user, Date.now() - 2 * 86_400_000);
+    expect(await userDb().planRun.count()).toBe(0);
+  });
+
+  test("an account with nothing to place is not marked as planned", async () => {
+    const user = await seedUser();
+    const at = AHEAD();
+
+    // Otherwise the empty run files itself against today and an activity added
+    // a minute later would not appear until tomorrow.
+    await open(user, at);
+    expect(await userDb().planRun.count()).toBe(0);
+
+    await seedActivity({ minimumValue: 1 });
+    expect(await slotsOf(await open(user, at))).toHaveLength(1);
+  });
+
+  test("an activity is not placed on a day it does not run on", async () => {
+    const user = await seedUser({ timeZone: "Europe/Rome" });
+    const at = AHEAD();
+
+    // Every day except the one being opened, so the only thing under test is
+    // the mask - not the window, the calendar, or the count.
+    const weekday = new Date(
+      new Date(at).toLocaleString("en-US", { timeZone: "Europe/Rome" }),
+    ).getDay();
+    await seedActivity({ daysOfWeek: 0b1111111 & ~(1 << weekday) });
+
+    expect(await slotsOf(await open(user, at))).toHaveLength(0);
+  });
+});
+
+describe("which days an activity runs on", () => {
+  test("an activity that runs on no day is refused", async () => {
+    const user = await seedUser();
+    const response = await worker.default.fetch("http://api/activities", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Never", daysOfWeek: 0 }),
+    });
+
+    // The planner would place it on no day and say nothing, which is the
+    // quietest possible failure.
+    expect(response.status).toBe(400);
+  });
+
+  test("a mask wider than a week is refused", async () => {
+    const user = await seedUser();
+    const response = await worker.default.fetch("http://api/activities", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Eight days a week", daysOfWeek: 255 }),
+    });
+    expect(response.status).toBe(400);
+  });
+});
+
+/**
+ * The auto-mover's reach.
+ *
+ * "Moves itself in 3 min if you don't start" is about a slot whose moment is
+ * passing right now. The query had no lower bound at all, which only became
+ * visible once a day started being planned from its own beginning rather than
+ * from the current time: every slot placed this morning was due, and the sweep
+ * would drag them all to now+5, twice, and then call them missed.
+ */
+describe("the grace sweep's window", () => {
+  const seedSlot = async (title: string, startsAt: number) => {
+    await userDb().slot.create({
+      data: {
+        id: crypto.randomUUID(),
+        title,
+        kind: "recovery",
+        startsAt: new Date(startsAt),
+        endsAt: new Date(startsAt + 600_000),
+        timeZone: "UTC",
+        status: "planned",
+        createdAt: new Date(),
+      },
+    });
+  };
+
+  test("reaches a slot just past its moment, and not one from this morning", async () => {
+    const now = Date.now();
+    await seedSlot("Two minutes ago", now - 2 * 60_000);
+    await seedSlot("This morning", now - 9 * 3_600_000);
+    await seedSlot("Later", now + 60_000);
+
+    const due = await slotsPastGrace(userDb(), now, 200, 30 * 60_000);
+    expect(due.map((slot) => slot.title)).toEqual(["Two minutes ago"]);
   });
 });

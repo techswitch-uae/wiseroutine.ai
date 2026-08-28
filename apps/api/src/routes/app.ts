@@ -19,6 +19,7 @@ import {
   setActivityWindows,
   setCalendarSelected,
   setSlotStatus,
+  toSchedulerActivity,
   touchLastSeen,
   updateActivity,
   updateUserSettings,
@@ -32,7 +33,9 @@ import {
 import {
   dayBounds,
   localDateOf,
+  localWeekday,
   replayedAt,
+  runsOn,
   shouldSyncOnForeground,
   shouldTouchLastSeen,
   toBusyBlocks,
@@ -388,6 +391,25 @@ app.delete("/connections/:id", async (c) => {
 
 /* ── Activities ──────────────────────────────────────────────────────────── */
 
+/**
+ * A seven-bit day mask, or a refusal.
+ *
+ * Zero is the one that matters: an activity that runs on no day is one the
+ * planner will silently never place, and a screen showing it beside six that
+ * work is the worst kind of quiet failure. The client disables its own save
+ * for it, which is a courtesy - this is the rule.
+ */
+function daysOfWeek(value: unknown, fallback: number): number {
+  if (value === undefined) return fallback;
+  const mask = Number(value);
+  if (!Number.isInteger(mask) || mask < 1 || mask > 0b1111111) {
+    throw new HTTPException(400, {
+      message: "daysOfWeek must pick at least one day of the week",
+    });
+  }
+  return mask;
+}
+
 app.get("/activities", async (c) => {
   const rows = await listActivities(c.get("db"));
   return c.json(
@@ -423,7 +445,7 @@ app.post("/activities", async (c) => {
       minimumType: String(body.minimumType ?? "countPerDay"),
       minimumValue: Number(body.minimumValue ?? 1),
       sessionMinutes: Number(body.sessionMinutes ?? 10),
-      daysOfWeek: Number(body.daysOfWeek ?? 0b1111111),
+      daysOfWeek: daysOfWeek(body.daysOfWeek, 0b1111111),
       importance: String(body.importance ?? "normal"),
       graceMinutes: Number(body.graceMinutes ?? 3),
       bufferBeforeMeetingMinutes: Number(body.bufferBeforeMeetingMinutes ?? 0),
@@ -457,12 +479,15 @@ app.patch("/activities/:id", async (c) => {
     "minimumType",
     "minimumValue",
     "sessionMinutes",
-    "daysOfWeek",
     "importance",
     "graceMinutes",
     "bufferBeforeMeetingMinutes",
   ]) {
     if (body[key] !== undefined) patch[key] = body[key];
+  }
+  // Checked rather than copied through: the same rule the create path applies.
+  if (body.daysOfWeek !== undefined) {
+    patch.daysOfWeek = daysOfWeek(body.daysOfWeek, 0b1111111);
   }
   if (Object.keys(patch).length > 0) {
     await updateActivity(db, c.req.param("id"), patch);
@@ -637,6 +662,89 @@ app.patch("/settings", async (c) => {
 
 /* ── Today ───────────────────────────────────────────────────────────────── */
 
+/** The whole local day `at` falls in - what "this day" means everywhere below. */
+const localDay = (c: Ctx, at: number): { start: number; end: number } => {
+  const zone = c.get("user").timeZone;
+  return dayBounds(localDateOf(at, zone), zone, 0, FULL_DAY_MINUTES);
+};
+
+/**
+ * A day wholly behind us. History is never replanned - not on open, and not
+ * on request either.
+ *
+ * The one exception to "the whole working day is fair game whatever the clock
+ * says". Today at nine in the evening is still today and still worth showing
+ * the shape of; yesterday is not.
+ */
+const isOver = (c: Ctx, day: { end: number }): boolean =>
+  day.end <= c.get("now");
+
+/**
+ * Put on the day whatever the day is missing.
+ *
+ * Activities repeat - "three times a day, every weekday" - and the obvious way
+ * to honour that is to write slots for every day ahead. That is a table
+ * growing forever with a plan nobody has seen, every row of it already wrong
+ * the moment a meeting moves. So nothing is written ahead: a day is filled in
+ * when it is opened.
+ *
+ * The trigger is the plain one, and it is the rule a user would state: an
+ * activity that should run today and has no slot on today is missing, and a
+ * day with anything missing gets planned. That is why adding an activity and
+ * walking back to Today places it, with nobody having pressed anything - and
+ * why opening the same day twice does not move what is already on it, so a
+ * slot dragged somewhere by hand stays there.
+ *
+ * The whole working day is fair game, not just what is left of it. Someone
+ * opening the app at nine in the evening still wants to see the shape their
+ * day was meant to have, and a screen that answers an empty ruler reads as the
+ * app being broken rather than as the day being over.
+ *
+ * ponytail: which means slots can land in the past, and an activity that does
+ * not fit stays missing so every load re-solves it. Both are the "for now"
+ * shape - one in-memory solve over one day. Plan from `now` and say what
+ * happened to the rest once there is a mid-day story to tell.
+ */
+async function fillDay(
+  c: Ctx,
+  /** The whole local day. `end` is the midnight after it. */
+  wholeDay: { start: number; end: number },
+): Promise<void> {
+  const db = c.get("db");
+  const now = c.get("now");
+  const user = c.get("user");
+
+  if (isOver(c, wholeDay)) return;
+
+  const [activities, slots] = await Promise.all([
+    listActivities(db),
+    listSlotsForRange(db, wholeDay.start, wholeDay.end),
+  ]);
+
+  const weekday = localWeekday(wholeDay.start, user.timeZone);
+  const due = activities.filter(
+    ({ row }) => row.isActive && runsOn(toSchedulerActivity(row), weekday),
+  );
+  if (due.length === 0) return;
+
+  const placed = new Set(slots.map((slot) => slot.activityId));
+  if (due.every(({ row }) => placed.has(row.id))) return;
+
+  await planDay(
+    db,
+    {
+      user,
+      // Midnight of the day itself. Its `end` is the first instant of the day
+      // *after* it, and passing that planned tomorrow while filing the run
+      // under today - so every open planned again, one day out.
+      onDay: wholeDay.start,
+      trigger: "morning",
+    },
+    now,
+    newId,
+  );
+}
+
 app.get("/today", async (c) => {
   const db = c.get("db");
   const user = c.get("user");
@@ -663,6 +771,10 @@ app.get("/today", async (c) => {
    * consistent, which two queries against different windows would not.
    */
   const wholeDay = dayBounds(date, user.timeZone, 0, FULL_DAY_MINUTES);
+
+  // Before the read, not after: the whole point is that the slots this answer
+  // carries are the ones this call just decided on.
+  await fillDay(c, wholeDay);
 
   const [slots, events] = await Promise.all([
     listSlotsForRange(db, bounds.start, bounds.end),
@@ -736,9 +848,17 @@ app.post("/plan", async (c) => {
     enforce(c, { kind: "plan.adaptive" });
   }
 
+  const onDay = body.at ?? now;
+  if (isOver(c, localDay(c, onDay))) {
+    return c.json({ planRunId: null, placed: 0, removed: 0, unplaced: [] });
+  }
+
   const result = await planDay(
     c.get("db"),
-    { user, onDay: body.at ?? now, trigger, from: now },
+    // No `from`: the whole working day, the same rule `fillDay` uses. Two
+    // different answers to "where does this go" depending on which door the
+    // request came through is the kind of difference nobody can debug.
+    { user, onDay, trigger },
     now,
     newId,
   );
