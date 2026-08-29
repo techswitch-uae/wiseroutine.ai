@@ -71,11 +71,16 @@ body { background: var(--wr-page); }
   font: 600 13px var(--font-body); border-radius: 999px;
   padding: 11px 22px; color: var(--color-text); background: transparent;
 }
-/* The system has no opacity-based disabled state, so an unavailable action
-   degrades to the inset sand surface instead of dimming. */
+/* Unavailable, and it has to look it without dimming - this system has no
+   opacity-based disabled state.
+   It used to be `neutral-200` + a hairline ring, which is EXACTLY an enabled
+   secondary button: the only thing separating "press this" from "you cannot"
+   was 70%-ink text at 5.6:1 against the 11.7:1 of the live one. So the surface
+   carries it now - flat, a step darker, no ring to suggest a control - and the
+   text goes solid at 8:1 instead of being the whole signal. */
 .wr-btn:disabled {
-  cursor: not-allowed; background: var(--color-neutral-200); color: var(--wr-text-soft);
-  box-shadow: inset 0 0 0 1px var(--wr-hairline);
+  cursor: not-allowed; background: var(--wr-track);
+  color: var(--color-neutral-800); box-shadow: none;
 }
 .wr-btn-primary {           /* starts or schedules something - the physical act */
   background: var(--color-accent-700); color: #fff; box-shadow: var(--wr-lift-btn);
@@ -708,10 +713,23 @@ img.wr-avatar { object-fit: cover; }
    bar would still be *inside* the scrolled content - one flick of momentum and
    it lags, and anything with a shadow smears. This way it simply never moves,
    because it is never in the thing that moves. */
+/* The page owns the sides; the scroller owns the top and the bottom.
+   Vertical padding on the page put a fixed strip of ground above and below the
+   scroller: the settings pages started a little way down the window, stopped a
+   little way short of the bottom, and the last card's shadow was sheared off
+   by the scroller's own edge. Moving it inside means the same air is there at
+   rest and scrolls away, so a page fills the window and every card has room to
+   cast. Horizontal stays here - the sides are the page's, not the scroll's. */
 .wr-frame-bare .wr-page {
-  min-height: 0; overflow: hidden;
+  min-height: 0; overflow: hidden; padding: 0 26px;
   display: flex; flex-direction: column;
 }
+/* Today keeps its fixed bar, so the air above the day belongs to the bar. */
+.wr-frame-bare .wr-page-bar { padding-top: 24px; }
+.wr-frame-bare .wr-page-scroll { padding-top: 24px; padding-bottom: 28px; }
+/* Under a bar there is already air; a second helping would push the day down
+   the window every time it is drawn. */
+.wr-frame-bare .wr-page-bar + .wr-page-scroll { padding-top: 0; }
 .wr-page-bar { flex: none; }
 /* The scroller every page's content sits in.
    `padding-right` is the scrollbar's lane. macOS draws an overlay scrollbar —
@@ -719,14 +737,28 @@ img.wr-avatar { object-fit: cover; }
    which on the day meant a bar sliding down through the hour lines and the
    block titles. Reserving the lane costs nothing when no scrollbar is showing,
    and stops it landing on the content when one is. */
+/* A lane on BOTH sides. `overflow-y: auto` makes `overflow-x` clip too, so
+   the scroller's left edge sheared the shadow off every card in it - the same
+   fault the right side had, and easier to miss because the scrollbar drew
+   attention to the other one. The right lane is where the scrollbar lives and
+   keeps its padding; the left is paint room only, so a negative margin hands
+   it back to the layout and nothing shifts. */
 .wr-page-scroll {
   flex: 1; min-height: 0; overflow-y: auto;
   padding-right: var(--wr-scroll-lane);
+  padding-left: var(--wr-scroll-lane);
   box-sizing: border-box;
 }
-/* The fixed bar is a sibling of the scroller, not inside it, so it needs the
-   same lane or its right edge stops short of the content underneath it. */
-.wr-page-bar { padding-right: var(--wr-scroll-lane); box-sizing: border-box; }
+/* The fixed bar is a sibling of the scroller, not inside it, so it takes the
+   same lane on both sides or it stops short of the content underneath it.
+   Plain padding rather than a negative margin: pulling the scroller left made
+   it wider than its parent, which put the cards over the right edge and hung a
+   horizontal scrollbar under the day. */
+.wr-page-bar {
+  padding-right: var(--wr-scroll-lane);
+  padding-left: var(--wr-scroll-lane);
+  box-sizing: border-box;
+}
 /* The page's own wrappers sit between `.wr-page` and the scroller, so they are
    the ones that have to pass the window's height down. They did not: the body
    was `align-items: flex-start` and neither it nor the main column could
@@ -1038,9 +1070,13 @@ img.wr-avatar { object-fit: cover; }
 
 /* ── Choosing a provider ───────────────────────────────────────────────── */
 .wr-providers { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+/* Recessed, like every other panel inside a card. This was the only bordered
+   box in the system - card-coloured with a hairline round it, which is the
+   outline this file's own header says not to reach for. */
 .wr-provider {
   display: flex; align-items: center; gap: 11px; padding: 11px 12px;
-  border: 1px solid var(--wr-hairline); border-radius: 13px; background: var(--wr-card);
+  border-radius: 13px;
+  background: var(--wr-recessed); box-shadow: var(--wr-inset);
 }
 .wr-provider-mark {
   flex: none; width: 28px; height: 28px; border-radius: 999px;
@@ -1052,9 +1088,11 @@ img.wr-avatar { object-fit: cover; }
 .wr-provider-note {
   font: 400 11px/1.4 var(--font-body); color: var(--wr-text-soft);
 }
+/* Recessed tone without the inset was the third odd one out; the shadow is
+   what makes the tone read as a plane rather than a fill. */
 .wr-provider-terms {
   margin-top: 16px; padding: 12px 13px; border-radius: 12px;
-  background: var(--wr-recessed);
+  background: var(--wr-recessed); box-shadow: var(--wr-inset);
 }
 .wr-provider-terms-title {
   font: 700 11px var(--font-body); color: var(--wr-text-muted);
@@ -1103,9 +1141,12 @@ img.wr-avatar { object-fit: cover; }
    the dashboard's rail. One padding, declared once - a module that sets its
    own is how the rail and the settings pages drifted apart in the first
    place. */
+/* Lift 2, not lift 1. The card's ground is #f9f4ed and the page's is #f6f1e8 -
+   three values apart, which no shadow this light can separate. Depth is the
+   only thing telling them apart, so it has to be the depth that does it. */
 .wr-card {
   background: var(--wr-card); border-radius: 15px;
-  box-shadow: var(--wr-lift-1); padding: 16px 18px;
+  box-shadow: var(--wr-lift-2); padding: 16px 18px;
 }
 /* The inverted tone. Same block, same padding - only heavier, for the one
    thing on a first run worth looking at. */
@@ -1237,7 +1278,10 @@ img.wr-avatar { object-fit: cover; }
   background: var(--wr-recessed); box-shadow: inset 0 0 0 1px var(--wr-hairline);
   font: 600 12px var(--font-body); color: var(--color-accent-900);
 }
-.wr-hours-edit:hover { background: var(--color-accent-100); }
+/* `accent-100` is a pink-white: the one hover in the app that leaves the warm
+   neutrals, on a control that is otherwise a secondary button to the pixel.
+   Every other hover here steps one neutral darker - so does this one now. */
+.wr-hours-edit:hover { background: var(--color-neutral-300); }
 .wr-hours-edit svg { margin-left: auto; }
 
 /* The date and the control that changes what is under it, as one cluster. */
@@ -1338,9 +1382,26 @@ img.wr-avatar { object-fit: cover; }
    calendar list with. A card is the group; a block is one thing in it, and it
    never carries a shadow - two elevations inside one card reads as two
    different kinds of surface. */
+/* Pressed into the card, not outlined on it.
+   These were the card's own background with a hairline drawn round them - the
+   same colour as the thing they sit in, separated by a 10% line. That is the
+   outline this system says not to reach for, and it is why they did not read.
+   Recessed, they are a different plane rather than a drawn edge: the page
+   raises the card, and the card sinks the blocks. */
 .wr-block {
   padding: 12px 13px; border-radius: 13px;
-  border: 1px solid var(--wr-hairline); background: var(--wr-card);
+  background: var(--wr-recessed); box-shadow: var(--wr-inset);
+}
+/* Controls that were recessed on a light ground.
+   They cannot stay recessed on a recessed one - a segmented track, a secondary
+   button, a provider mark and a time field all share this exact tone, and on a
+   recessed block every one of them vanished into it. Inside a block they take
+   the card's ground instead: still a step away from what they sit on, just in
+   the other direction. Anything else added here that uses `--wr-recessed`
+   belongs in this list. */
+:is(.wr-block, .wr-provider)
+  :is(.wr-seg, .wr-btn-secondary, .wr-provider-mark, .wr-timefield) {
+  background: var(--wr-card);
 }
 .wr-block + .wr-block { margin-top: 9px; }
 .wr-block-head { display: flex; align-items: center; gap: 12px; }
