@@ -442,3 +442,101 @@ test("the popover is only the hours when no densities are offered", async () => 
   ).not.toBeInTheDocument();
   expect(screen.getAllByRole("menuitemradio")).toHaveLength(RANGES.length);
 });
+
+/**
+ * The keys a focused block answers.
+ *
+ * All of them live on the block rather than on the window, which is what makes
+ * them safe: none can fire while someone is typing on the other side of the
+ * page. That is the whole design, so it is what these check.
+ */
+const keyed = (
+  over: Partial<{
+    onStart: () => void;
+    onRemove: () => void;
+    movable: boolean;
+  }> = {},
+) => ({
+  key: "stretch",
+  startsAt: at(10),
+  endsAt: at(10, 10),
+  title: "stretch",
+  node: <Slot variant="recovery" time="" name="stretch" />,
+  ...over,
+});
+
+const keyedGrid = (
+  item: ReturnType<typeof keyed>,
+  onMove?: (key: string, startsAt: number, endsAt: number) => void,
+) =>
+  render(
+    <DayGrid
+      dayStart={at(9)}
+      dayEnd={at(12)}
+      timeZone="UTC"
+      {...(onMove ? { onMove } : {})}
+      items={[item]}
+    />,
+  );
+
+test("Enter starts the block, and Delete takes it off today", () => {
+  const started: string[] = [];
+  const removed: string[] = [];
+  const { container } = keyedGrid(
+    keyed({
+      onStart: () => started.push("started"),
+      onRemove: () => removed.push("removed"),
+    }),
+  );
+
+  const block = handle(container, "stretch");
+  fireEvent.keyDown(block, { key: "Enter" });
+  expect(started).toEqual(["started"]);
+
+  fireEvent.keyDown(block, { key: "Delete" });
+  // Backspace too - it is what a lot of people reach for, and on some shells
+  // it is Back, so leaving it unhandled loses the page rather than the slot.
+  fireEvent.keyDown(block, { key: "Backspace" });
+  expect(removed).toEqual(["removed", "removed"]);
+});
+
+test("a block that offers neither key is not reachable by one", () => {
+  // A finished slot: nothing to start, and removing it would erase what
+  // actually happened.
+  const { container } = keyedGrid(keyed());
+  expect(container.querySelector('[aria-label^="stretch at"]')).toBeNull();
+});
+
+test("a block can be focused and removed without ever being movable", () => {
+  const removed: string[] = [];
+  const { container } = keyedGrid(keyed({ onRemove: () => removed.push("x") }));
+
+  const block = handle(container, "stretch");
+  fireEvent.keyDown(block, { key: "Delete" });
+  expect(removed).toHaveLength(1);
+  // Not draggable, so the arrows have nothing to say.
+  fireEvent.keyDown(block, { key: "ArrowDown" });
+  expect(removed).toHaveLength(1);
+});
+
+test("Escape gives the block back", () => {
+  const { container } = keyedGrid(keyed({ onRemove: () => undefined }));
+  const block = handle(container, "stretch") as HTMLElement;
+
+  block.focus();
+  expect(document.activeElement).toBe(block);
+  fireEvent.keyDown(block, { key: "Escape" });
+  expect(document.activeElement).not.toBe(block);
+});
+
+test("the label says which keys the block answers", () => {
+  // Read once, on focus, and the only way anyone learns these without a mouse.
+  const { container } = keyedGrid(
+    keyed({ onStart: () => undefined, onRemove: () => undefined }),
+    () => undefined,
+  );
+  const label = handle(container, "stretch").getAttribute("aria-label");
+  expect(label).toContain("arrow keys");
+  expect(label).toContain("Enter");
+  expect(label).toContain("Delete");
+});

@@ -12,7 +12,8 @@
     "migrate:diff:user": "prisma migrate diff --config prisma.user.config.ts --from-migrations migrations/user --to-schema prisma/user.prisma --script",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "clean": "git clean -xdf .cache .turbo dist node_modules src/generated"
+    "clean": "git clean -xdf .cache .turbo dist node_modules src/generated",
+    "migrate": "tsx scripts/migrate.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",

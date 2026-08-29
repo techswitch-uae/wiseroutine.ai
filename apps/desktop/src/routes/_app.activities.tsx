@@ -10,6 +10,7 @@ import {
   Card,
   daysLabel,
   EVERY_DAY,
+  Loading,
   Modal,
   PlanNote,
 } from "@wiseroutine/design";
@@ -18,6 +19,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useAccount } from "../lib/account";
 import { type ActivityResponse, ApiError, api } from "../lib/api";
 import { notify } from "../lib/notify";
+import { moduleFor, type StartPolicy } from "../modules/activities";
+import {
+  ActivityModuleFields,
+  type ModuleDraft,
+} from "../modules/activity-module-fields";
 
 /**
  * The activities the day is built out of.
@@ -79,9 +85,49 @@ const EMPTY: ActivityDraft = {
   land: "any",
 };
 
+const moduleDraftOf = (row: ActivityResponse): ModuleDraft => ({
+  presetKey: row.presetKey ?? null,
+  startPolicy: (row.startPolicy ?? "manual") as StartPolicy,
+  configJson: row.configJson ?? null,
+});
+
+const NO_MODULE: ModuleDraft = {
+  presetKey: null,
+  startPolicy: "manual",
+  configJson: null,
+};
+
+/**
+ * The module a library pick starts with.
+ *
+ * By template key rather than by name, because a template can be renamed the
+ * moment it is picked and matching on the new name would silently drop the
+ * module. Anything not listed starts as a plain timed slot, which is the
+ * honest default for something the app has no session for.
+ */
+const LIBRARY_MODULES: Record<string, string> = {
+  "shoulder-stretch": "stretch",
+  "eye-rest": "eye_rest",
+  "deep-work": "deep_work",
+  breathing: "breathing",
+};
+
+function moduleForTemplate(key: string): ModuleDraft {
+  const module = moduleFor(LIBRARY_MODULES[key]);
+  if (!module) return NO_MODULE;
+  return {
+    presetKey: module.key,
+    startPolicy: module.defaults.startPolicy,
+    configJson: JSON.stringify(module.defaults.config),
+  };
+}
+
 /** What the sheet is currently editing, and which of the two jobs it is. */
 interface Editing {
   draft: ActivityDraft;
+  /** Kept beside the draft rather than inside it: `ActivityDraft` is the
+   *  design package's type, and modules are the app's business. */
+  module: ModuleDraft;
   /** Set for a library pick, so the name is the template's rather than typed. */
   origin?: string;
   /** Set when this is an existing activity rather than a new one. It is what
@@ -155,6 +201,9 @@ const Activities: React.FC = () => {
       sessionMinutes: draft.sessionMinutes,
       daysOfWeek: draft.days,
       preferredWindows: windowsOf(draft.land),
+      presetKey: editing.module.presetKey,
+      startPolicy: editing.module.startPolicy,
+      configJson: editing.module.configJson,
     };
 
     setSaving(true);
@@ -207,14 +256,15 @@ const Activities: React.FC = () => {
               days: template.days,
               land: template.land,
             },
+            module: moduleForTemplate(template.key),
             origin: "From the library · change anything",
           }
-        : { draft: EMPTY },
+        : { draft: EMPTY, module: NO_MODULE },
     );
   };
 
   if (!rows) {
-    return <p className="wr-body">{problem ?? "Loading your activities…"}</p>;
+    return <Loading>{problem ?? "Loading your activities…"}</Loading>;
   }
 
   return (
@@ -241,7 +291,13 @@ const Activities: React.FC = () => {
                 )} · ${LANDING_WORD[landingOf(row.preferredWindows)]}`}
                 isActive={row.isActive}
                 busy={working === row.id}
-                onEdit={() => setEditing({ draft: draftOf(row), id: row.id })}
+                onEdit={() =>
+                  setEditing({
+                    draft: draftOf(row),
+                    module: moduleDraftOf(row),
+                    id: row.id,
+                  })
+                }
                 onRemove={() => remove(row.id)}
               />
             ))}
@@ -337,7 +393,25 @@ const Activities: React.FC = () => {
             draft={editing.draft}
             named={editing.origin !== undefined}
             onChange={(draft) => setEditing({ ...editing, draft })}
-          />
+          >
+            <ActivityModuleFields
+              value={editing.module}
+              onChange={(module) => setEditing({ ...editing, module })}
+              // Picking a module sets the session length it was designed
+              // around - five minutes for an eye rest, twenty-five for deep
+              // work - which is a field the sheet above owns.
+              onSessionMinutes={(sessionMinutes) =>
+                setEditing((current) =>
+                  current
+                    ? {
+                        ...current,
+                        draft: { ...current.draft, sessionMinutes },
+                      }
+                    : current,
+                )
+              }
+            />
+          </ActivityForm>
           {problem ? (
             <p
               className="wr-auth-problem"

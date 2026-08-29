@@ -1,4 +1,9 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+// Desktop only, like the updater below: there is no menu bar to put an icon
+// in on a phone.
+#[cfg(desktop)]
+mod tray;
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[tauri::command]
@@ -8,55 +13,11 @@ fn greet() -> String {
   format!("Hello world from Rust! Current epoch: {epoch_ms}")
 }
 
-/**
- * The mark in the macOS menu bar, and the one thing behind it.
- *
- * Quit only. The icon is there to say the app is running, and the menu exists
- * so that closing the window is not the same as stopping the app — which is
- * the confusion a menu bar icon otherwise creates.
- *
- * `icon_as_template` is what makes it behave like every other menu bar icon.
- * The PNG is pure black plus alpha, and macOS paints it itself — dark on a
- * light bar, light on a dark one, inverted again while the item is selected.
- * Without the flag the same file renders as a permanently black blob that
- * disappears into a dark menu bar.
- */
-#[cfg(desktop)]
-fn menu_bar_icon(app: &tauri::App) -> tauri::Result<()> {
-  use tauri::{
-    image::Image,
-    menu::{MenuBuilder, MenuItemBuilder},
-    tray::TrayIconBuilder,
-  };
-
-  let quit = MenuItemBuilder::with_id("quit", "Quit Wise Routine").build(app)?;
-  let menu = MenuBuilder::new(app).items(&[&quit]).build()?;
-
-  // Compiled in rather than read from disk: the tray is built during setup,
-  // before there is anywhere to have shipped a loose file to.
-  let icon = Image::from_bytes(include_bytes!("../icons/tray.png"))?;
-  let tray = TrayIconBuilder::with_id("menu-bar")
-    .icon(icon)
-    .menu(&menu)
-    .on_menu_event(|app, event| {
-      if event.id().as_ref() == "quit" {
-        // Ends the process rather than closing the window. There is no
-        // accelerator on it: the app menu already owns Cmd+Q, and a second
-        // registration of the same chord is a fight nobody wins.
-        app.exit(0);
-      }
-    });
-
-  #[cfg(target_os = "macos")]
-  let tray = tray.icon_as_template(true);
-
-  tray.build(app)?;
-  Ok(())
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+  let builder = tauri::Builder::default()
+    .plugin(tauri_plugin_opener::init())
+    .plugin(tauri_plugin_notification::init());
 
   // The updater downloads and swaps the app bundle; `process` is what lets it
   // restart into the version it just installed. Neither exists on mobile.
@@ -65,13 +26,29 @@ pub fn run() {
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_process::init());
 
-  builder
+  #[cfg(desktop)]
+  let builder = builder
     .setup(|app| {
-      #[cfg(desktop)]
-      menu_bar_icon(app)?;
+      tray::install(app)?;
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![greet])
+    .invoke_handler(tauri::generate_handler![greet, tray::set_up_next]);
+
+  #[cfg(not(desktop))]
+  let builder = builder.invoke_handler(tauri::generate_handler![greet]);
+
+  builder
+    .on_window_event(|window, event| {
+      // Closing the window hides it; the process keeps running behind the menu
+      // bar icon. Load-bearing rather than a nicety: the day's notifications
+      // are scheduled by the webview, so quitting on close would mean the app
+      // only ever reminds you while you are already looking at it. Quit is on
+      // the tray menu and on Cmd+Q, both of which still end the process.
+      if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        api.prevent_close();
+        let _ = window.hide();
+      }
+    })
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

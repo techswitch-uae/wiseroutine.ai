@@ -6,6 +6,11 @@ import {
   SetupModule,
 } from "@wiseroutine/design";
 import { useCallback, useEffect, useState } from "react";
+import {
+  alertPermissionGranted,
+  alertsAvailable,
+  ensureAlertPermission,
+} from "../lib/alerts";
 import { api } from "../lib/api";
 import { beginConnect } from "../routes/_app.calendars";
 import { DAY_HOURS_ANCHOR } from "../routes/_app.settings";
@@ -13,11 +18,16 @@ import { DAY_HOURS_ANCHOR } from "../routes/_app.settings";
 /**
  * The rail's set-up module, and the sheet its one button opens.
  *
- * Three steps, all of them real: a calendar to read, two activities to place
- * in it, and a look at the hours everything is placed between. There is no way
- * out but finishing, because there is nothing the app can do until all three
- * are true - a day with no calendar and no activities is an empty ruler, and
- * "Skip for now" only ever bought a blank screen with no explanation on it.
+ * Four steps, all of them real: a calendar to read, two activities to place in
+ * it, a look at the hours everything is placed between, and permission to say
+ * something when a slot starts. There is no way out but finishing, because
+ * there is nothing the app can do until they are true - a day with no calendar
+ * and no activities is an empty ruler, a routine nobody is told about is a
+ * list, and "Skip for now" only ever bought a blank screen with no explanation
+ * on it.
+ *
+ * The notification step is not offered in a browser, where there is no menu
+ * bar to be reminded from and nothing to grant.
  *
  * Each step retires itself by being satisfied, not by being pressed: the
  * calendar step goes when a connection lands, the activities step when two are
@@ -89,6 +99,9 @@ export const SetupRail: React.FC = () => {
   const [finished, setFinished] = useState(() => remembered(DONE));
   const [connecting, setConnecting] = useState(false);
   const [busy, setBusy] = useState<CalendarProvider | null>(null);
+  /** Null while unknown, and in a browser it stays null - a step that cannot
+   *  exist is never counted rather than being counted as failed. */
+  const [alerts, setAlerts] = useState<boolean | null>(null);
 
   const look = useCallback(() => {
     // Nothing left to ask about, and no answer that could bring this back.
@@ -105,6 +118,10 @@ export const SetupRail: React.FC = () => {
       .activities()
       .then((rows) => setActive(rows.filter((row) => row.isActive).length))
       .catch(() => setActive(ENOUGH_ACTIVITIES));
+
+    // Granted in a system dialog outside this window, so it is re-read on
+    // every look rather than only when the button is pressed.
+    if (alertsAvailable()) void alertPermissionGranted().then(setAlerts);
   }, [finished]);
 
   useEffect(look, [look]);
@@ -118,7 +135,8 @@ export const SetupRail: React.FC = () => {
   }, [look]);
 
   const enough = active !== null && active >= ENOUGH_ACTIVITIES;
-  const complete = connected === true && enough && seenHours;
+  const alerted = !alertsAvailable() || alerts === true;
+  const complete = connected === true && enough && seenHours && alerted;
 
   // Written the moment it is first true, and never read as a live question
   // again - see `DONE`.
@@ -179,6 +197,23 @@ export const SetupRail: React.FC = () => {
               },
             },
           },
+          ...(alertsAvailable()
+            ? [
+                {
+                  key: "alerts",
+                  label: "Allow notifications",
+                  detail:
+                    "So a slot can tell you it is starting, even when the window is behind something else.",
+                  done: alerts === true,
+                  action: {
+                    label: "Allow",
+                    onClick: () => {
+                      void ensureAlertPermission().then(setAlerts);
+                    },
+                  },
+                },
+              ]
+            : []),
         ]}
       />
 

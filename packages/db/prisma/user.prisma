@@ -187,6 +187,25 @@ model Activity {
   /// "low" | "normal" | "high" - wins the gap when two activities compete.
   importance String @default("normal")
 
+  /// Which module runs this activity - "eye_rest", "breathing", "stretch",
+  /// "deep_work". Null is a plain timed slot with no session of its own, which
+  /// is what every activity was before modules existed.
+  presetKey String? @map("preset_key")
+
+  /// "manual" | "auto" | "prompt".
+  ///
+  /// manual  shows a Start button, and `graceMinutes` later moves it on.
+  /// auto    starts and completes itself. An eye rest you have to press start
+  ///         for is an eye rest you skip.
+  /// prompt  notifies, and moves on if the notification goes unanswered.
+  startPolicy String @default("manual") @map("start_policy")
+
+  /// The module's own settings, as JSON text. Owned by whichever module reads
+  /// it and opaque to everything else - a breathing pattern, a list of stretch
+  /// steps, a playlist URL. One column rather than a table per module, so a
+  /// new module is a file rather than a migration.
+  configJson String? @map("config_json")
+
   /// How long to wait before moving it to the next gap.
   graceMinutes               Int @default(3) @map("grace_minutes")
   bufferBeforeMeetingMinutes Int @default(0) @map("buffer_before_meeting_minutes")

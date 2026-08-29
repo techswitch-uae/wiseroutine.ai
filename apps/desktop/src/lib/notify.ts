@@ -41,10 +41,22 @@ function publish(next: readonly ToastMessage[]): void {
  * identical messages stacked up read as three. The timer restarts instead, so
  * the message stays for as long as the problem keeps happening.
  */
-export function notify(text: string): void {
-  const existing = items.find((item) => item.text === text);
+export function notify(
+  text: string,
+  /**
+   * One way back. A message carrying one never collapses into an earlier
+   * copy of itself: two deletes in a row are two things to undo, and folding
+   * them into one toast would quietly drop the first one's way back.
+   */
+  action?: { label: string; onClick: () => void },
+): void {
+  const existing = action
+    ? undefined
+    : items.find((item) => item.text === text);
   const id = existing?.id ?? crypto.randomUUID();
-  if (!existing) publish([...items, { id, text }]);
+  if (!existing) {
+    publish([...items, { id, text, ...(action ? { action } : {}) }]);
+  }
 
   clearTimeout(timers.get(id));
   timers.set(

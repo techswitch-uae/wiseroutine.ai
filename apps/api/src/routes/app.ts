@@ -15,6 +15,8 @@ import {
   listSlotEvents,
   listSlotsForRange,
   moveSlot,
+  placeSlot,
+  progressForRange,
   scheduleWork,
   setActivityActive,
   setActivityWindows,
@@ -411,6 +413,65 @@ function daysOfWeek(value: unknown, fallback: number): number {
   return mask;
 }
 
+/** "manual" | "auto" | "prompt", and nothing else. A column is a string, and
+ *  this is the boundary where it stops being one. */
+const START_POLICIES = new Set(["manual", "auto", "prompt"]);
+
+/**
+ * The three module fields, taken from a request body.
+ *
+ * `configJson` is stored verbatim and never parsed here - it belongs to
+ * whichever module reads it, and a server that validated its shape would have
+ * to be redeployed every time a module gained a setting. It is length-capped,
+ * because "opaque" is not the same as "unbounded".
+ *
+ * Undefined means "not mentioned" and is left alone; null clears. The two are
+ * different answers, and collapsing them would wipe a module's settings on
+ * every unrelated edit.
+ */
+const MAX_CONFIG_BYTES = 8_192;
+
+function modulePatch(body: Record<string, unknown>): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+
+  if (body.presetKey !== undefined) {
+    patch.presetKey = body.presetKey === null ? null : String(body.presetKey);
+  }
+
+  if (body.startPolicy !== undefined) {
+    const policy = String(body.startPolicy);
+    if (!START_POLICIES.has(policy)) {
+      throw new HTTPException(400, {
+        message: `startPolicy must be one of ${[...START_POLICIES].join(", ")}`,
+      });
+    }
+    patch.startPolicy = policy;
+  }
+
+  if (body.configJson !== undefined) {
+    if (body.configJson === null) {
+      patch.configJson = null;
+    } else {
+      const text = String(body.configJson);
+      if (text.length > MAX_CONFIG_BYTES) {
+        throw new HTTPException(400, {
+          message: "That module's settings are too large to store",
+        });
+      }
+      // Not inspected, but it does have to *be* JSON: storing a string that
+      // cannot be parsed would hand every reader a crash instead of settings.
+      try {
+        JSON.parse(text);
+      } catch {
+        throw new HTTPException(400, { message: "configJson must be JSON" });
+      }
+      patch.configJson = text;
+    }
+  }
+
+  return patch;
+}
+
 app.get("/activities", async (c) => {
   const rows = await listActivities(c.get("db"));
   return c.json(
@@ -426,6 +487,12 @@ app.get("/activities", async (c) => {
       graceMinutes: row.graceMinutes,
       bufferBeforeMeetingMinutes: row.bufferBeforeMeetingMinutes,
       preferredWindows: anchorMinutes,
+      presetKey: row.presetKey,
+      startPolicy: row.startPolicy,
+      // Sent as written. The server never parses it: it belongs to whichever
+      // module reads it, and a shape this side does not know is not a shape
+      // this side should be validating.
+      configJson: row.configJson,
     })),
   );
 });
@@ -451,6 +518,7 @@ app.post("/activities", async (c) => {
       graceMinutes: Number(body.graceMinutes ?? 3),
       bufferBeforeMeetingMinutes: Number(body.bufferBeforeMeetingMinutes ?? 0),
       anchorMinutes: (body.preferredWindows as number[] | undefined) ?? [],
+      ...modulePatch(body),
     },
     c.get("now"),
     newId,
@@ -486,6 +554,7 @@ app.patch("/activities/:id", async (c) => {
   ]) {
     if (body[key] !== undefined) patch[key] = body[key];
   }
+  Object.assign(patch, modulePatch(body));
   // Checked rather than copied through: the same rule the create path applies.
   if (body.daysOfWeek !== undefined) {
     patch.daysOfWeek = daysOfWeek(body.daysOfWeek, 0b1111111);
@@ -777,10 +846,12 @@ app.get("/today", async (c) => {
   // carries are the ones this call just decided on.
   await fillDay(c, wholeDay);
 
-  const [slots, events, syncedAt] = await Promise.all([
+  const [slots, events, syncedAt, activities, done] = await Promise.all([
     listSlotsForRange(db, bounds.start, bounds.end),
     listEventsInRange(db, wholeDay.start, wholeDay.end),
     lastSyncedAt(db),
+    listActivities(db),
+    progressForRange(db, wholeDay.start, wholeDay.end),
   ]);
 
   const busy = toBusyBlocks(events);
@@ -809,16 +880,28 @@ app.get("/today", async (c) => {
     dayEnd: bounds.end,
     range: range.key,
     ranges: dayRanges(user),
-    slots: slots.map((s) => ({
-      id: s.id,
-      title: s.title,
-      kind: s.kind,
-      startsAt: s.startsAt,
-      endsAt: s.endsAt,
-      status: s.status,
-      isLocked: s.isLocked,
-      conflictEventId: s.conflictEventId,
-    })),
+    slots: slots.map((s) => {
+      // The module a slot runs under, carried on the slot rather than looked
+      // up by the client. A session opens the moment a slot starts, and a
+      // second request to find out *what* to open would put a round trip in
+      // the middle of pressing Start.
+      const activity = s.activityId
+        ? activities.find((a) => a.row.id === s.activityId)
+        : undefined;
+      return {
+        id: s.id,
+        title: s.title,
+        kind: s.kind,
+        startsAt: s.startsAt,
+        endsAt: s.endsAt,
+        status: s.status,
+        isLocked: s.isLocked,
+        conflictEventId: s.conflictEventId,
+        presetKey: activity?.row.presetKey ?? null,
+        startPolicy: activity?.row.startPolicy ?? "manual",
+        configJson: activity?.row.configJson ?? null,
+      };
+    }),
     meetings: inside,
     // The one thing the refresh button could never say for itself: whether
     // what is on screen is current. Null until a calendar has been read once.
@@ -832,6 +915,35 @@ app.get("/today", async (c) => {
         }
       : { before: [], after: [] },
     modules: visibleModules(user.plan, []),
+    /**
+     * Progress against today's minimums, for the "Today so far" module.
+     *
+     * Counted over the whole local day rather than the visible range: someone
+     * looking at their evening has still done the stretch they did at nine,
+     * and a progress bar that emptied when the hours picker moved would be
+     * reporting the window, not the day.
+     *
+     * ponytail: per-day minimums only. A `countPerWeek` activity - a walk
+     * three times a week - has no honest reading against a single day, and
+     * belongs in the week view when that is built.
+     */
+    progress: activities
+      .filter(
+        (a) =>
+          a.row.isActive &&
+          (a.row.minimumType === "countPerDay" ||
+            a.row.minimumType === "durationPerDay"),
+      )
+      .map((a) => ({
+        id: a.row.id,
+        name: a.row.name,
+        kind: a.row.kind,
+        minimumType: a.row.minimumType,
+        minimumValue: a.row.minimumValue,
+        sessionMinutes: a.row.sessionMinutes,
+        count: done.get(a.row.id)?.count ?? 0,
+        minutes: done.get(a.row.id)?.minutes ?? 0,
+      })),
   });
 });
 
@@ -940,6 +1052,142 @@ app.post("/slots/:id/skip", async (c) => {
       ...(body.reason !== undefined ? { reasonText: body.reason } : {}),
     },
     replayedAt(c.get("now"), body.at),
+    newId,
+  );
+  return c.body(null, 204);
+});
+
+/**
+ * 5c - put an activity on the day yourself.
+ *
+ * The free plan's placement, and the one route that creates a slot from a
+ * choice rather than from a plan run. Everything it refuses, it refuses
+ * because accepting would produce a day the user did not mean: a slot on top
+ * of a meeting, a slot for an activity that is paused, a slot outside the day
+ * being looked at.
+ *
+ * The overlap check is not a convenience the client could have done. The
+ * client picks from gaps it computed a moment ago, and a meeting can land in
+ * one between the picking and the pressing - so the answer has to be worked
+ * out here, against the events as they are now.
+ */
+app.post("/slots", async (c) => {
+  const db = c.get("db");
+  const user = c.get("user");
+  const now = c.get("now");
+
+  const body = await c.req.json<{
+    activityId: string;
+    startsAt: number;
+    endsAt?: number;
+  }>();
+
+  if (!body.activityId || !Number.isFinite(body.startsAt)) {
+    throw new HTTPException(400, {
+      message: "activityId and startsAt are required",
+    });
+  }
+
+  const activities = await listActivities(db);
+  const activity = activities.find((a) => a.row.id === body.activityId);
+  if (!activity) {
+    throw new HTTPException(404, { message: "No such activity" });
+  }
+  if (!activity.row.isActive) {
+    throw new HTTPException(409, {
+      message: `${activity.row.name} is paused. Turn it back on to place it.`,
+    });
+  }
+
+  // The activity's own session length unless the caller says otherwise, so a
+  // plain "put this here" needs one number rather than two.
+  const endsAt =
+    body.endsAt ?? body.startsAt + activity.row.sessionMinutes * 60_000;
+  if (endsAt <= body.startsAt) {
+    throw new HTTPException(400, { message: "endsAt must be after startsAt" });
+  }
+
+  const date = localDateOf(body.startsAt, user.timeZone);
+  const wholeDay = dayBounds(date, user.timeZone, 0, FULL_DAY_MINUTES);
+  const events = await listEventsInRange(db, wholeDay.start, wholeDay.end);
+  const clash = toBusyBlocks(events).find(
+    (b) => body.startsAt < b.end && b.start < endsAt,
+  );
+  if (clash) {
+    throw new HTTPException(409, {
+      message: "Something is already booked then. Pick another gap.",
+    });
+  }
+
+  const slot = await placeSlot(
+    db,
+    {
+      activityId: activity.row.id,
+      title: activity.row.name,
+      kind: activity.row.kind,
+      startsAt: body.startsAt,
+      endsAt,
+      timeZone: user.timeZone,
+    },
+    now,
+    newId,
+  );
+
+  // A placed slot has a grace period like any other, and the sweep is driven
+  // from the directory - without this marker nothing would ever move it on.
+  await scheduleWork(
+    c.get("directory"),
+    { userId: user.userId, kind: "grace_sweep", dueAt: now + 60_000 },
+    now,
+    newId,
+  );
+
+  return c.json(
+    {
+      id: slot.id,
+      title: slot.title,
+      kind: slot.kind,
+      startsAt: slot.startsAt,
+      endsAt: slot.endsAt,
+      status: slot.status,
+      isLocked: slot.isLocked,
+      conflictEventId: slot.conflictEventId,
+    },
+    201,
+  );
+});
+
+/**
+ * Take a slot off today, and put it back.
+ *
+ * Cancelled rather than deleted, and deliberately not the same thing as
+ * skipped: skipping is a decision the missed list reports on, and this is "not
+ * today, thanks". The row survives, which is what makes both the undo below
+ * and "today only" work - `fillDay` re-plans an activity that has no slot on
+ * the day, and a cancelled slot is still a slot, so the activity stays gone
+ * until tomorrow rather than reappearing on the next page load.
+ */
+app.post("/slots/:id/cancel", async (c) => {
+  await setSlotStatus(
+    c.get("db"),
+    {
+      slotId: c.req.param("id"),
+      status: "cancelled",
+      actor: "user",
+      reasonCode: "user_choice",
+    },
+    c.get("now"),
+    newId,
+  );
+  return c.body(null, 204);
+});
+
+/** The way back from the above, for as long as the toast offering it is up. */
+app.post("/slots/:id/restore", async (c) => {
+  await setSlotStatus(
+    c.get("db"),
+    { slotId: c.req.param("id"), status: "planned", actor: "user" },
+    c.get("now"),
     newId,
   );
   return c.body(null, 204);

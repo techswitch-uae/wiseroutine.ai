@@ -16,6 +16,11 @@ export interface Account {
   name: string;
   email: string;
   plan: string;
+  /** Where the plan came from: "grant", "stripe" or "default". A grant is what
+   *  a trial and founding access both are - see `resolvePlan`. */
+  planSource: string;
+  /** Epoch ms the plan runs out, or null when nothing does. */
+  planExpiresAt: number | null;
   /** IANA zone every preferred window is evaluated in. */
   timeZone: string;
   /** Only ever rendered when it is an `https:` URL - see `Avatar`. */

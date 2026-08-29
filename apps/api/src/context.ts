@@ -1,6 +1,7 @@
 import {
   createDirectory,
   type Directory,
+  refreshUserPlan,
   type UserDatabase,
 } from "@wiseroutine/db";
 import { required } from "@wiseroutine/env";
@@ -127,10 +128,34 @@ export const requireUser: MiddlewareHandler<App> = async (c, next) => {
     });
   }
 
+  /**
+   * A grant that has run out has to actually take effect.
+   *
+   * `plan` is cached on the user row and recomputed by `refreshUserPlan`,
+   * which the comment there says is never called on the hot path - correct for
+   * a Stripe subscription, whose end always arrives as a webhook. A trial
+   * grant has no webhook: nobody tells us the fourteenth day has passed, so
+   * without this a trial would expire on paper and never in practice.
+   *
+   * One extra write, on the first request after the date passes, and nothing
+   * at all on every other request.
+   */
+  const expiresAt = session.user.planExpiresAt?.getTime();
+  const plan =
+    expiresAt !== undefined && expiresAt <= c.get("now")
+      ? (
+          await refreshUserPlan(
+            c.get("directory"),
+            session.user.id,
+            c.get("now"),
+          )
+        ).plan
+      : (session.user.plan as PlanId);
+
   c.set("user", {
     userId: session.user.id,
     databaseName: session.user.databaseName,
-    plan: session.user.plan as PlanId,
+    plan,
     timeZone: session.user.timeZone,
     dayStartMinutes: session.user.dayStartMinutes,
     dayEndMinutes: session.user.dayEndMinutes,

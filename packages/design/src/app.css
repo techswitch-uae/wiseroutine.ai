@@ -43,6 +43,23 @@
   /* Room kept clear on the right of a scroller for the scrollbar to live in.
      Wide enough for macOS's overlay bar and the gap it floats in. */
   --wr-scroll-lane: 12px;
+  /* How far content sits from the window on every edge. */
+  --wr-page-inset: 26px;
+  /* Every page's title, whatever page it is. The day's used to be 20px inside
+     its bar and every other page's 22px in the scroller, which is close enough
+     to look like a mistake rather than a distinction. */
+  --wr-title-size: 20px;
+  /* What it takes to put text back on the inset when it is centred against
+     something taller than itself.
+     Two places do this, and they need the same amount: the day title is
+     centred against a 36px tools pill, and the rail's wordmark against the
+     28px brand mark. Both sit below the padding edge by half the difference,
+     and both take it off the top. The happy result is that the two baselines
+     then land on the same line as each other, which is what makes the rail
+     and the day read as one row rather than two columns that nearly agree.
+     Tied to those two objects: resize the icon buttons or the mark and this
+     changes with them. */
+  --wr-optical-lift: 7px;
 }
 
 body { background: var(--wr-page); }
@@ -86,22 +103,30 @@ body { background: var(--wr-page); }
   background: var(--color-accent-700); color: #fff; box-shadow: var(--wr-lift-btn);
   padding-left: 18px;
 }
-.wr-btn-primary:hover { background: var(--color-accent-800); }
-.wr-btn-primary:active { background: var(--color-accent-900); }
+/* `:not(:disabled)` on every one of these, and it is load-bearing.
+   `.wr-btn-commit:hover` and `.wr-btn:disabled` have the SAME specificity, and
+   these came later in the file - so pointing at a disabled button repainted it
+   with the live variant's background while the disabled text colour stayed
+   put. A disabled commit went dark text on a dark pill and disappeared; a
+   disabled primary went grey text on brown. Both read as a contrast bug and
+   were really a cascade one, which is why the colours all measured fine in
+   isolation. */
+.wr-btn-primary:hover:not(:disabled) { background: var(--color-accent-800); }
+.wr-btn-primary:active:not(:disabled) { background: var(--color-accent-900); }
 .wr-btn-commit {            /* confirms or saves a decision - one per view */
   background: var(--color-text); color: var(--color-neutral-100); box-shadow: var(--wr-lift-btn);
 }
-.wr-btn-commit:hover { background: var(--color-neutral-800); }
-.wr-btn-commit:active { background: var(--color-neutral-900); }
+.wr-btn-commit:hover:not(:disabled) { background: var(--color-neutral-800); }
+.wr-btn-commit:active:not(:disabled) { background: var(--color-neutral-900); }
 .wr-btn-secondary {         /* sand + hairline, never a white pill on white */
   background: var(--color-neutral-200); box-shadow: inset 0 0 0 1px var(--wr-hairline);
   color: var(--color-accent-900); font-size: 12.5px; padding: 11px 20px;
 }
-.wr-btn-secondary:hover { background: var(--color-neutral-300); }
+.wr-btn-secondary:hover:not(:disabled) { background: var(--color-neutral-300); }
 .wr-btn-quiet {             /* text only - the escape route */
   color: var(--wr-text-soft); font-size: 12.5px; padding: 11px 16px;
 }
-.wr-btn-quiet:hover { color: var(--color-text); }
+.wr-btn-quiet:hover:not(:disabled) { color: var(--color-text); }
 .wr-btn-block { width: 100%; }
 
 /* The sign-in screens ask for one thing at a time, so their single action is
@@ -116,7 +141,7 @@ body { background: var(--wr-page); }
   padding: 13px 20px; background: var(--color-neutral-100);
   box-shadow: inset 0 0 0 1px rgba(46, 43, 37, 0.16);
 }
-.wr-btn-provider:hover { background: var(--color-neutral-200); }
+.wr-btn-provider:hover:not(:disabled) { background: var(--color-neutral-200); }
 .wr-provider-mark {
   display: inline-flex; align-items: center; justify-content: center;
   width: 20px; height: 20px; border-radius: 999px; flex: none;
@@ -720,16 +745,40 @@ img.wr-avatar { object-fit: cover; }
    by the scroller's own edge. Moving it inside means the same air is there at
    rest and scrolls away, so a page fills the window and every card has room to
    cast. Horizontal stays here - the sides are the page's, not the scroll's. */
+/* The page keeps no padding of its own.
+   It used to hold the sides while the bar and the scroller held the top, so
+   the bar's own padding came out `26px 12px` - top and sides visibly unequal
+   on the element, and only correct once you knew the parent was making up the
+   difference. Whoever inspects it next should not have to know that. Each
+   scrolling child now carries the whole inset on every edge, which also gives
+   a card the same room to cast a shadow on all four sides. */
 .wr-frame-bare .wr-page {
-  min-height: 0; overflow: hidden; padding: 0 26px;
+  min-height: 0; overflow: hidden; padding: 0;
   display: flex; flex-direction: column;
 }
-/* Today keeps its fixed bar, so the air above the day belongs to the bar. */
-.wr-frame-bare .wr-page-bar { padding-top: 24px; }
-.wr-frame-bare .wr-page-scroll { padding-top: 24px; padding-bottom: 28px; }
-/* Under a bar there is already air; a second helping would push the day down
-   the window every time it is drawn. */
+/* One number, every edge. The bottom of the bar is the exception and is
+   deliberate: it is the gap to the day, not a window margin. */
+.wr-frame-bare .wr-page-bar {
+  padding: var(--wr-page-inset) var(--wr-page-inset) 12px;
+}
+/* The day bar's title is centred against a pill taller than itself, so the
+   padding edge is not where its ink lands - see `--wr-optical-lift`.
+   Scoped to this bar: a page bar without a tools pill has nothing to correct. */
+.wr-frame-bare .wr-page-bar.wr-daybar {
+  padding-top: calc(var(--wr-page-inset) - var(--wr-optical-lift));
+}
+.wr-frame-bare .wr-page-scroll { padding: var(--wr-page-inset); }
+/* Under a bar the air is already spent. */
 .wr-frame-bare .wr-page-bar + .wr-page-scroll { padding-top: 0; }
+/* The rail measures from the same token, which is what puts the wordmark and
+   the day's title on one line - they were 18px apart, and that was the thing
+   that actually looked uneven. */
+/* The same correction, for the same reason: the wordmark is centred against
+   the brand mark, so without this it sits below the inset - and 7px below the
+   day title's baseline, which is what made the two look out of line. */
+.wr-frame-bare .wr-sidebar {
+  padding-top: calc(var(--wr-page-inset) - var(--wr-optical-lift));
+}
 .wr-page-bar { flex: none; }
 /* The scroller every page's content sits in.
    `padding-right` is the scrollbar's lane. macOS draws an overlay scrollbar —
@@ -745,8 +794,6 @@ img.wr-avatar { object-fit: cover; }
    it back to the layout and nothing shifts. */
 .wr-page-scroll {
   flex: 1; min-height: 0; overflow-y: auto;
-  padding-right: var(--wr-scroll-lane);
-  padding-left: var(--wr-scroll-lane);
   box-sizing: border-box;
 }
 /* The fixed bar is a sibling of the scroller, not inside it, so it takes the
@@ -754,11 +801,7 @@ img.wr-avatar { object-fit: cover; }
    Plain padding rather than a negative margin: pulling the scroller left made
    it wider than its parent, which put the cards over the right edge and hung a
    horizontal scrollbar under the day. */
-.wr-page-bar {
-  padding-right: var(--wr-scroll-lane);
-  padding-left: var(--wr-scroll-lane);
-  box-sizing: border-box;
-}
+.wr-page-bar { box-sizing: border-box; }
 /* The page's own wrappers sit between `.wr-page` and the scroller, so they are
    the ones that have to pass the window's height down. They did not: the body
    was `align-items: flex-start` and neither it nor the main column could
@@ -911,7 +954,7 @@ img.wr-avatar { object-fit: cover; }
   display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;
 }
 .wr-page-head-left { display: flex; align-items: baseline; gap: 10px; }
-.wr-page-date { font-family: var(--font-heading); font-size: 20px; }
+.wr-page-date { font-family: var(--font-heading); font-size: var(--wr-title-size); }
 .wr-page-helper { font: 600 12px var(--font-body); color: var(--wr-text-muted); }
 /* A single-column page. Not on `.wr-page-main` itself, because the day is a
    full-width surface and must not be squeezed into a reading measure. */
@@ -1331,6 +1374,18 @@ img.wr-avatar { object-fit: cover; }
 .wr-daybar-title {
   display: flex; align-items: baseline; gap: 10px; min-width: 0;
 }
+/* Why the title used to sit lower than it sat left, with 26px of padding on
+   both edges. Two things, neither of them padding.
+   Vertical padding is measured to a text BOX while horizontal padding is
+   measured to the letters: Caprasimo carries 3.3px of ascent above its cap
+   height, so the box starts higher than anything you can see. Trimming to the
+   cap is what makes the two axes comparable at all - browsers without it keep
+   the old metrics and lose only that 3.3px.
+   The rest is the row being taller than the title, handled on the bar. */
+.wr-daybar-title .wr-page-date {
+  text-box-trim: trim-start;
+  text-box-edge: cap alphabetic;
+}
 /* Narrow: the date keeps its place and the status gives up its words - the
    dot alone still says the calendars are being read. */
 @media (max-width: 720px) {
@@ -1375,7 +1430,16 @@ img.wr-avatar { object-fit: cover; }
    heading visible rather than flush against the top of the scroller. */
 .wr-settings { display: flex; flex-direction: column; gap: 30px; }
 .wr-settings-section { scroll-margin-top: 18px; }
-.wr-settings-title { margin: 0 0 14px; font-family: var(--font-heading); font-size: 22px; }
+/* Trimmed for the same reason the day's title is: vertical space is measured
+   to a text box and horizontal space to the letters, so an untrimmed heading
+   sits ~6px lower than the inset it is supposed to start on - which is exactly
+   how far this one sat below the day's. */
+.wr-settings-title {
+  margin: 0 0 18px;
+  font-family: var(--font-heading); font-size: var(--wr-title-size);
+  text-box-trim: trim-start;
+  text-box-edge: cap alphabetic;
+}
 
 /* ── One setting inside a card ─────────────────────────────────────────────
    The same hairline-bordered block Calendars draws its providers and its
@@ -1435,6 +1499,15 @@ img.wr-avatar { object-fit: cover; }
   font: 500 12.5px/1.5 var(--font-body);
 }
 .wr-toast-text { flex: 1; min-width: 0; }
+/* The way back, set against the message rather than under it: a toast is one
+   line and an undo that wraps it onto two reads as a dialog. */
+.wr-toast-action {
+  flex: none; border: 0; cursor: pointer; background: transparent;
+  font: 700 12px var(--font-body); color: var(--color-accent-300);
+  padding: 2px 4px; border-radius: 8px; text-decoration: underline;
+}
+.wr-toast-action:hover { color: var(--color-neutral-100); }
+
 .wr-toast-close {
   flex: none; border: 0; background: none; cursor: pointer; padding: 0 2px;
   font: 400 16px/1 var(--font-body); color: rgba(245, 234, 216, 0.7);
@@ -1507,3 +1580,41 @@ img.wr-avatar { object-fit: cover; }
 .wr-hours-density .wr-hours-title { margin-bottom: 8px; }
 .wr-hours-density .wr-seg { width: 100%; }
 .wr-hours-density .wr-seg-opt { flex: 1; }
+
+/* The inverted session ground - eye rest, breathing. Anything about looking
+   away from the screen is dark, and a dark surface has to say what "soft text"
+   means on it: `.wr-btn-quiet` paints itself from `--wr-text-soft`, which is
+   ink, so "Stop" came out very nearly the colour of the ground behind it.
+
+   Only that one token moves. `--color-text` looks like the obvious second one
+   and is a trap: `.wr-btn-commit` fills itself with it, so inverting it turns
+   the primary action into a cream pill with cream text on it. The hover colour
+   is therefore stated here rather than borrowed. */
+.wr-session-dim { --wr-text-soft: rgba(246, 241, 232, .72); }
+.wr-session-dim .wr-btn-quiet:hover:not(:disabled) { color: #f6f1e8; }
+
+/* ── Waiting for a page ────────────────────────────────────────────────────
+   Centred in the space the page will fill, so the wait happens where the
+   content will be. `flex: 1` because every page column is a flex column - it
+   takes the height the page has rather than the height of two lines of text. */
+.wr-loading {
+  flex: 1; min-height: 0; align-self: stretch;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 13px;
+  color: var(--wr-text-muted);
+}
+/* A ring with one lit arc, reusing the same rotation the sync button spins by.
+   Track in the sand the disabled surfaces use, so it reads as furniture until
+   the accent arc passes. */
+.wr-loading-spin {
+  width: 24px; height: 24px; border-radius: 999px; box-sizing: border-box;
+  border: 2.5px solid var(--wr-track);
+  border-top-color: var(--color-accent);
+  animation: wr-spin 0.85s linear infinite;
+}
+.wr-loading-text { font: 600 12.5px var(--font-body); }
+/* Slowed rather than stopped: a still ring says "stuck", which is the one
+   thing this is not. */
+@media (prefers-reduced-motion: reduce) {
+  .wr-loading-spin { animation-duration: 2.4s; }
+}

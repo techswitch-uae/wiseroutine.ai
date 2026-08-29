@@ -18,6 +18,8 @@ import { ApiError, api, getSessionToken, setSessionToken } from "../lib/api";
 import { dismiss, useToasts } from "../lib/notify";
 import "../lib/rail";
 import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
+import { SessionOverlay } from "../modules/session";
+import { TrialPill } from "../modules/trial-pill";
 
 /**
  * The app shell every signed-in page renders inside.
@@ -145,6 +147,12 @@ const AppLayout: React.FC = () => {
           name: s.user.name ?? "",
           email: s.user.email,
           plan: s.user.plan,
+          planSource: s.user.planSource,
+          // Sent as an ISO string by Better Auth's session; every other
+          // instant in the app is epoch ms, so it stops being a string here.
+          planExpiresAt: s.user.planExpiresAt
+            ? new Date(s.user.planExpiresAt).getTime()
+            : null,
           timeZone: s.user.timeZone,
           avatarUrl: s.user.image ?? null,
           dayStartMinutes: s.user.dayStartMinutes,
@@ -207,24 +215,29 @@ const AppLayout: React.FC = () => {
               if (item && "to" in item) void navigate({ to: item.to });
             }}
             user={
-              <UserMenu
-                // Name if the provider gave us one, address if not. `||` rather
-                // than `??` on purpose: an empty name is as absent as a null one,
-                // and rendering it would leave a nameless row and blank initials.
-                name={user?.name || user?.email || "Account"}
-                {...(user?.avatarUrl ? { avatarSrc: user.avatarUrl } : {})}
-                {...(user?.email !== undefined ? { email: user.email } : {})}
-                plan={user?.plan === "pro" ? "pro" : "free"}
-                items={USER_MENU}
-                onSelect={(key) => {
-                  if (key === "signout") {
-                    setAccount(null);
-                    void api.signOut().then(() => navigate({ to: "/signin" }));
-                  } else if (key === "settings") {
-                    void navigate({ to: "/settings" });
-                  }
-                }}
-              />
+              <>
+                <TrialPill />
+                <UserMenu
+                  // Name if the provider gave us one, address if not. `||` rather
+                  // than `??` on purpose: an empty name is as absent as a null one,
+                  // and rendering it would leave a nameless row and blank initials.
+                  name={user?.name || user?.email || "Account"}
+                  {...(user?.avatarUrl ? { avatarSrc: user.avatarUrl } : {})}
+                  {...(user?.email !== undefined ? { email: user.email } : {})}
+                  plan={user?.plan === "pro" ? "pro" : "free"}
+                  items={USER_MENU}
+                  onSelect={(key) => {
+                    if (key === "signout") {
+                      setAccount(null);
+                      void api
+                        .signOut()
+                        .then(() => navigate({ to: "/signin" }));
+                    } else if (key === "settings") {
+                      void navigate({ to: "/settings" });
+                    }
+                  }}
+                />
+              </>
             }
           >
             <UpdateNotice />
@@ -233,6 +246,7 @@ const AppLayout: React.FC = () => {
       >
         <Outlet />
       </AppFrame>
+      <SessionOverlay />
       <Toasts items={toasts} onDismiss={dismiss} />
     </>
   );

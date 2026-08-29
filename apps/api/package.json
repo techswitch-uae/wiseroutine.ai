@@ -15,7 +15,8 @@
     "secrets:check:prod": "node scripts/check-secrets.mjs --env production",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "clean": "git clean -xdf .cache .turbo dist node_modules"
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "grant": "node scripts/grant.mjs"
   },
   "dependencies": {
     "@wiseroutine/db": "workspace:*",

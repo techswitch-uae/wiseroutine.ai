@@ -17,7 +17,8 @@
     "bundle": "pnpm --filter @wiseroutine/desktop bundle",
     "api": "pnpm --filter @wiseroutine/api dev",
     "wrangler": "pnpm --filter @wiseroutine/api exec wrangler",
-    "release:preview": "pnpm dlx release-please release-pr --dry-run --repo-url=techswitch-uae/wiseroutine.ai --config-file=release-please-config.json --manifest-file=.release-please-manifest.json --token=$GITHUB_TOKEN"
+    "release:preview": "pnpm dlx release-please release-pr --dry-run --repo-url=techswitch-uae/wiseroutine.ai --config-file=release-please-config.json --manifest-file=.release-please-manifest.json --token=$GITHUB_TOKEN",
+    "db:migrate": "pnpm --filter @wiseroutine/db migrate"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.8",

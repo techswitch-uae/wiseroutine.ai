@@ -780,6 +780,17 @@ export interface DayGridItem {
   movable?: boolean;
   /** Named in the drag handle's label. Only read when `movable`. */
   title?: string;
+  /**
+   * What Enter and Delete do to this block.
+   *
+   * On the item rather than on the grid, unlike `onMove`, and the split is
+   * principled: moving is something the grid *computes* - it owns the ruler
+   * and works out the new time - where starting and removing are the item's
+   * own business and the grid only relays the keypress. Omit either and that
+   * key does nothing here, which is right for a slot already finished.
+   */
+  onStart?: () => void;
+  onRemove?: () => void;
 }
 
 export type DayGridProps = {
@@ -1026,9 +1037,13 @@ export const DayGrid: React.FC<DayGridProps> = ({
 
   const handles = (item: DayGridItem) => ({
     tabIndex: 0,
+    // Read once, on focus, and the only way anyone learns these keys without a
+    // mouse. Long, and it earns its length.
     "aria-label": `${item.title ?? "Slot"} at ${label.format(
       new Date(item.startsAt),
-    )}. Drag, or use the arrow keys, to move it.`,
+    )}. Drag or use the arrow keys to move it${
+      item.onStart ? ", Enter to start it" : ""
+    }${item.onRemove ? ", Delete to take it off today" : ""}.`,
     onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
       // A press on Start is a press on Start - only the card around it is a
       // handle. Without this every attempt to start a slot lifted it instead.
@@ -1057,7 +1072,36 @@ export const DayGrid: React.FC<DayGridProps> = ({
         live: false,
       });
     },
-    onKeyDown: (event: React.KeyboardEvent) => {
+    onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+      // Everything here belongs to the block that has focus, which is what
+      // makes it safe: none of it can fire while someone is typing somewhere
+      // else on the page.
+      if (event.key === "Enter") {
+        if (!item.onStart) return;
+        event.preventDefault();
+        item.onStart();
+        return;
+      }
+
+      if (event.key === "Delete" || event.key === "Backspace") {
+        if (!item.onRemove) return;
+        // Backspace is Back in some shells, and losing the page is a worse
+        // outcome than losing the slot.
+        event.preventDefault();
+        item.onRemove();
+        return;
+      }
+
+      if (event.key === "Escape") {
+        // Only when there is nothing else for Escape to mean. Mid-drag it
+        // belongs to the drag, which cancels on the window listener above -
+        // blurring as well would take the block away from someone who was
+        // only trying to put it back.
+        if (dragging) return;
+        event.currentTarget.blur();
+        return;
+      }
+
       const step =
         event.key === "ArrowUp"
           ? -SNAP_MINUTES
@@ -1256,6 +1300,12 @@ export const DayGrid: React.FC<DayGridProps> = ({
         {placed.map(
           ({ block, top, height: blockHeight, column, span, columns }) => {
             const movable = onMove !== undefined && block.movable === true;
+            // Keys, not dragging, decide whether this is a thing you can focus:
+            // a finished slot that can still be removed is still worth reaching.
+            const keyed =
+              movable ||
+              block.onStart !== undefined ||
+              block.onRemove !== undefined;
             const isShadow = dragged?.key === block.key;
             return (
               <div
@@ -1271,7 +1321,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
                   left: `${(column / columns) * 100}%`,
                   width: `${(span / columns) * 100}%`,
                 }}
-                {...(movable ? handles(block) : {})}
+                {...(keyed ? handles(block) : {})}
               >
                 {block.node}
               </div>
@@ -1567,6 +1617,14 @@ export const Block: React.FC<{
 export interface ToastMessage {
   id: string;
   text: string;
+  /**
+   * One way back, for a message reporting something the user can undo.
+   *
+   * A toast is the only place an undo can live for an action taken with a
+   * keypress: there is no dialog to put it in, and a confirmation on every
+   * press would defeat the shortcut it is confirming.
+   */
+  action?: { label: string; onClick: () => void };
 }
 
 /**
@@ -1590,6 +1648,18 @@ export const Toasts: React.FC<{
       {items.map((item) => (
         <div className="wr-toast" key={item.id}>
           <span className="wr-toast-text">{item.text}</span>
+          {item.action ? (
+            <button
+              type="button"
+              className="wr-toast-action"
+              onClick={() => {
+                item.action?.onClick();
+                onDismiss?.(item.id);
+              }}
+            >
+              {item.action.label}
+            </button>
+          ) : null}
           <button
             type="button"
             className="wr-toast-close"
@@ -1602,6 +1672,25 @@ export const Toasts: React.FC<{
       ))}
     </div>
   );
+
+/**
+ * Waiting for a page's first load.
+ *
+ * Centred in whatever it is given, rather than a line of text in the top-left
+ * corner - which is where every route used to put it, and which reads as a
+ * page that has finished and has almost nothing on it.
+ *
+ * `role="status"` rather than `alert`: a screen reader should hear this when
+ * it gets to it, not have the current sentence interrupted for it.
+ */
+export const Loading: React.FC<{ children?: React.ReactNode }> = ({
+  children,
+}) => (
+  <div className="wr-loading" role="status">
+    <span className="wr-loading-spin" aria-hidden="true" />
+    {children ? <span className="wr-loading-text">{children}</span> : null}
+  </div>
+);
 
 export type CardProps = {
   /**

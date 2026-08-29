@@ -198,6 +198,64 @@ export async function replacePlannedSlots(
   return { removed: ids.length, created: planned.length };
 }
 
+/**
+ * Put a slot on the day because the user said so.
+ *
+ * The free plan's whole shape: you choose the activity and the time, and what
+ * you chose is what happens. Locked from the moment it is created, so the next
+ * replan works around it rather than over it - the same pin `moveSlot` sets
+ * when a slot is dragged, applied at birth rather than on the first move.
+ *
+ * `actor: "user"` on the event as well, which is what lets the missed list
+ * later tell "you put this here and it did not happen" apart from "we placed
+ * this and it did not fit".
+ */
+export async function placeSlot(
+  db: UserDatabase,
+  params: {
+    activityId: string;
+    title: string;
+    kind: string;
+    startsAt: number;
+    endsAt: number;
+    timeZone: string;
+  },
+  now: number,
+  newId: () => string,
+): Promise<SlotRow> {
+  const id = newId();
+  await db.slot.create({
+    data: {
+      id,
+      activityId: params.activityId,
+      title: params.title,
+      kind: params.kind,
+      startsAt: at(params.startsAt),
+      endsAt: at(params.endsAt),
+      timeZone: params.timeZone,
+      status: "planned",
+      isLocked: true,
+      createdAt: at(now),
+    },
+  });
+
+  await recordSlotEvent(
+    db,
+    {
+      slotId: id,
+      type: "planned",
+      actor: "user",
+      reasonCode: "placed_by_hand",
+    },
+    now,
+    newId,
+  );
+
+  const row = await getSlot(db, id);
+  if (!row) throw new Error("slot vanished after being created");
+  return row;
+}
+
 export async function moveSlot(
   db: UserDatabase,
   params: {
@@ -339,6 +397,21 @@ export async function markConflicts(
   }
 }
 
+/**
+ * A slot due for a decision, with the two activity fields that make it.
+ *
+ * The policy and the grace both live on the activity, and the sweep needs them
+ * per slot rather than as one number for everyone - a five-minute eye rest
+ * that starts itself and a twenty-five minute focus block you have to commit
+ * to are the same row with different answers to these two questions.
+ */
+export interface DueSlot extends SlotRow {
+  /** "manual" | "auto" | "prompt". Manual for a slot with no activity behind
+   *  it, which is the behaviour that existed before policies did. */
+  startPolicy: string;
+  graceMinutes: number;
+}
+
 export async function slotsPastGrace(
   db: UserDatabase,
   now: number,
@@ -354,14 +427,48 @@ export async function slotsPastGrace(
    * job rather than this one's.
    */
   window: number,
-): Promise<SlotRow[]> {
+): Promise<DueSlot[]> {
   const rows = await db.slot.findMany({
     where: {
       status: "planned",
       startsAt: { lte: at(now), gt: at(now - window) },
-      isLocked: false,
+    },
+    // The policy decides what a locked slot gets, so the lock can no longer be
+    // a filter here: a hand-placed eye rest still has to start itself, it just
+    // must never be moved. See `sweepGrace`.
+    include: {
+      activity: { select: { startPolicy: true, graceMinutes: true } },
     },
     orderBy: { startsAt: "asc" },
+    take: limit,
+  });
+
+  return rows.map(({ activity, ...row }) => ({
+    ...toSlot(row),
+    startPolicy: activity?.startPolicy ?? "manual",
+    graceMinutes: activity?.graceMinutes ?? 0,
+  }));
+}
+
+/**
+ * Slots that have run their length and are waiting to be closed for the user.
+ *
+ * Only ever `auto` ones. A manual session is finished by the person doing it -
+ * the stepper's last screen is part of the activity, not paperwork after it -
+ * and closing those here would mark a stretch complete that nobody did.
+ */
+export async function autoSlotsToComplete(
+  db: UserDatabase,
+  now: number,
+  limit: number,
+): Promise<SlotRow[]> {
+  const rows = await db.slot.findMany({
+    where: {
+      status: "started",
+      endsAt: { lte: at(now) },
+      activity: { startPolicy: "auto" },
+    },
+    orderBy: { endsAt: "asc" },
     take: limit,
   });
   return rows.map(toSlot);

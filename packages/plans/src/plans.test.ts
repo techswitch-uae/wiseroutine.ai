@@ -84,6 +84,59 @@ describe("resolvePlan", () => {
   });
 });
 
+describe("the trial, as a grant", () => {
+  const now = 1_000_000;
+  const DAY = 86_400_000;
+
+  // What every signup gets: fourteen days of pro with no card, issued as a
+  // grant because a trial you have to enter card details for is not the offer
+  // the pricing page makes.
+  test("runs pro for as long as it lasts", () => {
+    const state = resolvePlan(
+      { grant: { plan: "pro", expiresAt: now + 14 * DAY } },
+      now,
+    );
+    expect(state).toEqual({
+      plan: "pro",
+      source: "grant",
+      expiresAt: now + 14 * DAY,
+    });
+  });
+
+  // The whole reason there is no "beta over" switch: the fourteenth day
+  // passing is the switch.
+  test("drops to free when it runs out, with nothing to flip", () => {
+    expect(
+      resolvePlan({ grant: { plan: "pro", expiresAt: now - 1 } }, now).plan,
+    ).toBe("free");
+  });
+
+  // Someone who subscribes during the trial must not be downgraded when it
+  // ends. The grant expires, the subscription is still there, and resolution
+  // falls through to it.
+  test("expiring does not take paid access with it", () => {
+    const state = resolvePlan(
+      {
+        grant: { plan: "pro", expiresAt: now - 1 },
+        subscription: { status: "active" },
+      },
+      now,
+    );
+    expect(state).toEqual({ plan: "pro", source: "stripe" });
+  });
+
+  // Founding access is the same row with a longer expiry - see the grant
+  // script. Nothing in resolution knows the difference, which is the point.
+  test("founding access is a trial with a further date on it", () => {
+    const state = resolvePlan(
+      { grant: { plan: "pro", expiresAt: now + 365 * DAY } },
+      now,
+    );
+    expect(state.source).toBe("grant");
+    expect(state.expiresAt).toBe(now + 365 * DAY);
+  });
+});
+
 describe("visibleModules", () => {
   test("a downgraded user keeps only what free allows", () => {
     expect(

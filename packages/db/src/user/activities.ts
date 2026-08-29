@@ -43,6 +43,13 @@ export interface ActivityInput {
   graceMinutes?: number;
   bufferBeforeMeetingMinutes?: number;
   anchorMinutes?: number[];
+  /** Which module runs it, or null for a plain timed slot. */
+  presetKey?: string | null;
+  /** "manual" | "auto" | "prompt" - validated at the route, not here. */
+  startPolicy?: string;
+  /** The module's own settings as JSON text. Opaque to everything but the
+   *  module that wrote it. */
+  configJson?: string | null;
 }
 
 export async function createActivity(

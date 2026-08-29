@@ -7,6 +7,7 @@
  * through the app's deep-link scheme.
  */
 
+import { freeGaps } from "@wiseroutine/scheduler";
 import {
   cachedPlan,
   cachePlan,
@@ -75,6 +76,20 @@ export class ApiError extends Error {
   ) {
     super(`API ${status}`);
     this.name = "ApiError";
+  }
+
+  /**
+   * The server's own sentence, when it sent one.
+   *
+   * `message` on the Error itself is "API 409", which is for a log. This is
+   * the line written to be read - "Something is already booked then" - and
+   * `refusal` has already normalised the plain-text and JSON shapes into one.
+   */
+  get detail(): string | undefined {
+    const body = this.body as { message?: unknown };
+    return typeof body?.message === "string" && body.message
+      ? body.message
+      : undefined;
   }
 
   /** A plan limit, with copy the UI can show verbatim. */
@@ -159,6 +174,14 @@ export interface TodaySlot {
   status: SlotStatus;
   isLocked: boolean;
   conflictEventId: string | null;
+  /** Which module runs this slot, or null for a plain timed one. Carried on
+   *  the slot so pressing Start does not need a second request to find out
+   *  what to open. */
+  presetKey?: string | null;
+  /** "manual" | "auto" | "prompt". */
+  startPolicy?: string;
+  /** The module's own settings, as the JSON text it wrote. */
+  configJson?: string | null;
 }
 
 export interface TodayMeeting {
@@ -194,6 +217,30 @@ export interface TodayResponse {
   /** When a calendar was last read, or null if none ever has been. */
   syncedAt: number | null;
   modules: string[];
+  /**
+   * Per-day minimums and how much of each has been done. Weekly activities are
+   * left out - see the note on the server.
+   *
+   * Optional because a plan restored from the offline cache may have been
+   * written by a version that did not send it. Read it as `?? []`.
+   */
+  progress?: ActivityProgress[];
+}
+
+/** One activity's day, as "Today so far" needs it. Raw numbers rather than a
+ *  formatted string: "1 / 3" and "50 m / 2 h" are the same fact rendered two
+ *  ways, and which one applies is a question about the minimum's type. */
+export interface ActivityProgress {
+  id: string;
+  name: string;
+  kind: "recovery" | "focus" | "task";
+  minimumType: string;
+  minimumValue: number;
+  /** How long one session of it runs. What the placement tray offers, and how
+   *  a duration minimum is turned back into a number of sessions. */
+  sessionMinutes: number;
+  count: number;
+  minutes: number;
 }
 
 export interface SessionResponse {
@@ -207,6 +254,9 @@ export interface SessionResponse {
     timeZone: string;
     plan: "free" | "pro";
     planSource: string;
+    /** When the current plan runs out. Absent on free, and on a subscription
+     *  that renews - only a grant and a cancelled subscription have an end. */
+    planExpiresAt?: string | null;
     /** The day view's hours, for the settings screen to edit. The Today page
      *  does not read these - it takes its ranges from `/today`, which already
      *  had to resolve them to answer at all. */
@@ -287,6 +337,12 @@ export interface ActivityResponse {
   bufferBeforeMeetingMinutes: number;
   /** Minutes from local midnight the planner aims for. Empty is "anywhere". */
   preferredWindows: number[];
+  /** Which module runs it, or null for a plain timed slot. */
+  presetKey: string | null;
+  /** "manual" | "auto" | "prompt". */
+  startPolicy: string;
+  /** The module's own settings, as stored JSON text. Opaque here. */
+  configJson: string | null;
 }
 
 /** Everything `POST /activities` and `PATCH /activities/:id` accept. Every
@@ -303,6 +359,10 @@ export interface ActivityInput {
   importance?: string;
   isActive?: boolean;
   preferredWindows?: number[];
+  /** Null clears the module; absent leaves it alone. */
+  presetKey?: string | null;
+  startPolicy?: "manual" | "auto" | "prompt";
+  configJson?: string | null;
 }
 
 export interface MissedItem {
@@ -620,6 +680,18 @@ export const api = {
   moveSlot: (id: string, startsAt: number, endsAt: number) =>
     request<void>(`/slots/${id}/move`, post({ startsAt, endsAt })),
 
+  /**
+   * Take a slot off today, and put it back.
+   *
+   * Not queued when offline the way start/complete/skip are, for the same
+   * reason `moveSlot` is not: those describe something that happened at a time
+   * we can still vouch for, and this is a decision about a plan that may have
+   * been rewritten since. Replaying it an hour later would remove a slot the
+   * user is no longer looking at.
+   */
+  cancelSlot: (id: string) => request<void>(`/slots/${id}/cancel`, post({})),
+  restoreSlot: (id: string) => request<void>(`/slots/${id}/restore`, post({})),
+
   missed: () => request<MissedItem[]>("/missed"),
   plan: (trigger = "user_request") =>
     request<{ planRunId: string; placed: number; unplaced: unknown[] }>(
@@ -629,6 +701,24 @@ export const api = {
         body: JSON.stringify({ trigger }),
       },
     ),
+  /**
+   * 5c - place an activity at a time you chose.
+   *
+   * Not queued when offline, unlike start/complete/skip. Those record
+   * something that already happened and can be replayed with their real time;
+   * this asks the server to make a decision - is that gap still free? - whose
+   * answer changes while you are disconnected. A placement that failed on
+   * landing would be worse than one that was never offered.
+   */
+  placeSlot: (activityId: string, startsAt: number, endsAt?: number) =>
+    request<TodaySlot>("/slots", {
+      method: "POST",
+      body: JSON.stringify({
+        activityId,
+        startsAt,
+        ...(endsAt !== undefined ? { endsAt } : {}),
+      }),
+    }),
   startSlot: (id: string) => slotAction(id, "start"),
   completeSlot: (id: string) => slotAction(id, "complete"),
   skipSlot: (id: string, reason?: string) => slotAction(id, "skip", reason),
@@ -650,6 +740,61 @@ export interface TimelineRow {
    *  the calendar it came from, and a block that slides but changes nothing
    *  would say we do. */
   movable?: boolean;
+}
+
+/** A stretch of the visible day with nothing in it. */
+export interface OpenGap {
+  startsAt: number;
+  endsAt: number;
+  minutes: number;
+}
+
+/**
+ * The shortest gap worth offering.
+ *
+ * Below this a "place here" row is an invitation to fail: the shortest session
+ * anyone configures is five minutes, and a four-minute hole between two calls
+ * is not a hole, it is the join between them.
+ */
+export const MIN_GAP_MINUTES = 5;
+
+/**
+ * Where a slot could go, given what is already on the day.
+ *
+ * Meetings *and* existing slots count as occupied - a gap the timeline is
+ * already drawing a stretch in is not free, and offering it would be offering
+ * the user a collision with their own plan.
+ *
+ * `freeGaps` is the same function the scheduler places with, which is what
+ * keeps "here is where it fits" and "here is where we would have put it"
+ * from being two different answers.
+ */
+export function openGaps(
+  data: TodayResponse,
+  now: number,
+  minMinutes = MIN_GAP_MINUTES,
+): OpenGap[] {
+  const occupied = [
+    ...data.meetings
+      .filter((m) => !m.isAllDay)
+      .map((m) => ({ start: m.startsAt, end: m.endsAt })),
+    ...data.slots
+      .filter((s) => s.status !== "cancelled")
+      .map((s) => ({ start: s.startsAt, end: s.endsAt })),
+  ];
+
+  return freeGaps({ start: data.dayStart, end: data.dayEnd }, occupied)
+    .map((g) => ({
+      // Never offer time that has already gone. A gap the morning left behind
+      // is not somewhere a stretch can be put.
+      startsAt: Math.max(g.start, now),
+      endsAt: g.end,
+    }))
+    .map((g) => ({
+      ...g,
+      minutes: Math.round((g.endsAt - g.startsAt) / 60_000),
+    }))
+    .filter((g) => g.minutes >= minMinutes);
 }
 
 export function buildTimeline(data: TodayResponse, now: number): TimelineRow[] {

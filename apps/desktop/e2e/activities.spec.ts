@@ -397,3 +397,71 @@ test("once set up, the wizard is gone for good - even with the activities remove
   await dayShown(page);
   await expect(setUp(page)).toHaveCount(0);
 });
+
+/* ── Keys on a slot ──────────────────────────────────────────────────────── */
+
+test("Delete takes a slot off today, and the toast puts it back", async ({
+  page,
+  signIn,
+}) => {
+  const user = await signIn(CALENDARS);
+  await seedActivity(user.token, {
+    name: "Eye rest",
+    sessionMinutes: 5,
+    minimumType: "countPerDay",
+    minimumValue: 1,
+  });
+
+  await page.goto("/");
+  await dayShown(page);
+  const slot = page.locator(".wr-daygrid-item", { hasText: "Eye rest" });
+  await expect(slot).toHaveCount(1);
+
+  await slot.focus();
+  await page.keyboard.press("Delete");
+  await expect(slot).toHaveCount(0);
+
+  // The whole reason the toast carries the undo: this was a destructive action
+  // taken on a bare keypress, with no dialog in front of it.
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(slot).toHaveCount(1);
+});
+
+test("a deleted slot stays gone for today, and only for today", async ({
+  page,
+  signIn,
+}) => {
+  const user = await signIn(CALENDARS);
+  await seedActivity(user.token, {
+    name: "Eye rest",
+    sessionMinutes: 5,
+    minimumType: "countPerDay",
+    minimumValue: 1,
+  });
+
+  await page.goto("/");
+  await dayShown(page);
+  const slot = page.locator(".wr-daygrid-item", { hasText: "Eye rest" });
+  await slot.focus();
+  await page.keyboard.press("Delete");
+  await expect(slot).toHaveCount(0);
+
+  // Opening the day re-plans anything missing from it, so this is the test
+  // that "off today" is not silently undone a second later: the cancelled slot
+  // is still a row, which is what keeps the activity from being re-placed.
+  await page.reload();
+  await dayShown(page);
+  await expect(slot).toHaveCount(0);
+
+  // Tomorrow is a different day and knows nothing about it. Asked of the
+  // server directly, because the day view offers no way to walk to another
+  // date - and "only for today" is a claim about the plan, not about a screen.
+  const tomorrow = await (
+    await fetch(`${API_URL}/today?at=${Date.now() + 86_400_000}`, {
+      headers: { authorization: `Bearer ${user.token}` },
+    })
+  ).json();
+  expect(
+    (tomorrow as { slots: { title: string }[] }).slots.map((s) => s.title),
+  ).toContain("Eye rest");
+});

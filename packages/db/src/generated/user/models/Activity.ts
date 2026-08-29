@@ -53,6 +53,9 @@ export type ActivityMinAggregateOutputType = {
   sessionMinutes: number | null
   daysOfWeek: number | null
   importance: string | null
+  presetKey: string | null
+  startPolicy: string | null
+  configJson: string | null
   graceMinutes: number | null
   bufferBeforeMeetingMinutes: number | null
   writeToCalendar: boolean | null
@@ -72,6 +75,9 @@ export type ActivityMaxAggregateOutputType = {
   sessionMinutes: number | null
   daysOfWeek: number | null
   importance: string | null
+  presetKey: string | null
+  startPolicy: string | null
+  configJson: string | null
   graceMinutes: number | null
   bufferBeforeMeetingMinutes: number | null
   writeToCalendar: boolean | null
@@ -91,6 +97,9 @@ export type ActivityCountAggregateOutputType = {
   sessionMinutes: number
   daysOfWeek: number
   importance: number
+  presetKey: number
+  startPolicy: number
+  configJson: number
   graceMinutes: number
   bufferBeforeMeetingMinutes: number
   writeToCalendar: number
@@ -128,6 +137,9 @@ export type ActivityMinAggregateInputType = {
   sessionMinutes?: true
   daysOfWeek?: true
   importance?: true
+  presetKey?: true
+  startPolicy?: true
+  configJson?: true
   graceMinutes?: true
   bufferBeforeMeetingMinutes?: true
   writeToCalendar?: true
@@ -147,6 +159,9 @@ export type ActivityMaxAggregateInputType = {
   sessionMinutes?: true
   daysOfWeek?: true
   importance?: true
+  presetKey?: true
+  startPolicy?: true
+  configJson?: true
   graceMinutes?: true
   bufferBeforeMeetingMinutes?: true
   writeToCalendar?: true
@@ -166,6 +181,9 @@ export type ActivityCountAggregateInputType = {
   sessionMinutes?: true
   daysOfWeek?: true
   importance?: true
+  presetKey?: true
+  startPolicy?: true
+  configJson?: true
   graceMinutes?: true
   bufferBeforeMeetingMinutes?: true
   writeToCalendar?: true
@@ -272,6 +290,9 @@ export type ActivityGroupByOutputType = {
   sessionMinutes: number
   daysOfWeek: number
   importance: string
+  presetKey: string | null
+  startPolicy: string
+  configJson: string | null
   graceMinutes: number
   bufferBeforeMeetingMinutes: number
   writeToCalendar: boolean
@@ -314,6 +335,9 @@ export type ActivityWhereInput = {
   sessionMinutes?: Prisma.IntFilter<"Activity"> | number
   daysOfWeek?: Prisma.IntFilter<"Activity"> | number
   importance?: Prisma.StringFilter<"Activity"> | string
+  presetKey?: Prisma.StringNullableFilter<"Activity"> | string | null
+  startPolicy?: Prisma.StringFilter<"Activity"> | string
+  configJson?: Prisma.StringNullableFilter<"Activity"> | string | null
   graceMinutes?: Prisma.IntFilter<"Activity"> | number
   bufferBeforeMeetingMinutes?: Prisma.IntFilter<"Activity"> | number
   writeToCalendar?: Prisma.BoolFilter<"Activity"> | boolean
@@ -335,6 +359,9 @@ export type ActivityOrderByWithRelationInput = {
   sessionMinutes?: Prisma.SortOrder
   daysOfWeek?: Prisma.SortOrder
   importance?: Prisma.SortOrder
+  presetKey?: Prisma.SortOrderInput | Prisma.SortOrder
+  startPolicy?: Prisma.SortOrder
+  configJson?: Prisma.SortOrderInput | Prisma.SortOrder
   graceMinutes?: Prisma.SortOrder
   bufferBeforeMeetingMinutes?: Prisma.SortOrder
   writeToCalendar?: Prisma.SortOrder
@@ -359,6 +386,9 @@ export type ActivityWhereUniqueInput = Prisma.AtLeast<{
   sessionMinutes?: Prisma.IntFilter<"Activity"> | number
   daysOfWeek?: Prisma.IntFilter<"Activity"> | number
   importance?: Prisma.StringFilter<"Activity"> | string
+  presetKey?: Prisma.StringNullableFilter<"Activity"> | string | null
+  startPolicy?: Prisma.StringFilter<"Activity"> | string
+  configJson?: Prisma.StringNullableFilter<"Activity"> | string | null
   graceMinutes?: Prisma.IntFilter<"Activity"> | number
   bufferBeforeMeetingMinutes?: Prisma.IntFilter<"Activity"> | number
   writeToCalendar?: Prisma.BoolFilter<"Activity"> | boolean
@@ -380,6 +410,9 @@ export type ActivityOrderByWithAggregationInput = {
   sessionMinutes?: Prisma.SortOrder
   daysOfWeek?: Prisma.SortOrder
   importance?: Prisma.SortOrder
+  presetKey?: Prisma.SortOrderInput | Prisma.SortOrder
+  startPolicy?: Prisma.SortOrder
+  configJson?: Prisma.SortOrderInput | Prisma.SortOrder
   graceMinutes?: Prisma.SortOrder
   bufferBeforeMeetingMinutes?: Prisma.SortOrder
   writeToCalendar?: Prisma.SortOrder
@@ -407,6 +440,9 @@ export type ActivityScalarWhereWithAggregatesInput = {
   sessionMinutes?: Prisma.IntWithAggregatesFilter<"Activity"> | number
   daysOfWeek?: Prisma.IntWithAggregatesFilter<"Activity"> | number
   importance?: Prisma.StringWithAggregatesFilter<"Activity"> | string
+  presetKey?: Prisma.StringNullableWithAggregatesFilter<"Activity"> | string | null
+  startPolicy?: Prisma.StringWithAggregatesFilter<"Activity"> | string
+  configJson?: Prisma.StringNullableWithAggregatesFilter<"Activity"> | string | null
   graceMinutes?: Prisma.IntWithAggregatesFilter<"Activity"> | number
   bufferBeforeMeetingMinutes?: Prisma.IntWithAggregatesFilter<"Activity"> | number
   writeToCalendar?: Prisma.BoolWithAggregatesFilter<"Activity"> | boolean
@@ -426,6 +462,9 @@ export type ActivityCreateInput = {
   sessionMinutes: number
   daysOfWeek?: number
   importance?: string
+  presetKey?: string | null
+  startPolicy?: string
+  configJson?: string | null
   graceMinutes?: number
   bufferBeforeMeetingMinutes?: number
   writeToCalendar?: boolean
@@ -447,6 +486,9 @@ export type ActivityUncheckedCreateInput = {
   sessionMinutes: number
   daysOfWeek?: number
   importance?: string
+  presetKey?: string | null
+  startPolicy?: string
+  configJson?: string | null
   graceMinutes?: number
   bufferBeforeMeetingMinutes?: number
   writeToCalendar?: boolean
@@ -468,6 +510,9 @@ export type ActivityUpdateInput = {
   sessionMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   daysOfWeek?: Prisma.IntFieldUpdateOperationsInput | number
   importance?: Prisma.StringFieldUpdateOperationsInput | string
+  presetKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startPolicy?: Prisma.StringFieldUpdateOperationsInput | string
+  configJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   graceMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   bufferBeforeMeetingMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -489,6 +534,9 @@ export type ActivityUncheckedUpdateInput = {
   sessionMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   daysOfWeek?: Prisma.IntFieldUpdateOperationsInput | number
   importance?: Prisma.StringFieldUpdateOperationsInput | string
+  presetKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startPolicy?: Prisma.StringFieldUpdateOperationsInput | string
+  configJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   graceMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   bufferBeforeMeetingMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -510,6 +558,9 @@ export type ActivityCreateManyInput = {
   sessionMinutes: number
   daysOfWeek?: number
   importance?: string
+  presetKey?: string | null
+  startPolicy?: string
+  configJson?: string | null
   graceMinutes?: number
   bufferBeforeMeetingMinutes?: number
   writeToCalendar?: boolean
@@ -529,6 +580,9 @@ export type ActivityUpdateManyMutationInput = {
   sessionMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   daysOfWeek?: Prisma.IntFieldUpdateOperationsInput | number
   importance?: Prisma.StringFieldUpdateOperationsInput | string
+  presetKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startPolicy?: Prisma.StringFieldUpdateOperationsInput | string
+  configJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   graceMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   bufferBeforeMeetingMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -548,6 +602,9 @@ export type ActivityUncheckedUpdateManyInput = {
   sessionMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   daysOfWeek?: Prisma.IntFieldUpdateOperationsInput | number
   importance?: Prisma.StringFieldUpdateOperationsInput | string
+  presetKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startPolicy?: Prisma.StringFieldUpdateOperationsInput | string
+  configJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   graceMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   bufferBeforeMeetingMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -567,6 +624,9 @@ export type ActivityCountOrderByAggregateInput = {
   sessionMinutes?: Prisma.SortOrder
   daysOfWeek?: Prisma.SortOrder
   importance?: Prisma.SortOrder
+  presetKey?: Prisma.SortOrder
+  startPolicy?: Prisma.SortOrder
+  configJson?: Prisma.SortOrder
   graceMinutes?: Prisma.SortOrder
   bufferBeforeMeetingMinutes?: Prisma.SortOrder
   writeToCalendar?: Prisma.SortOrder
@@ -594,6 +654,9 @@ export type ActivityMaxOrderByAggregateInput = {
   sessionMinutes?: Prisma.SortOrder
   daysOfWeek?: Prisma.SortOrder
   importance?: Prisma.SortOrder
+  presetKey?: Prisma.SortOrder
+  startPolicy?: Prisma.SortOrder
+  configJson?: Prisma.SortOrder
   graceMinutes?: Prisma.SortOrder
   bufferBeforeMeetingMinutes?: Prisma.SortOrder
   writeToCalendar?: Prisma.SortOrder
@@ -613,6 +676,9 @@ export type ActivityMinOrderByAggregateInput = {
   sessionMinutes?: Prisma.SortOrder
   daysOfWeek?: Prisma.SortOrder
   importance?: Prisma.SortOrder
+  presetKey?: Prisma.SortOrder
+  startPolicy?: Prisma.SortOrder
+  configJson?: Prisma.SortOrder
   graceMinutes?: Prisma.SortOrder
   bufferBeforeMeetingMinutes?: Prisma.SortOrder
   writeToCalendar?: Prisma.SortOrder
@@ -680,6 +746,9 @@ export type ActivityCreateWithoutWindowsInput = {
   sessionMinutes: number
   daysOfWeek?: number
   importance?: string
+  presetKey?: string | null
+  startPolicy?: string
+  configJson?: string | null
   graceMinutes?: number
   bufferBeforeMeetingMinutes?: number
   writeToCalendar?: boolean
@@ -700,6 +769,9 @@ export type ActivityUncheckedCreateWithoutWindowsInput = {
   sessionMinutes: number
   daysOfWeek?: number
   importance?: string
+  presetKey?: string | null
+  startPolicy?: string
+  configJson?: string | null
   graceMinutes?: number
   bufferBeforeMeetingMinutes?: number
   writeToCalendar?: boolean
@@ -736,6 +808,9 @@ export type ActivityUpdateWithoutWindowsInput = {
   sessionMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   daysOfWeek?: Prisma.IntFieldUpdateOperationsInput | number
   importance?: Prisma.StringFieldUpdateOperationsInput | string
+  presetKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startPolicy?: Prisma.StringFieldUpdateOperationsInput | string
+  configJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   graceMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   bufferBeforeMeetingMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -756,6 +831,9 @@ export type ActivityUncheckedUpdateWithoutWindowsInput = {
   sessionMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   daysOfWeek?: Prisma.IntFieldUpdateOperationsInput | number
   importance?: Prisma.StringFieldUpdateOperationsInput | string
+  presetKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startPolicy?: Prisma.StringFieldUpdateOperationsInput | string
+  configJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   graceMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   bufferBeforeMeetingMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -776,6 +854,9 @@ export type ActivityCreateWithoutSlotsInput = {
   sessionMinutes: number
   daysOfWeek?: number
   importance?: string
+  presetKey?: string | null
+  startPolicy?: string
+  configJson?: string | null
   graceMinutes?: number
   bufferBeforeMeetingMinutes?: number
   writeToCalendar?: boolean
@@ -796,6 +877,9 @@ export type ActivityUncheckedCreateWithoutSlotsInput = {
   sessionMinutes: number
   daysOfWeek?: number
   importance?: string
+  presetKey?: string | null
+  startPolicy?: string
+  configJson?: string | null
   graceMinutes?: number
   bufferBeforeMeetingMinutes?: number
   writeToCalendar?: boolean
@@ -832,6 +916,9 @@ export type ActivityUpdateWithoutSlotsInput = {
   sessionMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   daysOfWeek?: Prisma.IntFieldUpdateOperationsInput | number
   importance?: Prisma.StringFieldUpdateOperationsInput | string
+  presetKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startPolicy?: Prisma.StringFieldUpdateOperationsInput | string
+  configJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   graceMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   bufferBeforeMeetingMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -852,6 +939,9 @@ export type ActivityUncheckedUpdateWithoutSlotsInput = {
   sessionMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   daysOfWeek?: Prisma.IntFieldUpdateOperationsInput | number
   importance?: Prisma.StringFieldUpdateOperationsInput | string
+  presetKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startPolicy?: Prisma.StringFieldUpdateOperationsInput | string
+  configJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   graceMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   bufferBeforeMeetingMinutes?: Prisma.IntFieldUpdateOperationsInput | number
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -912,6 +1002,9 @@ export type ActivitySelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   sessionMinutes?: boolean
   daysOfWeek?: boolean
   importance?: boolean
+  presetKey?: boolean
+  startPolicy?: boolean
+  configJson?: boolean
   graceMinutes?: boolean
   bufferBeforeMeetingMinutes?: boolean
   writeToCalendar?: boolean
@@ -934,6 +1027,9 @@ export type ActivitySelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exte
   sessionMinutes?: boolean
   daysOfWeek?: boolean
   importance?: boolean
+  presetKey?: boolean
+  startPolicy?: boolean
+  configJson?: boolean
   graceMinutes?: boolean
   bufferBeforeMeetingMinutes?: boolean
   writeToCalendar?: boolean
@@ -953,6 +1049,9 @@ export type ActivitySelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exte
   sessionMinutes?: boolean
   daysOfWeek?: boolean
   importance?: boolean
+  presetKey?: boolean
+  startPolicy?: boolean
+  configJson?: boolean
   graceMinutes?: boolean
   bufferBeforeMeetingMinutes?: boolean
   writeToCalendar?: boolean
@@ -972,6 +1071,9 @@ export type ActivitySelectScalar = {
   sessionMinutes?: boolean
   daysOfWeek?: boolean
   importance?: boolean
+  presetKey?: boolean
+  startPolicy?: boolean
+  configJson?: boolean
   graceMinutes?: boolean
   bufferBeforeMeetingMinutes?: boolean
   writeToCalendar?: boolean
@@ -980,7 +1082,7 @@ export type ActivitySelectScalar = {
   archivedAt?: boolean
 }
 
-export type ActivityOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "kind" | "icon" | "isActive" | "minimumType" | "minimumValue" | "sessionMinutes" | "daysOfWeek" | "importance" | "graceMinutes" | "bufferBeforeMeetingMinutes" | "writeToCalendar" | "writeTargetConnectionId" | "createdAt" | "archivedAt", ExtArgs["result"]["activity"]>
+export type ActivityOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "kind" | "icon" | "isActive" | "minimumType" | "minimumValue" | "sessionMinutes" | "daysOfWeek" | "importance" | "presetKey" | "startPolicy" | "configJson" | "graceMinutes" | "bufferBeforeMeetingMinutes" | "writeToCalendar" | "writeTargetConnectionId" | "createdAt" | "archivedAt", ExtArgs["result"]["activity"]>
 export type ActivityInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   windows?: boolean | Prisma.Activity$windowsArgs<ExtArgs>
   slots?: boolean | Prisma.Activity$slotsArgs<ExtArgs>
@@ -1020,6 +1122,28 @@ export type $ActivityPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
      * "low" | "normal" | "high" - wins the gap when two activities compete.
      */
     importance: string
+    /**
+     * Which module runs this activity - "eye_rest", "breathing", "stretch",
+     * "deep_work". Null is a plain timed slot with no session of its own, which
+     * is what every activity was before modules existed.
+     */
+    presetKey: string | null
+    /**
+     * "manual" | "auto" | "prompt".
+     * 
+     * manual  shows a Start button, and `graceMinutes` later moves it on.
+     * auto    starts and completes itself. An eye rest you have to press start
+     * for is an eye rest you skip.
+     * prompt  notifies, and moves on if the notification goes unanswered.
+     */
+    startPolicy: string
+    /**
+     * The module's own settings, as JSON text. Owned by whichever module reads
+     * it and opaque to everything else - a breathing pattern, a list of stretch
+     * steps, a playlist URL. One column rather than a table per module, so a
+     * new module is a file rather than a migration.
+     */
+    configJson: string | null
     /**
      * How long to wait before moving it to the next gap.
      */
@@ -1467,6 +1591,9 @@ export interface ActivityFieldRefs {
   readonly sessionMinutes: Prisma.FieldRef<"Activity", 'Int'>
   readonly daysOfWeek: Prisma.FieldRef<"Activity", 'Int'>
   readonly importance: Prisma.FieldRef<"Activity", 'String'>
+  readonly presetKey: Prisma.FieldRef<"Activity", 'String'>
+  readonly startPolicy: Prisma.FieldRef<"Activity", 'String'>
+  readonly configJson: Prisma.FieldRef<"Activity", 'String'>
   readonly graceMinutes: Prisma.FieldRef<"Activity", 'Int'>
   readonly bufferBeforeMeetingMinutes: Prisma.FieldRef<"Activity", 'Int'>
   readonly writeToCalendar: Prisma.FieldRef<"Activity", 'Boolean'>

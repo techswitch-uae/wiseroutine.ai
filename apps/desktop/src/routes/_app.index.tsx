@@ -6,21 +6,28 @@ import {
   DayBar,
   DayGrid,
   HoursMenu,
+  Loading,
   OutsideRange,
   Slot,
 } from "@wiseroutine/design";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { armAlerts, PAUSE_MS, pauseAlerts, upNextOf } from "../lib/alerts";
 import {
   ApiError,
   api,
   buildTimeline,
   flushPending,
   getSessionToken,
+  type OpenGap,
+  openGaps,
   type TodayResponse,
 } from "../lib/api";
 import { setDensity, useDensity } from "../lib/density";
 import { notify } from "../lib/notify";
-import { SetupRail } from "../modules/setup-rail";
+import { owedToday } from "../lib/owed";
+import { publishPlan, publishStart } from "../lib/plan-store";
+import { PlaceSheet } from "../modules/place";
+import { TodayRail } from "../modules/today-rail";
 import { DAY_HOURS_ANCHOR } from "./_app.settings";
 
 /** What `api.today()` hands back: the plan plus where it came from. */
@@ -41,6 +48,14 @@ const SYNC_AFTER_AWAY_MS = 20_000;
  * seconds covers both without making the user press anything.
  */
 const SETTLE_MS = [1_200, 4_000, 10_000];
+
+/** A wall clock time, in the same 24-hour shape the rest of the day uses. */
+const hourClock = (at: number): string =>
+  new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(at));
 
 const Today: React.FC = () => {
   const navigate = useNavigate();
@@ -113,6 +128,16 @@ const Today: React.FC = () => {
   useEffect(() => {
     latest.current = load;
   });
+
+  /** The plan as it stands, for the menu bar listeners - which are set up once
+   *  and would otherwise act on whatever day was on screen at mount. */
+  const dataRef = useRef<CachedToday | null>(null);
+  useEffect(() => {
+    dataRef.current = data;
+    // The rail is mounted by the shell and cannot be handed props, so the day
+    // is published rather than passed - see `lib/plan-store`.
+    publishPlan(data);
+  }, [data]);
 
   const refresh = useCallback(() => {
     lastSync.current = Date.now();
@@ -248,17 +273,157 @@ const Today: React.FC = () => {
     });
   }, []);
 
+  /** Begin a slot. Shared, because the menu bar can start one too and both
+   *  presses have to reach the same offline queue. */
+  const start = useCallback((slotId: string) => {
+    void api.startSlot(slotId).then(({ queued: waiting }) => {
+      setQueued(api.pendingCount());
+      // Offline there is nothing to reload from; the queue is already
+      // projected onto what is on screen.
+      if (!waiting) latest.current();
+      else setData((current) => current && { ...current });
+    });
+  }, []);
+
+  useEffect(() => publishStart(start), [start]);
+
+  /**
+   * Take a slot off today, with one way back.
+   *
+   * Optimistic, because Delete has to feel like Delete. The undo is not a
+   * courtesy: this is a destructive action taken on a bare keypress, with no
+   * dialog in front of it, and a confirmation on every press would defeat the
+   * shortcut it was confirming. So the toast carries the way back instead.
+   *
+   * Today only, and that falls out of the model rather than being arranged: a
+   * cancelled slot is still a row, and the server re-plans an activity that has
+   * *no* slot today - so this stays gone until tomorrow rather than reappearing
+   * on the next page load.
+   */
+  const remove = useCallback((slotId: string, title: string) => {
+    const drop = (id: string) =>
+      setData(
+        (current) =>
+          current && {
+            ...current,
+            slots: current.slots.filter((slot) => slot.id !== id),
+          },
+      );
+
+    drop(slotId);
+    api
+      .cancelSlot(slotId)
+      .then(() => {
+        notify(`${title} removed from today.`, {
+          label: "Undo",
+          onClick: () => {
+            void api
+              .restoreSlot(slotId)
+              .then(() => latest.current())
+              .catch(() => notify("Couldn't put that back. Try again."));
+          },
+        });
+      })
+      .catch(() => {
+        notify("Couldn't remove that. Putting it back.");
+        latest.current();
+      });
+  }, []);
+
+  /** The gap the placement sheet is open on, or null when it is closed. */
+  const [placing, setPlacing] = useState<OpenGap | null>(null);
+
+  /**
+   * Put an activity on the day at a time the user chose.
+   *
+   * Not optimistic, unlike a drag. A drag moves something already on screen,
+   * so drawing it in its new place first is honest; this asks the server a
+   * question - is that gap still free? - and drawing an answer we have not
+   * had yet would mean putting a slot on the timeline and taking it away
+   * again when a meeting turns out to have landed there.
+   */
+  const place = useCallback(
+    (activityId: string, startsAt: number, endsAt: number) => {
+      setPlacing(null);
+      api
+        .placeSlot(activityId, startsAt, endsAt)
+        .then(() => latest.current())
+        .catch((cause: unknown) => {
+          notify(
+            (cause instanceof ApiError ? cause.detail : undefined) ??
+              "Couldn't place that.",
+          );
+          latest.current();
+        });
+    },
+    [],
+  );
+
+  /**
+   * The day, said out loud.
+   *
+   * Re-armed whenever the plan or the minute changes, which is what keeps a
+   * replanned slot from announcing itself at the time it used to be at. The
+   * disposer matters: without it every reload would leave its timers running
+   * and a slot would be announced once per reload since the app opened.
+   */
+  useEffect(() => {
+    if (!data) return;
+    return armAlerts(data.slots, now);
+  }, [data, now]);
+
+  /**
+   * Presses that arrived from the menu bar rather than the window.
+   *
+   * The menu carries no state of its own, so "Start now" means "start whatever
+   * `upNextOf` last called up next" - worked out here, from the same plan the
+   * menu was rendered from.
+   */
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in globalThis)) return;
+
+    let stop: (() => void)[] = [];
+    void import("@tauri-apps/api/event").then(async ({ listen }) => {
+      stop = await Promise.all([
+        listen("tray://start", () => {
+          const next =
+            dataRef.current && upNextOf(dataRef.current.slots, Date.now());
+          if (next?.slotId) start(next.slotId);
+        }),
+        listen("tray://pause", () => {
+          pauseAlerts(Date.now());
+          notify(
+            `Quiet until ${hourClock(Date.now() + PAUSE_MS)}. The day carries on.`,
+          );
+        }),
+      ]);
+    });
+
+    return () => {
+      for (const off of stop) off();
+    };
+  }, [start]);
+
   if (!data) {
     return (
-      <p className="wr-body">
+      <Loading>
         {error === "offline"
           ? "Can't reach Wise Routine right now."
           : "Loading your day…"}
-      </p>
+      </Loading>
     );
   }
 
   const rows = buildTimeline(data, now);
+  /**
+   * What the free plan needs to place, and where it could go.
+   *
+   * Both are derived rather than fetched: the day already carries its slots,
+   * its meetings and each activity's progress, so asking the server where a
+   * gap is would be asking it to repeat something it has already said.
+   */
+  const owed = owedToday(data.progress ?? []);
+  const gaps = owed.length > 0 ? openGaps(data, now) : [];
   const dayLabel = new Intl.DateTimeFormat("en-GB", {
     timeZone: data.timeZone,
     weekday: "long",
@@ -347,6 +512,15 @@ const Today: React.FC = () => {
               endsAt: row.endsAt,
               movable: row.movable === true,
               title: row.title,
+              // Enter and Delete, for a block that has focus. A finished slot
+              // offers neither: there is nothing left to start, and taking it
+              // off the day would erase what actually happened.
+              ...(row.slotId && row.done !== true
+                ? {
+                    onStart: () => row.slotId && start(row.slotId),
+                    onRemove: () => row.slotId && remove(row.slotId, row.title),
+                  }
+                : {}),
               node: (
                 <Slot
                   variant={row.variant}
@@ -360,22 +534,27 @@ const Today: React.FC = () => {
                   // are list-row affordances, and here they make a 25-minute
                   // block draw twice its own height and collide with the next.
                   onStart={() => {
-                    if (!row.slotId) return;
-                    void api
-                      .startSlot(row.slotId)
-                      .then(({ queued: waiting }) => {
-                        setQueued(api.pendingCount());
-                        // Offline there is nothing to reload from; the queue is
-                        // already projected onto what is on screen.
-                        if (!waiting) load();
-                        else setData((current) => current && { ...current });
-                      });
+                    if (row.slotId) start(row.slotId);
                   }}
                 />
               ),
             }))}
           />
         )}
+
+        {gaps.length > 0 ? (
+          <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+            {gaps.map((gap) => (
+              <DashedRow
+                key={gap.startsAt}
+                gutter={false}
+                onClick={() => setPlacing(gap)}
+              >
+                {gap.minutes} min free at {hourClock(gap.startsAt)} — place here
+              </DashedRow>
+            ))}
+          </div>
+        ) : null}
 
         {data.outside.after.length > 0 ? (
           <OutsideRange
@@ -386,6 +565,15 @@ const Today: React.FC = () => {
           />
         ) : null}
       </div>
+
+      {placing ? (
+        <PlaceSheet
+          gap={placing}
+          owed={owed}
+          onClose={() => setPlacing(null)}
+          onPlace={place}
+        />
+      ) : null}
     </>
   );
 };
@@ -431,5 +619,5 @@ export const Route = createFileRoute("/_app/")({
   // that makes the ask make sense. Calendars and Account declare nothing and
   // so get no rail at all - asking someone to connect a calendar on the page
   // they are already connecting one from is worse than silence.
-  staticData: { rail: SetupRail },
+  staticData: { rail: TodayRail },
 });

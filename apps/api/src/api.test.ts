@@ -294,6 +294,239 @@ function weekdayNoon(): number {
  * The queue's retry is for a provider having a bad minute. Anything the user
  * has to act on has to leave that loop, or it runs until someone reads a log.
  */
+describe("a grant running out", () => {
+  const DAY = 86_400_000;
+
+  /** Put a grant on a user the way `grantPlan` would, and cache the plan it
+   *  produces - which is the state a live account is in mid-trial. */
+  async function grant(userId: string, expiresAt: number | null) {
+    const dir = directory();
+    await dir.planGrant.create({
+      data: {
+        id: crypto.randomUUID(),
+        userId,
+        plan: "pro",
+        reason: "trial",
+        grantedBy: "test",
+        expiresAt: expiresAt === null ? null : new Date(expiresAt),
+        createdAt: new Date(),
+      },
+    });
+    await dir.user.update({
+      where: { id: userId },
+      data: {
+        plan: "pro",
+        planSource: "grant",
+        planExpiresAt: expiresAt === null ? null : new Date(expiresAt),
+      },
+    });
+  }
+
+  test("a live trial still buys pro capabilities", async () => {
+    const user = await seedUser({ plan: "free" });
+    await grant(user.userId, Date.now() + 7 * DAY);
+    // Free stops at two; a trial is pro, so the third is allowed.
+    for (let i = 0; i < 3; i++) await seedActivity({ name: `A${i}` });
+
+    const response = await worker.default.fetch("http://api/activities", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Fourth", kind: "recovery" }),
+    });
+    expect(response.status).toBe(201);
+  });
+
+  /**
+   * The cached `plan` column has to notice.
+   *
+   * `refreshUserPlan` is documented as never running on the hot path, which is
+   * right for a subscription - its end always arrives as a Stripe webhook. A
+   * trial has no webhook: nothing tells us the fourteenth day has passed. So
+   * without the check in `requireUser` a trial would expire on paper and never
+   * in practice, and this is the test that says so.
+   */
+  test("an expired trial is refused on the very next request", async () => {
+    const user = await seedUser({ plan: "free" });
+    await grant(user.userId, Date.now() - 1);
+    for (let i = 0; i < 2; i++) await seedActivity({ name: `A${i}` });
+
+    const response = await worker.default.fetch("http://api/activities", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Third", kind: "recovery" }),
+    });
+    expect(response.status).toBe(402);
+
+    // And the column is corrected, not merely the one answer.
+    const row = await directory().user.findUnique({
+      where: { id: user.userId },
+      select: { plan: true, planSource: true },
+    });
+    expect(row?.plan).toBe("free");
+    expect(row?.planSource).toBe("default");
+  });
+
+  test("an expired trial does not take a paid subscription with it", async () => {
+    const user = await seedUser({ plan: "free" });
+    await grant(user.userId, Date.now() - 1);
+    await directory().subscription.create({
+      data: {
+        userId: user.userId,
+        stripeCustomerId: `cus_${user.userId.slice(0, 8)}`,
+        stripeSubscriptionId: `sub_${user.userId.slice(0, 8)}`,
+        status: "active",
+        updatedAt: new Date(),
+      },
+    });
+    for (let i = 0; i < 2; i++) await seedActivity({ name: `A${i}` });
+
+    const response = await worker.default.fetch("http://api/activities", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Third", kind: "recovery" }),
+    });
+    expect(response.status).toBe(201);
+  });
+});
+
+describe("placing a slot by hand", () => {
+  /**
+   * One instant per test, not one per call.
+   *
+   * `tomorrowNoon()` is derived from the wall clock, so calling it twice in a
+   * test returns two numbers milliseconds apart - which is fine for planning
+   * and fatal for an assertion that a slot did not move.
+   */
+  let at = 0;
+  beforeEach(() => {
+    at = tomorrowNoon();
+  });
+
+  test("places the activity at the time asked for, and pins it", async () => {
+    const user = await seedUser({ plan: "free" });
+    const activityId = await seedActivity({ sessionMinutes: 10 });
+
+    const response = await worker.default.fetch("http://api/slots", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ activityId, startsAt: at }),
+    });
+
+    expect(response.status).toBe(201);
+    const slot = (await response.json()) as {
+      startsAt: number;
+      endsAt: number;
+      isLocked: boolean;
+    };
+    expect(slot.startsAt).toBe(at);
+    // No `endsAt` sent, so the activity's own session length decides it.
+    expect(slot.endsAt).toBe(at + 10 * 60_000);
+    // The free plan's promise: what you placed stays where you placed it.
+    expect(slot.isLocked).toBe(true);
+  });
+
+  // What separates "you put this here and it did not happen" from "we placed
+  // it and it did not fit", which is the whole point of the missed list.
+  test("the placement is logged as the user's, not the system's", async () => {
+    const user = await seedUser({ plan: "free" });
+    const activityId = await seedActivity();
+
+    await worker.default.fetch("http://api/slots", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ activityId, startsAt: at }),
+    });
+
+    const event = await userDb().slotEvent.findFirst({
+      select: { type: true, actor: true, reasonCode: true },
+    });
+    expect(event?.type).toBe("planned");
+    expect(event?.actor).toBe("user");
+    expect(event?.reasonCode).toBe("placed_by_hand");
+  });
+
+  // The client picks from gaps it computed a moment ago, and a meeting can
+  // land in one between the picking and the pressing - so this has to be
+  // decided here, against the events as they are now.
+  test("refuses a time a meeting has since taken", async () => {
+    const user = await seedUser({ plan: "free" });
+    const activityId = await seedActivity({ sessionMinutes: 10 });
+    const { calendarId } = await seedCalendar();
+
+    await userDb().externalEvent.create({
+      data: {
+        id: crypto.randomUUID(),
+        calendarId,
+        providerEventId: crypto.randomUUID(),
+        title: "Design review",
+        startsAt: new Date(at),
+        endsAt: new Date(at + 60 * 60_000),
+        busyStatus: "busy",
+        updatedAt: new Date(),
+      },
+    });
+
+    const response = await worker.default.fetch("http://api/slots", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ activityId, startsAt: at + 5 * 60_000 }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(await userDb().slot.count()).toBe(0);
+  });
+
+  test("refuses a paused activity rather than quietly reviving it", async () => {
+    const user = await seedUser({ plan: "free" });
+    const activityId = await seedActivity({ isActive: false });
+
+    const response = await worker.default.fetch("http://api/slots", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ activityId, startsAt: at }),
+    });
+
+    expect(response.status).toBe(409);
+  });
+
+  test("refuses an activity that is not there", async () => {
+    const user = await seedUser({ plan: "free" });
+
+    const response = await worker.default.fetch("http://api/slots", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ activityId: "nope", startsAt: at }),
+    });
+
+    expect(response.status).toBe(404);
+  });
+
+  // A hand-placed slot is the one thing a replan must never touch.
+  test("a replan leaves a hand-placed slot where it was put", async () => {
+    const user = await seedUser({ plan: "pro" });
+    const activityId = await seedActivity({
+      minimumValue: 3,
+      sessionMinutes: 10,
+    });
+
+    const placed = await worker.default.fetch("http://api/slots", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ activityId, startsAt: at }),
+    });
+    const { id } = (await placed.json()) as { id: string };
+
+    await worker.default.fetch("http://api/plan", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ trigger: "user_request", at: at }),
+    });
+
+    const row = await userDb().slot.findUnique({ where: { id } });
+    expect(row?.startsAt.getTime()).toBe(at);
+  });
+});
+
 describe("a connection with nothing behind it", () => {
   test("a missing token row asks for a reconnection instead of retrying", async () => {
     const user = await seedUser();

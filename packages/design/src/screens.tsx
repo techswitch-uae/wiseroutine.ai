@@ -1054,7 +1054,16 @@ export const ActivityForm: React.FC<{
    * anything else has to be given one by the person describing it.
    */
   named?: boolean;
-}> = ({ draft, onChange, named }) => {
+  /**
+   * Appended below the standing fields.
+   *
+   * Where the app puts the module section - which module runs this activity,
+   * how it starts, and whatever settings that module asks for. It lives in the
+   * app rather than here because the module registry does: this package draws
+   * forms, and has no business knowing that breathing has patterns.
+   */
+  children?: React.ReactNode;
+}> = ({ draft, onChange, named, children }) => {
   const set = <K extends keyof ActivityDraft>(
     key: K,
     value: ActivityDraft[K],
@@ -1114,6 +1123,8 @@ export const ActivityForm: React.FC<{
           allows.
         </p>
       </div>
+
+      {children}
     </div>
   );
 };

@@ -1,4 +1,5 @@
 import {
+  autoSlotsToComplete,
   completeWork,
   createDirectory,
   createUserDatabase,
@@ -35,6 +36,7 @@ import {
   type ServerEnv,
   userCredentials,
 } from "./env";
+import { graceAction } from "./planning/grace";
 import { app as appRoutes } from "./routes/app";
 import { billing } from "./routes/billing";
 import { connect } from "./routes/connect";
@@ -143,8 +145,8 @@ function clientIds(config: ServerEnv): SyncDeps["clientIds"] {
  * that arrived late, and short enough that a slot placed at nine this morning
  * is left where it is rather than dragged to now and then marked missed.
  *
- * ponytail: one number for everyone, where the grace itself is per activity.
- * Read `graceMinutes` through the slot's activity once a slot carries it.
+ * The grace itself is per activity and read from the slot - see `slotsPastGrace`.
+ * This is only the horizon the query looks back over.
  */
 const GRACE_WINDOW = 30 * MINUTE;
 
@@ -157,34 +159,79 @@ async function sweepGrace(
   const due = await slotsPastGrace(db, now, 200, GRACE_WINDOW);
 
   for (const slot of due) {
-    // Thrash cap: after two automatic moves in a day, stop guessing and let the
-    // missed list ask the user instead.
-    if (slot.autoMoveCount >= 2) {
-      await setSlotStatus(
-        db,
-        {
-          slotId: slot.id,
-          status: "missed",
-          actor: "system",
-          reasonCode: "auto_move_limit",
-          reasonText: "moved twice, then no gap appeared",
-        },
-        now,
-        newId,
-      );
-      continue;
-    }
+    switch (graceAction(slot, now)) {
+      /**
+       * An activity that starts itself.
+       *
+       * The slot goes live at its own start time and is closed at its end by
+       * `autoSlotsToComplete` below. It is never moved, whether or not it is
+       * locked - moving something that has already begun is not a
+       * rescheduling, it is a lie about what happened.
+       */
+      case "start":
+        await setSlotStatus(
+          db,
+          {
+            slotId: slot.id,
+            status: "started",
+            actor: "system",
+            reasonCode: "auto_start",
+          },
+          now,
+          newId,
+        );
+        break;
 
-    const duration = slot.endsAt - slot.startsAt;
-    await moveSlot(
+      case "leave":
+        break;
+
+      case "miss":
+        await setSlotStatus(
+          db,
+          {
+            slotId: slot.id,
+            status: "missed",
+            actor: "system",
+            reasonCode: "auto_move_limit",
+            reasonText: "moved twice, then no gap appeared",
+          },
+          now,
+          newId,
+        );
+        break;
+
+      case "move": {
+        const duration = slot.endsAt - slot.startsAt;
+        await moveSlot(
+          db,
+          {
+            slotId: slot.id,
+            startsAt: now + 5 * MINUTE,
+            endsAt: now + 5 * MINUTE + duration,
+            actor: "system",
+            reasonCode: "grace_expired",
+            reasonText: "not started in time",
+          },
+          now,
+          newId,
+        );
+        break;
+      }
+    }
+  }
+
+  // Close anything that started itself and has now run its length. Separate
+  // from the loop above because these are `started`, not `planned` - a
+  // different question asked of a different set of slots.
+  const finished = await autoSlotsToComplete(db, now, 200);
+  for (const slot of finished) {
+    await setSlotStatus(
       db,
       {
         slotId: slot.id,
-        startsAt: now + 5 * MINUTE,
-        endsAt: now + 5 * MINUTE + duration,
+        status: "completed",
         actor: "system",
-        reasonCode: "grace_expired",
-        reasonText: "not started in time",
+        reasonCode: "auto_complete",
       },
       now,
       newId,
@@ -192,7 +239,9 @@ async function sweepGrace(
   }
 
   // Come back in a minute while anything is still pending, otherwise back off.
-  return due.length > 0 ? now + MINUTE : now + 15 * MINUTE;
+  return due.length > 0 || finished.length > 0
+    ? now + MINUTE
+    : now + 15 * MINUTE;
 }
 
 async function runSyncJob(

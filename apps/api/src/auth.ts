@@ -1,5 +1,6 @@
 import {
   type Directory,
+  grantPlan,
   newDatabaseName,
   USER_DEFAULTS,
 } from "@wiseroutine/db";
@@ -11,6 +12,9 @@ import { emailOTP } from "better-auth/plugins/email-otp";
 import { Resend } from "resend";
 import type { ServerEnv } from "./env";
 import { provisionUserDatabase } from "./provisioning";
+
+/** What the pricing page promises: a fortnight of Pro, no card. */
+const TRIAL_DAYS = 14;
 
 /**
  * Authentication.
@@ -162,6 +166,21 @@ const userFields = {
     required: true,
     input: false,
     defaultValue: () => USER_DEFAULTS.planSource,
+  },
+  /**
+   * When the current plan runs out, or absent when nothing does.
+   *
+   * Carried on the session rather than looked up, because two things need it
+   * on the hot path: the trial countdown in the sidebar, and the check in
+   * `requireUser` that turns an expired grant into an actual downgrade.
+   *
+   * Optional, not defaulted - a free account has no expiry, and a zero would
+   * read as "expired at the epoch".
+   */
+  planExpiresAt: {
+    type: "date",
+    required: false,
+    input: false,
   },
   storeEventTitles: {
     type: "boolean",
@@ -358,6 +377,32 @@ export function createAuth(directory: Directory, env: ServerEnv) {
               // The name the insert actually used, not one recomputed here.
               databaseName: String(user.databaseName),
             });
+
+            /**
+             * The trial, as a grant rather than a Stripe subscription.
+             *
+             * Fourteen days of Pro with no card, which is what the pricing
+             * page promises. Stripe has a trial of its own, but reaching it
+             * needs a checkout - and a trial you have to enter card details
+             * for is not the offer being made.
+             *
+             * A grant outranks Stripe in `resolvePlan`, so this is also what
+             * founding access is: the same row with a longer expiry and a
+             * different `reason`. One mechanism, and winding it down is a
+             * date passing rather than a flag being flipped.
+             */
+            await grantPlan(
+              directory,
+              {
+                userId: user.id,
+                plan: "pro",
+                reason: "trial",
+                grantedBy: "signup",
+                expiresAt: Date.now() + TRIAL_DAYS * 86_400_000,
+              },
+              Date.now(),
+              () => crypto.randomUUID(),
+            );
           },
         },
       },
