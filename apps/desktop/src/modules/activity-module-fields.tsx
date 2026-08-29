@@ -1,110 +1,105 @@
-import { Chip, SelectField } from "@wiseroutine/design";
-import { configFor, MODULES, moduleFor, type StartPolicy } from "./activities";
+import { Segmented, SwitchRow } from "@wiseroutine/design";
+import { notify } from "../lib/notify";
+import { openExternal } from "../lib/open-external";
+import { configFor, moduleFor, type StartPolicy } from "./activities";
 
 /**
- * The module half of the activity sheet: what runs, how it starts, and
- * whatever that module asks for.
+ * The behaviour half of the activity sheet.
+ *
+ * Two questions, and only for an activity that has a behaviour at all:
+ * whether its guided session runs, and how the slot starts. Which module runs
+ * is not a question - a library activity *is* its module, so offering a picker
+ * only invited someone to put the breathing pacer on their walk. Custom
+ * activities have no session yet and are told so by the absence of the switch.
  *
  * In the app rather than in the design package because the registry is: a
  * component library that had to know breathing has patterns would gain a new
  * import every time a module did.
- *
- * Choosing a module rewrites the two fields it has an opinion about - the
- * session length and the start policy - because those are part of what the
- * module *is*. An eye rest that waits for a button press is not an eye rest,
- * and making someone find that setting themselves is making them configure
- * their way to the obvious.
  */
 
 export interface ModuleDraft {
+  /** Which library activity this is. Identity, and never cleared by the
+   *  switch - see the schema note on `sessionEnabled`. */
   presetKey: string | null;
+  sessionEnabled: boolean;
   startPolicy: StartPolicy;
   /** The module's own settings, as the JSON text that is stored. */
   configJson: string | null;
 }
 
-const POLICY_LABELS: Record<StartPolicy, string> = {
-  manual: "I press start",
-  auto: "Starts on its own",
-  prompt: "Asks me first",
-};
+const POLICIES: readonly { value: StartPolicy; label: string }[] = [
+  { value: "manual", label: "I start it" },
+  { value: "auto", label: "On its own" },
+  { value: "prompt", label: "Ask me" },
+];
 
 const POLICY_NOTES: Record<StartPolicy, string> = {
-  manual: "Moves to the next gap if you have not started it in time.",
-  auto: "Runs and completes itself. Best for anything short.",
-  prompt: "Sends a notification, and moves on if you do not answer.",
+  manual: "Waits for you, then moves to the next gap if you do not start it.",
+  auto: "Runs and finishes itself. Best for anything short.",
+  prompt: "Notifies you, and moves on if you do not answer.",
 };
 
-const labelToPolicy = (label: string): StartPolicy =>
-  (Object.entries(POLICY_LABELS).find(([, l]) => l === label)?.[0] ??
-    "manual") as StartPolicy;
+/**
+ * The Notifications pane of System Settings.
+ *
+ * The pane's own extension identifier, read off the bundle in
+ * `/System/Library/ExtensionKit/Extensions` - the pre-Ventura name for it
+ * (`com.apple.preference.notifications`) is a preference pane that no longer
+ * exists, which is why the link opened nothing.
+ *
+ * ponytail: macOS only. The switch that shows this row is a desktop concern
+ * anyway; give it a per-platform URL when there is a second platform to have
+ * an opinion about.
+ */
+const NOTIFICATION_SETTINGS =
+  "x-apple.systempreferences:com.apple.Notifications-Settings.extension";
+
+/** Said out loud when the link cannot be opened - on the web, or if macOS
+ *  refuses the scheme. A dead link that stays silent reads as a broken app. */
+const openSettings = (): void => {
+  void openExternal(NOTIFICATION_SETTINGS).then((opened) => {
+    if (!opened) {
+      notify("Open System Settings › Notifications, then find Wise Routine.");
+    }
+  });
+};
 
 export const ActivityModuleFields: React.FC<{
   value: ModuleDraft;
   onChange: (next: ModuleDraft) => void;
-  /** Told back to the sheet, which owns the session length. */
-  onSessionMinutes: (minutes: number) => void;
-}> = ({ value, onChange, onSessionMinutes }) => {
+}> = ({ value, onChange }) => {
   const module = moduleFor(value.presetKey);
-  const names = [
-    "Nothing - just a timed slot",
-    ...Object.values(MODULES).map((m) => m.name),
-  ];
-  const current = module?.name ?? names[0];
+
+  // A custom activity is a plain timed slot and has nothing to configure here.
+  // Offering a switch that only ever says "off" would be a worse answer than
+  // saying nothing.
+  if (!module) return null;
+
+  const Config = value.sessionEnabled ? module.Config : undefined;
 
   return (
-    <div className="wr-activity-field">
-      <SelectField
-        label="What happens when it runs"
-        options={names}
-        value={current}
-        onChange={(event) => {
-          const picked = Object.values(MODULES).find(
-            (m) => m.name === event.target.value,
-          );
-          if (!picked) {
-            onChange({
-              presetKey: null,
-              startPolicy: "manual",
-              configJson: null,
-            });
-            return;
-          }
-          onSessionMinutes(picked.defaults.sessionMinutes);
-          onChange({
-            presetKey: picked.key,
-            startPolicy: picked.defaults.startPolicy,
-            configJson: JSON.stringify(picked.defaults.config),
-          });
-        }}
-      />
-      {module ? (
-        <p className="wr-activity-hint">{module.blurb}</p>
-      ) : (
-        <p className="wr-activity-hint">
-          Appears on the timeline with a start button, and nothing takes over
-          the screen.
-        </p>
-      )}
-
-      <div style={{ marginTop: 14 }}>
-        <SelectField
-          label="How it starts"
-          options={Object.values(POLICY_LABELS)}
-          value={POLICY_LABELS[value.startPolicy]}
-          onChange={(event) =>
-            onChange({
-              ...value,
-              startPolicy: labelToPolicy(event.target.value),
-            })
-          }
+    <>
+      <div className="wr-field">
+        {/* `SwitchRow` rather than a bare `Toggle`: that one carries its label
+            only as an aria-label, so a sighted user got an unlabelled switch. */}
+        <SwitchRow
+          title={`${module.name} session`}
+          checked={value.sessionEnabled}
+          onChange={(sessionEnabled) => onChange({ ...value, sessionEnabled })}
         />
-        <p className="wr-activity-hint">{POLICY_NOTES[value.startPolicy]}</p>
+        {/* Both halves, always. This used to describe only the state the
+            switch was already in, which told you what you had just done
+            rather than what you were choosing - and left the off state
+            undescribed until you turned it off. */}
+        <p className="wr-activity-hint">
+          When this is on, {module.blurb}. When it is off, {module.name} is just
+          a slot on your day and nothing takes over the screen.
+        </p>
       </div>
 
-      {module?.Config ? (
-        <div style={{ marginTop: 14 }}>
-          <module.Config
+      {Config ? (
+        <div className="wr-field">
+          <Config
             value={configFor(module, value.configJson)}
             onChange={(next: unknown) =>
               onChange({ ...value, configJson: JSON.stringify(next) })
@@ -113,11 +108,31 @@ export const ActivityModuleFields: React.FC<{
         </div>
       ) : null}
 
-      {value.startPolicy === "prompt" ? (
-        <div style={{ marginTop: 10 }}>
-          <Chip variant="static">Needs notifications turned on</Chip>
-        </div>
-      ) : null}
-    </div>
+      <div className="wr-field">
+        <span className="wr-label">How it starts</span>
+        <Segmented
+          label="How it starts"
+          options={POLICIES}
+          value={value.startPolicy}
+          onChange={(startPolicy) => onChange({ ...value, startPolicy })}
+        />
+        <p className="wr-activity-hint">
+          {POLICY_NOTES[value.startPolicy]}
+          {value.startPolicy === "prompt" ? (
+            <>
+              {" Needs notifications turned on — "}
+              <button
+                type="button"
+                className="wr-linklike"
+                onClick={openSettings}
+              >
+                open Notification settings
+              </button>
+              .
+            </>
+          ) : null}
+        </p>
+      </div>
+    </>
   );
 };

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { notify } from "../lib/notify";
-import { usePlan } from "../lib/plan-store";
+import { reloadPlan, usePlan } from "../lib/plan-store";
 import { runningSlot } from "../lib/running-slot";
 import { configFor, moduleFor } from "./activities";
 
@@ -33,7 +33,11 @@ export const SessionOverlay: React.FC = () => {
    */
   const [dismissed, setDismissed] = useState<string | null>(null);
 
-  const slot = plan ? runningSlot(plan.slots) : undefined;
+  // Read at render rather than held on a timer: the only thing this decides
+  // is which of the day's slots is running, and that is re-decided every time
+  // the day changes - which is every time it could have changed. A session
+  // already on screen is ended by its own module, not by this clock.
+  const slot = plan ? runningSlot(plan.slots, Date.now()) : undefined;
 
   // Forget the dismissal once the plan agrees the slot is over, so the same
   // activity's *next* slot still opens.
@@ -49,11 +53,23 @@ export const SessionOverlay: React.FC = () => {
   const finish = (how: "complete" | "skip") => {
     setDismissed(slot.id);
     const action = how === "complete" ? api.completeSlot : api.skipSlot;
-    void action(slot.id).catch(() => {
-      // The queue takes it offline; anything else is worth saying, because a
-      // session that ran and was not recorded is a number quietly going wrong.
-      notify("Couldn't record that just now. It will sync when you reconnect.");
-    });
+    void action(slot.id)
+      .catch(() => {
+        // The queue takes it offline; anything else is worth saying, because a
+        // session that ran and was not recorded is a number quietly going
+        // wrong.
+        notify(
+          "Couldn't record that just now. It will sync when you reconnect.",
+        );
+      })
+      // Always, and this is what makes a stopped session resumable.
+      //
+      // Without it the plan in hand still said `started` long after the
+      // session had been skipped, so `dismissed` never cleared - and pressing
+      // Start again reloaded a day that already said `started`, found the
+      // slot still dismissed, and did nothing at all. The button stayed there
+      // looking pressable forever.
+      .finally(() => reloadPlan());
   };
 
   const Session = module.Session;

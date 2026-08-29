@@ -241,6 +241,8 @@ export interface ActivityProgress {
   sessionMinutes: number;
   count: number;
   minutes: number;
+  /** Already on the day, not yet done. */
+  scheduled?: number;
 }
 
 export interface SessionResponse {
@@ -337,8 +339,10 @@ export interface ActivityResponse {
   bufferBeforeMeetingMinutes: number;
   /** Minutes from local midnight the planner aims for. Empty is "anywhere". */
   preferredWindows: number[];
-  /** Which module runs it, or null for a plain timed slot. */
+  /** Which module runs it, or null for a custom activity with no behaviour. */
   presetKey: string | null;
+  /** Whether that module's session takes over when the slot starts. */
+  sessionEnabled: boolean;
   /** "manual" | "auto" | "prompt". */
   startPolicy: string;
   /** The module's own settings, as stored JSON text. Opaque here. */
@@ -361,6 +365,7 @@ export interface ActivityInput {
   preferredWindows?: number[];
   /** Null clears the module; absent leaves it alone. */
   presetKey?: string | null;
+  sessionEnabled?: boolean;
   startPolicy?: "manual" | "auto" | "prompt";
   configJson?: string | null;
 }
@@ -736,10 +741,20 @@ export interface TimelineRow {
   meta?: string;
   done?: boolean;
   slotId?: string;
-  /** Ours, so it can be moved. A meeting never is - we do not write back to
-   *  the calendar it came from, and a block that slides but changes nothing
-   *  would say we do. */
+  /**
+   * Ours, and not yet begun, so it can be moved.
+   *
+   * A meeting never is - we do not write back to the calendar it came from,
+   * and a block that slides but changes nothing would say we do. Neither is a
+   * slot that has started or finished: the first is happening now, and the
+   * second is the record that it happened at a particular time. Both the
+   * missed list and every progress number are read back out of those rows, so
+   * dragging one is not rescheduling, it is rewriting.
+   */
   movable?: boolean;
+  /** Started once and stopped, with its time still running. The button offers
+   *  to pick it back up rather than to start it. */
+  resumable?: boolean;
 }
 
 /** A stretch of the visible day with nothing in it. */
@@ -814,7 +829,10 @@ export function buildTimeline(data: TodayResponse, now: number): TimelineRow[] {
       title: slot.title,
       meta: `${Math.round((slot.endsAt - slot.startsAt) / 60_000)} min`,
       done: slot.status === "completed",
-      movable: true,
+      // Only while it is still ahead of you. `started` is left out on purpose
+      // as well as the three terminal ones - see `movable` above.
+      movable: slot.status === "planned" || slot.status === "live",
+      resumable: slot.status === "skipped",
     });
   }
 

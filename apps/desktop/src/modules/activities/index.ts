@@ -44,7 +44,15 @@ export interface ConfigProps<C> {
 export interface ActivityModule<C = unknown> {
   key: string;
   name: string;
-  /** One line, shown where a module is chosen. */
+  /**
+   * What the session does, as a clause that finishes "When this is on, ...".
+   *
+   * A clause rather than a sentence because it is always on screen next to
+   * the switch, in a sentence that also says what happens when it is off.
+   * Someone deciding needs both halves at once - a description that only
+   * appears once the switch is already on tells them what they have just
+   * done, not what they were choosing.
+   */
   blurb: string;
   defaults: {
     sessionMinutes: number;

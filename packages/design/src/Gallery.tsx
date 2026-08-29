@@ -18,8 +18,6 @@ import {
   HoursMenu,
   LiveStatus,
   Metric,
-  Module,
-  ModuleEmpty,
   NavItem,
   OutsideRange,
   PlanNote,
@@ -39,6 +37,8 @@ import {
   Toasts,
   Toggle,
   UpdatePill,
+  Widget,
+  WidgetEmpty,
 } from "./components";
 import { ACTIVITY_LIBRARY, TODAY_FIXTURE } from "./fixtures";
 import { DayBar } from "./layout";
@@ -691,7 +691,7 @@ export const Gallery: React.FC = () => {
         blurb="Every module is the same card at Lift 2 with an eyebrow, a body and at most one action. Modules are user-toggleable and reorderable, so none may depend on its neighbour or on being first."
       >
         <Row
-          name="Module / attention"
+          name="Widget / attention"
           tag="ink"
           why={
             <>
@@ -701,7 +701,7 @@ export const Gallery: React.FC = () => {
             </>
           }
         >
-          <Module variant="attention" eyebrow="Up next · 11:00">
+          <Widget variant="attention" eyebrow="Up next · 11:00">
             <div className="wr-display-21" style={{ marginTop: 6 }}>
               Back &amp; shoulder stretch
             </div>
@@ -725,15 +725,15 @@ export const Gallery: React.FC = () => {
             >
               Not now - find a later gap
             </Button>
-          </Module>
+          </Widget>
         </Row>
 
         <Row
-          name="Module / list"
+          name="Widget / list"
           tag="default"
           why="Two or three items with a reason on the right, then one secondary action. Misses are stated plainly and stay uncoloured - the product's position is that a missed slot is information, not a failure."
         >
-          <Module eyebrow="Missed today" count={2}>
+          <Widget eyebrow="Missed today" count={2}>
             <div
               style={{
                 display: "flex",
@@ -758,15 +758,15 @@ export const Gallery: React.FC = () => {
             <Button variant="secondary" block style={{ marginTop: 13 }}>
               Plan into tomorrow
             </Button>
-          </Module>
+          </Widget>
         </Row>
 
         <Row
-          name="Module / metric"
+          name="Widget / metric"
           tag="default"
           why="Progress against a minimum, never a goal or a streak to protect. Recovery bars are terracotta; focus time is ink; the track is neutral-300. Numbers are display type so they can be scanned."
         >
-          <Module eyebrow="Today so far">
+          <Widget eyebrow="Today so far">
             <div
               style={{
                 display: "flex",
@@ -783,15 +783,15 @@ export const Gallery: React.FC = () => {
                 tone="focus"
               />
             </div>
-          </Module>
+          </Widget>
         </Row>
 
         <Row
-          name="Module / empty slot"
+          name="Widget / empty slot"
           tag="dashed"
           why={`The dashboard is modular, so the rail always ends with an add affordance. Same dashed treatment as a calendar gap: both mean "space you can fill".`}
         >
-          <ModuleEmpty>Add a dashboard module</ModuleEmpty>
+          <WidgetEmpty>Add a dashboard module</WidgetEmpty>
         </Row>
       </Section>
 
@@ -865,12 +865,12 @@ export const Gallery: React.FC = () => {
                     </NavItem>
                   ))}
                 </div>
-                <Module eyebrow="Sitting streak" style={{ width: "100%" }}>
+                <Widget eyebrow="Sitting streak" style={{ width: "100%" }}>
                   <div className="wr-display-21" style={{ marginTop: 3 }}>
                     52 min
                   </div>
                   <div className="wr-body">A stretch is queued next</div>
-                </Module>
+                </Widget>
                 <div style={{ marginTop: "auto" }}>
                   <Button
                     variant="commit"

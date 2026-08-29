@@ -48,6 +48,45 @@ export function publishStart(fn: (slotId: string) => void): void {
 
 export const startSlot = (slotId: string): void => start(slotId);
 
+/**
+ * Moving a slot, as Today does it.
+ *
+ * Here for the same reason as `start`, and one more: Today's move is
+ * optimistic, so the block is redrawn where it is going before the server has
+ * answered. A rail that called `api.moveSlot` itself would read the slot's
+ * time out of a plan that has not caught up yet, and two nudges in quick
+ * succession would land on the same minute.
+ */
+let move: (slotId: string, startsAt: number, endsAt: number) => void = () =>
+  undefined;
+
+export function publishMove(
+  fn: (slotId: string, startsAt: number, endsAt: number) => void,
+): void {
+  move = fn;
+}
+
+export const moveSlotTo = (
+  slotId: string,
+  startsAt: number,
+  endsAt: number,
+): void => move(slotId, startsAt, endsAt);
+
+/**
+ * Re-read the day.
+ *
+ * Same reason as `start`: a rail module that changed the day has to make the
+ * timeline beside it agree, and only Today knows which range is on screen and
+ * how to ask for it again.
+ */
+let reload: () => void = () => undefined;
+
+export function publishReload(fn: () => void): void {
+  reload = fn;
+}
+
+export const reloadPlan = (): void => reload();
+
 function subscribe(listen: () => void): () => void {
   listeners.add(listen);
   return () => {

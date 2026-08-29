@@ -1,6 +1,7 @@
 import type { Activity } from "@wiseroutine/scheduler";
 import { at, type UserDatabase } from "../client";
 import type { Activity as ActivityRow } from "../generated/user/client";
+import { cancelUnstartedSlots } from "./slots";
 
 export type { Activity as ActivityRow } from "../generated/user/client";
 
@@ -43,8 +44,10 @@ export interface ActivityInput {
   graceMinutes?: number;
   bufferBeforeMeetingMinutes?: number;
   anchorMinutes?: number[];
-  /** Which module runs it, or null for a plain timed slot. */
+  /** Which module runs it, or null for a custom activity with no behaviour. */
   presetKey?: string | null;
+  /** Whether that module's session takes over when the slot starts. */
+  sessionEnabled?: boolean;
   /** "manual" | "auto" | "prompt" - validated at the route, not here. */
   startPolicy?: string;
   /** The module's own settings as JSON text. Opaque to everything but the
@@ -75,6 +78,15 @@ export async function createActivity(
       importance: activity.importance ?? "normal",
       graceMinutes: activity.graceMinutes ?? 3,
       bufferBeforeMeetingMinutes: activity.bufferBeforeMeetingMinutes ?? 0,
+      // The module columns, and they have to be listed: this builds `data`
+      // field by field rather than spreading the input, so a column left out
+      // here is a column silently never written. That is what happened - a
+      // library activity was created with no `presetKey`, so it had no
+      // session to run and the form had nothing to show when it was reopened.
+      presetKey: activity.presetKey ?? null,
+      sessionEnabled: activity.sessionEnabled ?? true,
+      startPolicy: activity.startPolicy ?? "manual",
+      configJson: activity.configJson ?? null,
       createdAt: at(now),
       windows: {
         create: anchorMinutes.map((minutes) => ({
@@ -156,9 +168,22 @@ export async function archiveActivity(
   db: UserDatabase,
   activityId: string,
   now: number,
-): Promise<void> {
+  newId: () => string,
+): Promise<{ cancelled: number }> {
   await updateActivity(db, activityId, {
     archivedAt: at(now),
     isActive: false,
   });
+
+  // The slots it already put on the day do not archive themselves. Without
+  // this they sat on the timeline of an activity that no longer exists, and
+  // the grace sweep went on dutifully moving them from gap to gap.
+  const cancelled = await cancelUnstartedSlots(
+    db,
+    { activityId, from: now, reasonCode: "activity_archived" },
+    now,
+    newId,
+  );
+
+  return { cancelled };
 }

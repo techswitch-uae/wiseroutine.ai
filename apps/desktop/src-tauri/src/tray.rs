@@ -29,7 +29,12 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct UpNext {
-  /// "Shoulder stretch · 11:40", or absent when the day has nothing left.
+  /// "Shoulder stretch", or absent when the day has nothing left. Named in the
+  /// menu bar itself and not only in the menu behind it: a bare "18m" says
+  /// something is coming without saying what, which is the one thing worth
+  /// knowing without switching apps.
+  pub title: Option<String>,
+  /// How long it runs, e.g. "10 min". Shown under the name in the menu.
   pub label: Option<String>,
   /// The countdown drawn next to the icon, e.g. "18m". Absent leaves the menu
   /// bar showing the icon alone, which is the right look for an empty day.
@@ -37,6 +42,29 @@ pub struct UpNext {
   /// Present only while a slot is actually startable, which is what decides
   /// whether "Start now" is live or greyed.
   pub slot_id: Option<String>,
+}
+
+/// How much of a name the menu bar may take.
+///
+/// The title sits between the other status items and the clock, and a long
+/// activity name pushes all of them along. Ellipsised rather than dropped: a
+/// truncated name still says which of your activities this is.
+const TITLE_MAX: usize = 22;
+
+fn menu_bar_title(next: &UpNext) -> Option<String> {
+  let badge = next.badge.as_deref()?;
+  let Some(title) = next.title.as_deref() else {
+    return Some(badge.to_string());
+  };
+
+  // By character, not by byte: an activity someone named with an emoji or an
+  // accent would otherwise be cut mid-codepoint and panic.
+  let short: String = if title.chars().count() > TITLE_MAX {
+    title.chars().take(TITLE_MAX - 1).collect::<String>() + "…"
+  } else {
+    title.to_string()
+  };
+  Some(format!("{short} · {badge}"))
 }
 
 const TRAY_ID: &str = "menu-bar";
@@ -53,7 +81,12 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
     return Ok(());
   };
 
-  let heading = MenuItemBuilder::with_id("up-next", next.label.as_deref().unwrap_or("Nothing up next"))
+  let heading_text = match (next.title.as_deref(), next.label.as_deref()) {
+    (Some(title), Some(label)) => format!("{title} · {label}"),
+    (Some(title), None) => title.to_string(),
+    _ => "Nothing up next".to_string(),
+  };
+  let heading = MenuItemBuilder::with_id("up-next", heading_text)
     .enabled(false)
     .build(app)?;
 
@@ -64,7 +97,11 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
     .build(app)?;
 
   let pause = MenuItemBuilder::with_id("pause", "Pause for an hour").build(app)?;
-  let show = MenuItemBuilder::with_id("show", "Open Wise Routine").build(app)?;
+
+  // Quit stays, and is not swapped for a Hide. Closing the window already
+  // hides it, and once it is hidden this menu is the only way to stop the app
+  // that is always reachable - Cmd+Q needs the app to be focused, which it
+  // cannot be. Reopening is the dock icon's job; see `RunEvent::Reopen`.
   let quit = MenuItemBuilder::with_id("quit", "Quit Wise Routine").build(app)?;
 
   let menu = MenuBuilder::new(app)
@@ -73,14 +110,13 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
       &start,
       &PredefinedMenuItem::separator(app)?,
       &pause,
-      &show,
       &PredefinedMenuItem::separator(app)?,
       &quit,
     ])
     .build()?;
 
   tray.set_menu(Some(menu))?;
-  tray.set_title(next.badge.as_deref())?;
+  tray.set_title(menu_bar_title(next).as_deref())?;
   Ok(())
 }
 
@@ -91,8 +127,9 @@ pub fn set_up_next<R: Runtime>(app: AppHandle<R>, next: UpNext) -> tauri::Result
   render(&app, &next)
 }
 
-/// Bring the window back after a close hid it.
-fn show_window<R: Runtime>(app: &AppHandle<R>) {
+/// Bring the window back after a close hid it. Called from the dock icon and
+/// from any menu item that only makes sense with the window in front.
+pub fn show_window<R: Runtime>(app: &AppHandle<R>) {
   if let Some(window) = app.get_webview_window("main") {
     let _ = window.show();
     let _ = window.unminimize();
@@ -113,7 +150,6 @@ pub fn install<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
       // accelerator on it: the app menu already owns Cmd+Q, and a second
       // registration of the same chord is a fight nobody wins.
       "quit" => app.exit(0),
-      "show" => show_window(app),
       // Acted on by the webview, which owns the session and the queue that
       // makes these work offline. Rust only carries the press across.
       "start" => {

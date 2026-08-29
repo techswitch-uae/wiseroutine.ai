@@ -17,6 +17,7 @@ import {
   moveSlot,
   placeSlot,
   progressForRange,
+  scheduledForRange,
   scheduleWork,
   setActivityActive,
   setActivityWindows,
@@ -28,7 +29,7 @@ import {
   updateUserSettings,
   upsertCalendars,
 } from "@wiseroutine/db";
-import { visibleModules } from "@wiseroutine/plans";
+import { can, visibleModules } from "@wiseroutine/plans";
 import {
   googleListCalendars,
   microsoftListCalendars,
@@ -438,6 +439,10 @@ function modulePatch(body: Record<string, unknown>): Record<string, unknown> {
     patch.presetKey = body.presetKey === null ? null : String(body.presetKey);
   }
 
+  if (body.sessionEnabled !== undefined) {
+    patch.sessionEnabled = Boolean(body.sessionEnabled);
+  }
+
   if (body.startPolicy !== undefined) {
     const policy = String(body.startPolicy);
     if (!START_POLICIES.has(policy)) {
@@ -488,6 +493,7 @@ app.get("/activities", async (c) => {
       bufferBeforeMeetingMinutes: row.bufferBeforeMeetingMinutes,
       preferredWindows: anchorMinutes,
       presetKey: row.presetKey,
+      sessionEnabled: row.sessionEnabled,
       startPolicy: row.startPolicy,
       // Sent as written. The server never parses it: it belongs to whichever
       // module reads it, and a shape this side does not know is not a shape
@@ -583,8 +589,15 @@ app.patch("/activities/:id", async (c) => {
  * are the history every past day and the missed list are drawn from.
  */
 app.delete("/activities/:id", async (c) => {
-  await archiveActivity(c.get("db"), c.req.param("id"), c.get("now"));
-  return c.body(null, 204);
+  const { cancelled } = await archiveActivity(
+    c.get("db"),
+    c.req.param("id"),
+    c.get("now"),
+    newId,
+  );
+  // Said back, so the screen can tell the user what left the day with it
+  // rather than leaving them to notice two slots missing.
+  return c.json({ cancelled });
 });
 
 /* ── Settings ────────────────────────────────────────────────────────────── */
@@ -786,6 +799,21 @@ async function fillDay(
 
   if (isOver(c, wholeDay)) return;
 
+  /**
+   * Only Pro has its day filled in without being asked.
+   *
+   * This used to run for everyone on every load, which quietly undercut the
+   * whole pricing line: if the day is already placed by the time you look at
+   * it, "Pro does the placing for you" is selling something you already have.
+   * On Free the day stays as the user left it and a rail module offers to fill
+   * it - one press, when they want it, not before they have seen the day.
+   *
+   * It also answers the week/month/year question by not asking it. Nothing is
+   * materialised ahead of today, so opening a month cannot write a month of
+   * rows.
+   */
+  if (!can(user.plan, { kind: "plan.adaptive" }).ok) return;
+
   const [activities, slots] = await Promise.all([
     listActivities(db),
     listSlotsForRange(db, wholeDay.start, wholeDay.end),
@@ -797,8 +825,17 @@ async function fillDay(
   );
   if (due.length === 0) return;
 
-  const placed = new Set(slots.map((slot) => slot.activityId));
-  if (due.every(({ row }) => placed.has(row.id))) return;
+  /**
+   * Once a day, at the start of it.
+   *
+   * This used to fill in any activity that had no slot yet, which meant an
+   * activity added at eleven in the morning was already on the day by the
+   * time you walked back to Today - the day rearranging itself behind you,
+   * which is the opposite of what filling it is for. A day with anything on
+   * it has already been filled; whatever is added after that is owed, and the
+   * "To place today" module offers it with a button.
+   */
+  if (slots.length > 0) return;
 
   await planDay(
     db,
@@ -846,13 +883,15 @@ app.get("/today", async (c) => {
   // carries are the ones this call just decided on.
   await fillDay(c, wholeDay);
 
-  const [slots, events, syncedAt, activities, done] = await Promise.all([
-    listSlotsForRange(db, bounds.start, bounds.end),
-    listEventsInRange(db, wholeDay.start, wholeDay.end),
-    lastSyncedAt(db),
-    listActivities(db),
-    progressForRange(db, wholeDay.start, wholeDay.end),
-  ]);
+  const [slots, events, syncedAt, activities, done, scheduled] =
+    await Promise.all([
+      listSlotsForRange(db, bounds.start, bounds.end),
+      listEventsInRange(db, wholeDay.start, wholeDay.end),
+      lastSyncedAt(db),
+      listActivities(db),
+      progressForRange(db, wholeDay.start, wholeDay.end),
+      scheduledForRange(db, wholeDay.start, wholeDay.end),
+    ]);
 
   const busy = toBusyBlocks(events);
 
@@ -897,7 +936,13 @@ app.get("/today", async (c) => {
         status: s.status,
         isLocked: s.isLocked,
         conflictEventId: s.conflictEventId,
-        presetKey: activity?.row.presetKey ?? null,
+        // Null when the activity has no module, and also when its session is
+        // switched off - the slot then behaves like any other timed slot, and
+        // the client needs no second field to work that out.
+        presetKey:
+          activity?.row.sessionEnabled === false
+            ? null
+            : (activity?.row.presetKey ?? null),
         startPolicy: activity?.row.startPolicy ?? "manual",
         configJson: activity?.row.configJson ?? null,
       };
@@ -923,6 +968,10 @@ app.get("/today", async (c) => {
      * and a progress bar that emptied when the hours picker moved would be
      * reporting the window, not the day.
      *
+     * Only what runs today. A Sunday-only walk owes nothing on a Tuesday, and
+     * "To place today" reads this - so without the weekday it would offer to
+     * place something the planner would then correctly refuse to place.
+     *
      * ponytail: per-day minimums only. A `countPerWeek` activity - a walk
      * three times a week - has no honest reading against a single day, and
      * belongs in the week view when that is built.
@@ -931,6 +980,10 @@ app.get("/today", async (c) => {
       .filter(
         (a) =>
           a.row.isActive &&
+          runsOn(
+            toSchedulerActivity(a.row),
+            localWeekday(bounds.start, user.timeZone),
+          ) &&
           (a.row.minimumType === "countPerDay" ||
             a.row.minimumType === "durationPerDay"),
       )
@@ -943,6 +996,9 @@ app.get("/today", async (c) => {
         sessionMinutes: a.row.sessionMinutes,
         count: done.get(a.row.id)?.count ?? 0,
         minutes: done.get(a.row.id)?.minutes ?? 0,
+        // Placed but not yet done. What separates "two stretches left" from
+        // "two stretches left, and both are already on your afternoon".
+        scheduled: scheduled.get(a.row.id) ?? 0,
       })),
   });
 });

@@ -294,6 +294,103 @@ function weekdayNoon(): number {
  * The queue's retry is for a provider having a bad minute. Anything the user
  * has to act on has to leave that loop, or it runs until someone reads a log.
  */
+describe("archiving an activity", () => {
+  /** Put a slot of any status on the day, the way a plan run would. */
+  async function seedSlot(
+    activityId: string,
+    status: string,
+    startsAt: number,
+  ) {
+    const id = crypto.randomUUID();
+    await userDb().slot.create({
+      data: {
+        id,
+        activityId,
+        title: "Eye rest",
+        kind: "recovery",
+        startsAt: new Date(startsAt),
+        endsAt: new Date(startsAt + 5 * 60_000),
+        timeZone: "Europe/Rome",
+        status,
+        createdAt: new Date(),
+      },
+    });
+    return id;
+  }
+
+  const archive = (user: TestUser, id: string) =>
+    worker.default.fetch(`http://api/activities/${id}`, {
+      method: "DELETE",
+      headers: user.headers,
+    });
+
+  test("takes its unstarted slots off the day", async () => {
+    const user = await seedUser();
+    const activityId = await seedActivity();
+    const later = await seedSlot(activityId, "planned", Date.now() + 3_600_000);
+
+    const response = await archive(user, activityId);
+    expect(((await response.json()) as { cancelled: number }).cancelled).toBe(
+      1,
+    );
+    expect(
+      (await userDb().slot.findUnique({ where: { id: later } }))?.status,
+    ).toBe("cancelled");
+  });
+
+  /**
+   * The line that matters. Deleting an activity today must not change what
+   * happened last Tuesday - the missed list and every progress number are
+   * built from these rows.
+   */
+  test("never edits history", async () => {
+    const user = await seedUser();
+    const activityId = await seedActivity();
+    const yesterday = Date.now() - 86_400_000;
+    const done = await seedSlot(activityId, "completed", yesterday);
+    const missed = await seedSlot(activityId, "missed", yesterday);
+
+    await archive(user, activityId);
+
+    expect(
+      (await userDb().slot.findUnique({ where: { id: done } }))?.status,
+    ).toBe("completed");
+    expect(
+      (await userDb().slot.findUnique({ where: { id: missed } }))?.status,
+    ).toBe("missed");
+  });
+
+  // Yanking the window away from someone mid-stretch is worse than one stray
+  // completion, and it closes itself in a minute either way.
+  test("lets a session that is already running finish", async () => {
+    const user = await seedUser();
+    const activityId = await seedActivity();
+    const running = await seedSlot(activityId, "started", Date.now());
+
+    await archive(user, activityId);
+
+    expect(
+      (await userDb().slot.findUnique({ where: { id: running } }))?.status,
+    ).toBe("started");
+  });
+
+  // Cancelled, not deleted - so the log can still say why it went.
+  test("records why each one went", async () => {
+    const user = await seedUser();
+    const activityId = await seedActivity();
+    await seedSlot(activityId, "planned", Date.now() + 3_600_000);
+
+    await archive(user, activityId);
+
+    const event = await userDb().slotEvent.findFirst({
+      where: { type: "cancelled" },
+      select: { reasonCode: true, actor: true },
+    });
+    expect(event?.reasonCode).toBe("activity_archived");
+    expect(event?.actor).toBe("user");
+  });
+});
+
 describe("a grant running out", () => {
   const DAY = 86_400_000;
 
@@ -1093,11 +1190,19 @@ describe("social sign-in handoff", () => {
  *
  * The alternative - filling days into the table as far forward as anyone might
  * look - is a plan nobody has seen going stale on disk. So a day is planned
- * the first time it is opened, and these are the four rules that makes:
- * planned once, not re-planned, never for a day that is over, and never for an
- * account with nothing to place.
+ * the first time it is opened, and these are the rules that makes: planned
+ * once, not re-planned, not re-planned for something added later in the day,
+ * never for a day that is over, and never for an account with nothing to
+ * place.
  */
 describe("planning a day on open", () => {
+  /**
+   * Filling the day in without being asked is a Pro behaviour.
+   *
+   * It used to happen for everyone, which undercut the pricing line it is
+   * meant to be selling: a day that is already placed by the time you look at
+   * it makes "Pro does the placing" an offer of something you already have.
+   */
   const open = async (user: TestUser, at: number) =>
     worker.default.fetch(`http://api/today?at=${at}`, {
       headers: user.headers,
@@ -1110,7 +1215,7 @@ describe("planning a day on open", () => {
     ((await response.json()) as { slots: { title: string }[] }).slots;
 
   test("a day plans itself the first time it is opened", async () => {
-    const user = await seedUser();
+    const user = await seedUser({ plan: "pro" });
     await seedActivity({ name: "Eye rest", minimumValue: 2 });
 
     const slots = await slotsOf(await open(user, AHEAD()));
@@ -1118,25 +1223,33 @@ describe("planning a day on open", () => {
     expect(slots.every((s) => s.title === "Eye rest")).toBe(true);
   });
 
-  test("an activity added after the day was planned is placed on the next look", async () => {
-    const user = await seedUser();
+  test("an activity added after the day was filled waits to be placed", async () => {
+    const user = await seedUser({ plan: "pro" });
     const at = AHEAD();
 
     await seedActivity({ name: "Eye rest", minimumValue: 1 });
     expect(await slotsOf(await open(user, at))).toHaveLength(1);
 
-    // The rule a user would state: it should run today, it has no slot on
-    // today, so the day gets planned again. Nobody presses anything.
+    // This used to place it on the next look, which meant adding an activity
+    // in the morning and finding it already on the day by the time you walked
+    // back to Today. The day is filled once, at the start of it; what is
+    // added afterwards is owed, and the "To place today" module offers it
+    // with a button rather than arranging it behind your back.
     await seedActivity({ name: "Shoulder stretch", minimumValue: 1 });
     const slots = await slotsOf(await open(user, at));
-    expect(slots.map((s) => s.title).sort()).toEqual([
-      "Eye rest",
-      "Shoulder stretch",
-    ]);
+    expect(slots.map((s) => s.title)).toEqual(["Eye rest"]);
+
+    // And it is still owed, so the module has something to offer.
+    const owed = (await (await open(user, at)).json()) as {
+      progress: { name: string; scheduled: number }[];
+    };
+    expect(
+      owed.progress.find((row) => row.name === "Shoulder stretch")?.scheduled,
+    ).toBe(0);
   });
 
   test("an activity that does not run today does not drag the day into a replan", async () => {
-    const user = await seedUser({ timeZone: "Europe/Rome" });
+    const user = await seedUser({ plan: "pro", timeZone: "Europe/Rome" });
     const at = AHEAD();
     const weekday = new Date(
       new Date(at).toLocaleString("en-US", { timeZone: "Europe/Rome" }),
@@ -1156,7 +1269,7 @@ describe("planning a day on open", () => {
   });
 
   test("opening it again does not plan it again", async () => {
-    const user = await seedUser();
+    const user = await seedUser({ plan: "pro" });
     await seedActivity();
 
     const at = AHEAD();
@@ -1169,7 +1282,7 @@ describe("planning a day on open", () => {
   });
 
   test("a day wholly behind us is left alone", async () => {
-    const user = await seedUser();
+    const user = await seedUser({ plan: "pro" });
     await seedActivity();
 
     // History is not replanned. Today after working hours still is - the whole
@@ -1180,7 +1293,7 @@ describe("planning a day on open", () => {
   });
 
   test("an account with nothing to place is not marked as planned", async () => {
-    const user = await seedUser();
+    const user = await seedUser({ plan: "pro" });
     const at = AHEAD();
 
     // Otherwise the empty run files itself against today and an activity added
@@ -1193,7 +1306,7 @@ describe("planning a day on open", () => {
   });
 
   test("an activity is not placed on a day it does not run on", async () => {
-    const user = await seedUser({ timeZone: "Europe/Rome" });
+    const user = await seedUser({ plan: "pro", timeZone: "Europe/Rome" });
     const at = AHEAD();
 
     // Every day except the one being opened, so the only thing under test is
@@ -1204,6 +1317,137 @@ describe("planning a day on open", () => {
     await seedActivity({ daysOfWeek: 0b1111111 & ~(1 << weekday) });
 
     expect(await slotsOf(await open(user, at))).toHaveLength(0);
+  });
+});
+
+describe("a free day is left as the user left it", () => {
+  const open = async (user: TestUser, at: number) =>
+    worker.default.fetch(`http://api/today?at=${at}`, {
+      headers: user.headers,
+    });
+
+  test("opening the day places nothing", async () => {
+    const user = await seedUser({ plan: "free" });
+    await seedActivity({ minimumValue: 3 });
+
+    const response = await open(user, tomorrowNoon());
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { slots: unknown[] }).slots).toEqual([]);
+  });
+
+  // The day is still fillable - on request, which is the whole difference.
+  test("asking for it fills it", async () => {
+    const user = await seedUser({ plan: "free" });
+    await seedActivity({ minimumValue: 3 });
+
+    const planned = await worker.default.fetch("http://api/plan", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ trigger: "user_request", at: tomorrowNoon() }),
+    });
+    expect(((await planned.json()) as { placed: number }).placed).toBe(3);
+
+    const after = await open(user, tomorrowNoon());
+    expect(((await after.json()) as { slots: unknown[] }).slots.length).toBe(3);
+  });
+
+  // What the placement tray reads. Placed-but-not-done has to count against
+  // the minimum, or it would keep asking for three more.
+  test("what is left to place drops as slots are placed", async () => {
+    const user = await seedUser({ plan: "free" });
+    await seedActivity({ minimumValue: 3 });
+
+    const before = await open(user, tomorrowNoon());
+    const start = (await before.json()) as {
+      progress: { scheduled: number; count: number; minimumValue: number }[];
+    };
+    expect(start.progress[0]?.scheduled).toBe(0);
+
+    await worker.default.fetch("http://api/plan", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ trigger: "user_request", at: tomorrowNoon() }),
+    });
+
+    const after = await open(user, tomorrowNoon());
+    const filled = (await after.json()) as {
+      progress: { scheduled: number }[];
+    };
+    expect(filled.progress[0]?.scheduled).toBe(3);
+  });
+});
+
+/**
+ * A library activity keeps its behaviour across a round trip.
+ *
+ * `createActivity` builds its row field by field, so a column missing from
+ * that list is a column silently never written - and that is what happened to
+ * all four module columns. Nothing failed: the activity saved, the form
+ * closed, and it came back a plain slot with no session to run and nothing
+ * for the sheet to show when it was reopened. A test at the boundary, because
+ * the boundary is where it went wrong.
+ */
+describe("an activity's behaviour survives being saved", () => {
+  test("what goes in comes back out", async () => {
+    const user = await seedUser();
+    const created = await worker.default.fetch("http://api/activities", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Eye rest",
+        presetKey: "eye_rest",
+        sessionEnabled: true,
+        startPolicy: "auto",
+        configJson: '{"metres":6}',
+      }),
+    });
+    expect(created.status).toBe(201);
+
+    const listed = await worker.default.fetch("http://api/activities", {
+      headers: user.headers,
+    });
+    const rows = (await listed.json()) as {
+      name: string;
+      presetKey: string | null;
+      sessionEnabled: boolean;
+      startPolicy: string;
+      configJson: string | null;
+    }[];
+
+    expect(rows.find((r) => r.name === "Eye rest")).toMatchObject({
+      presetKey: "eye_rest",
+      sessionEnabled: true,
+      startPolicy: "auto",
+      configJson: '{"metres":6}',
+    });
+  });
+
+  // The session's identity travels on the slot, or nothing on the day knows
+  // which module to run when it starts.
+  test("the slot it produces names the module that runs it", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await worker.default.fetch("http://api/activities", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Eye rest",
+        minimumValue: 1,
+        presetKey: "eye_rest",
+        startPolicy: "auto",
+      }),
+    });
+
+    const day = await worker.default.fetch(
+      `http://api/today?at=${tomorrowNoon()}`,
+      { headers: user.headers },
+    );
+    const { slots } = (await day.json()) as {
+      slots: { presetKey: string | null; startPolicy: string }[];
+    };
+    expect(slots[0]).toMatchObject({
+      presetKey: "eye_rest",
+      startPolicy: "auto",
+    });
   });
 });
 
@@ -1229,6 +1473,29 @@ describe("which days an activity runs on", () => {
       body: JSON.stringify({ name: "Eight days a week", daysOfWeek: 255 }),
     });
     expect(response.status).toBe(400);
+  });
+
+  // "To place today" is built from `progress`, so a Sunday-only walk showing
+  // up as owed on a Tuesday is an offer the planner would then correctly
+  // refuse to fill - a button that visibly does nothing.
+  test("one that does not run today owes nothing today", async () => {
+    const user = await seedUser({ plan: "free", timeZone: "Europe/Rome" });
+    const at = tomorrowNoon();
+    const weekday = new Date(
+      new Date(at).toLocaleString("en-US", { timeZone: "Europe/Rome" }),
+    ).getDay();
+
+    await seedActivity({ name: "Eye rest" });
+    await seedActivity({
+      name: "Sunday walk",
+      daysOfWeek: 0b1111111 & ~(1 << weekday),
+    });
+
+    const day = await worker.default.fetch(`http://api/today?at=${at}`, {
+      headers: user.headers,
+    });
+    const { progress } = (await day.json()) as { progress: { name: string }[] };
+    expect(progress.map((row) => row.name)).toEqual(["Eye rest"]);
   });
 });
 

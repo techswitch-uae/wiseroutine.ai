@@ -256,6 +256,57 @@ export async function placeSlot(
   return row;
 }
 
+/**
+ * Take an activity's unstarted slots off the day.
+ *
+ * The rule when an activity is archived: **cancel the unstarted future, never
+ * edit history**. Three cases, and each is a promise:
+ *
+ *   - `completed` / `skipped` / `missed` are left exactly as they are. They are
+ *     what the missed list and every progress number are built from, and an
+ *     activity being deleted today must not change what happened last Tuesday.
+ *   - A slot that is `started` right now is left running. Yanking the window
+ *     away from someone mid-stretch is worse than one stray completion, and it
+ *     will close itself in a minute either way.
+ *   - Everything `planned` or `live` is **cancelled**, not deleted, so the
+ *     lifecycle log keeps the reason. `buildTimeline` already skips cancelled
+ *     slots, so they leave the timeline without leaving a hole in the record.
+ *
+ * Returns how many were taken off, which is the only number the UI needs to
+ * say what just happened.
+ */
+export async function cancelUnstartedSlots(
+  db: UserDatabase,
+  params: { activityId: string; from: number; reasonCode: string },
+  now: number,
+  newId: () => string,
+): Promise<number> {
+  const rows = await db.slot.findMany({
+    where: {
+      activityId: params.activityId,
+      status: { in: ["planned", "live"] },
+      startsAt: { gte: at(params.from) },
+    },
+    select: { id: true },
+  });
+
+  for (const row of rows) {
+    await setSlotStatus(
+      db,
+      {
+        slotId: row.id,
+        status: "cancelled",
+        actor: "user",
+        reasonCode: params.reasonCode,
+      },
+      now,
+      newId,
+    );
+  }
+
+  return rows.length;
+}
+
 export async function moveSlot(
   db: UserDatabase,
   params: {
@@ -489,6 +540,35 @@ export async function nextGraceDeadline(
 }
 
 /** Progress so far, for the solver's demand calculation. */
+/**
+ * How many sessions of each activity are already on the day but not yet done.
+ *
+ * The counterpart to `progressForRange`, which counts only what was completed.
+ * "Two stretches left today" has to mean two that are neither done *nor
+ * already sitting on the timeline* - counting only completions would leave the
+ * placement tray asking for three more the moment three were placed.
+ */
+export async function scheduledForRange(
+  db: UserDatabase,
+  from: number,
+  to: number,
+): Promise<Map<string, number>> {
+  const rows = await db.slot.findMany({
+    where: {
+      startsAt: { gte: at(from), lt: at(to) },
+      status: { in: ["planned", "live", "started"] },
+    },
+    select: { activityId: true },
+  });
+
+  const byActivity = new Map<string, number>();
+  for (const row of rows) {
+    if (!row.activityId) continue;
+    byActivity.set(row.activityId, (byActivity.get(row.activityId) ?? 0) + 1);
+  }
+  return byActivity;
+}
+
 export async function progressForRange(
   db: UserDatabase,
   from: number,

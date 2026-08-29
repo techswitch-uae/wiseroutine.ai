@@ -1523,6 +1523,7 @@ export const ActivityScalarFieldEnum = {
   daysOfWeek: 'daysOfWeek',
   importance: 'importance',
   presetKey: 'presetKey',
+  sessionEnabled: 'sessionEnabled',
   startPolicy: 'startPolicy',
   configJson: 'configJson',
   graceMinutes: 'graceMinutes',

@@ -3,6 +3,10 @@ import { Button, Card } from "@wiseroutine/design";
 import { useState } from "react";
 import type { TodaySlot } from "../lib/api";
 import { MODULES } from "../modules/activities";
+import {
+  ActivityModuleFields,
+  type ModuleDraft,
+} from "../modules/activity-module-fields";
 
 /**
  * Every session, openable without waiting for a slot.
@@ -31,6 +35,26 @@ const previewSlot = (title: string, minutes: number): TodaySlot => ({
   conflictEventId: null,
 });
 
+/** The behaviour fields, against a made-up draft. Reachable in the real app
+ *  only behind a sign-in and an open activity sheet. */
+const Fields: React.FC = () => {
+  const [draft, setDraft] = useState<ModuleDraft>({
+    presetKey: "breathing",
+    sessionEnabled: true,
+    startPolicy: "manual",
+    configJson: null,
+  });
+
+  return (
+    <Card
+      title="Activity behaviour"
+      note="What the sheet shows for a library activity."
+    >
+      <ActivityModuleFields value={draft} onChange={setDraft} />
+    </Card>
+  );
+};
+
 const Sessions: React.FC = () => {
   const [open, setOpen] = useState<string | null>(null);
   const module = open ? MODULES[open] : undefined;
@@ -57,6 +81,8 @@ const Sessions: React.FC = () => {
           </Button>
         </Card>
       ))}
+
+      <Fields />
 
       {Session && module ? (
         <Session

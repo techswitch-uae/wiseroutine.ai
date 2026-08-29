@@ -49,6 +49,16 @@ pub fn run() {
         let _ = window.hide();
       }
     })
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(|_app, _event| {
+      // Clicking the dock icon while the window is hidden brings it back.
+      // Without this, closing the window on macOS leaves the app running with
+      // no obvious way in: the dock icon bounces and nothing appears, which
+      // reads as the app being broken rather than backgrounded.
+      #[cfg(target_os = "macos")]
+      if let tauri::RunEvent::Reopen { .. } = _event {
+        tray::show_window(_app);
+      }
+    });
 }

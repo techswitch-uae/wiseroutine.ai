@@ -105,7 +105,11 @@ export function dueAlerts(
 }
 
 export interface UpNext {
+  /** What it is, on its own. The menu bar and the rail both name it. */
+  title?: string;
+  /** How long it runs, written out. */
   label?: string;
+  /** "18m", or "now" once it can be started. */
   badge?: string;
   slotId?: string;
 }
@@ -119,7 +123,9 @@ export interface UpNext {
 export function countdown(ms: number): string {
   const minutes = Math.max(0, Math.ceil(ms / 60_000));
   if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}`;
+  // Both units named. Without the second one this read "9h 10", which is not
+  // a duration - it is two numbers, and the eye has to guess which.
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
 /** What the menu bar should say. Undefined fields leave the icon bare, which
@@ -133,7 +139,8 @@ export function upNextOf(slots: readonly TodaySlot[], now: number): UpNext {
 
   const live = next.startsAt <= now;
   return {
-    label: `${next.title} · ${minutesOf(next)} min`,
+    title: next.title,
+    label: `${minutesOf(next)} min`,
     badge: live ? "now" : countdown(next.startsAt - now),
     // Only offered while it is actually startable. Starting something an hour
     // early is not a shortcut, it is a different plan.

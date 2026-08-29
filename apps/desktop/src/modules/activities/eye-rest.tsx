@@ -61,7 +61,8 @@ const EyeRestSession: React.FC<{
 export const eyeRest: ActivityModule<EyeRestConfig> = {
   key: "eye_rest",
   name: "Eye rest",
-  blurb: "Dims the screen and gives your eyes something far away to find.",
+  blurb:
+    "the screen dims for the whole slot and asks your eyes to find something far away",
   defaults: { sessionMinutes: 5, startPolicy: "auto", config: DEFAULTS },
   parse: (raw) => {
     const metres = Number((raw as EyeRestConfig | null)?.metres);

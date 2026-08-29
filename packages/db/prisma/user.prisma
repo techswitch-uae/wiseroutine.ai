@@ -192,6 +192,13 @@ model Activity {
   /// is what every activity was before modules existed.
   presetKey String? @map("preset_key")
 
+  /// Whether the module's session takes over when the slot starts.
+  ///
+  /// Separate from `presetKey`, which is the activity's identity and stays put:
+  /// clearing that to mean "off" would lose which module to turn back on. Off
+  /// leaves a plain timed slot - it still runs, it just draws nothing.
+  sessionEnabled Boolean @default(true) @map("session_enabled")
+
   /// "manual" | "auto" | "prompt".
   ///
   /// manual  shows a Start button, and `graceMinutes` later moves it on.

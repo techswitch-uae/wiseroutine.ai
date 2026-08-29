@@ -31,8 +31,9 @@ test("each slot variant renders its own treatment", () => {
   for (const v of ["focus", "recovery", "live", "meeting"]) {
     expect(container.querySelectorAll(`.wr-slot-${v}`)).toHaveLength(1);
   }
-  // Done is a chip, never a dimmed row.
-  expect(screen.getByText("Done")).toHaveClass("wr-chip");
+  // Done is a mark, never a dimmed row - and it still says its own name to
+  // anyone not looking at it.
+  expect(screen.getByLabelText("Done")).toHaveClass("wr-done");
   // Only the live slot marks its time as "now".
   expect(container.querySelectorAll(".wr-time-now")).toHaveLength(1);
   // Meetings carry no category rule - the user cannot act on them.
@@ -532,11 +533,153 @@ test("Escape gives the block back", () => {
 test("the label says which keys the block answers", () => {
   // Read once, on focus, and the only way anyone learns these without a mouse.
   const { container } = keyedGrid(
-    keyed({ onStart: () => undefined, onRemove: () => undefined }),
+    keyed({
+      movable: true,
+      onStart: () => undefined,
+      onRemove: () => undefined,
+    }),
     () => undefined,
   );
   const label = handle(container, "stretch").getAttribute("aria-label");
   expect(label).toContain("arrow keys");
   expect(label).toContain("Enter");
+  expect(label).toContain("Delete");
+});
+
+// A slot that has started or finished is pinned - see `movable` in lib/api.
+// It keeps its other keys, so the label has to stop offering the one it no
+// longer answers rather than going quiet altogether.
+/**
+ * The live card, where its height is its own duration.
+ *
+ * In a list it is the loudest card on the page. In the grid a five-minute eye
+ * rest is one line of text tall, and the full-size pill and the grace bar
+ * under it were drawn into that box and clipped - a Start button sliced off
+ * at the bottom edge. So the bar is only drawn when a caller asks for one,
+ * and the word beside the glyph is a separate element the grid can drop.
+ */
+test("a live slot draws no grace bar unless it is given one", () => {
+  const { container } = render(
+    <Slot
+      variant="live"
+      time="11:00"
+      name="Stretch"
+      onStart={() => undefined}
+    />,
+  );
+  expect(container.querySelector(".wr-bar")).toBeNull();
+
+  const withBar = render(
+    <Slot variant="live" time="11:00" name="Stretch" grace={0.4} />,
+  );
+  expect(withBar.container.querySelector(".wr-bar")).toBeTruthy();
+});
+
+// Play means "this has not happened yet". A block you stopped and can go back
+// to is not that, and offering the same mark for both offered a start on
+// something already half-done.
+test("a resumable block is offered a resume, not a start", () => {
+  const { container } = render(
+    <Slot
+      variant="live"
+      time="11:00"
+      name="Stretch"
+      action="resume"
+      onStart={() => undefined}
+    />,
+  );
+  expect(container.querySelector(".wr-btn")?.getAttribute("aria-label")).toBe(
+    "Resume",
+  );
+  expect(container.querySelector(".wr-btn-word")?.textContent).toBe("Resume");
+});
+
+test("the start button keeps its name when the word is hidden", () => {
+  const { container } = render(
+    <Slot
+      variant="live"
+      time="11:00"
+      name="Stretch"
+      onStart={() => undefined}
+    />,
+  );
+  const button = container.querySelector(".wr-btn");
+  // The word is droppable; the accessible name is not.
+  expect(button?.getAttribute("aria-label")).toBe("Start");
+  expect(container.querySelector(".wr-btn-word")?.textContent).toBe("Start");
+});
+
+/**
+ * Picking a block, which is what opens the rail's card about it.
+ *
+ * On press rather than on click, so a drag picks up what it is dragging - the
+ * rail is already describing the block by the time the drop lands. And a
+ * press on the day itself is how the card is put away, which is only right if
+ * the blocks stop the press before it gets there.
+ */
+test("pressing a block picks it, and pressing the day itself un-picks", () => {
+  const picked: (string | null)[] = [];
+  const { container } = render(
+    <DayGrid
+      dayStart={at(9)}
+      dayEnd={at(12)}
+      timeZone="UTC"
+      onBackdrop={() => picked.push(null)}
+      items={[{ ...keyed(), onSelect: () => picked.push("stretch") }]}
+    />,
+  );
+
+  const block = container.querySelector(".wr-daygrid-item") as HTMLElement;
+  fireEvent.pointerDown(block, { button: 0 });
+  expect(picked).toEqual(["stretch"]);
+
+  // The surface behind the blocks. A press here is a press on nothing.
+  fireEvent.pointerDown(container.querySelector(".wr-daygrid") as HTMLElement, {
+    button: 0,
+  });
+  expect(picked).toEqual(["stretch", null]);
+});
+
+// A press on Start is still a press on that block: the rail should be
+// describing what you just started.
+test("pressing Start picks the block as well as starting it", () => {
+  const picked: string[] = [];
+  const started: string[] = [];
+  const { container } = render(
+    <DayGrid
+      dayStart={at(9)}
+      dayEnd={at(12)}
+      timeZone="UTC"
+      items={[
+        {
+          ...keyed(),
+          onSelect: () => picked.push("stretch"),
+          node: (
+            <Slot
+              variant="live"
+              time=""
+              name="stretch"
+              onStart={() => started.push("stretch")}
+            />
+          ),
+        },
+      ]}
+    />,
+  );
+
+  const button = container.querySelector(".wr-btn") as HTMLElement;
+  fireEvent.pointerDown(button, { button: 0, bubbles: true });
+  fireEvent.click(button);
+  expect(picked).toEqual(["stretch"]);
+  expect(started).toEqual(["stretch"]);
+});
+
+test("a pinned block does not offer a move it will refuse", () => {
+  const { container } = keyedGrid(
+    keyed({ onRemove: () => undefined }),
+    () => undefined,
+  );
+  const label = handle(container, "stretch").getAttribute("aria-label");
+  expect(label).not.toContain("arrow keys");
   expect(label).toContain("Delete");
 });

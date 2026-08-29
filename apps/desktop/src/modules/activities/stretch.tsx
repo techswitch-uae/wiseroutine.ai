@@ -133,7 +133,7 @@ const StretchSession: React.FC<{
 export const stretch: ActivityModule<StretchConfig> = {
   key: "stretch",
   name: "Guided stretch",
-  blurb: "Walks you through the steps, one at a time, hands-free.",
+  blurb: "it walks you through the stretch one step at a time, hands-free",
   defaults: { sessionMinutes: 10, startPolicy: "manual", config: DEFAULTS },
   parse: (raw) => {
     const steps = (raw as StretchConfig | null)?.steps;

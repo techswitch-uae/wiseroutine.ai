@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ActivityProgress } from "./api";
-import { openGaps, type TodayResponse } from "./api";
+import { buildTimeline, openGaps, type TodayResponse } from "./api";
 import { owedToday } from "./owed";
 
 const H = (hour: number, minute = 0): number =>
@@ -127,5 +127,45 @@ describe("owedToday", () => {
 
   it("carries the session length through, which is what the tray offers", () => {
     expect(owedToday([progress({ sessionMinutes: 10 })])[0]?.minutes).toBe(10);
+  });
+});
+
+/**
+ * Which blocks the day lets you pick up.
+ *
+ * Dragging is how a slot is rescheduled, so it has to stop being offered the
+ * moment there is nothing left to reschedule. A slot that has started is
+ * happening now; a completed, skipped or missed one is the record that it
+ * happened - or did not - at a particular time, and both the missed list and
+ * every progress number are read back out of those rows.
+ */
+describe("buildTimeline", () => {
+  const status = (value: string) =>
+    buildTimeline(
+      day({
+        slots: [{ ...slot(H(10), H(11)), status: value as "planned" }],
+      }),
+      H(9),
+    )[0];
+
+  it("lets you move a slot that is still ahead of you", () => {
+    expect(status("planned")?.movable).toBe(true);
+    expect(status("live")?.movable).toBe(true);
+  });
+
+  it("pins one that has begun or is over", () => {
+    for (const value of ["started", "completed", "skipped", "missed"]) {
+      expect(status(value)?.movable).toBe(false);
+    }
+  });
+
+  // We never write back to the calendar it came from, so a block that slides
+  // but changes nothing would be saying we do.
+  it("never lets you move a meeting", () => {
+    const rows = buildTimeline(
+      day({ meetings: [meeting(H(10), H(11))] }),
+      H(9),
+    );
+    expect(rows[0]?.movable).toBeUndefined();
   });
 });

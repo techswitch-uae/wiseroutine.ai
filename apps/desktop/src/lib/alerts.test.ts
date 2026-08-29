@@ -69,7 +69,10 @@ describe("upNextOf", () => {
   it("counts down to the next one, and offers no way to start it early", () => {
     const next = upNextOf([slot({ id: "a", startsAt: AT + 18 * MIN })], AT);
     expect(next.badge).toBe("18m");
-    expect(next.label).toBe("Shoulder stretch · 10 min");
+    // Name and length apart: the menu bar shows the name beside the icon and
+    // the length only in the menu behind it.
+    expect(next.title).toBe("Shoulder stretch");
+    expect(next.label).toBe("10 min");
     expect(next.slotId).toBeUndefined();
   });
 
@@ -84,9 +87,7 @@ describe("upNextOf", () => {
       slot({ id: "over", startsAt: AT - 30 * MIN, endsAt: AT - 20 * MIN }),
       slot({ id: "next", startsAt: AT + MIN, endsAt: AT + 11 * MIN }),
     ];
-    expect(upNextOf(day, AT).slotId ?? upNextOf(day, AT).label).toContain(
-      "Shoulder",
-    );
+    expect(upNextOf(day, AT).title).toBe("Shoulder stretch");
     expect(upNextOf(day, AT).badge).toBe("1m");
   });
 });
@@ -96,8 +97,10 @@ describe("countdown", () => {
     expect(countdown(90_000)).toBe("2m");
   });
 
-  it("pads the minutes past an hour", () => {
-    expect(countdown(125 * MIN)).toBe("2h 05");
+  it("pads the minutes past an hour, and names both units", () => {
+    // "2h 05" is not a duration, it is two numbers - and the eye has to guess
+    // which of them is which.
+    expect(countdown(125 * MIN)).toBe("2h 05m");
   });
 
   it("never goes negative", () => {
@@ -126,7 +129,7 @@ describe("pauseAlerts", () => {
 
   it("still says what is up next - the pause silences, it does not hide", () => {
     pauseAlerts(AT);
-    expect(upNextOf(day, AT).label).toBe("Shoulder stretch · 10 min");
+    expect(upNextOf(day, AT).title).toBe("Shoulder stretch");
   });
 
   it("wears off", () => {

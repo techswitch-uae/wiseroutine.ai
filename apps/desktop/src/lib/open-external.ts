@@ -11,6 +11,14 @@
  * The boolean is the point. A blocked popup that is reported as success leaves
  * the user watching a spinner wait for a consent screen nobody ever showed
  * them - which is exactly what this function was written to stop.
+ *
+ * Tauri also has an opinion about the scheme. `opener:default` allows only
+ * `http`, `https`, `mailto` and `tel`; anything else comes back as a
+ * `ForbiddenUrl` and lands in the `catch` below, which is why the link to
+ * macOS notification settings did nothing at all. The extra schemes this app
+ * opens - `x-apple.systempreferences`, and the native music links deep work
+ * accepts - are listed in `src-tauri/capabilities/default.json`. A new scheme
+ * has to be added there or it will fail the same silent way.
  */
 export async function openExternal(url: string): Promise<boolean> {
   // Feature-detect the host rather than catching a failure: outside Tauri the

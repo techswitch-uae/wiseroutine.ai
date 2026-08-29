@@ -137,27 +137,14 @@ test("a stretch walks its steps, and only the last one finishes it", async () =>
 });
 
 describe("deep work", () => {
-  test("asks what the block is for before it starts the clock", async () => {
-    const Session = deepWork.Session;
-    if (!Session) throw new Error("no session");
-
-    render(
-      <Session
-        slot={slot({ title: "Deep work" })}
-        config={{ musicUrl: "" }}
-        onDone={vi.fn()}
-        onSkip={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByLabelText("What is this block for?")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Start" }));
-    // The intention field is gone and the countdown has taken its place: it is
-    // a commitment made once, not a note to keep editing.
-    expect(screen.queryByLabelText("What is this block for?")).toBeNull();
-  });
-
-  test("the intention written stays on screen for the whole block", async () => {
+  /**
+   * The block is already running by the time this screen exists.
+   *
+   * It used to open behind a "Play music & start" button, which made a
+   * session that had begun look like one that had not - and asked for an
+   * intention nobody had come here to write.
+   */
+  test("opens straight into the countdown, with nothing to fill in first", () => {
     const Session = deepWork.Session;
     if (!Session) throw new Error("no session");
 
@@ -170,30 +157,69 @@ describe("deep work", () => {
       />,
     );
 
-    await userEvent.type(
-      screen.getByLabelText("What is this block for?"),
-      "three tier headlines",
-    );
-    await userEvent.click(screen.getByRole("button", { name: "Start" }));
-    expect(screen.getByText("three tier headlines")).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Finish now" })).toBeTruthy();
   });
 
-  // The button says what the press will do. Someone who has set a playlist
-  // should not have to guess that starting also plays it.
-  test("says so when a press will also open music", () => {
+  test("plays the playlist in the block rather than only linking to it", () => {
     const Session = deepWork.Session;
     if (!Session) throw new Error("no session");
 
     render(
       <Session
         slot={slot()}
-        config={{ musicUrl: "https://open.spotify.com/playlist/x" }}
+        config={{ musicUrl: "https://open.spotify.com/playlist/37i9dQZF1DX" }}
         onDone={vi.fn()}
         onSkip={vi.fn()}
       />,
     );
+
+    const player = screen.getByTitle("Music for this block");
+    expect(player.getAttribute("src")).toBe(
+      "https://open.spotify.com/embed/playlist/37i9dQZF1DX",
+    );
+    // Spotify's own troubleshooting page names this attribute as the
+    // difference between full playback and thirty-second previews.
+    expect(player.getAttribute("allow")).toContain("encrypted-media");
+    // And the way out to the whole playlist, because in here nobody is
+    // signed in.
     expect(
-      screen.getByRole("button", { name: "Play music & start" }),
+      screen.getByRole("button", { name: /Open in Spotify/ }),
     ).toBeTruthy();
+  });
+
+  // Apple Music, a radio stream, anything with no embed. The only honest
+  // offer is the app that owns it.
+  test("offers to open anything it cannot embed", () => {
+    const Session = deepWork.Session;
+    if (!Session) throw new Error("no session");
+
+    render(
+      <Session
+        slot={slot()}
+        config={{ musicUrl: "https://music.apple.com/playlist/x" }}
+        onDone={vi.fn()}
+        onSkip={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTitle("Music for this block")).toBeNull();
+    expect(screen.getByRole("button", { name: "Play music" })).toBeTruthy();
+  });
+
+  test("shows no player at all when no music was set", () => {
+    const Session = deepWork.Session;
+    if (!Session) throw new Error("no session");
+
+    render(
+      <Session
+        slot={slot()}
+        config={{ musicUrl: "" }}
+        onDone={vi.fn()}
+        onSkip={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTitle("Music for this block")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Play music" })).toBeNull();
   });
 });

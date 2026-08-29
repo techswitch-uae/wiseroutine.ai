@@ -3,8 +3,8 @@ import {
   Chip,
   clockOf,
   Metric,
-  Module,
   StateRow,
+  Widget,
 } from "@wiseroutine/design";
 import { useEffect, useState } from "react";
 import { upNextOf } from "../lib/alerts";
@@ -64,19 +64,27 @@ const UpNext: React.FC = () => {
   const next = upNextOf(plan.slots, now);
 
   return (
-    <Module variant="attention" eyebrow="Up next" count={next.badge ?? "—"}>
-      {next.label ? (
+    /* No `count`. The countdown used to sit in the head as a static chip,
+       which is upper-cased - so "18m" came out as "18M", and a unit is not an
+       abbreviation. It belongs with the time anyway, next to the name of the
+       thing it is counting down to. */
+    <Widget variant="attention" eyebrow="Up next">
+      {next.title ? (
         <>
-          <p className="wr-body" style={{ margin: "2px 0 10px" }}>
-            {next.label}
-          </p>
+          <h3 className="wr-widget-title">{next.title}</h3>
+          <div className="wr-widget-time">
+            {next.badge === "now" ? "Now" : `in ${next.badge}`}
+            <span className="wr-widget-time-soft"> · {next.label}</span>
+          </div>
           {next.slotId ? (
-            <Button
-              variant="commit"
-              onClick={() => next.slotId && startSlot(next.slotId)}
-            >
-              Start now
-            </Button>
+            <div style={{ marginTop: 12 }}>
+              <Button
+                variant="commit"
+                onClick={() => next.slotId && startSlot(next.slotId)}
+              >
+                Start now
+              </Button>
+            </div>
           ) : null}
         </>
       ) : (
@@ -84,7 +92,7 @@ const UpNext: React.FC = () => {
           Nothing left today.
         </p>
       )}
-    </Module>
+    </Widget>
   );
 };
 
@@ -109,7 +117,7 @@ const MissedToday: React.FC = () => {
   if (!items || items.length === 0) return null;
 
   return (
-    <Module eyebrow="Missed today" count={items.length}>
+    <Widget eyebrow="Missed today" count={items.length}>
       {items.map((item) => (
         <div key={item.id} style={{ marginTop: 8 }}>
           <StateRow
@@ -131,7 +139,7 @@ const MissedToday: React.FC = () => {
           />
         </div>
       ))}
-    </Module>
+    </Widget>
   );
 };
 
@@ -159,7 +167,7 @@ const TodaySoFar: React.FC = () => {
   if (rows.length === 0) return null;
 
   return (
-    <Module eyebrow="Today so far">
+    <Widget eyebrow="Today so far">
       {rows.map((row) => {
         const { value, ratio } = progressOf(row);
         return (
@@ -172,11 +180,11 @@ const TodaySoFar: React.FC = () => {
           />
         );
       })}
-    </Module>
+    </Widget>
   );
 };
 
-export const DashboardModules: React.FC = () => {
+export const DashboardWidgets: React.FC = () => {
   const plan = usePlan();
   if (!plan) return null;
 

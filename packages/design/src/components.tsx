@@ -25,6 +25,55 @@ const cx = (...parts: (string | false | undefined)[]): string =>
 
 /** The one glyph the kit uses inline. Everything else is Lucide at
  *  stroke-width 2.75 - add `lucide-react` when the first screen needs it. */
+/**
+ * Done.
+ *
+ * A stroke rather than a character, because "✓" is a font's opinion - it
+ * arrives at a different weight and a different height on every machine, and
+ * this one has to sit centred inside a 16px disc.
+ */
+export const CheckGlyph: React.FC = () => (
+  <svg
+    width="9"
+    height="8"
+    viewBox="0 0 9 8"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    role="img"
+  >
+    <title>Done</title>
+    <path d="M1 4.2 3.4 6.6 8 1.6" />
+  </svg>
+);
+
+/**
+ * Pick it back up.
+ *
+ * A distinct mark from the play triangle on purpose: one of them means "this
+ * has not happened yet" and the other means "you stopped this and can go
+ * back to it". The same glyph for both left someone looking at a block they
+ * had already been in and being offered a start.
+ */
+export const ResumeGlyph: React.FC = () => (
+  <svg
+    width="11"
+    height="11"
+    viewBox="0 0 11 11"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    role="img"
+  >
+    <title>Resume</title>
+    <path d="M1.6 5.5a3.9 3.9 0 1 0 1.5-3.1" />
+    <path d="M1.2 1.1v2.6h2.6" />
+  </svg>
+);
+
 export const PlayGlyph: React.FC = () => (
   <svg
     width="10"
@@ -677,10 +726,20 @@ export type SlotProps = {
   done?: boolean;
   /** meeting: the provider mark, e.g. "G" or "O". */
   source?: string;
-  /** live: the auto-move sentence and the draining grace bar (0–1). */
+  /** live: the auto-move sentence and the draining grace bar (0–1). Omit the
+   *  bar and it is not drawn - inside the day grid a live block would
+   *  otherwise draw twice its own height and collide with the next one. */
   autoMove?: string;
   grace?: number;
   onStart?: () => void;
+  /**
+   * live: what the button offers.
+   *
+   * "resume" for a block that was started and stopped and whose time is still
+   * running. Play means "this has not happened yet", and using it for both
+   * offered a start on something already half-done.
+   */
+  action?: "start" | "resume";
   /** suggested: the trailing label. Defaults to "Suggested". */
   badge?: string;
 };
@@ -693,11 +752,13 @@ export const Slot: React.FC<SlotProps> = ({
   done,
   source,
   autoMove,
-  grace = 1,
+  grace,
   onStart,
+  action = "start",
   badge = "Suggested",
 }) => {
   const isLive = variant === "live";
+  const resuming = action === "resume";
   return (
     <div className="wr-slot-row">
       <div className={cx("wr-time", isLive && "wr-time-now")}>{time}</div>
@@ -714,18 +775,31 @@ export const Slot: React.FC<SlotProps> = ({
                 {autoMove ? (
                   <div className="wr-slot-automove">{autoMove}</div>
                 ) : null}
-                <Button variant="primary" onClick={onStart}>
-                  <PlayGlyph />
-                  Start
+                {/* The word is a separate element so a narrow home for this
+                    card can drop it and keep the glyph - see
+                    `.wr-daygrid-item` in app.css. `aria-label` carries the
+                    name either way, because a hidden word is a button with no
+                    name to anyone not looking at it. */}
+                <Button
+                  variant="primary"
+                  aria-label={resuming ? "Resume" : "Start"}
+                  onClick={onStart}
+                >
+                  {resuming ? <ResumeGlyph /> : <PlayGlyph />}
+                  <span className="wr-btn-word">
+                    {resuming ? "Resume" : "Start"}
+                  </span>
                 </Button>
               </div>
             </div>
-            <div className="wr-bar" style={{ marginTop: 12 }}>
-              <div
-                className="wr-bar-fill"
-                style={{ width: `${grace * 100}%` }}
-              />
-            </div>
+            {grace === undefined ? null : (
+              <div className="wr-bar" style={{ marginTop: 12 }}>
+                <div
+                  className="wr-bar-fill"
+                  style={{ width: `${grace * 100}%` }}
+                />
+              </div>
+            )}
           </>
         ) : variant === "meeting" ? (
           <>
@@ -756,7 +830,13 @@ export const Slot: React.FC<SlotProps> = ({
               </span>
             ) : done ? (
               <span className="wr-slot-trailing">
-                <Chip>Done</Chip>
+                {/* A mark, not a word. It has to read at a glance and fit a
+                    block whose height is its own duration - and a chip
+                    spelling "Done" was the widest thing in the shortest
+                    card. The name is still spoken. */}
+                <span className="wr-done" role="img" aria-label="Done">
+                  <CheckGlyph />
+                </span>
               </span>
             ) : null}
           </>
@@ -791,6 +871,17 @@ export interface DayGridItem {
    */
   onStart?: () => void;
   onRemove?: () => void;
+  /**
+   * Picked, by press or by keyboard focus.
+   *
+   * On press rather than on click, so a drag selects what it is dragging -
+   * and so the rail beside the grid is already describing the block by the
+   * time the drop lands.
+   */
+  onSelect?: () => void;
+  /** Drawn as the picked one. The grid holds no selection of its own: two
+   *  places deciding what is selected is how they end up disagreeing. */
+  selected?: boolean;
 }
 
 export type DayGridProps = {
@@ -811,6 +902,9 @@ export type DayGridProps = {
   /** Fires once, on drop, with instants already snapped to the ruler. Without
    *  it nothing is draggable however the items are marked. */
   onMove?: (key: string, startsAt: number, endsAt: number) => void;
+  /** A press on the day itself rather than on anything in it. What "click
+   *  somewhere empty to put it away" is made of. */
+  onBackdrop?: () => void;
 };
 
 const QUARTER = 15 * 60_000;
@@ -956,6 +1050,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
   quarterStep = 64,
   minBlockHeight = 46,
   onMove,
+  onBackdrop,
 }) => {
   const label = new Intl.DateTimeFormat("en-GB", {
     timeZone,
@@ -1028,6 +1123,12 @@ export const DayGrid: React.FC<DayGridProps> = ({
     return clientY - grabY - (box?.top ?? 0);
   }, []);
 
+  /** Pinned blocks keep their keys - Enter and Delete still mean something on
+   *  a slot that cannot be dragged - so this is asked at each use site rather
+   *  than by withholding the handles. */
+  const canMove = (item: DayGridItem): boolean =>
+    onMove !== undefined && item.movable === true;
+
   const commit = (key: string, startsAt: number, endsAt: number) => {
     const from = items.find((item) => item.key === key);
     // A press that never moved is a press, and must not spend a write saying
@@ -1038,17 +1139,25 @@ export const DayGrid: React.FC<DayGridProps> = ({
   const handles = (item: DayGridItem) => ({
     tabIndex: 0,
     // Read once, on focus, and the only way anyone learns these keys without a
-    // mouse. Long, and it earns its length.
+    // mouse. Long, and it earns its length - and it must not offer a move to
+    // someone holding a block that cannot be moved.
     "aria-label": `${item.title ?? "Slot"} at ${label.format(
       new Date(item.startsAt),
-    )}. Drag or use the arrow keys to move it${
-      item.onStart ? ", Enter to start it" : ""
-    }${item.onRemove ? ", Delete to take it off today" : ""}.`,
+    )}.${
+      canMove(item) ? " Drag or use the arrow keys to move it." : ""
+    }${item.onStart ? " Enter to start it." : ""}${
+      item.onRemove ? " Delete to take it off today." : ""
+    }`,
     onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
       // A press on Start is a press on Start - only the card around it is a
       // handle. Without this every attempt to start a slot lifted it instead.
       if (event.button !== 0) return;
+      // Before the button check: pressing Start on a block is still picking
+      // that block, and the rail beside the grid should be describing it.
+      item.onSelect?.();
       if ((event.target as HTMLElement).closest("button")) return;
+      // A block still reachable by keyboard for its other keys, but pinned.
+      if (!canMove(item)) return;
 
       // Stops the browser starting a text selection under the drag. It also
       // suppresses the focus that a press would normally give, so that is done
@@ -1072,6 +1181,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
         live: false,
       });
     },
+    onFocus: () => item.onSelect?.(),
     onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
       // Everything here belongs to the block that has focus, which is what
       // makes it safe: none of it can fire while someone is typing somewhere
@@ -1108,7 +1218,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
           : event.key === "ArrowDown"
             ? SNAP_MINUTES
             : 0;
-      if (step === 0) return;
+      if (step === 0 || !canMove(item)) return;
       event.preventDefault();
       const moved = dropAt(
         yOf(item.startsAt, scale) + step * scale.pxPerMinute,
@@ -1266,6 +1376,14 @@ export const DayGrid: React.FC<DayGridProps> = ({
       ref={surface}
       className="wr-daygrid"
       style={{ height, ...({ "--wr-quarter": `${quarterStep}px` } as object) }}
+      // A press that lands on the day rather than on anything in it. The
+      // ticks and the now line are part of the empty day, so this is checked
+      // by what it did *not* hit rather than by what it did.
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        if ((event.target as HTMLElement).closest(".wr-daygrid-item")) return;
+        onBackdrop?.();
+      }}
     >
       {ticks.map((at) => {
         const onTheHour = at % HOUR === 0;
@@ -1299,13 +1417,16 @@ export const DayGrid: React.FC<DayGridProps> = ({
       <div className="wr-daygrid-lanes">
         {placed.map(
           ({ block, top, height: blockHeight, column, span, columns }) => {
-            const movable = onMove !== undefined && block.movable === true;
-            // Keys, not dragging, decide whether this is a thing you can focus:
-            // a finished slot that can still be removed is still worth reaching.
+            const movable = canMove(block);
+            // What it answers to, not whether it moves, decides whether this
+            // is a thing you can reach: a finished slot that can still be
+            // removed is worth reaching, and so is a meeting, which answers
+            // nothing but can still be picked and read about.
             const keyed =
               movable ||
               block.onStart !== undefined ||
-              block.onRemove !== undefined;
+              block.onRemove !== undefined ||
+              block.onSelect !== undefined;
             const isShadow = dragged?.key === block.key;
             return (
               <div
@@ -1314,6 +1435,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
                   "wr-daygrid-item",
                   movable && "wr-daygrid-item-movable",
                   isShadow && "wr-daygrid-item-shadow",
+                  block.selected && "wr-daygrid-item-selected",
                 )}
                 style={{
                   top,
@@ -1401,9 +1523,13 @@ export const DashedRow: React.FC<{
   </div>
 );
 
-/* ── Rail modules ────────────────────────────────────────────────────────── */
+/* ── Rail widgets ──────────────────────────────────────────────────────────
+   One card at lift-2 with an eyebrow, a body and at most one action. Was
+   `Module`, which collided with two other meanings in this codebase: the
+   activity modules that run a session, and the module *keys* a plan is
+   entitled to. A card in the rail is a widget. */
 
-export type ModuleProps = {
+export type WidgetProps = {
   /** attention = the app's single loudest element; one per screen. */
   variant?: "default" | "attention";
   eyebrow?: string;
@@ -1411,39 +1537,138 @@ export type ModuleProps = {
   children?: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
+  /**
+   * Given only by a module the user opened and can therefore put away.
+   *
+   * The standing modules have no close: they describe the day and go quiet on
+   * their own when there is nothing to say. An X on one of those would be a
+   * way to lose a part of the rail with no way to get it back.
+   */
+  onClose?: () => void;
+  /**
+   * On its way out.
+   *
+   * A widget that unmounts the instant it is closed takes its height with it
+   * and everything below jumps up. Held for the length of the transition by
+   * whoever owns the state - see `ThisSlot` - the row collapses instead and
+   * the rest of the rail travels with it.
+   */
+  leaving?: boolean;
 };
 
-export const Module: React.FC<ModuleProps> = ({
+/**
+ * A widget growing into place, and collapsing out of it.
+ *
+ * A card cannot make room for itself: appearing at full height shoves
+ * everything below it down in one frame, which is the jump this removes.
+ *
+ * ponytail: the Web Animations API, after two CSS-only attempts that do not
+ * hold. `interpolate-size: allow-keywords` parses in this WebKit and does not
+ * animate `auto`; the `0fr`/`1fr` grid trick animates everywhere but takes
+ * the row's minimum from the item, so `overflow` zeroes it and the card
+ * collapses to its own padding under a parent it did not choose. `animate()`
+ * interpolates two explicit pixel heights, touches no resting style, and
+ * cleans up after itself when it finishes - which is the whole reason it is
+ * less code than the transition would have been.
+ */
+function useWidgetEntrance(
+  leaving?: boolean,
+): React.RefObject<HTMLDivElement | null> {
+  const box = useRef<HTMLDivElement>(null);
+  // The first render's height, taken before it is animated away from. Read on
+  // mount rather than on the way out, because by then the card may be halfway
+  // through collapsing and would measure its own animation.
+  const full = useRef(0);
+
+  useEffect(() => {
+    const el = box.current;
+    // `animate` is missing in jsdom, and this is a flourish - a test
+    // environment that cannot do it should render the card, not throw.
+    if (!el?.animate || quiet()) return;
+    full.current = el.scrollHeight;
+    el.animate(
+      [
+        { height: "0px", opacity: 0 },
+        { height: `${full.current}px`, opacity: 1 },
+      ],
+      { duration: 240, easing: "ease" },
+    );
+  }, []);
+
+  useEffect(() => {
+    const el = box.current;
+    if (!el?.animate || !leaving || quiet()) return;
+    // `forwards`, because nothing else holds it shut: the owner unmounts it a
+    // beat later, and without this it would snap back to full height first.
+    el.animate(
+      [
+        { height: `${el.scrollHeight || full.current}px`, opacity: 1 },
+        { height: "0px", opacity: 0 },
+      ],
+      { duration: 200, easing: "ease", fill: "forwards" },
+    );
+  }, [leaving]);
+
+  return box;
+}
+
+/**
+ * When not to animate at all.
+ *
+ * Reduced motion, obviously. And a hidden document, which is not a nicety: a
+ * browser pauses animations in a background tab, so a widget that mounted
+ * behind one sat at the zero-height first frame until someone looked at it -
+ * a card that had been rendered, laid out, and was nowhere on the page.
+ */
+const quiet = (): boolean =>
+  globalThis.document?.hidden === true ||
+  globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+
+export const Widget: React.FC<WidgetProps> = ({
   variant = "default",
   eyebrow,
   count,
   children,
   className,
   style,
+  onClose,
+  leaving,
 }) => (
-  <section
-    className={cx(
-      "wr-module",
-      variant === "attention" && "wr-module-attention",
-      className,
-    )}
-    style={style}
-  >
-    {eyebrow ? (
-      <div className="wr-module-head">
-        <span className="wr-label">{eyebrow}</span>
-        {count !== undefined ? <Chip variant="static">{count}</Chip> : null}
-      </div>
-    ) : null}
-    {children}
-  </section>
+  <div ref={useWidgetEntrance(leaving)} className="wr-widget-slot">
+    <section
+      className={cx(
+        "wr-widget",
+        variant === "attention" && "wr-widget-attention",
+        className,
+      )}
+      style={style}
+    >
+      {eyebrow ? (
+        <div className="wr-widget-head">
+          <span className="wr-label">{eyebrow}</span>
+          {count !== undefined ? <Chip variant="static">{count}</Chip> : null}
+          {onClose ? (
+            <button
+              type="button"
+              className="wr-widget-close"
+              aria-label="Close"
+              onClick={onClose}
+            >
+              ×
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {children}
+    </section>
+  </div>
 );
 
-export const ModuleEmpty: React.FC<{
+export const WidgetEmpty: React.FC<{
   children: React.ReactNode;
   onClick?: () => void;
 }> = ({ children, onClick }) => (
-  <button type="button" className="wr-module wr-module-empty" onClick={onClick}>
+  <button type="button" className="wr-widget wr-widget-empty" onClick={onClick}>
     <span
       style={{
         font: "400 15px var(--font-body)",

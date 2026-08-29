@@ -29,13 +29,17 @@ export function owedToday(progress: readonly ActivityProgress[]): Owed[] {
   return progress
     .map((row) => {
       const minutes = row.sessionMinutes;
+      // Done *and* already placed both count against the minimum. Counting
+      // only completions would leave the tray asking for three more stretches
+      // the moment three were put on the afternoon.
+      const placed = row.scheduled ?? 0;
       const left =
         row.minimumType === "durationPerDay"
           ? Math.ceil(
               Math.max(0, row.minimumValue - row.minutes) / (minutes || 1),
-            )
-          : Math.max(0, row.minimumValue - row.count);
-      return { id: row.id, name: row.name, left, minutes };
+            ) - placed
+          : row.minimumValue - row.count - placed;
+      return { id: row.id, name: row.name, left: Math.max(0, left), minutes };
     })
     .filter((row) => row.left > 0);
 }

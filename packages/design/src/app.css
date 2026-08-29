@@ -384,6 +384,44 @@ button.wr-chip { cursor: pointer; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
+/* The live block, at the height of its own duration.
+   In a list the startable slot is the loudest card on the page: big rule, big
+   name, a full "▶ Start" pill and a draining grace bar under it. In the grid
+   its height is five minutes, and all of that was drawn into a 46px box and
+   clipped - the screenshot of a Start button sliced off at the bottom edge.
+   So here it is one centred row and a square button, sized to fit the
+   shortest block the densities allow.
+   ponytail: one size, not a button that grows back into its word above some
+   height. That needs the block's height in CSS, and `container-type: size`
+   brings paint containment with it, which clips the card's own shadow and
+   focus ring. Revisit if the glyph alone reads as too quiet. */
+.wr-daygrid-item .wr-slot-live {
+  display: flex; align-items: center; padding: 4px 8px;
+}
+/* The name column takes what is left and gives it all back when there is none;
+   the button never gives up a pixel. `min-width: 0` twice over, because a flex
+   item defaults to its own min-content width - two blocks sharing a lane made
+   the name refuse to shrink and pushed the button out past the card's edge. */
+.wr-daygrid-item .wr-slot-live > div:first-child { flex: 1; min-width: 0; }
+.wr-daygrid-item .wr-slot-live > div > div { min-width: 0; }
+.wr-daygrid-item .wr-slot-live .wr-slot-name { font-size: 13.5px; }
+/* One line, so it fits the shortest block. The duration is already the height
+   of the block and the gutter already says when it is - the same reason the
+   card in here does not draw its own time. */
+.wr-daygrid-item .wr-slot-live .wr-slot-meta { display: none; }
+.wr-daygrid-item .wr-slot-live .wr-rule { height: 18px; }
+.wr-daygrid-item .wr-slot-trailing { flex: none; }
+.wr-daygrid-item .wr-slot-live .wr-btn {
+  width: 20px; height: 20px; padding: 0; gap: 0; flex: none;
+}
+/* The glyph keeps its 10:12 ratio, and is nudged half a pixel right: a
+   triangle's optical centre sits left of its geometric one, so a play mark
+   centred by arithmetic reads as leaning into the left edge. */
+.wr-daygrid-item .wr-slot-live .wr-btn svg {
+  width: 8px; height: 9.6px; transform: translateX(0.5px);
+}
+.wr-daygrid-item .wr-btn-word { display: none; }
+
 /* Movable blocks. The card is its own handle - a grip glyph inside a short
    block would cost more height than the block has. `touch-action` so a drag is
    a drag and not the scroller taking the gesture first. */
@@ -392,6 +430,14 @@ button.wr-chip { cursor: pointer; }
 .wr-daygrid-item-movable {
   cursor: grab; touch-action: none;
   user-select: none; -webkit-user-select: none;
+}
+/* The picked block, which the rail is describing. A ring rather than a fill:
+   the fill is the slot's category and must go on saying which kind it is. */
+.wr-daygrid-item-selected .wr-slot {
+  box-shadow: var(--wr-lift-1), inset 0 0 0 1.5px var(--color-accent);
+}
+.wr-daygrid-item-selected .wr-slot-live {
+  box-shadow: var(--wr-lift-3), inset 0 0 0 1.5px var(--color-accent);
 }
 .wr-daygrid-item-movable:focus-visible {
   outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 16px;
@@ -462,6 +508,13 @@ body.wr-dragging { user-select: none; -webkit-user-select: none; cursor: grabbin
 .wr-slot-name { font: 600 13.5px var(--font-body); }
 .wr-slot-meta { font: 400 12px var(--font-body); color: var(--wr-text-soft); }
 .wr-slot-trailing { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+/* Done: a filled disc with a check in it. The same 15px disc the set-up steps
+   use, so "finished" looks the same wherever it appears. */
+.wr-done {
+  flex: none; width: 16px; height: 16px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--color-accent); color: var(--wr-page);
+}
 
 .wr-slot-live {             /* exactly one per view - the slot startable now */
   display: block; padding: 14px 16px; border-radius: 16px; box-shadow: var(--wr-lift-3);
@@ -489,17 +542,49 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
    One card at lift-2 with an eyebrow, a body and at most one action.
    Modules are user-toggleable and reorderable, so none may depend on its
    neighbour or on being first. */
-.wr-module {
+.wr-widget {
   width: 250px; padding: 17px 19px; border-radius: var(--radius-lg);
   background: var(--wr-card); box-shadow: var(--wr-lift-2);
+  box-sizing: border-box;
 }
-.wr-module-attention {      /* the single loudest element - one per screen */
+/* The box a widget grows into. Its height is animated in script - see
+   `useWidgetEntrance`, which explains why - so nothing here sets one.
+   `overflow: clip` is what makes the collapse hide anything, and the clip
+   margin stops it shearing the card's shadow off at rest - the same fault the
+   rail's padding exists to prevent. */
+.wr-widget-slot { overflow: clip; overflow-clip-margin: 40px; }
+.wr-widget-attention {      /* the single loudest element - one per screen */
   padding: 18px; background: var(--color-text); color: var(--color-neutral-100);
   box-shadow: 0 3px 6px rgba(46, 43, 37, 0.14), 0 16px 34px rgba(46, 43, 37, 0.22);
 }
-.wr-module-attention .wr-label { color: color-mix(in srgb, var(--color-neutral-100) 72%, transparent); }
-.wr-module-head { display: flex; align-items: center; justify-content: space-between; }
-.wr-module-empty {
+.wr-widget-attention .wr-label { color: color-mix(in srgb, var(--color-neutral-100) 72%, transparent); }
+.wr-widget-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* Only on a module the user opened. The label takes the room, so the X sits
+   at the end of the row rather than fighting the count for the same corner. */
+.wr-widget-close {
+  margin-left: auto; flex: none; border: 0; background: transparent;
+  width: 20px; height: 20px; border-radius: 999px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font: 400 16px/1 var(--font-body); color: var(--wr-text-soft);
+}
+.wr-widget-close:hover { background: var(--wr-recessed); color: var(--color-text); }
+/* A module that names one thing: the thing, then when it is. The eyebrow says
+   which module this is, so the name below it is the content, not a heading. */
+.wr-widget-title {
+  margin: 10px 0 2px; font: 600 15px/1.25 var(--font-heading);
+  overflow-wrap: anywhere;
+}
+.wr-widget-time {
+  font: 600 12.5px var(--font-body); color: var(--color-accent-900);
+  font-variant-numeric: tabular-nums;
+}
+.wr-widget-time-soft { font-weight: 400; color: var(--wr-text-soft); }
+/* On the dark card the accent brown disappears into the ground. */
+.wr-widget-attention .wr-widget-time { color: var(--color-neutral-100); }
+.wr-widget-attention .wr-widget-time-soft {
+  color: color-mix(in srgb, var(--color-neutral-100) 66%, transparent);
+}
+.wr-widget-empty {
   background: transparent; box-shadow: none; border: 1px dashed var(--wr-dashed);
   padding: 15px 17px; display: flex; align-items: center; gap: 10px;
   font: 600 12px var(--font-body); color: var(--wr-text-muted);
@@ -1022,6 +1107,15 @@ img.wr-avatar { object-fit: cover; }
      pushed them past the right edge and clipped the very shadow this is
      here to protect. */
   box-sizing: content-box;
+  /* The window's own margin, which the rail had none of.
+     Every other edge of the page gets `--wr-page-inset` from the element that
+     draws it - the day bar and the scroller each pad themselves - but the rail
+     is a sibling of the page's content, not inside it, so it had nothing
+     between it and the right edge of the window. The negative margin above
+     then took its paint 16px past that edge, and the modules read as falling
+     off the side of the app. `- 16px` because that is the paint room being
+     handed back: the card's own right edge lands exactly one inset in. */
+  margin-right: calc(var(--wr-page-inset) - 16px);
 }
 
 /* ── Set up ────────────────────────────────────────────────────────────────
@@ -1618,3 +1712,14 @@ img.wr-avatar { object-fit: cover; }
 @media (prefers-reduced-motion: reduce) {
   .wr-loading-spin { animation-duration: 2.4s; }
 }
+
+/* A button that reads as a link, for a sentence that has to carry an action
+   inside it - "Needs notifications turned on, open Notification settings". A
+   real <a> would be a lie: nothing here navigates, it asks the OS to open a
+   settings pane. Underlined rather than coloured, because terracotta means
+   "you can start this" everywhere else in the app. */
+.wr-linklike {
+  background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+  color: inherit; text-decoration: underline; text-underline-offset: 2px;
+}
+.wr-linklike:hover { color: var(--color-text); }

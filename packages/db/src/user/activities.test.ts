@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { type ActivityRow, toSchedulerActivity } from "./activities";
+import type { UserDatabase } from "../client";
+import {
+  type ActivityRow,
+  createActivity,
+  toSchedulerActivity,
+} from "./activities";
 
 const row = (over: Partial<ActivityRow> = {}): ActivityRow =>
   ({
@@ -59,5 +64,76 @@ describe("toSchedulerActivity", () => {
   // grows one back, the two-tier split has been undone somewhere.
   test("a user activity row carries no user id", () => {
     expect(row()).not.toHaveProperty("userId");
+  });
+});
+
+/**
+ * What `createActivity` actually writes.
+ *
+ * `data` is built field by field rather than spread from the input, which is
+ * the right shape - the input is a request body's neighbour and half of it is
+ * optional - but it means a column left off the list is a column silently
+ * never written. That is exactly what happened to the four module columns:
+ * every library activity was created as a plain slot with no `presetKey`, so
+ * it had no session to run when it started and the form had nothing to show
+ * when it was reopened. Nothing failed; the value just went nowhere.
+ */
+describe("createActivity", () => {
+  /** Only the one call this makes. A real database is the API suite's job. */
+  const capture = () => {
+    const written: Record<string, unknown>[] = [];
+    const db = {
+      activity: {
+        create: async ({ data }: { data: Record<string, unknown> }) => {
+          written.push(data);
+        },
+      },
+    } as unknown as UserDatabase;
+    return { db, written };
+  };
+
+  const input = {
+    name: "Eye rest",
+    kind: "recovery",
+    minimumType: "countPerDay",
+    minimumValue: 4,
+    sessionMinutes: 5,
+  };
+
+  test("writes the module columns it was given", async () => {
+    const { db, written } = capture();
+    await createActivity(
+      db,
+      {
+        ...input,
+        presetKey: "eye_rest",
+        sessionEnabled: true,
+        startPolicy: "auto",
+        configJson: '{"metres":6}',
+      },
+      0,
+      () => "id",
+    );
+
+    expect(written[0]).toMatchObject({
+      presetKey: "eye_rest",
+      sessionEnabled: true,
+      startPolicy: "auto",
+      configJson: '{"metres":6}',
+    });
+  });
+
+  // A custom activity: no module, no session, and a start policy it can act
+  // on rather than a null the sweep would have to guess at.
+  test("a plain activity is created with no module and a manual start", async () => {
+    const { db, written } = capture();
+    await createActivity(db, input, 0, () => "id");
+
+    expect(written[0]).toMatchObject({
+      presetKey: null,
+      sessionEnabled: true,
+      startPolicy: "manual",
+      configJson: null,
+    });
   });
 });

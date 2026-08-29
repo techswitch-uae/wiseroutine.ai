@@ -143,7 +143,8 @@ const BreathingConfigForm: React.FC<ConfigProps<BreathingConfig>> = ({
 export const breathing: ActivityModule<BreathingConfig> = {
   key: "breathing",
   name: "Breathing",
-  blurb: "A circle to breathe along with. Box, 4-7-8 or coherent.",
+  blurb:
+    "a circle paces your breathing for the whole slot - box, 4-7-8 or coherent",
   defaults: { sessionMinutes: 3, startPolicy: "manual", config: DEFAULTS },
   parse: (raw) => {
     const pattern = (raw as BreathingConfig | null)?.pattern;

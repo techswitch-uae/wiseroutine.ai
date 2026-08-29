@@ -18,15 +18,18 @@ import {
   buildTimeline,
   flushPending,
   getSessionToken,
-  type OpenGap,
-  openGaps,
   type TodayResponse,
 } from "../lib/api";
 import { setDensity, useDensity } from "../lib/density";
 import { notify } from "../lib/notify";
-import { owedToday } from "../lib/owed";
-import { publishPlan, publishStart } from "../lib/plan-store";
-import { PlaceSheet } from "../modules/place";
+import { pick, usePicked } from "../lib/picked";
+import {
+  publishMove,
+  publishPlan,
+  publishReload,
+  publishStart,
+} from "../lib/plan-store";
+import { markStarted } from "../lib/running-slot";
 import { TodayRail } from "../modules/today-rail";
 import { DAY_HOURS_ANCHOR } from "./_app.settings";
 
@@ -67,6 +70,9 @@ const Today: React.FC = () => {
   const density = useDensity();
   const [queued, setQueued] = useState(() => api.pendingCount());
   const [syncing, setSyncing] = useState(false);
+  /** The block the rail is describing - see `lib/picked`. Held there rather
+   *  than here because the rail is mounted by the shell, not by this page. */
+  const picked = usePicked();
 
   /**
    * Which hours are on screen, for as long as this window is open.
@@ -233,7 +239,27 @@ const Today: React.FC = () => {
     const atNextMinute = () => {
       timer = setTimeout(
         () => {
-          setNow(Date.now());
+          const at = Date.now();
+          setNow(at);
+          /**
+           * A slot that starts itself is started by the *server*, and nothing
+           * here would ever hear about it.
+           *
+           * So an eye rest set to run on its own came due, the sweep started
+           * it, and this window went on drawing it as planned until something
+           * else happened to re-read the day - which is why pressing its play
+           * button looked like the only way to make a session appear.
+           *
+           * Terminating on purpose: once the day says `started`, the
+           * condition is false and this stops asking.
+           */
+          const due = dataRef.current?.slots.some(
+            (slot) =>
+              slot.startPolicy === "auto" &&
+              slot.status === "planned" &&
+              slot.startsAt <= at,
+          );
+          if (due) latest.current();
           atNextMinute();
         },
         60_000 - (Date.now() % 60_000),
@@ -273,19 +299,55 @@ const Today: React.FC = () => {
     });
   }, []);
 
-  /** Begin a slot. Shared, because the menu bar can start one too and both
-   *  presses have to reach the same offline queue. */
+  /**
+   * Begin a slot. Shared, because the menu bar can start one too and both
+   * presses have to reach the same offline queue.
+   *
+   * Optimistic, and that is the whole point. A session used to appear only
+   * once the round trip had landed and the day had been re-read, so on a slow
+   * answer the press did nothing visible - and if anything at all went wrong
+   * on the way back, the server had recorded the start and the app had not,
+   * which is exactly the state you find by reloading and landing straight in
+   * a session you did not think you had started. Now the press changes the
+   * day in hand, and the server's answer either confirms it or takes it back.
+   */
   const start = useCallback((slotId: string) => {
-    void api.startSlot(slotId).then(({ queued: waiting }) => {
-      setQueued(api.pendingCount());
-      // Offline there is nothing to reload from; the queue is already
-      // projected onto what is on screen.
-      if (!waiting) latest.current();
-      else setData((current) => current && { ...current });
-    });
+    // This run opened it, so this run may show its session - see
+    // `lib/running-slot`. Marked before the request, because the optimistic
+    // status below is what the overlay reads.
+    markStarted(slotId);
+
+    setData(
+      (current) =>
+        current && {
+          ...current,
+          slots: current.slots.map((slot) =>
+            slot.id === slotId ? { ...slot, status: "started" as const } : slot,
+          ),
+        },
+    );
+
+    api
+      .startSlot(slotId)
+      .then(({ queued: waiting }) => {
+        setQueued(api.pendingCount());
+        // Offline there is nothing to reload from, and the queue is projected
+        // onto every later read - so the optimistic status above is not a
+        // guess, it is what the next answer will say too.
+        if (!waiting) latest.current();
+      })
+      .catch(() => {
+        // Never silent. This used to have no catch at all: a refusal became an
+        // unhandled rejection, the day was never re-read, and the block sat
+        // there looking startable.
+        notify("Couldn't start that just now.");
+        latest.current();
+      });
   }, []);
 
   useEffect(() => publishStart(start), [start]);
+  useEffect(() => publishMove(move), [move]);
+  useEffect(() => publishReload(() => latest.current()), []);
 
   /**
    * Take a slot off today, with one way back.
@@ -329,35 +391,6 @@ const Today: React.FC = () => {
         latest.current();
       });
   }, []);
-
-  /** The gap the placement sheet is open on, or null when it is closed. */
-  const [placing, setPlacing] = useState<OpenGap | null>(null);
-
-  /**
-   * Put an activity on the day at a time the user chose.
-   *
-   * Not optimistic, unlike a drag. A drag moves something already on screen,
-   * so drawing it in its new place first is honest; this asks the server a
-   * question - is that gap still free? - and drawing an answer we have not
-   * had yet would mean putting a slot on the timeline and taking it away
-   * again when a meeting turns out to have landed there.
-   */
-  const place = useCallback(
-    (activityId: string, startsAt: number, endsAt: number) => {
-      setPlacing(null);
-      api
-        .placeSlot(activityId, startsAt, endsAt)
-        .then(() => latest.current())
-        .catch((cause: unknown) => {
-          notify(
-            (cause instanceof ApiError ? cause.detail : undefined) ??
-              "Couldn't place that.",
-          );
-          latest.current();
-        });
-    },
-    [],
-  );
 
   /**
    * The day, said out loud.
@@ -415,15 +448,6 @@ const Today: React.FC = () => {
   }
 
   const rows = buildTimeline(data, now);
-  /**
-   * What the free plan needs to place, and where it could go.
-   *
-   * Both are derived rather than fetched: the day already carries its slots,
-   * its meetings and each activity's progress, so asking the server where a
-   * gap is would be asking it to repeat something it has already said.
-   */
-  const owed = owedToday(data.progress ?? []);
-  const gaps = owed.length > 0 ? openGaps(data, now) : [];
   const dayLabel = new Intl.DateTimeFormat("en-GB", {
     timeZone: data.timeZone,
     weekday: "long",
@@ -500,6 +524,10 @@ const Today: React.FC = () => {
             dayStart={data.dayStart}
             dayEnd={data.dayEnd}
             timeZone={data.timeZone}
+            // Pressing the day itself puts the rail's card away. The blocks
+            // stop the press before it gets here, so this is only ever the
+            // empty parts of the grid.
+            onBackdrop={() => pick(null)}
             // Both halves of the density, never one. The scale and the floor
             // are the same decision, and splitting them is how a day ends up
             // with every block drawn at the same lie - see `DayDensity`.
@@ -512,6 +540,11 @@ const Today: React.FC = () => {
               endsAt: row.endsAt,
               movable: row.movable === true,
               title: row.title,
+              // Every block, meetings included: "what is this and what can I
+              // do about it" is a fair question to ask of a block you cannot
+              // move, and the answer is worth giving.
+              onSelect: () => pick(row.key),
+              selected: row.key === picked,
               // Enter and Delete, for a block that has focus. A finished slot
               // offers neither: there is nothing left to start, and taking it
               // off the day would erase what actually happened.
@@ -530,6 +563,9 @@ const Today: React.FC = () => {
                   name={row.title}
                   meta={row.meta ?? ""}
                   done={row.done ?? false}
+                  // Stopped, not unstarted. The rail says the same thing in
+                  // words - see `slotState`.
+                  action={row.resumable === true ? "resume" : "start"}
                   // No grace bar or "moves itself" line inside the grid: those
                   // are list-row affordances, and here they make a 25-minute
                   // block draw twice its own height and collide with the next.
@@ -542,20 +578,6 @@ const Today: React.FC = () => {
           />
         )}
 
-        {gaps.length > 0 ? (
-          <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-            {gaps.map((gap) => (
-              <DashedRow
-                key={gap.startsAt}
-                gutter={false}
-                onClick={() => setPlacing(gap)}
-              >
-                {gap.minutes} min free at {hourClock(gap.startsAt)} — place here
-              </DashedRow>
-            ))}
-          </div>
-        ) : null}
-
         {data.outside.after.length > 0 ? (
           <OutsideRange
             edge="after"
@@ -565,15 +587,6 @@ const Today: React.FC = () => {
           />
         ) : null}
       </div>
-
-      {placing ? (
-        <PlaceSheet
-          gap={placing}
-          owed={owed}
-          onClose={() => setPlacing(null)}
-          onPlace={place}
-        />
-      ) : null}
     </>
   );
 };

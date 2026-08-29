@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { TodaySlot } from "../../lib/api";
-import { runningSlot } from "../../lib/running-slot";
+import { spotifyEmbed } from "../../lib/music";
+import {
+  forgetStarted,
+  markStarted,
+  runningSlot,
+} from "../../lib/running-slot";
 import { breathing, PATTERNS, phaseAt } from "./breathing";
 import { deepWork } from "./deep-work";
 import { eyeRest } from "./eye-rest";
@@ -163,19 +168,82 @@ describe("deep work", () => {
   });
 });
 
+/**
+ * The one function here that decides the `src` of an iframe.
+ *
+ * It is handed a string the user typed, so what matters is what it refuses.
+ * It takes the kind and the id out of a shape it recognises and builds a
+ * fresh URL from them - nothing typed can reach the frame except a Spotify
+ * id.
+ */
+describe("spotifyEmbed", () => {
+  it("embeds the link the web player copies", () => {
+    expect(spotifyEmbed("https://open.spotify.com/playlist/37i9dQZF1DX")).toBe(
+      "https://open.spotify.com/embed/playlist/37i9dQZF1DX",
+    );
+  });
+
+  it("embeds the URI the desktop app copies", () => {
+    expect(spotifyEmbed("spotify:album:1DFixLWuPkv3KT3TnV35m3")).toBe(
+      "https://open.spotify.com/embed/album/1DFixLWuPkv3KT3TnV35m3",
+    );
+  });
+
+  // The web player puts a locale in front of the kind for most of the world.
+  it("looks past a locale segment", () => {
+    expect(spotifyEmbed("https://open.spotify.com/intl-it/track/abc123")).toBe(
+      "https://open.spotify.com/embed/track/abc123",
+    );
+  });
+
+  it("drops the query Spotify's share button adds", () => {
+    expect(
+      spotifyEmbed("https://open.spotify.com/track/abc123?si=deadbeef"),
+    ).toBe("https://open.spotify.com/embed/track/abc123");
+  });
+
+  it("refuses a host that only looks like Spotify", () => {
+    expect(
+      spotifyEmbed("https://open.spotify.com.evil.test/track/a"),
+    ).toBeNull();
+    expect(spotifyEmbed("https://notspotify.com/track/a")).toBeNull();
+  });
+
+  it("refuses anything that is not one of Spotify's own kinds", () => {
+    expect(spotifyEmbed("https://open.spotify.com/user/someone")).toBeNull();
+  });
+
+  it("has nothing to embed for another service", () => {
+    expect(spotifyEmbed("https://music.apple.com/playlist/x")).toBeNull();
+    expect(spotifyEmbed("")).toBeNull();
+  });
+});
+
 describe("runningSlot", () => {
+  // The set is process-wide on purpose - it is "this run of the app" - so
+  // each case has to start from a fresh one.
+  beforeEach(forgetStarted);
+
+  /** Started here, the way pressing Start does it. */
+  const opened = (...ids: string[]) => {
+    for (const id of ids) markStarted(id);
+  };
+
   it("finds the started slot that has a session to show", () => {
     const day = [
       slot({ id: "planned", presetKey: "eye_rest" }),
       slot({ id: "live", status: "started", presetKey: "breathing" }),
     ];
-    expect(runningSlot(day)?.id).toBe("live");
+    opened("live");
+    expect(runningSlot(day, AT)?.id).toBe("live");
   });
 
   // A slot with no module runs the way slots always did: live on the timeline,
   // finished by a press on its card. Nothing takes over the screen.
   it("ignores a started slot with no module behind it", () => {
-    expect(runningSlot([slot({ id: "a", status: "started" })])).toBeUndefined();
+    expect(
+      runningSlot([slot({ id: "a", status: "started" })], AT),
+    ).toBeUndefined();
   });
 
   it("takes the earlier one if two are somehow running", () => {
@@ -188,12 +256,57 @@ describe("runningSlot", () => {
       }),
       slot({ id: "earlier", status: "started", presetKey: "eye_rest" }),
     ];
-    expect(runningSlot(day)?.id).toBe("earlier");
+    opened("later", "earlier");
+    expect(runningSlot(day, AT)?.id).toBe("earlier");
+  });
+
+  /**
+   * The one that made the app land in a session nobody had started.
+   *
+   * `started` is a status the server sets on its own for an activity that
+   * starts itself, and nothing clears it if the app was not open. So a slot
+   * left started this morning is still started this afternoon, and "earliest
+   * wins" handed the window to it instead of the slot just pressed.
+   */
+  it("ignores a started slot whose time has run out", () => {
+    const stale = slot({
+      id: "this morning",
+      status: "started",
+      presetKey: "eye_rest",
+      startsAt: AT - 4 * 3_600_000,
+      endsAt: AT - 4 * 3_600_000 + 5 * 60_000,
+    });
+    const pressed = slot({
+      id: "just now",
+      status: "started",
+      presetKey: "breathing",
+    });
+    opened("this morning", "just now");
+    expect(runningSlot([stale, pressed], AT)?.id).toBe("just now");
+    expect(runningSlot([stale], AT)).toBeUndefined();
+  });
+
+  /**
+   * Relaunching must not drop you into a session.
+   *
+   * `started` outlives the app: it is a row, the server sets it on its own
+   * for an activity that starts itself, and nothing clears it when the window
+   * closes. So the app used to reopen straight into a full-screen session for
+   * a block someone had walked away from an hour before. A session is
+   * something you are in, not something the day remembers about you.
+   */
+  it("shows nothing for a slot this run of the app did not start", () => {
+    const day = [
+      slot({ id: "yesterday's", status: "started", presetKey: "eye_rest" }),
+    ];
+    expect(runningSlot(day, AT)).toBeUndefined();
+    opened("yesterday's");
+    expect(runningSlot(day, AT)?.id).toBe("yesterday's");
   });
 
   it("has nothing to show on a day where nothing is running", () => {
     expect(
-      runningSlot([slot({ id: "a", presetKey: "eye_rest" })]),
+      runningSlot([slot({ id: "a", presetKey: "eye_rest" })], AT),
     ).toBeUndefined();
   });
 });

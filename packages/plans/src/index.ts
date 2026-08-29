@@ -97,8 +97,8 @@ export function can(plan: PlanId, capability: Capability): Decision {
         ? { ok: true }
         : {
             ok: false,
-            reason: "Your day is planned each morning on the free plan.",
-            upsell: `${UPGRADE} to have it re-adapt whenever your calendar changes.`,
+            reason: "You choose when to fill your day on the free plan.",
+            upsell: `${UPGRADE} to have it proposed each morning, and re-adapt whenever your calendar changes.`,
           };
 
     case "plan.rearrange":

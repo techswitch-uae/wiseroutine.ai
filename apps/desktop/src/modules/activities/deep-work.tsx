@@ -1,43 +1,42 @@
-import { Chip, Field } from "@wiseroutine/design";
-import { useEffect, useState } from "react";
-import { openExternal } from "../../lib/open-external";
+import { Field } from "@wiseroutine/design";
+import { useEffect } from "react";
+import { OPENABLE } from "../../lib/music";
 import type { ActivityModule, ConfigProps } from "./index";
+import { Player } from "./music-player";
 import { Countdown, SessionFrame } from "./session-chrome";
 import { useCountdown } from "./session-clock";
 
 /**
- * A focus block, and the one sentence that makes it one.
+ * A focus block: one line, a clock, and whatever you put on to work to.
  *
- * Screen 4a. The intention field is the load-bearing part: a 25-minute timer
- * with nothing written on it is a 25-minute timer, and what turns it into a
- * block of work is having said out loud what the block is for. It is asked
- * before the clock starts, once, and then sits there.
+ * Screen 4a, minus the field and minus the door in front of it. It used to
+ * ask what the block was for, and then wait behind a "Play music & start"
+ * button before the clock moved - so a session that had already begun sat
+ * there looking like it had not. The block is started before this screen
+ * exists; the screen's job is to show that, not to ask permission for it.
  *
- * Music is a link, not an integration. "Play and start" opens whatever the
- * user pasted - a Spotify playlist, an album, a radio stream - in the app that
- * owns it, and starts the session in the same press.
- *
- * ponytail: a URL, not the Spotify Web API. The API would let the session
- * pause the music at the end, and costs an OAuth flow, a token refresh, a
- * Premium requirement and a second thing that can be disconnected. Add it when
- * someone asks for pause-on-break; until then this is twenty lines and works
- * with every music app there is.
+ * ponytail: a link and an embed, not the Spotify Web API. The API would let
+ * the session pause the music at the end, and costs an OAuth flow, a token
+ * refresh, a Premium requirement and a second thing that can be disconnected.
+ * Add it when someone asks for pause-on-break.
  *
  * The blocking row from 4a - Slack muted, mail paused, sites blocked - needs
- * macOS Accessibility permission and is a Pro feature. It is shown here as
- * what it is: something this session does not do yet.
+ * macOS Accessibility permission and is a Pro feature. Not drawn: a line
+ * naming something the session does not do is an advertisement in the middle
+ * of a focus block.
  */
 
+/** Why the next twenty-five minutes are worth defending. One line, and it does
+ *  not change - a session is not the place to be read something new. */
+const CREED = "One thing, until the clock runs out. Everything else can wait.";
+
 export interface DeepWorkConfig {
-  /** Opened when the session starts. Empty means no music. */
+  /** Played in the session, or opened in the app that owns it. Empty means no
+   *  music. */
   musicUrl: string;
 }
 
 const DEFAULTS: DeepWorkConfig = { musicUrl: "" };
-
-/** Only what a browser will hand to another app. A `javascript:` or `file:`
- *  URL in a settings field is not a playlist. */
-const OPENABLE = /^(https?|spotify|music|apple-?music):/i;
 
 const DeepWorkSession: React.FC<{
   slot: { endsAt: number; title: string };
@@ -46,42 +45,10 @@ const DeepWorkSession: React.FC<{
   onSkip: () => void;
 }> = ({ slot, config, onDone, onSkip }) => {
   const left = useCountdown(slot.endsAt);
-  const [intention, setIntention] = useState("");
-  // Written before the clock is looked at. Once it is set, the field goes and
-  // the sentence stays - it is a commitment, not a note to keep editing.
-  const [committed, setCommitted] = useState(false);
 
   useEffect(() => {
     if (left === 0) onDone();
   }, [left, onDone]);
-
-  const begin = () => {
-    setCommitted(true);
-    if (OPENABLE.test(config.musicUrl)) void openExternal(config.musicUrl);
-  };
-
-  if (!committed) {
-    return (
-      <SessionFrame
-        title={slot.title}
-        doneLabel={config.musicUrl ? "Play music & start" : "Start"}
-        onDone={begin}
-        onSkip={onSkip}
-      >
-        <p style={{ font: "400 15px/1.5 var(--font-body)", maxWidth: 380 }}>
-          One thing, in one line. You will see it for the whole block.
-        </p>
-        <div style={{ width: 380 }}>
-          <Field
-            label="What is this block for?"
-            value={intention}
-            placeholder="get the three tier headlines down, no editing"
-            onChange={(event) => setIntention(event.target.value)}
-          />
-        </div>
-      </SessionFrame>
-    );
-  }
 
   return (
     <SessionFrame
@@ -91,20 +58,16 @@ const DeepWorkSession: React.FC<{
       onDone={onDone}
       onSkip={onSkip}
     >
-      {intention ? (
-        <p
-          style={{
-            font: "400 20px/1.45 var(--font-body)",
-            maxWidth: 460,
-            margin: 0,
-          }}
-        >
-          {intention}
-        </p>
-      ) : null}
-      {/* Said plainly rather than implied. Someone who saw this row in the
-          designs and does not get a quiet Slack should know why. */}
-      <Chip variant="static">Blocking apps and sites is a Pro feature</Chip>
+      <p
+        style={{
+          font: "400 18px/1.45 var(--font-body)",
+          maxWidth: 420,
+          margin: 0,
+        }}
+      >
+        {CREED}
+      </p>
+      {OPENABLE.test(config.musicUrl) ? <Player url={config.musicUrl} /> : null}
     </SessionFrame>
   );
 };
@@ -114,7 +77,7 @@ const DeepWorkConfigForm: React.FC<ConfigProps<DeepWorkConfig>> = ({
   onChange,
 }) => (
   <Field
-    label="Music to start with (optional)"
+    label="Music to work to (optional)"
     value={value.musicUrl}
     placeholder="https://open.spotify.com/playlist/…"
     onChange={(event) => onChange({ musicUrl: event.target.value })}
@@ -124,7 +87,8 @@ const DeepWorkConfigForm: React.FC<ConfigProps<DeepWorkConfig>> = ({
 export const deepWork: ActivityModule<DeepWorkConfig> = {
   key: "deep_work",
   name: "Deep work",
-  blurb: "One written intention, a countdown, and your music if you want it.",
+  blurb:
+    "the block takes over the screen with a countdown, and your music if you have set a link",
   defaults: { sessionMinutes: 25, startPolicy: "manual", config: DEFAULTS },
   parse: (raw) => {
     const url = (raw as DeepWorkConfig | null)?.musicUrl;
@@ -137,5 +101,3 @@ export const deepWork: ActivityModule<DeepWorkConfig> = {
   Config: DeepWorkConfigForm,
   Session: DeepWorkSession,
 };
-
-export { OPENABLE };

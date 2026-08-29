@@ -87,12 +87,15 @@ const EMPTY: ActivityDraft = {
 
 const moduleDraftOf = (row: ActivityResponse): ModuleDraft => ({
   presetKey: row.presetKey ?? null,
+  sessionEnabled: row.sessionEnabled !== false,
   startPolicy: (row.startPolicy ?? "manual") as StartPolicy,
   configJson: row.configJson ?? null,
 });
 
+/** A custom activity: a plain timed slot, and no behaviour to configure. */
 const NO_MODULE: ModuleDraft = {
   presetKey: null,
+  sessionEnabled: false,
   startPolicy: "manual",
   configJson: null,
 };
@@ -117,6 +120,7 @@ function moduleForTemplate(key: string): ModuleDraft {
   if (!module) return NO_MODULE;
   return {
     presetKey: module.key,
+    sessionEnabled: true,
     startPolicy: module.defaults.startPolicy,
     configJson: JSON.stringify(module.defaults.config),
   };
@@ -173,23 +177,18 @@ const Activities: React.FC = () => {
 
   useEffect(load, [load]);
 
-  /**
-   * Re-plan today, quietly.
-   *
-   * Today plans itself the first time it is opened, but only once - the plan
-   * run is the marker. So a change made after that has to say so, or the day
-   * on screen would keep the shape it had before this edit until tomorrow.
-   *
-   * Deliberately not awaited into the button's spinner: the activity is saved
-   * either way, and a planner briefly behind is not a failed save.
-   */
-  const replan = () => {
-    void api.plan().catch(() => undefined);
-  };
-
   const active = rows?.filter((row) => row.isActive).length ?? 0;
   const atLimit = active >= limit;
 
+  /**
+   * Saving does not touch today.
+   *
+   * It used to re-plan straight after, so adding an activity in the morning
+   * meant walking back to Today and finding it already on the day. That is
+   * the one thing placement is not supposed to do: the day is filled once, at
+   * the start of it, and anything added afterwards is offered by the "To
+   * place today" module with a button, rather than arranged behind your back.
+   */
   const save = () => {
     if (!editing) return;
     const { draft, id } = editing;
@@ -202,6 +201,7 @@ const Activities: React.FC = () => {
       daysOfWeek: draft.days,
       preferredWindows: windowsOf(draft.land),
       presetKey: editing.module.presetKey,
+      sessionEnabled: editing.module.sessionEnabled,
       startPolicy: editing.module.startPolicy,
       configJson: editing.module.configJson,
     };
@@ -216,7 +216,6 @@ const Activities: React.FC = () => {
       .then(() => {
         setEditing(null);
         load();
-        replan();
       })
       .catch((cause: unknown) => {
         // The server's own two sentences, verbatim - it is the one that knows
@@ -237,7 +236,6 @@ const Activities: React.FC = () => {
       .removeActivity(id)
       .then(() => {
         load();
-        replan();
       })
       .catch(() => notify("Couldn't remove that activity. Try again."))
       .finally(() => setWorking(null));
@@ -397,19 +395,6 @@ const Activities: React.FC = () => {
             <ActivityModuleFields
               value={editing.module}
               onChange={(module) => setEditing({ ...editing, module })}
-              // Picking a module sets the session length it was designed
-              // around - five minutes for an eye rest, twenty-five for deep
-              // work - which is a field the sheet above owns.
-              onSessionMinutes={(sessionMinutes) =>
-                setEditing((current) =>
-                  current
-                    ? {
-                        ...current,
-                        draft: { ...current.draft, sessionMinutes },
-                      }
-                    : current,
-                )
-              }
             />
           </ActivityForm>
           {problem ? (

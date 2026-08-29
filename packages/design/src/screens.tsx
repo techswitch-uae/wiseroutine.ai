@@ -14,8 +14,6 @@ import {
   FitStrip,
   LiveStatus,
   Metric,
-  Module,
-  ModuleEmpty,
   PlanNote,
   PROVIDER_NAMES,
   ProviderButton,
@@ -27,6 +25,8 @@ import {
   TimeField,
   TimeStepper,
   Toggle,
+  Widget,
+  WidgetEmpty,
 } from "./components";
 import { AppFrame, AuthFrame, PageHead, Sidebar, UserMenu } from "./layout";
 
@@ -769,7 +769,7 @@ export const SittingStreak: React.FC<{ value: string; note: string }> = ({
   value,
   note,
 }) => (
-  <div className="wr-module wr-elev-1" style={{ padding: "13px 14px" }}>
+  <div className="wr-widget wr-elev-1" style={{ padding: "13px 14px" }}>
     <div className="wr-label">Sitting streak</div>
     <div className="wr-display-21" style={{ marginTop: 3 }}>
       {value}
@@ -821,7 +821,7 @@ export const TodayScreen: React.FC<{
     }
     rail={
       <>
-        <Module variant="attention" eyebrow="Up next · 11:00">
+        <Widget variant="attention" eyebrow="Up next · 11:00">
           <div className="wr-display-21">Back &amp; shoulder stretch</div>
           <div className="wr-slot-meta" style={{ marginTop: 5 }}>
             10 min, guided. Ends before your 11:25 focus block.
@@ -832,9 +832,9 @@ export const TodayScreen: React.FC<{
           <Button variant="quiet" block>
             Not now - find a later gap
           </Button>
-        </Module>
+        </Widget>
 
-        <Module eyebrow="Missed today" count={2}>
+        <Widget eyebrow="Missed today" count={2}>
           <div className="wr-metric">
             <div className="wr-metric-head">
               <span>Eye rest</span>
@@ -848,9 +848,9 @@ export const TodayScreen: React.FC<{
           <Button variant="secondary" block style={{ marginTop: 13 }}>
             Plan into tomorrow
           </Button>
-        </Module>
+        </Widget>
 
-        <Module eyebrow="Today so far">
+        <Widget eyebrow="Today so far">
           <Metric label="Movement" value="1 / 3" progress={0.33} />
           <Metric
             label="Focused time"
@@ -858,9 +858,9 @@ export const TodayScreen: React.FC<{
             progress={0.42}
             tone="focus"
           />
-        </Module>
+        </Widget>
 
-        <ModuleEmpty>Add a dashboard module</ModuleEmpty>
+        <WidgetEmpty>Add a dashboard module</WidgetEmpty>
       </>
     }
   >
