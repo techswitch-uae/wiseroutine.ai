@@ -21,7 +21,14 @@ import { DAY_HOURS_ANCHOR } from "../routes/_app.settings";
  *
  * Each step retires itself by being satisfied, not by being pressed: the
  * calendar step goes when a connection lands, the activities step when two are
- * active. The module goes when the last one does.
+ * active. The module goes when the last one does, and does not come back.
+ *
+ * That last part is the difference between a checklist and a wizard, and this
+ * is a wizard. It reads live state, so left to itself it would reappear the
+ * moment any of that state stopped being true - delete both activities six
+ * months in and you would be walked through getting started again, as if the
+ * app had forgotten who you were. Finishing is therefore recorded, once, and
+ * from then on nothing here asks anything.
  */
 
 /**
@@ -37,14 +44,37 @@ import { DAY_HOURS_ANCHOR } from "../routes/_app.settings";
  */
 const HOURS_SEEN = "wr.setup.hours";
 
-const hoursSeen = (): boolean => {
+/**
+ * That the whole thing has been through once.
+ *
+ * Separate from the three steps rather than derived from them, because it is a
+ * different fact: the steps say what is true now, and this says what happened.
+ * Deriving it is exactly the bug - an account whose activities are all deleted
+ * has an unsatisfied step and has still, unmistakably, been set up.
+ *
+ * ponytail: local to this device, like the hours flag above. Signing in on a
+ * second machine asks again, and mostly answers itself - the calendar and the
+ * activities are already there, so only the hours are left to look at. A column
+ * on the user row is the fix if that ever grates.
+ */
+const DONE = "wr.setup.done";
+
+const remembered = (key: string): boolean => {
   try {
-    return globalThis.localStorage?.getItem(HOURS_SEEN) === "1";
+    return globalThis.localStorage?.getItem(key) === "1";
   } catch {
     // Private windows and locked-down profiles throw on access rather than
     // returning null. Not remembering asks again, which is a small annoyance;
     // the alternative is a step nobody can ever complete.
     return false;
+  }
+};
+
+const remember = (key: string): void => {
+  try {
+    globalThis.localStorage?.setItem(key, "1");
+  } catch {
+    // Then it asks again next launch. Nothing else breaks.
   }
 };
 
@@ -55,11 +85,15 @@ export const SetupRail: React.FC = () => {
   const navigate = useNavigate();
   const [connected, setConnected] = useState<boolean | null>(null);
   const [active, setActive] = useState<number | null>(null);
-  const [seenHours, setSeenHours] = useState(hoursSeen);
+  const [seenHours, setSeenHours] = useState(() => remembered(HOURS_SEEN));
+  const [finished, setFinished] = useState(() => remembered(DONE));
   const [connecting, setConnecting] = useState(false);
   const [busy, setBusy] = useState<CalendarProvider | null>(null);
 
   const look = useCallback(() => {
+    // Nothing left to ask about, and no answer that could bring this back.
+    if (finished) return;
+
     api
       .calendars()
       .then((response) => setConnected(response.connections.length > 0))
@@ -71,7 +105,7 @@ export const SetupRail: React.FC = () => {
       .activities()
       .then((rows) => setActive(rows.filter((row) => row.isActive).length))
       .catch(() => setActive(ENOUGH_ACTIVITIES));
-  }, []);
+  }, [finished]);
 
   useEffect(look, [look]);
 
@@ -83,12 +117,24 @@ export const SetupRail: React.FC = () => {
     return () => globalThis.removeEventListener?.("focus", look);
   }, [look]);
 
+  const enough = active !== null && active >= ENOUGH_ACTIVITIES;
+  const complete = connected === true && enough && seenHours;
+
+  // Written the moment it is first true, and never read as a live question
+  // again - see `DONE`.
+  useEffect(() => {
+    if (!complete) return;
+    setFinished(true);
+    remember(DONE);
+  }, [complete]);
+
+  if (finished) return null;
   // Nothing until both reads land: a checklist that ticks its steps one at a
   // time as the answers arrive reads as progress the user did not make.
   if (connected === null || active === null) return null;
-
-  const enough = active >= ENOUGH_ACTIVITIES;
-  if (connected && enough && seenHours) return null;
+  // The same frame the effect above runs in, so finishing the last step does
+  // not flash a completed checklist before it goes.
+  if (complete) return null;
 
   return (
     <>
@@ -128,11 +174,7 @@ export const SetupRail: React.FC = () => {
                 // a step that can only be finished by an event we never
                 // receive is a step nobody can finish.
                 setSeenHours(true);
-                try {
-                  globalThis.localStorage?.setItem(HOURS_SEEN, "1");
-                } catch {
-                  // Then it asks again next launch. Nothing else breaks.
-                }
+                remember(HOURS_SEEN);
                 void navigate({ to: "/settings", hash: DAY_HOURS_ANCHOR });
               },
             },

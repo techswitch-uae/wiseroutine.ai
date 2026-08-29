@@ -356,3 +356,44 @@ test("dragging a slot to the edge scrolls the day along with it", async ({
 
   await page.mouse.up();
 });
+
+test("once set up, the wizard is gone for good - even with the activities removed", async ({
+  page,
+  signIn,
+}) => {
+  const user = await signIn(CALENDARS);
+  await seedActivity(user.token, { name: "Eye rest", sessionMinutes: 5 });
+  await seedActivity(user.token, { name: "Walk", sessionMinutes: 15 });
+
+  // Two of three already true, so only the hours are left to look at.
+  await page.goto("/");
+  await dayShown(page);
+  await expect(progress(page)).toHaveText("2 of 3");
+  await step(page, "Confirm working hours")
+    .getByRole("button", { name: "Check my hours" })
+    .click();
+  await expect(page).toHaveURL(/day-view-hours$/);
+
+  await page.goto("/");
+  await dayShown(page);
+  await expect(setUp(page)).toHaveCount(0);
+
+  // Now undo the thing a step was checking. A checklist would come straight
+  // back and walk someone who has been using the app for months through
+  // getting started; a wizard remembers that it already ran.
+  await openActivities(page);
+  for (const name of ["Eye rest", "Walk"]) {
+    await activity(page, name).getByRole("button", { name: "Remove" }).click();
+    await expect(activity(page, name)).toHaveCount(0);
+  }
+
+  await page.goto("/");
+  await dayShown(page);
+  await expect(setUp(page)).toHaveCount(0);
+
+  // And it survives the window being closed, which is the whole point of
+  // recording it rather than holding it in state.
+  await page.reload();
+  await dayShown(page);
+  await expect(setUp(page)).toHaveCount(0);
+});
