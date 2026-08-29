@@ -191,6 +191,8 @@ export interface TodayResponse {
   /** Meetings the range does not cover, drawn as a line at each edge. Empty
    *  when the user has turned that off. */
   outside: { before: TodayMeeting[]; after: TodayMeeting[] };
+  /** When a calendar was last read, or null if none ever has been. */
+  syncedAt: number | null;
   modules: string[];
 }
 

@@ -1,6 +1,7 @@
 import type React from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
+  type DayDensity,
   type DayScale,
   dropAt,
   edgeScroll,
@@ -388,9 +389,24 @@ export const HoursMenu: React.FC<{
   onChange?: (key: string) => void;
   /** Takes the user to where the ranges are configured. */
   onEdit?: () => void;
-}> = ({ ranges, value, onChange, onEdit }) => {
+  /** The densities on offer, and the one in force. Omitted, the section is
+   *  not drawn at all - the gallery shows the menu without it. */
+  densities?: readonly DayDensity[];
+  density?: string;
+  onDensityChange?: (key: string) => void;
+}> = ({
+  ranges,
+  value,
+  onChange,
+  onEdit,
+  densities,
+  density,
+  onDensityChange,
+}) => {
   const [open, setOpen] = useState(false);
+  const densityId = useId();
   const root = useRef<HTMLDivElement>(null);
+  const rangesId = useId();
 
   // Same rule as the user menu: a popover that survives a click elsewhere is a
   // popover people fight with.
@@ -426,8 +442,17 @@ export const HoursMenu: React.FC<{
 
       {open ? (
         <div className="wr-hours-pop" role="menu">
-          <div className="wr-label wr-hours-title">Hours shown</div>
-          <div className="wr-hours-list">
+          <div className="wr-label wr-hours-title" id={rangesId}>
+            Hours shown
+          </div>
+          {/* Two groups, each named. Without this a screen reader hears one
+              undifferentiated run of radios and has no way to know that the
+              first five are two separate questions - and neither does a test. */}
+          <div
+            className="wr-hours-list"
+            role="group"
+            aria-labelledby={rangesId}
+          >
             {ranges.map((range) => (
               <button
                 key={range.key}
@@ -477,6 +502,27 @@ export const HoursMenu: React.FC<{
               </svg>
             </button>
           </div>
+
+          {densities && densities.length > 0 ? (
+            // A segmented control, not a second list of rows. Three names is
+            // the whole choice, and drawn as rows they read as a continuation
+            // of the ranges above rather than a different question. The group
+            // still carries a name for anyone not looking at it.
+            <div className="wr-hours-density">
+              <div className="wr-label wr-hours-title" id={densityId}>
+                Row height
+              </div>
+              <Segmented
+                labelledBy={densityId}
+                options={densities.map((option) => ({
+                  value: option.key,
+                  label: option.label,
+                }))}
+                value={density ?? ""}
+                {...(onDensityChange ? { onChange: onDensityChange } : {})}
+              />
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -568,6 +614,14 @@ export type SegmentedProps<T extends string> = {
   value: T;
   onChange?: (next: T) => void;
   label?: string;
+  /**
+   * The id of a heading that already names this group, instead of `label`.
+   *
+   * Where the name is on screen anyway, pointing at it beats repeating it:
+   * `aria-label` would have the heading read out and then the same words again
+   * as the group's name.
+   */
+  labelledBy?: string;
 };
 
 export const Segmented = <T extends string>({
@@ -575,8 +629,15 @@ export const Segmented = <T extends string>({
   value,
   onChange,
   label,
+  labelledBy,
 }: SegmentedProps<T>): React.ReactElement => (
-  <div className="wr-seg" role="group" aria-label={label}>
+  <div
+    className="wr-seg"
+    role="group"
+    {...(labelledBy
+      ? { "aria-labelledby": labelledBy }
+      : { "aria-label": label })}
+  >
     {options.map((option) => {
       const opt =
         typeof option === "string" ? { value: option, label: option } : option;

@@ -43,6 +43,7 @@ const plan = (over: Partial<TodayResponse> = {}): TodayResponse => ({
   slots: [slot("a"), slot("b")],
   meetings: [],
   outside: { before: [], after: [] },
+  syncedAt: NOON - HOUR,
   modules: [],
   ...over,
 });

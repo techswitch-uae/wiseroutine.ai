@@ -1,9 +1,15 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import {
+  agoOf,
+  DAY_DENSITIES,
+  DayBar,
   DayGrid,
   DayPicker,
+  DEFAULT_DENSITY,
   daysLabel,
   EVERY_DAY,
+  HoursMenu,
   Slot,
   WEEKDAYS,
   WEEKENDS,
@@ -234,4 +240,205 @@ test("a pinned now line shows its instant; a past day shows none", () => {
   // that keeps it off yesterday's grid.
   const live = render(<DayGrid {...day} timeZone="UTC" items={[]} />);
   expect(live.container.querySelector(".wr-daygrid-now")).toBeNull();
+});
+
+/**
+ * "Synced 2 min ago" - the one thing the refresh button could never say for
+ * itself. Coarse on purpose: it answers "is this current?", and a number that
+ * ticks every second invites you to watch it rather than believe it.
+ */
+const AGO = Date.UTC(2026, 7, 27, 12, 0, 0);
+const ago = (seconds: number) => agoOf(AGO - seconds * 1000, AGO);
+
+test("how long ago is said in the fewest words that are still true", () => {
+  expect(ago(0)).toBe("just now");
+  expect(ago(44)).toBe("just now");
+  expect(ago(60)).toBe("1 min ago");
+  expect(ago(2 * 60)).toBe("2 min ago");
+  expect(ago(59 * 60)).toBe("59 min ago");
+  expect(ago(90 * 60)).toBe("2 hr ago");
+  expect(ago(25 * 3600)).toBe("yesterday");
+  expect(ago(3 * 86_400)).toBe("3 days ago");
+});
+
+test("a clock that has drifted backwards does not sync in the future", () => {
+  expect(agoOf(AGO + 60_000, AGO)).toBe("just now");
+});
+
+test("the day bar keeps the controls together and the status with them", () => {
+  const { container } = render(
+    <DayBar
+      hours={<button type="button">Hours shown</button>}
+      date="Tuesday, 11 August"
+      span="08:30–17:30"
+      syncedAt={AGO - 2 * 60_000}
+      now={AGO}
+      onRefresh={() => undefined}
+    />,
+  );
+
+  // One group holding both controls and the status - the whole point is that
+  // they are one object rather than two ends of a header.
+  const tools = container.querySelector(".wr-daybar-tools") as HTMLElement;
+  expect(
+    tools.querySelector("button[aria-label='Sync calendars now']"),
+  ).not.toBeNull();
+  expect(tools).toHaveTextContent("Hours shown");
+  expect(tools).toHaveTextContent("Synced 2 min ago");
+
+  // It changes on its own, so it has to announce itself.
+  expect(container.querySelector("[role='status']")).toHaveTextContent(
+    "Synced 2 min ago",
+  );
+});
+
+test("a day nothing has ever synced says nothing about syncing", () => {
+  // "Never" is not news to someone who has not connected a calendar yet.
+  const { container } = render(
+    <DayBar
+      date="Tuesday, 11 August"
+      syncedAt={null}
+      now={AGO}
+      onRefresh={() => undefined}
+    />,
+  );
+  expect(container.querySelector(".wr-daybar-sync")).toBeNull();
+  expect(container.querySelector(".wr-daybar-split")).toBeNull();
+});
+
+test("while syncing, the bar says so rather than reporting a stale time", () => {
+  // Scoped to this render: these specs share a document, and a status matched
+  // across two of them is a false failure rather than a bug.
+  const { container } = render(
+    <DayBar
+      date="Tuesday, 11 August"
+      syncing
+      syncedAt={AGO - 60 * 60_000}
+      now={AGO}
+      onRefresh={() => undefined}
+    />,
+  );
+  expect(container.querySelector("[role='status']")).toHaveTextContent(
+    "Syncing…",
+  );
+  expect(
+    container.querySelector("button[aria-label='Syncing your calendars']"),
+  ).toBeDisabled();
+});
+
+/**
+ * The hours popover, and the row height that now lives in it.
+ *
+ * Two lists of radio rows in one 300px box is exactly the arrangement that
+ * reads as one list with six answers, so the assertion worth making is that
+ * they stay two: each under its own heading, each with its own checked row.
+ */
+const RANGES = [
+  {
+    key: "working",
+    label: "Working hours",
+    startMinutes: 480,
+    endMinutes: 1020,
+  },
+  { key: "full", label: "Full day", startMinutes: 0, endMinutes: 1440 },
+];
+
+test("the hours popover keeps hours and row height apart", async () => {
+  const user = userEvent.setup();
+  render(
+    <HoursMenu
+      ranges={RANGES}
+      value="working"
+      densities={DAY_DENSITIES}
+      density={DEFAULT_DENSITY}
+    />,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Hours shown" }));
+
+  // The ranges stay a list of rows; the row height is a segmented control
+  // beside them, so the two are never one list of six answers.
+  const menu = screen.getByRole("menu");
+  expect(within(menu).getAllByRole("menuitemradio")).toHaveLength(
+    RANGES.length,
+  );
+
+  // The category is on screen, not only in the accessibility tree - three
+  // bare names with nothing over them do not say what they change.
+  expect(within(menu).getByText("Row height")).toBeVisible();
+
+  // Every density is offered, by name, and exactly one is pressed. Finding the
+  // group by that name also proves the heading is what names it.
+  const heights = within(screen.getByRole("group", { name: "Row height" }));
+  for (const density of DAY_DENSITIES) {
+    expect(heights.getByRole("button", { name: density.label })).toBeVisible();
+  }
+  const pressed = heights
+    .getAllByRole("button")
+    .filter((option) => option.getAttribute("aria-pressed") === "true");
+  expect(pressed).toHaveLength(1);
+  expect(pressed[0]).toHaveTextContent(
+    DAY_DENSITIES.find((d) => d.key === DEFAULT_DENSITY)?.label as string,
+  );
+});
+
+test("the edit link stays with the ranges it edits", async () => {
+  const user = userEvent.setup();
+  render(
+    <HoursMenu
+      ranges={RANGES}
+      value="working"
+      densities={DAY_DENSITIES}
+      density={DEFAULT_DENSITY}
+      onEdit={() => undefined}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: "Hours shown" }));
+
+  const edit = screen.getByRole("button", { name: /Edit hours and ranges/ });
+  const heights = screen.getByRole("group", { name: "Row height" });
+
+  // "Edit hours and ranges" closes the list it edits. Below the row height it
+  // reads as the way out of the whole popover, and as editing a thing it has
+  // nothing to do with.
+  expect(
+    edit.compareDocumentPosition(heights) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});
+
+test("choosing a row height reports the key, and none of them says 'default'", async () => {
+  const user = userEvent.setup();
+  const chosen: string[] = [];
+  render(
+    <HoursMenu
+      ranges={RANGES}
+      value="working"
+      densities={DAY_DENSITIES}
+      density={DEFAULT_DENSITY}
+      onDensityChange={(key) => chosen.push(key)}
+    />,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Hours shown" }));
+  const heights = within(screen.getByRole("group", { name: "Row height" }));
+  await user.click(heights.getByRole("button", { name: "Roomy" }));
+  expect(chosen).toEqual(["roomy"]);
+
+  // Whichever of these somebody picks becomes their default, so naming one of
+  // them "regular" or "default" describes the app's opinion rather than what
+  // the option does.
+  for (const density of DAY_DENSITIES) {
+    expect(density.label.toLowerCase()).not.toMatch(/default|regular/);
+  }
+});
+
+test("the popover is only the hours when no densities are offered", async () => {
+  const user = userEvent.setup();
+  render(<HoursMenu ranges={RANGES} value="working" />);
+  await user.click(screen.getByRole("button", { name: "Hours shown" }));
+
+  expect(
+    screen.queryByRole("group", { name: "Row height" }),
+  ).not.toBeInTheDocument();
+  expect(screen.getAllByRole("menuitemradio")).toHaveLength(RANGES.length);
 });

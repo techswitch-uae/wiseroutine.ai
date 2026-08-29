@@ -81,3 +81,26 @@ export const daysLabel = (mask: number): string => {
   if (picked.length === 1) return picked[0] as string;
   return `${picked.slice(0, -1).join(", ")} & ${picked.at(-1)}`;
 };
+
+/**
+ * How long ago, in the fewest words that are still true.
+ *
+ * Deliberately coarse. "Synced 2 min ago" is answering one question - is what I
+ * am looking at current? - and a number that ticks every second invites the
+ * reader to watch it rather than believe it. Nothing here is precise enough to
+ * be worth re-reading, which is the point.
+ */
+export const agoOf = (at: number, now: number): string => {
+  // A clock that has drifted backwards must not produce "in 3 minutes".
+  const seconds = Math.max(0, Math.round((now - at) / 1000));
+  if (seconds < 45) return "just now";
+
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+
+  const days = Math.round(hours / 24);
+  return days === 1 ? "yesterday" : `${days} days ago`;
+};

@@ -205,6 +205,32 @@ export async function getSyncState(db: UserDatabase, calendarId: string) {
   };
 }
 
+/**
+ * When any calendar last came back with an answer.
+ *
+ * The freshest of them rather than the oldest: the question this answers is
+ * "how current is what I am looking at", and the day is drawn from all of them
+ * together. Null when nothing has ever synced, which is a real state - a
+ * brand-new account with no calendar connected - and not the same as zero.
+ *
+ * Deselected calendars are included and cannot win: nothing syncs them, so
+ * their timestamps only ever fall further behind.
+ */
+export async function lastSyncedAt(db: UserDatabase): Promise<number | null> {
+  const rows = await db.calendarSyncState.findMany({
+    select: { lastFullSyncAt: true, lastIncrementalAt: true },
+  });
+
+  let latest: number | null = null;
+  for (const row of rows) {
+    for (const at of [row.lastFullSyncAt, row.lastIncrementalAt]) {
+      const ms = at === null ? null : at.getTime();
+      if (ms !== null && (latest === null || ms > latest)) latest = ms;
+    }
+  }
+  return latest;
+}
+
 export interface SyncStatePatch {
   syncToken?: string | null;
   deltaLink?: string | null;

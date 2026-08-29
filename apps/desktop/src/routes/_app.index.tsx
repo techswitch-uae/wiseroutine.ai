@@ -1,12 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   clockOf,
+  DAY_DENSITIES,
   DashedRow,
+  DayBar,
   DayGrid,
   HoursMenu,
-  IconButton,
   OutsideRange,
-  RefreshGlyph,
   Slot,
 } from "@wiseroutine/design";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -18,6 +18,7 @@ import {
   getSessionToken,
   type TodayResponse,
 } from "../lib/api";
+import { setDensity, useDensity } from "../lib/density";
 import { notify } from "../lib/notify";
 import { SetupRail } from "../modules/setup-rail";
 import { DAY_HOURS_ANCHOR } from "./_app.settings";
@@ -46,6 +47,9 @@ const Today: React.FC = () => {
   const [data, setData] = useState<CachedToday | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  /** How much room an hour gets. Remembered between launches - see
+   *  `lib/density.ts`. */
+  const density = useDensity();
   const [queued, setQueued] = useState(() => api.pendingCount());
   const [syncing, setSyncing] = useState(false);
 
@@ -283,35 +287,27 @@ const Today: React.FC = () => {
         <SavedPlanNotice cachedAt={data.cachedAt} queued={queued} />
       ) : null}
 
-      {/* Split, per 7a: the control that changes what you are looking at sits
-          with the date it changes, and the one that goes and fetches sits on
-          the other side with the status it updates. */}
-      <header className="wr-shell-head wr-shell-head-bar wr-page-bar">
-        <div className="wr-dayhead">
+      <DayBar
+        hours={
           <HoursMenu
             ranges={data.ranges}
             value={data.range}
             onChange={setRange}
+            densities={DAY_DENSITIES}
+            density={density.key}
+            onDensityChange={setDensity}
             onEdit={() =>
               void navigate({ to: "/settings", hash: DAY_HOURS_ANCHOR })
             }
           />
-          <div className="wr-dayhead-text">
-            <span className="wr-page-date">{dayLabel}</span>
-            <span className="wr-page-helper">{hoursLabel}</span>
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <IconButton
-            label={syncing ? "Syncing your calendars" : "Sync calendars now"}
-            busy={syncing}
-            disabled={syncing}
-            onClick={refresh}
-          >
-            <RefreshGlyph />
-          </IconButton>
-        </div>
-      </header>
+        }
+        date={dayLabel}
+        span={hoursLabel}
+        syncing={syncing}
+        syncedAt={data.syncedAt}
+        now={now}
+        onRefresh={refresh}
+      />
 
       <div className="wr-page-scroll">
         {data.outside.before.length > 0 ? (
@@ -339,6 +335,11 @@ const Today: React.FC = () => {
             dayStart={data.dayStart}
             dayEnd={data.dayEnd}
             timeZone={data.timeZone}
+            // Both halves of the density, never one. The scale and the floor
+            // are the same decision, and splitting them is how a day ends up
+            // with every block drawn at the same lie - see `DayDensity`.
+            quarterStep={density.quarterStep}
+            minBlockHeight={density.minBlockHeight}
             onMove={move}
             items={rows.map((row) => ({
               key: row.key,

@@ -1,10 +1,18 @@
 import {
+  atOf,
+  DAY_DENSITIES,
+  type DayDensity,
   type DayScale,
+  DEFAULT_DENSITY,
+  densityOf,
   dropAt,
   EDGE_ZONE,
   edgeScroll,
+  floorMinutes,
   layoutDay,
   MAX_SCROLL_SPEED,
+  SNAP_MINUTES,
+  scaleFor,
   snap,
   yOf,
 } from "@wiseroutine/design";
@@ -281,5 +289,177 @@ describe("scrolling at the edges", () => {
     // screen and stopped moving.
     expect(edgeScroll(900, bounds)).toBe(MAX_SCROLL_SPEED);
     expect(edgeScroll(-400, bounds)).toBe(-MAX_SCROLL_SPEED);
+  });
+});
+
+/**
+ * Density, and the invariants every preset has to satisfy.
+ *
+ * Written against the whole list rather than against one preset on purpose.
+ * The point of these is not that today's three numbers are right - it is that a
+ * fourth preset added in six months cannot quietly break dragging, or produce a
+ * day where most blocks are drawn at a lie. Each of these fails on the preset
+ * that broke it, by name.
+ */
+const DAY = Date.UTC(2026, 0, 5, 8, 0, 0, 0);
+const DAY_END = DAY + 10 * 3_600_000;
+const each = (run: (density: DayDensity) => void) => {
+  for (const density of DAY_DENSITIES) {
+    // Named so a failure says which preset, not just which assertion.
+    test(`${density.key}`, () => run(density));
+  }
+};
+
+describe("every density is a usable surface", () => {
+  each((density) => {
+    const scale = scaleFor(density, DAY);
+    expect(scale.pxPerMinute).toBeGreaterThan(0);
+    expect(scale.minHeight).toBeGreaterThan(0);
+    expect(scale.dayStart).toBe(DAY);
+    // A card below about thirty pixels cannot be read or grabbed, whatever the
+    // day is zoomed to.
+    expect(density.minBlockHeight).toBeGreaterThanOrEqual(30);
+  });
+});
+
+describe("a snap step is always big enough to aim at", () => {
+  each((density) => {
+    // The ruler is five minutes. If a step is a couple of pixels the block
+    // jumps between two of them and lands wherever the hand shook.
+    const step = SNAP_MINUTES * scaleFor(density, DAY).pxPerMinute;
+    expect(step).toBeGreaterThanOrEqual(8);
+  });
+});
+
+describe("most of the day is drawn at its true height", () => {
+  each((density) => {
+    // Below this many minutes a block sits on the floor instead of its
+    // duration. Let it grow and a compact day becomes a column of identical
+    // cards that all claim to be the same length.
+    expect(floorMinutes(density)).toBeLessThanOrEqual(15);
+    // And the floor has to actually bind, or `minHeight` is doing nothing and
+    // five-minute blocks are four pixels tall.
+    expect(floorMinutes(density)).toBeGreaterThan(SNAP_MINUTES);
+  });
+});
+
+describe("pixels and instants round-trip", () => {
+  each((density) => {
+    const scale = scaleFor(density, DAY);
+    // A drag converts both ways on every pointer move. If these disagree the
+    // block drifts under the cursor.
+    for (const minutes of [0, 5, 37, 240, 599]) {
+      const at = DAY + minutes * 60_000;
+      expect(atOf(yOf(at, scale), scale)).toBeCloseTo(at, 6);
+    }
+  });
+});
+
+describe("a drop keeps its length and stays inside the day", () => {
+  each((density) => {
+    const scale = scaleFor(density, DAY);
+    const block = {
+      key: "a",
+      startsAt: DAY + 60 * 60_000,
+      endsAt: DAY + 90 * 60_000,
+    };
+    const length = block.endsAt - block.startsAt;
+
+    // Well past both ends, and everywhere sensible in between.
+    for (const y of [-9999, -1, 0, 37, 250, 999, 99_999]) {
+      const drop = dropAt(y, block, scale, DAY_END);
+      expect(drop.endsAt - drop.startsAt).toBe(length);
+      expect(drop.startsAt).toBeGreaterThanOrEqual(DAY);
+      expect(drop.endsAt).toBeLessThanOrEqual(DAY_END);
+      // And always on the ruler, so it cannot land between two lines.
+      expect(drop.startsAt).toBe(snap(drop.startsAt));
+    }
+  });
+});
+
+describe("dragging a block to where it already is leaves it there", () => {
+  each((density) => {
+    const scale = scaleFor(density, DAY);
+    const block = {
+      key: "a",
+      startsAt: DAY + 65 * 60_000,
+      endsAt: DAY + 95 * 60_000,
+    };
+    // Picked up and put down without moving. A scale that rounded badly would
+    // shift it by a step every time it was touched.
+    const drop = dropAt(yOf(block.startsAt, scale), block, scale, DAY_END);
+    expect(drop.startsAt).toBe(block.startsAt);
+    expect(drop.endsAt).toBe(block.endsAt);
+  });
+});
+
+describe("the same day lays out the same way at every density", () => {
+  each((density) => {
+    // Density changes how tall the day is, never what overlaps what. Three
+    // blocks: two clashing, one clear.
+    const blocks = [
+      { key: "a", startsAt: DAY, endsAt: DAY + 60 * 60_000 },
+      { key: "b", startsAt: DAY + 30 * 60_000, endsAt: DAY + 90 * 60_000 },
+      { key: "c", startsAt: DAY + 5 * 3_600_000, endsAt: DAY + 6 * 3_600_000 },
+    ];
+    const placed = layoutDay(blocks, scaleFor(density, DAY));
+    const by = (key: string) =>
+      placed.find((p) => p.block.key === key) as (typeof placed)[number];
+
+    expect(by("a").columns).toBe(2);
+    expect(by("b").columns).toBe(2);
+    expect(by("a").column).not.toBe(by("b").column);
+    // The afternoon block is alone, so one clash in the morning must not
+    // narrow it.
+    expect(by("c").columns).toBe(1);
+    expect(by("c").span).toBe(1);
+  });
+});
+
+describe("blocks keep their order down the day at every density", () => {
+  each((density) => {
+    const scale = scaleFor(density, DAY);
+    const earlier = { key: "a", startsAt: DAY, endsAt: DAY + 30 * 60_000 };
+    const later = {
+      key: "b",
+      startsAt: DAY + 30 * 60_000,
+      endsAt: DAY + 60 * 60_000,
+    };
+    // Whatever the scale, later is lower. A negative or zero pxPerMinute would
+    // invert the day, and nothing else here would notice.
+    expect(yOf(later.startsAt, scale)).toBeGreaterThan(
+      yOf(earlier.startsAt, scale),
+    );
+  });
+});
+
+describe("densityOf", () => {
+  test("finds a preset by key", () => {
+    expect(densityOf("compact").key).toBe("compact");
+    expect(densityOf("roomy").key).toBe("roomy");
+  });
+
+  test("falls back for anything storage can hand back", () => {
+    // These are not hypothetical: the value comes from localStorage, which is
+    // empty on a first run and editable by hand thereafter.
+    for (const junk of [null, undefined, "", "  ", "COMPACT", "medium", "{}"]) {
+      expect(densityOf(junk).key).toBe(DEFAULT_DENSITY);
+    }
+  });
+
+  test("the default is a real preset", () => {
+    // A renamed preset would otherwise leave the fallback pointing at nothing.
+    expect(DAY_DENSITIES.some((d) => d.key === DEFAULT_DENSITY)).toBe(true);
+  });
+
+  test("keys are unique, so a lookup cannot be ambiguous", () => {
+    const keys = DAY_DENSITIES.map((d) => d.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  test("denser presets really are denser", () => {
+    // The list is the menu's order, so it has to read as an ordering.
+    const steps = DAY_DENSITIES.map((d) => d.quarterStep);
+    expect([...steps].sort((a, b) => a - b)).toEqual(steps);
   });
 });

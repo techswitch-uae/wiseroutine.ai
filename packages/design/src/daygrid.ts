@@ -47,6 +47,93 @@ export interface DayScale {
 
 const MINUTE = 60_000;
 
+/**
+ * How much room an hour gets.
+ *
+ * One choice, not two. The scale and the shortest a block may be drawn are the
+ * same decision wearing different hats, and letting them be set independently
+ * is how a day ends up with every block on its floor: `heightOf` stops being
+ * proportional below `minHeight / pxPerMinute` minutes, so halving the scale
+ * without touching the floor doubles the span of the day that is drawn at a lie.
+ * Bundling them means picking a density cannot produce an incoherent surface.
+ *
+ * The floor does not shrink in step with the scale, and must not. A card needs
+ * roughly thirty pixels before it stops being readable and grabbable, whatever
+ * the day is zoomed to - so the compact end trades a slightly larger span of
+ * non-proportional blocks for cards that can still be used.
+ */
+export interface DayDensity {
+  key: string;
+  /** Shown in the menu. Three names is the whole choice - there is no room
+   *  for a sentence under each in a 300px popover, and none is needed. */
+  label: string;
+  /** Height of a quarter-hour, in pixels. The scale, and the only one. */
+  quarterStep: number;
+  /** The shortest a block may be drawn - see `DayScale.minHeight`. */
+  minBlockHeight: number;
+}
+
+export const DAY_DENSITIES: readonly DayDensity[] = [
+  {
+    key: "compact",
+    label: "Compact",
+    quarterStep: 40,
+    minBlockHeight: 34,
+  },
+  {
+    key: "balanced",
+    label: "Balanced",
+    quarterStep: 64,
+    minBlockHeight: 46,
+  },
+  {
+    key: "roomy",
+    label: "Roomy",
+    quarterStep: 96,
+    minBlockHeight: 56,
+  },
+];
+
+/** Where the day starts before anyone has an opinion. */
+export const DEFAULT_DENSITY = "balanced";
+
+/**
+ * The density a stored key names, or the default.
+ *
+ * Total on purpose. The key comes out of storage, which means it can be
+ * anything at all: absent on a first run, stale after a rename, or edited by
+ * hand. None of those is worth an exception on the way to drawing a day, and
+ * "the default" is the right answer to all three.
+ */
+export function densityOf(key: string | null | undefined): DayDensity {
+  return (
+    DAY_DENSITIES.find((density) => density.key === key) ??
+    DAY_DENSITIES.find((density) => density.key === DEFAULT_DENSITY) ??
+    // Unreachable while the list has the default in it, and cheaper than
+    // making every caller handle an undefined that cannot happen.
+    (DAY_DENSITIES[0] as DayDensity)
+  );
+}
+
+/** The surface a density describes, anchored to a day. */
+export function scaleFor(density: DayDensity, dayStart: number): DayScale {
+  return {
+    dayStart,
+    pxPerMinute: density.quarterStep / 15,
+    minHeight: density.minBlockHeight,
+  };
+}
+
+/**
+ * The longest block still drawn on the floor rather than at its true height.
+ *
+ * The one number that says how much of a day a density tells the truth about,
+ * and the reason the two settings travel together. Exported because it is what
+ * the tests assert on, and what anyone adding a fourth preset needs to check.
+ */
+export const floorMinutes = (density: DayDensity): number =>
+  density.minBlockHeight / (density.quarterStep / 15);
+
 /** Snap grain. Two minutes of rounding is invisible; a block drawn between the
  *  lines is not. */
 export const SNAP_MINUTES = 5;

@@ -1,6 +1,14 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
-import { Avatar, BrandMark, Keycap, NavItem } from "./components";
+import {
+  Avatar,
+  BrandMark,
+  IconButton,
+  Keycap,
+  NavItem,
+  RefreshGlyph,
+} from "./components";
+import { agoOf } from "./time";
 
 /**
  * The app frame.
@@ -278,3 +286,83 @@ export const PageHead: React.FC<{
     {trailing}
   </>
 );
+
+/**
+ * Everything you do *to* a day, in one object.
+ *
+ * These used to sit at opposite ends of the header, on the argument that
+ * changing what you are looking at and going to fetch it are different classes
+ * of act. True, and it still left the two controls a page apart with the date
+ * between them, so using either meant crossing the whole header - and the
+ * refresh button reported nothing, so the one question it exists to answer
+ * ("is this current?") had no answer anywhere on screen.
+ *
+ * So: one group, held to the right. What the day shows, going to get it, and
+ * what going to get it last achieved - in that order, so the status sits
+ * against the button it reports on rather than across the header from it. The
+ * date leads and stays the largest thing here: it is the page's title, not a
+ * member of the toolbar.
+ */
+export const DayBar: React.FC<{
+  /** The hours picker, already configured. Passed in rather than built here,
+   *  so the bar never has to know what a range is. */
+  hours?: React.ReactNode;
+  date: string;
+  /** The window on screen, e.g. "08:30–17:30". */
+  span?: string;
+  onRefresh?: () => void;
+  syncing?: boolean;
+  /**
+   * When a calendar last came back with an answer, and the clock to measure it
+   * against. Null - nothing has ever synced - draws no status at all: "never"
+   * is not news to someone who has not connected a calendar yet.
+   */
+  syncedAt?: number | null;
+  now?: number;
+}> = ({ hours, date, span, onRefresh, syncing, syncedAt, now }) => {
+  const status = syncing
+    ? "Syncing…"
+    : syncedAt != null && now !== undefined
+      ? `Synced ${agoOf(syncedAt, now)}`
+      : null;
+
+  return (
+    <header className="wr-shell-head wr-shell-head-bar wr-page-bar wr-daybar">
+      <div className="wr-daybar-title">
+        <span className="wr-page-date">{date}</span>
+        {span ? <span className="wr-page-helper">{span}</span> : null}
+      </div>
+
+      {/* The two controls, then what the second of them last achieved - so the
+          status sits against the button it belongs to, and the whole group
+          against the edge. */}
+      <div className="wr-daybar-tools">
+        {hours}
+        {hours && onRefresh ? (
+          <span className="wr-daybar-split" aria-hidden="true" />
+        ) : null}
+        {onRefresh ? (
+          <IconButton
+            label={syncing ? "Syncing your calendars" : "Sync calendars now"}
+            busy={syncing ?? false}
+            disabled={syncing ?? false}
+            onClick={onRefresh}
+          >
+            <RefreshGlyph />
+          </IconButton>
+        ) : null}
+        {status ? (
+          // `role="status"` rather than a plain span: this changes on its own,
+          // and a change nobody is told about is one only sighted users get.
+          <span className="wr-daybar-sync" role="status">
+            <span
+              className={cx("wr-dot", syncing && "wr-dot-soft")}
+              aria-hidden="true"
+            />
+            {status}
+          </span>
+        ) : null}
+      </div>
+    </header>
+  );
+};

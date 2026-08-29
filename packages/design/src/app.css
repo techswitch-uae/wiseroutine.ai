@@ -524,10 +524,10 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
 /* The date, the status and the sync control. Part of the frame, so it does not
    move - see `.wr-page-bar`. The hairline is what separates it from the day
    once the day has scrolled up behind it. */
-.wr-shell-head-bar {
-  padding-bottom: 12px; margin-bottom: 2px;
-  border-bottom: 1px solid var(--wr-hairline);
-}
+/* No rule under it. The day's own first hour line is a hairline in the same
+   ink a few pixels below, and two of them read as a mistake. The bar is told
+   apart from the day by the gap, which is what the padding is for. */
+.wr-shell-head-bar { padding-bottom: 12px; margin-bottom: 2px; }
 .wr-shell-head {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 14px;
@@ -1226,9 +1226,11 @@ img.wr-avatar { object-fit: cover; }
 .wr-hours-opt[aria-checked="true"] .wr-hours-name { font-weight: 600; }
 .wr-hours-span { font: 600 11.5px var(--font-body); color: var(--wr-text-soft); }
 
-.wr-hours-foot {
-  margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--wr-hairline);
-}
+/* Closes the ranges section rather than the popover: "Edit hours and ranges"
+   goes with the list it edits, not under everything. No rule of its own - the
+   list above it is the same question, and the section below draws the line
+   that separates them. */
+.wr-hours-foot { margin-top: 9px; }
 .wr-hours-edit {
   display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 9px 13px; border: 0; border-radius: 999px; cursor: pointer;
@@ -1241,6 +1243,55 @@ img.wr-avatar { object-fit: cover; }
 /* The date and the control that changes what is under it, as one cluster. */
 .wr-dayhead { display: flex; align-items: center; gap: 11px; min-width: 0; }
 .wr-dayhead-text { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+
+/* ── The day's own bar ─────────────────────────────────────────────────────
+   One group for everything you do *to* the day - what it shows, going to
+   fetch it, and what that fetching last achieved - then the date, which is the
+   page's title and stays the largest thing here rather than becoming another
+   member of the toolbar. */
+.wr-daybar { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.wr-daybar-tools {
+  /* Pushed to the far edge rather than laid out by `space-between`, so a third
+     thing appearing in this header does not silently land in the middle. */
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 2px; flex: none;
+  padding: 3px; border-radius: 999px;
+  background: var(--color-neutral-200);
+  box-shadow: inset 0 0 0 1px var(--wr-hairline);
+}
+/* Flat inside the group. The group is the object and the buttons are its
+   parts; a ring around each of them inside a ring draws three objects where
+   there is one. */
+.wr-daybar-tools .wr-iconbtn { background: transparent; box-shadow: none; }
+.wr-daybar-tools .wr-iconbtn:hover:not(:disabled) {
+  background: var(--color-neutral-300); color: var(--color-text);
+}
+.wr-daybar-tools .wr-iconbtn-on,
+.wr-daybar-tools .wr-iconbtn-on:hover {
+  background: var(--color-text); color: var(--color-neutral-100);
+}
+.wr-daybar-split {
+  width: 1px; height: 17px; margin: 0 3px; flex: none;
+  background: var(--wr-hairline);
+}
+/* Inside the group rather than across the header from it: it is the answer to
+   the question the button next to it exists to ask. */
+.wr-daybar-sync {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 0 12px 0 6px; white-space: nowrap;
+  font: 600 11.5px var(--font-body); color: var(--wr-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Mid-sync the dot is a state, not an alert. */
+.wr-dot-soft { background: var(--color-accent-300); }
+.wr-daybar-title {
+  display: flex; align-items: baseline; gap: 10px; min-width: 0;
+}
+/* Narrow: the date keeps its place and the status gives up its words - the
+   dot alone still says the calendars are being read. */
+@media (max-width: 720px) {
+  .wr-daybar-sync { font-size: 0; gap: 0; padding: 0 9px 0 4px; }
+}
 
 /* ── What the range leaves out ─────────────────────────────────────────────
    Dashed, because it is the same statement the empty row makes: something
@@ -1384,3 +1435,14 @@ img.wr-avatar { object-fit: cover; }
 .wr-activity-row:first-child { padding-top: 0; }
 .wr-activity-row .wr-rule { height: 30px; flex: none; }
 .wr-activity-body { flex: 1; min-width: 0; }
+
+/* The row-height control in the hours popover. The rule above it is what keeps
+   it a separate question from the ranges, now that it has no heading of its
+   own to do that. */
+.wr-hours-density {
+  margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--wr-hairline);
+}
+.wr-hours-density .wr-hours-title { margin-bottom: 8px; }
+.wr-hours-density .wr-seg { width: 100%; }
+.wr-hours-density .wr-seg-opt { flex: 1; }

@@ -6,6 +6,7 @@ import {
   deleteConnection,
   forgetStoredTitles,
   getCalendarForSync,
+  lastSyncedAt,
   listActivities,
   listCalendars,
   listConnections,
@@ -776,9 +777,10 @@ app.get("/today", async (c) => {
   // carries are the ones this call just decided on.
   await fillDay(c, wholeDay);
 
-  const [slots, events] = await Promise.all([
+  const [slots, events, syncedAt] = await Promise.all([
     listSlotsForRange(db, bounds.start, bounds.end),
     listEventsInRange(db, wholeDay.start, wholeDay.end),
+    lastSyncedAt(db),
   ]);
 
   const busy = toBusyBlocks(events);
@@ -818,6 +820,9 @@ app.get("/today", async (c) => {
       conflictEventId: s.conflictEventId,
     })),
     meetings: inside,
+    // The one thing the refresh button could never say for itself: whether
+    // what is on screen is current. Null until a calendar has been read once.
+    syncedAt,
     // Empty rather than absent when the setting is off, so the client has one
     // shape to render and no "is this feature on?" branch of its own.
     outside: user.showOutsideRange

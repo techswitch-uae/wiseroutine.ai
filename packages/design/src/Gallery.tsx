@@ -1,5 +1,6 @@
 import type React from "react";
 import { useState } from "react";
+import { DAY_DENSITIES, DEFAULT_DENSITY } from "./daygrid";
 import "./gallery.css";
 import {
   Button,
@@ -40,6 +41,7 @@ import {
   UpdatePill,
 } from "./components";
 import { ACTIVITY_LIBRARY, TODAY_FIXTURE } from "./fixtures";
+import { DayBar } from "./layout";
 import {
   AccountScreen,
   type ActivityDraft,
@@ -183,6 +185,26 @@ const GalleryMovableDay: React.FC = () => {
 
 /** Live, because the interesting part is what the summary line says as the
  *  mask changes. */
+/** The hours picker keeps its own choice, so the gallery has to hold one. */
+const GalleryHoursMenu: React.FC = () => {
+  const [range, setRange] = useState("working");
+  return (
+    <HoursMenu
+      ranges={[
+        {
+          key: "working",
+          label: "Working hours",
+          startMinutes: 510,
+          endMinutes: 1050,
+        },
+        { key: "full", label: "Full day", startMinutes: 0, endMinutes: 1440 },
+      ]}
+      value={range}
+      onChange={setRange}
+    />
+  );
+};
+
 const GalleryDayPicker: React.FC = () => {
   const [days, setDays] = useState(WEEKDAYS);
   return <DayPicker value={days} onChange={setDays} />;
@@ -249,6 +271,7 @@ export const Gallery: React.FC = () => {
   const [draftName, setDraftName] = useState("Mara Kovac");
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [hours, setHours] = useState("working");
+  const [density, setDensity] = useState(DEFAULT_DENSITY);
   const [dayHours, setDayHours] = useState<DayHoursDraft>({
     dayStartMinutes: 8 * 60 + 30,
     dayEndMinutes: 17 * 60 + 30,
@@ -1508,6 +1531,59 @@ export const Gallery: React.FC = () => {
       </Section>
 
       <Section
+        title="The day's own bar"
+        blurb="Everything you do to a day, in one object. These used to sit at opposite ends of the header - changing what you are looking at on one side, going to fetch it on the other - which read well as a principle and meant crossing the whole header to use either. Worse, the refresh button reported nothing, so the one question it exists to answer had no answer on screen."
+      >
+        <Row
+          name="Day bar"
+          tag="header"
+          wide
+          why={
+            <>
+              The date leads and stays the largest thing here: it is the page's
+              title, not a member of the toolbar. The group is held to the right
+              and reads the way it is used: what the day shows, going to fetch
+              it, then what that fetching last achieved. The sync status lives{" "}
+              <b>inside</b> the group rather than across the header from it,
+              because it is the answer to the question the button beside it
+              exists to ask - and it is coarse on purpose, since a number
+              ticking every second invites you to watch it rather than believe
+              it. Nothing ever synced draws no status at all: "never" is not
+              news to someone who has not connected a calendar yet.
+            </>
+          }
+        >
+          <div style={{ display: "grid", gap: 14, width: 620 }}>
+            <DayBar
+              hours={<GalleryHoursMenu />}
+              date="Tuesday, 11 August"
+              span="08:30–17:30"
+              syncedAt={GRID_DAY_START - 2 * 60_000}
+              now={GRID_DAY_START}
+              onRefresh={() => undefined}
+            />
+            <DayBar
+              hours={<GalleryHoursMenu />}
+              date="Tuesday, 11 August"
+              span="08:30–17:30"
+              syncing
+              syncedAt={GRID_DAY_START - 2 * 60_000}
+              now={GRID_DAY_START}
+              onRefresh={() => undefined}
+            />
+            <DayBar
+              hours={<GalleryHoursMenu />}
+              date="Tuesday, 11 August"
+              span="08:30–17:30"
+              syncedAt={null}
+              now={GRID_DAY_START}
+              onRefresh={() => undefined}
+            />
+          </div>
+        </Row>
+      </Section>
+
+      <Section
         title="The day as a surface"
         blurb="A ruled grid rather than a list of rows. A list gives every block its own start time and nothing to read it against, so a day of 11:58, 12:23, 12:48 looks like a series of mistakes - it is not, that is simply where the gaps were. The ruler is what makes that legible."
       >
@@ -1811,6 +1887,9 @@ export const Gallery: React.FC = () => {
               ]}
               value={hours}
               onChange={setHours}
+              densities={DAY_DENSITIES}
+              density={density}
+              onDensityChange={setDensity}
             />
           </div>
         </Row>

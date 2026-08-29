@@ -29,6 +29,11 @@ test("a meeting from a connected calendar shows on the day", async ({
   // route guard bounces to /signin before anything else runs.
   await expect(page).not.toHaveURL(/signin/);
   await expect(page.getByText(MEETING.title)).toBeVisible();
+
+  // The day bar answers the question its refresh button exists to ask, and the
+  // answer comes from the server - the client cannot know when a calendar was
+  // last read, only when *it* last asked.
+  await expect(page.locator(".wr-daybar-tools")).toContainText(/Synced/);
 });
 
 test("unticking a calendar takes its meetings off the day", async ({

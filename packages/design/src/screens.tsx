@@ -540,8 +540,8 @@ export const DayHoursSection: React.FC<{
           title="Custom range"
           note={
             custom
-              ? "The label is what appears in the day view picker. One custom range for now."
-              : "A second window to switch the day to - your evenings, or the hours you are on call. One custom range for now."
+              ? "The label is what appears in the day view picker."
+              : "A second window to switch the day to - your evenings, or the hours you are on call."
           }
           action={
             <Toggle

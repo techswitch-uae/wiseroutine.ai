@@ -267,7 +267,11 @@ test("a day set to open on a range that no longer exists is not blank", async ({
   await expect(hoursShown(page)).toHaveText("08:00–18:00");
   await expect(page.getByText(MIDDAY.title)).toBeVisible();
   await openPicker(page);
-  await expect(page.getByRole("menuitemradio")).toHaveCount(2);
+  // Scoped to the ranges, which are not the only radios in this popover: row
+  // height is a second question living under the same menu.
+  await expect(
+    page.getByRole("group", { name: "Hours shown" }).getByRole("menuitemradio"),
+  ).toHaveCount(2);
 });
 
 /* ── Holding still while other things happen ─────────────────────────────── */

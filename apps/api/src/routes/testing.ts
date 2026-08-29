@@ -185,6 +185,14 @@ testing.post("/calendar", requireUser, async (c) => {
         createdAt: new Date(now),
       },
     });
+    // A seeded calendar is standing in for one that has actually been read,
+    // so it carries the state a read leaves behind. Without this the day has
+    // no idea when it was last synced, and anything that reports freshness is
+    // untestable rather than merely untested.
+    await db.calendarSyncState.create({
+      data: { calendarId, lastIncrementalAt: new Date(now) },
+    });
+
     made.push({ id: calendarId, name: calendar.name });
 
     for (const event of calendar.events ?? []) {
