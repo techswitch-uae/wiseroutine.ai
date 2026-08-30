@@ -100,6 +100,19 @@ export async function resetDatabases(): Promise<void> {
  * these, so removing users before what points at them fails on the FK.
  */
 export async function resetDirectory(): Promise<void> {
+  // Retried once, because the previous test's request may still be writing.
+  // `foreground` schedules its sync work in `waitUntil`, so a row referencing
+  // a user can land after the response and between two of the deletes below -
+  // and the user delete then fails the foreign key. One more pass clears what
+  // arrived late; the request it came from is over by then.
+  try {
+    await emptyDirectory();
+  } catch {
+    await emptyDirectory();
+  }
+}
+
+async function emptyDirectory(): Promise<void> {
   const dir = directory();
   await dir.watchChannel.deleteMany();
   await dir.scheduledWork.deleteMany();

@@ -15,8 +15,10 @@ import {
 } from "@wiseroutine/design";
 import { useEffect, useState } from "react";
 import { setAccount, useAccount } from "../lib/account";
+import { armAlerts } from "../lib/alerts";
 import { ApiError, api, getSessionToken, setSessionToken } from "../lib/api";
 import { dismiss, useToasts } from "../lib/notify";
+import { useTodayPlan } from "../lib/plan-store";
 import { dayLabel, periodLabel, scopeOf, todayOf } from "../lib/scope";
 import "../lib/rail";
 import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
@@ -123,8 +125,45 @@ const UpdateNotice: React.FC = () => {
   );
 };
 
+/**
+ * The menu bar and the notifications, driven from the shell.
+ *
+ * They used to be armed by an effect inside the Today page, which was fine for
+ * as long as Today was the only place to be. It is not: the moment someone
+ * opens the week, the month, or Settings, that effect unmounts and the menu bar
+ * keeps whatever it was last told - which is how it ends up announcing
+ * "Breathing · 2m" for an activity that ran, or was replanned away, twenty
+ * minutes ago. Paging the day forward did the same thing.
+ *
+ * So it lives here, above every page, and reads today's plan rather than the
+ * day on screen - see `useTodayPlan`. Nothing about a menu bar was ever a
+ * property of one route.
+ */
+const MENU_BAR_TICK_MS = 30_000;
+
+const useMenuBar = (): void => {
+  const plan = useTodayPlan();
+  const [now, setNow] = useState(() => Date.now());
+
+  // Its own clock. The countdown beside the icon is drawn from this, so
+  // without it the menu bar only moves when the plan does - and a plan that is
+  // not changing is exactly when a countdown has to.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), MENU_BAR_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(
+    // No plan is a real answer, not a reason to skip: `armAlerts` pushes an
+    // empty up-next for it, which is what clears a stale title off the bar.
+    () => armAlerts(plan?.slots ?? [], now),
+    [plan, now],
+  );
+};
+
 const AppLayout: React.FC = () => {
   const navigate = useNavigate();
+  useMenuBar();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   // The switcher names the period on screen, and the period lives in the URL -
   // see `lib/scope`. Reading it here rather than from the page keeps the shell

@@ -14,7 +14,7 @@ import {
   Slot,
 } from "@wiseroutine/design";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { armAlerts, PAUSE_MS, pauseAlerts, upNextOf } from "../lib/alerts";
+import { PAUSE_MS, pauseAlerts, upNextOf } from "../lib/alerts";
 import {
   ApiError,
   api,
@@ -439,23 +439,11 @@ const Today: React.FC = () => {
       });
   }, []);
 
-  /**
-   * The day, said out loud.
-   *
-   * Re-armed whenever the plan or the minute changes, which is what keeps a
-   * replanned slot from announcing itself at the time it used to be at. The
-   * disposer matters: without it every reload would leave its timers running
-   * and a slot would be announced once per reload since the app opened.
-   */
-  useEffect(() => {
-    if (!data) return;
-    // Only the day you are actually in. Reading ahead is looking, not
-    // committing, and a glance at next Tuesday must not queue next Tuesday's
-    // notifications - nor silently drop today's, which is what arming the
-    // wrong day's would do when this replaced them.
-    if (!atToday) return;
-    return armAlerts(data.slots, now);
-  }, [data, now, atToday]);
+  /* The day said out loud - the menu bar and the notifications - is armed by
+     the shell now, from today's plan rather than from this page's. It was
+     here, and so it stopped the moment anyone opened the week or Settings,
+     leaving the menu bar announcing a slot that had long since run. See
+     `useMenuBar` in `_app.tsx`. */
 
   /**
    * Presses that arrived from the menu bar rather than the window.

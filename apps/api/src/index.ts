@@ -42,7 +42,12 @@ import { billing } from "./routes/billing";
 import { connect } from "./routes/connect";
 import { signin } from "./routes/signin";
 import { testing } from "./routes/testing";
-import { type SyncDeps, syncCalendar, WINDOW_BEHIND_DAYS } from "./sync/engine";
+import {
+  type SyncDeps,
+  syncCalendar,
+  syncWindowStart,
+  WINDOW_BEHIND_DAYS,
+} from "./sync/engine";
 import { realignAfterSync } from "./sync/realign";
 import { ensureWatch, type WatchDeps } from "./sync/watch";
 import { webhooks } from "./webhooks";
@@ -276,6 +281,14 @@ async function runSyncJob(
       provider: target.provider,
       providerCalendarId: target.providerCalendarId,
       storeTitles: user?.storeEventTitles ?? true,
+      // Never reach back before the calendar was connected. The zone is only
+      // known out here, which is why the floor is computed here and not in
+      // the engine.
+      windowStart: syncWindowStart(
+        now,
+        target.connectedAt,
+        user?.timeZone ?? "UTC",
+      ),
     },
     now,
     newId,

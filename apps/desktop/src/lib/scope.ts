@@ -41,13 +41,6 @@ export const monthOf = (
   return { year: Number(match[1]), month };
 };
 
-export const yearOf = (value: string | undefined, fallback: Date): number => {
-  const year = Number(value);
-  return Number.isInteger(year) && year >= 1970 && year <= 9999
-    ? year
-    : fallback.getFullYear();
-};
-
 /** `YYYY-MM` for a search parameter. */
 export const monthKey = (year: number, month: number): string =>
   `${year}-${String(month + 1).padStart(2, "0")}`;
@@ -78,6 +71,10 @@ export const monthLabel = (
     ? fmt(new Date(year, month, 1), { month: "long" })
     : fmt(new Date(year, month, 1), { month: "long", year: "numeric" });
 
+/** "30 August 2026" - a date written out, for a sentence rather than a header. */
+export const fullDate = (at: number): string =>
+  fmt(new Date(at), { day: "numeric", month: "long", year: "numeric" });
+
 /** The date on the switcher's Day row - see rule 1: Day is always today. */
 export const dayLabel = (today: Date): string =>
   fmt(today, { day: "numeric", month: "short" });
@@ -103,9 +100,7 @@ export const scopeOf = (pathname: string): Scope | null =>
       ? "week"
       : pathname === "/month"
         ? "month"
-        : pathname === "/year"
-          ? "year"
-          : null;
+        : null;
 
 export const periodLabel = (
   scope: Scope | null,
@@ -126,7 +121,6 @@ export const periodLabel = (
     const { year, month } = monthOf(str("m"), today);
     return monthLabel(year, month, true);
   }
-  if (scope === "year") return String(yearOf(str("y"), today));
   return undefined;
 };
 

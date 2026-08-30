@@ -2,12 +2,7 @@ import type React from "react";
 import { useState } from "react";
 import { DAY_DENSITIES, DEFAULT_DENSITY } from "./daygrid";
 import "./gallery.css";
-import {
-  monthCellsOf,
-  weekDaysOf,
-  weekStartOf,
-  yearMonthsOf,
-} from "./calendar";
+import { monthCellsOf, weekDaysOf, weekStartOf } from "./calendar";
 import {
   Button,
   CalendarPicker,
@@ -64,14 +59,7 @@ import {
   TodayScreen,
 } from "./screens";
 import { EVERY_DAY, WEEKDAYS } from "./time";
-import {
-  MonthGrid,
-  ScopeNav,
-  ScopeSwitcher,
-  WeekGrid,
-  WeekLegend,
-  YearGrid,
-} from "./views";
+import { MonthGrid, ScopeNav, ScopeSwitcher, WeekGrid } from "./views";
 
 /** A fixed 09:00 UTC, so the specimen never shifts with the clock. */
 const GRID_DAY_START = Date.UTC(2026, 7, 27, 9, 0, 0);
@@ -2046,7 +2034,7 @@ export const Gallery: React.FC = () => {
 
       <Section
         title="Calendar views"
-        blurb="Day, week, month and year are one calendar at four zooms, not four places to be - which is why the switcher is a bordered group inside the rail rather than four more nav rows. Three rules hold across all of them: Day is always today, you move forward and not back, and Today comes home from anywhere."
+        blurb="Day, week and month are one calendar at three zooms, not three places to be - which is why the switcher is a bordered group inside the rail rather than three more nav rows. Three rules hold across all of them: Day is always today, you move forward and not back, and Today comes home from anywhere."
       >
         <Row
           name="Scope switcher"
@@ -2094,9 +2082,13 @@ export const Gallery: React.FC = () => {
           why={
             <>
               Meetings sit back on the recessed surface and your own slots come
-              forward, so the gaps are what the eye lands on. The column head is
-              the only control: a week is read and navigated, and a slot is
-              still moved in the day.
+              forward, so the gaps are what the eye lands on. Two things at the
+              same time take half a column each - the day's own layout, so a
+              clash reads the same at both zooms - and press one of your own
+              slots for the title the half column had to cut. All-day entries go
+              in the strip above the grid: they have no hour to sit on, and one
+              drawn as a block would span the column and hide the day behind it.
+              A week is read and navigated; a slot is still moved in the day.
             </>
           }
         >
@@ -2109,48 +2101,92 @@ export const Gallery: React.FC = () => {
           >
             <WeekGrid
               days={weekDaysOf(weekStartOf(SPEC_TODAY), SPEC_TODAY).map(
-                (day) =>
-                  day.today
+                (day, index) =>
+                  // Four entries against a cap of three, so the strip is shown
+                  // both full and overflowing - and the five empty columns
+                  // beside them are what keeps the seven hour grids level.
+                  index === 3
                     ? {
                         ...day,
-                        note: "2 of 5 done",
-                        blocks: [
-                          {
-                            key: "a",
-                            startMinutes: 570,
-                            endMinutes: 600,
-                            title: "Deep work",
-                            variant: "slot" as const,
-                          },
-                          {
-                            key: "b",
-                            startMinutes: 600,
-                            endMinutes: 660,
-                            title: "Design review",
-                            variant: "meeting" as const,
-                          },
-                          {
-                            key: "c",
-                            startMinutes: 660,
-                            endMinutes: 670,
-                            title: "Stretch",
-                            variant: "live" as const,
-                          },
-                          {
-                            key: "d",
-                            startMinutes: 685,
-                            endMinutes: 720,
-                            title: "15 min free",
-                            variant: "free" as const,
-                          },
+                        allDay: [
+                          { key: "ad1", title: "Q3 planning" },
+                          { key: "ad2", title: "Release freeze" },
+                          { key: "ad3", title: "Ramesh out" },
+                          { key: "ad4", title: "Anna out" },
                         ],
                       }
-                    : day,
+                    : // Late in the week and late in the day: the popover has
+                      // to open leftwards and upwards, or it leaves the week
+                      // on one edge and the track on the other.
+                      index === 6
+                      ? {
+                          ...day,
+                          blocks: [
+                            {
+                              key: "e",
+                              startMinutes: 990,
+                              endMinutes: 1020,
+                              title: "Weekly review and plan",
+                              variant: "slot" as const,
+                              detail: {
+                                when: "16:30–17:00",
+                                note: "Planned",
+                              },
+                            },
+                          ],
+                        }
+                      : day.today
+                        ? {
+                            ...day,
+                            note: "2 later",
+                            allDay: [{ key: "ad5", title: "Ramesh out" }],
+                            blocks: [
+                              {
+                                key: "a",
+                                startMinutes: 570,
+                                endMinutes: 630,
+                                title: "Deep work on the migration",
+                                variant: "slot" as const,
+                                detail: {
+                                  when: "09:30–10:30",
+                                  note: "Planned",
+                                },
+                              },
+                              // Deliberately across the one above: a clash takes
+                              // half a column each, both names truncate, and the
+                              // popover is what makes them readable again.
+                              {
+                                key: "b",
+                                startMinutes: 600,
+                                endMinutes: 660,
+                                title: "Design review",
+                                variant: "meeting" as const,
+                              },
+                              {
+                                key: "c",
+                                startMinutes: 660,
+                                endMinutes: 670,
+                                title: "Stretch",
+                                variant: "live" as const,
+                                detail: {
+                                  when: "11:00–11:10",
+                                  note: "Started",
+                                },
+                              },
+                              {
+                                key: "d",
+                                startMinutes: 685,
+                                endMinutes: 720,
+                                title: "15 min free",
+                                variant: "free" as const,
+                              },
+                            ],
+                          }
+                        : day,
               )}
               startMinutes={8 * 60}
               endMinutes={18 * 60}
             />
-            <WeekLegend />
           </div>
         </Row>
 
@@ -2160,10 +2196,13 @@ export const Gallery: React.FC = () => {
           wide
           why={
             <>
-              One dot per slot - filled for a minimum met, hollow for one still
+              One dot per slot - filled for one done, hollow for one still
               planned - so a month's rhythm reads without a single number being
               parsed. Days before today are inset and inert: there is nothing
-              left to decide about them.
+              left to decide about them. The legend also says where the meetings
+              stop: nothing from before a calendar was connected is ever
+              fetched, so an empty April is the sync window and not a quiet
+              April.
             </>
           }
         >
@@ -2175,61 +2214,15 @@ export const Gallery: React.FC = () => {
             }}
           >
             <MonthGrid
+              meetingsFrom="3 August 2026"
               cells={monthCellsOf(2026, 7, SPEC_TODAY).map((cell, index) =>
                 cell.inMonth && index % 3 !== 0
                   ? {
                       ...cell,
-                      ...(cell.past
-                        ? { taken: 2, planned: 1 }
-                        : { planned: 3 }),
+                      ...(cell.past ? { done: 2, planned: 1 } : { planned: 3 }),
                       note: `${(index % 4) + 1} mtgs`,
                     }
                   : cell,
-              )}
-            />
-          </div>
-        </Row>
-
-        <Row
-          name="Year"
-          tag="view"
-          wide
-          why={
-            <>
-              One bar per week, filled by the share of daily minimums met. The
-              one screen that never places anything: it reads history and jumps
-              to a month, which is why every card here is simply a link.
-            </>
-          }
-        >
-          <div
-            style={{
-              background: "var(--wr-page)",
-              padding: 16,
-              borderRadius: 14,
-            }}
-          >
-            <YearGrid
-              months={yearMonthsOf(2026, SPEC_TODAY).map((entry) =>
-                entry.state === "past"
-                  ? {
-                      ...entry,
-                      percent: 0.5 + ((entry.month * 7) % 30) / 100,
-                      weeks: [0.62, 0.44, 0.78, 0.55, 0.7],
-                      note: "38 taken · 23 missed",
-                    }
-                  : entry.state === "current"
-                    ? {
-                        ...entry,
-                        weeks: [0.64, 0.4, 0, null, null],
-                        nowWeek: 1,
-                        note: "31 taken · 6 missed · 18 ahead",
-                      }
-                    : {
-                        ...entry,
-                        weeks: [1, 1, 1, 0.6, null],
-                        note: "62 planned by your routine",
-                      },
               )}
             />
           </div>

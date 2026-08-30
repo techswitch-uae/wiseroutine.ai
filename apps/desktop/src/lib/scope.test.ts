@@ -3,7 +3,6 @@ import {
   monthCellsOf,
   weekDaysOf,
   weekStartOf,
-  yearMonthsOf,
 } from "@wiseroutine/design";
 import { describe, expect, test } from "vitest";
 import {
@@ -13,7 +12,6 @@ import {
   periodLabel,
   scopeOf,
   weekLabel,
-  yearOf,
 } from "./scope";
 
 /** Tuesday 11 August 2026 - the day the design is drawn on. */
@@ -59,23 +57,6 @@ describe("month", () => {
   });
 });
 
-describe("year", () => {
-  test("twelve months, exactly one of them current", () => {
-    const months = yearMonthsOf(2026, TODAY);
-    expect(months).toHaveLength(12);
-    expect(months.filter((m) => m.state === "current")).toHaveLength(1);
-    expect(months[7]?.state).toBe("current");
-    expect(months[6]?.state).toBe("past");
-    expect(months[8]?.state).toBe("future");
-  });
-
-  test("a year that is not this one has no current month", () => {
-    expect(
-      yearMonthsOf(2027, TODAY).filter((m) => m.state === "current"),
-    ).toHaveLength(0);
-  });
-});
-
 describe("search parameters", () => {
   test("a date that does not exist falls back rather than rolling over", () => {
     expect(isoOf(dayOf("2026-08-20", TODAY))).toBe("2026-08-20");
@@ -86,12 +67,10 @@ describe("search parameters", () => {
     expect(isoOf(dayOf("nonsense", TODAY))).toBe("2026-08-11");
   });
 
-  test("month and year reject what they cannot use", () => {
+  test("month rejects what it cannot use", () => {
     expect(monthOf("2027-01", TODAY)).toEqual({ year: 2027, month: 0 });
     expect(monthOf("2027-13", TODAY)).toEqual({ year: 2026, month: 7 });
     expect(monthOf(undefined, TODAY)).toEqual({ year: 2026, month: 7 });
-    expect(yearOf("2030", TODAY)).toBe(2030);
-    expect(yearOf("later", TODAY)).toBe(2026);
     expect(monthKey(2026, 7)).toBe("2026-08");
   });
 
@@ -113,6 +92,5 @@ describe("search parameters", () => {
       "24–30 Aug",
     );
     expect(periodLabel("month", { m: "2026-11" }, TODAY)).toBe("November");
-    expect(periodLabel("year", { y: "2027" }, TODAY)).toBe("2027");
   });
 });
