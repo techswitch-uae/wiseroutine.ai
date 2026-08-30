@@ -39,6 +39,11 @@ vi.mock("../lib/api", async (importOriginal) => ({
   },
 }));
 
+vi.mock("../lib/notify", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  notify: vi.fn(),
+}));
+
 const slot = (over: Partial<TodaySlot> = {}): TodaySlot => ({
   id: "s1",
   title: "Eye rest",
@@ -285,4 +290,41 @@ test("marking an abandoned block done actually records it", async () => {
   await user.click(screen.getByRole("button", { name: "Mark it done" }));
   const { api } = await import("../lib/api");
   expect(api.completeSlot).toHaveBeenCalledWith("s1");
+});
+
+/**
+ * A press must never be silent.
+ *
+ * `slotAction` answers `{ queued: true }` when it could not reach the server
+ * and wrote the action down instead. That answer used to be discarded: nothing
+ * rejected, so no toast fired, and the card could easily redraw unchanged - a
+ * button that swallowed the press whole. Whatever else is true, a control that
+ * gives no acknowledgement at all is indistinguishable from a dead one.
+ */
+test("says so when the action could only be queued", async () => {
+  const { api } = await import("../lib/api");
+  const { notify } = await import("../lib/notify");
+  vi.mocked(api.completeSlot).mockResolvedValueOnce({ queued: true });
+
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  show(day({ slots: [slot({ status: "started" })] }));
+  await user.click(screen.getByRole("button", { name: "Mark it done" }));
+
+  await waitFor(() => expect(notify).toHaveBeenCalled());
+  expect(vi.mocked(notify).mock.calls[0]?.[0]).toMatch(/offline/i);
+});
+
+test("stays quiet when the action actually went through", async () => {
+  const { api } = await import("../lib/api");
+  const { notify } = await import("../lib/notify");
+  vi.mocked(notify).mockClear();
+
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  show(day({ slots: [slot({ status: "started" })] }));
+  await user.click(screen.getByRole("button", { name: "Mark it done" }));
+
+  // Let the resolved promise and its `.finally` settle before asserting the
+  // absence of a toast - otherwise this passes for the wrong reason.
+  await waitFor(() => expect(api.completeSlot).toHaveBeenCalled());
+  expect(notify).not.toHaveBeenCalled();
 });

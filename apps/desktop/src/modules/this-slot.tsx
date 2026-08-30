@@ -144,9 +144,27 @@ export const ThisSlot: React.FC = () => {
   /** Finishing a plain slot, which nothing else offers. A slot with a session
    *  is finished from inside it; one without had no way to be finished at
    *  all once it was started. */
+  /**
+   * Record what happened, and always say something back.
+   *
+   * The `queued` answer used to be thrown away. An action that could not be
+   * sent was written to the queue and reported to nobody: no toast, because
+   * nothing rejected, and no visible change unless the optimistic pass
+   * happened to redraw the card. A press that produces no acknowledgement at
+   * all is indistinguishable from a dead button, and it is the one outcome a
+   * button must never have.
+   */
   const finish = (how: "complete" | "skip") => {
     const action = how === "complete" ? api.completeSlot : api.skipSlot;
     void action(slot.id)
+      .then(({ queued }) => {
+        if (queued)
+          notify(
+            how === "complete"
+              ? "Saved offline. It will be marked done when you reconnect."
+              : "Saved offline. It will sync when you reconnect.",
+          );
+      })
       .catch(() =>
         notify(
           "Couldn't record that just now. It will sync when you reconnect.",
