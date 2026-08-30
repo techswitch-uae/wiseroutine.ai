@@ -1,13 +1,16 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
+  addDays,
   clockOf,
   DAY_DENSITIES,
   DashedRow,
   DayBar,
   DayGrid,
   HoursMenu,
+  isoOf,
   Loading,
   OutsideRange,
+  ScopeNav,
   Slot,
 } from "@wiseroutine/design";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -30,6 +33,7 @@ import {
   publishStart,
 } from "../lib/plan-store";
 import { markStarted } from "../lib/running-slot";
+import { dayOf, todayOf } from "../lib/scope";
 import { TodayRail } from "../modules/today-rail";
 import { DAY_HOURS_ANCHOR } from "./_app.settings";
 
@@ -60,8 +64,21 @@ const hourClock = (at: number): string =>
     hourCycle: "h23",
   }).format(new Date(at));
 
+/**
+ * Midday on the chosen date, which is what the server is asked for.
+ *
+ * `GET /today?at=` resolves the local date of an instant against the
+ * account's zone, and this browser's zone may not be that one. Noon is the
+ * instant furthest from both midnights, so the two agree unless they are more
+ * than twelve hours apart - which no pair of real zones is.
+ */
+const middayOn = (date: Date): number =>
+  new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12).getTime();
+
 const Today: React.FC = () => {
   const navigate = useNavigate();
+  /** The day on screen. Absent means today - see `lib/scope`. */
+  const { date: dateParam } = Route.useSearch();
   const [data, setData] = useState<CachedToday | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -85,13 +102,43 @@ const Today: React.FC = () => {
    */
   const [range, setRange] = useState<string | null>(null);
 
+  const today = todayOf();
+  const viewed = dayOf(dateParam, today);
+  /** Rule 2, on the day: there is nothing behind today to go back to. */
+  const atToday = isoOf(viewed) === isoOf(today);
+
+  /**
+   * Move to another day, or home.
+   *
+   * `null` drops the parameter rather than writing today's date into it, so
+   * today is always the plain `/` - which is what the sidebar's Day entry
+   * links to, and what makes rule 1 true without either side knowing about
+   * the other. `replace`, because paging through a week is one act of looking
+   * and should not cost seven presses of the back button to undo.
+   */
+  const goTo = (date: Date | null) => {
+    // The picked block belongs to the day it was picked on; carrying it across
+    // would leave the rail describing a slot that is no longer on screen.
+    pick(null);
+    void navigate({
+      to: "/",
+      search: date ? { date: isoOf(date) } : {},
+      replace: true,
+    });
+  };
+
   const load = useCallback(() => {
     if (!getSessionToken()) {
       setError("not_connected");
       return;
     }
     api
-      .today(range ? { range } : {})
+      .today({
+        ...(range ? { range } : {}),
+        // Omitted on today, so the request is the one it has always been and
+        // the server's own clock decides which day that is.
+        ...(dateParam ? { at: middayOn(dayOf(dateParam, new Date())) } : {}),
+      })
       .then((response) => {
         setData(response);
         setQueued(api.pendingCount());
@@ -104,7 +151,7 @@ const Today: React.FC = () => {
             : "offline",
         );
       });
-  }, [range]);
+  }, [range, dateParam]);
 
   /**
    * Sync now, then show what arrived.
@@ -402,8 +449,13 @@ const Today: React.FC = () => {
    */
   useEffect(() => {
     if (!data) return;
+    // Only the day you are actually in. Reading ahead is looking, not
+    // committing, and a glance at next Tuesday must not queue next Tuesday's
+    // notifications - nor silently drop today's, which is what arming the
+    // wrong day's would do when this replaced them.
+    if (!atToday) return;
     return armAlerts(data.slots, now);
-  }, [data, now]);
+  }, [data, now, atToday]);
 
   /**
    * Presses that arrived from the menu bar rather than the window.
@@ -419,8 +471,14 @@ const Today: React.FC = () => {
     void import("@tauri-apps/api/event").then(async ({ listen }) => {
       stop = await Promise.all([
         listen("tray://start", () => {
-          const next =
-            dataRef.current && upNextOf(dataRef.current.slots, Date.now());
+          // The menu says "start what's next", and next means today. If the
+          // window happens to be showing another day, that day's plan is not
+          // an answer to it - better to do nothing than to start something
+          // scheduled for a week away.
+          const plan = dataRef.current;
+          const at = Date.now();
+          if (!plan || at < plan.dayStart || at >= plan.dayEnd) return;
+          const next = upNextOf(plan.slots, at);
           if (next?.slotId) start(next.slotId);
         }),
         listen("tray://pause", () => {
@@ -492,6 +550,15 @@ const Today: React.FC = () => {
         }
         date={dayLabel}
         span={hoursLabel}
+        nav={
+          <ScopeNav
+            atToday={atToday}
+            unit="day"
+            onBack={() => goTo(addDays(viewed, -1))}
+            onToday={() => goTo(null)}
+            onForward={() => goTo(addDays(viewed, 1))}
+          />
+        }
         syncing={syncing}
         syncedAt={data.syncedAt}
         now={now}
@@ -627,6 +694,10 @@ const SavedPlanNotice: React.FC<{ cachedAt: number; queued: number }> = ({
 );
 
 export const Route = createFileRoute("/_app/")({
+  /** The day being read, as `YYYY-MM-DD`. Absent is today, and today is never
+   *  written down - see `goTo`. */
+  validateSearch: (search: Record<string, unknown>) =>
+    typeof search.date === "string" ? { date: search.date } : {},
   component: Today,
   // The one page the set-up module belongs on: it is the empty day behind it
   // that makes the ask make sense. Calendars and Account declare nothing and

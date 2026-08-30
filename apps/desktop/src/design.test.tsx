@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
+  AppFrame,
   agoOf,
   DAY_DENSITIES,
   DayBar,
@@ -682,4 +683,33 @@ test("a pinned block does not offer a move it will refuse", () => {
   const label = handle(container, "stretch").getAttribute("aria-label");
   expect(label).not.toContain("arrow keys");
   expect(label).toContain("Delete");
+});
+
+/**
+ * The three states of the rail column, which are not two.
+ *
+ * "No modules" and "no column" are different statements, and collapsing them
+ * is what this guards: every page without modules still holds the column open
+ * so a form is the same width on Settings as on Calendars, while the calendar's
+ * wider scopes give it up on purpose - see `fullWidth` in `lib/rail`.
+ */
+const railColumn = (props: { rail?: React.ReactNode; reserveRail?: boolean }) =>
+  render(
+    <AppFrame sidebar={<nav />} chrome={false} {...props}>
+      <div />
+    </AppFrame>,
+  ).container.querySelector(".wr-rail");
+
+test("the rail column is held open for a page with no modules", () => {
+  expect(railColumn({ reserveRail: true })).not.toBeNull();
+});
+
+test("a page that asks for the width gets it, column and all", () => {
+  expect(railColumn({ reserveRail: false })).toBeNull();
+});
+
+test("modules always get a column, whatever the page reserved", () => {
+  expect(
+    railColumn({ reserveRail: false, rail: <p>Up next</p> }),
+  ).not.toBeNull();
 });

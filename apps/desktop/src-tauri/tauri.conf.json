@@ -13,8 +13,11 @@
     "windows": [
       {
         "title": "Wise Routine",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "width": 1180,
-        "height": 820
+        "height": 820,
+        "backgroundColor": "#eee7db"
       }
     ],
     "security": {

@@ -3,6 +3,12 @@ import { useState } from "react";
 import { DAY_DENSITIES, DEFAULT_DENSITY } from "./daygrid";
 import "./gallery.css";
 import {
+  monthCellsOf,
+  weekDaysOf,
+  weekStartOf,
+  yearMonthsOf,
+} from "./calendar";
+import {
   Button,
   CalendarPicker,
   Card,
@@ -58,9 +64,21 @@ import {
   TodayScreen,
 } from "./screens";
 import { EVERY_DAY, WEEKDAYS } from "./time";
+import {
+  MonthGrid,
+  ScopeNav,
+  ScopeSwitcher,
+  WeekGrid,
+  WeekLegend,
+  YearGrid,
+} from "./views";
 
 /** A fixed 09:00 UTC, so the specimen never shifts with the clock. */
 const GRID_DAY_START = Date.UTC(2026, 7, 27, 9, 0, 0);
+
+/** A fixed "today" for the calendar views, for the same reason: a specimen
+ *  that moves with the wall clock cannot be compared against yesterday's. */
+const SPEC_TODAY = new Date(2026, 7, 11);
 
 const Row: React.FC<{
   name: string;
@@ -2021,6 +2039,198 @@ export const Gallery: React.FC = () => {
               code=""
               expired
               chrome={false}
+            />
+          </div>
+        </Row>
+      </Section>
+
+      <Section
+        title="Calendar views"
+        blurb="Day, week, month and year are one calendar at four zooms, not four places to be - which is why the switcher is a bordered group inside the rail rather than four more nav rows. Three rules hold across all of them: Day is always today, you move forward and not back, and Today comes home from anywhere."
+      >
+        <Row
+          name="Scope switcher"
+          tag="rail · group"
+          why={
+            <>
+              Four scopes of one thing. The Day row carries today's date, so
+              picking it is visibly a jump to now; the active row carries the
+              period on screen, so the rail answers "where am I" without the
+              header.
+            </>
+          }
+        >
+          <div style={{ width: 208 }}>
+            <ScopeSwitcher
+              active="week"
+              dayLabel="11 Aug"
+              periodLabel="10-16 Aug"
+            />
+          </div>
+        </Row>
+
+        <Row
+          name="Back / Today / forward"
+          tag="header · both states"
+          why={
+            <>
+              On today the back arrow is inert and Today is a no-op - there is
+              nowhere to come home from. Away from it both arrows are live and
+              Today takes the ink, because home is worth pointing at only when
+              you are not standing in it.
+            </>
+          }
+        >
+          <div style={{ display: "grid", gap: 10, justifyItems: "start" }}>
+            <ScopeNav atToday unit="week" />
+            <ScopeNav atToday={false} unit="week" />
+          </div>
+        </Row>
+
+        <Row
+          name="Week"
+          tag="view"
+          wide
+          why={
+            <>
+              Meetings sit back on the recessed surface and your own slots come
+              forward, so the gaps are what the eye lands on. The column head is
+              the only control: a week is read and navigated, and a slot is
+              still moved in the day.
+            </>
+          }
+        >
+          <div
+            style={{
+              background: "var(--wr-page)",
+              padding: 16,
+              borderRadius: 14,
+            }}
+          >
+            <WeekGrid
+              days={weekDaysOf(weekStartOf(SPEC_TODAY), SPEC_TODAY).map(
+                (day) =>
+                  day.today
+                    ? {
+                        ...day,
+                        note: "2 of 5 done",
+                        blocks: [
+                          {
+                            key: "a",
+                            startMinutes: 570,
+                            endMinutes: 600,
+                            title: "Deep work",
+                            variant: "slot" as const,
+                          },
+                          {
+                            key: "b",
+                            startMinutes: 600,
+                            endMinutes: 660,
+                            title: "Design review",
+                            variant: "meeting" as const,
+                          },
+                          {
+                            key: "c",
+                            startMinutes: 660,
+                            endMinutes: 670,
+                            title: "Stretch",
+                            variant: "live" as const,
+                          },
+                          {
+                            key: "d",
+                            startMinutes: 685,
+                            endMinutes: 720,
+                            title: "15 min free",
+                            variant: "free" as const,
+                          },
+                        ],
+                      }
+                    : day,
+              )}
+              startMinutes={8 * 60}
+              endMinutes={18 * 60}
+            />
+            <WeekLegend />
+          </div>
+        </Row>
+
+        <Row
+          name="Month"
+          tag="view"
+          wide
+          why={
+            <>
+              One dot per slot - filled for a minimum met, hollow for one still
+              planned - so a month's rhythm reads without a single number being
+              parsed. Days before today are inset and inert: there is nothing
+              left to decide about them.
+            </>
+          }
+        >
+          <div
+            style={{
+              background: "var(--wr-page)",
+              padding: 16,
+              borderRadius: 14,
+            }}
+          >
+            <MonthGrid
+              cells={monthCellsOf(2026, 7, SPEC_TODAY).map((cell, index) =>
+                cell.inMonth && index % 3 !== 0
+                  ? {
+                      ...cell,
+                      ...(cell.past
+                        ? { taken: 2, planned: 1 }
+                        : { planned: 3 }),
+                      note: `${(index % 4) + 1} mtgs`,
+                    }
+                  : cell,
+              )}
+            />
+          </div>
+        </Row>
+
+        <Row
+          name="Year"
+          tag="view"
+          wide
+          why={
+            <>
+              One bar per week, filled by the share of daily minimums met. The
+              one screen that never places anything: it reads history and jumps
+              to a month, which is why every card here is simply a link.
+            </>
+          }
+        >
+          <div
+            style={{
+              background: "var(--wr-page)",
+              padding: 16,
+              borderRadius: 14,
+            }}
+          >
+            <YearGrid
+              months={yearMonthsOf(2026, SPEC_TODAY).map((entry) =>
+                entry.state === "past"
+                  ? {
+                      ...entry,
+                      percent: 0.5 + ((entry.month * 7) % 30) / 100,
+                      weeks: [0.62, 0.44, 0.78, 0.55, 0.7],
+                      note: "38 taken · 23 missed",
+                    }
+                  : entry.state === "current"
+                    ? {
+                        ...entry,
+                        weeks: [0.64, 0.4, 0, null, null],
+                        nowWeek: 1,
+                        note: "31 taken · 6 missed · 18 ahead",
+                      }
+                    : {
+                        ...entry,
+                        weeks: [1, 1, 1, 0.6, null],
+                        note: "62 planned by your routine",
+                      },
+              )}
             />
           </div>
         </Row>

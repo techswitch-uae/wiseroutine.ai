@@ -24,5 +24,21 @@ declare module "@tanstack/react-router" {
   interface StaticDataRouteOption {
     /** Rendered into the rail. Omit for a page that does not want one. */
     rail?: React.ComponentType;
+    /**
+     * Give the page the whole width beside the sidebar, rail column included.
+     *
+     * Not the same statement as declaring no rail. Every page without modules
+     * still *reserves* the column, so that a form is the same width on
+     * Settings as on Calendars and moving between them does not reflow the
+     * window - see `reserveRail`. This is the other case: a page whose content
+     * is a full-width surface and has nothing to gain from a 250px column of
+     * kept-clear space. The week, month and year grids are that - they are
+     * measured in days across, and every pixel taken off the right is a
+     * narrower Thursday.
+     *
+     * A page that wants both a rail and this is a contradiction; `rail` wins,
+     * because a module that has been asked for has to go somewhere.
+     */
+    fullWidth?: boolean;
   }
 }

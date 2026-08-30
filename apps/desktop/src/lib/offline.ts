@@ -58,7 +58,17 @@ function write(key: string, value: unknown): void {
 
 /* ── The plan ────────────────────────────────────────────────────────────── */
 
+/**
+ * Save the plan, but only ever today's.
+ *
+ * The day view can now be paged forward, and every one of those days comes
+ * back through the same call. Saving one would overwrite the only plan that is
+ * any use offline - and `cachedPlan` would then refuse it, correctly, leaving
+ * someone who glanced at next Tuesday with no day at all when the network
+ * went. Looking ahead is not a reason to forget where you are.
+ */
 export function cachePlan(data: TodayResponse, now: number): void {
+  if (now < data.dayStart || now >= data.dayEnd) return;
   write(PLAN_KEY, { data, cachedAt: now } satisfies CachedPlan);
 }
 

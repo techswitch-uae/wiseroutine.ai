@@ -16,7 +16,10 @@ import { Route as SigninRouteImport } from './routes/signin'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppActivitiesRouteImport } from './routes/_app.activities'
 import { Route as AppCalendarsRouteImport } from './routes/_app.calendars'
+import { Route as AppMonthRouteImport } from './routes/_app.month'
 import { Route as AppSettingsRouteImport } from './routes/_app.settings'
+import { Route as AppWeekRouteImport } from './routes/_app.week'
+import { Route as AppYearRouteImport } from './routes/_app.year'
 import { Route as AuthCompleteRouteImport } from './routes/auth.complete'
 
 const AppRoute = AppRouteImport.update({
@@ -53,9 +56,24 @@ const AppCalendarsRoute = AppCalendarsRouteImport.update({
   path: '/calendars',
   getParentRoute: () => AppRoute,
 } as any)
+const AppMonthRoute = AppMonthRouteImport.update({
+  id: '/month',
+  path: '/month',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWeekRoute = AppWeekRouteImport.update({
+  id: '/week',
+  path: '/week',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppYearRoute = AppYearRouteImport.update({
+  id: '/year',
+  path: '/year',
   getParentRoute: () => AppRoute,
 } as any)
 const AuthCompleteRoute = AuthCompleteRouteImport.update({
@@ -71,7 +89,10 @@ export interface FileRoutesByFullPath {
   '/signin': typeof SigninRoute
   '/activities': typeof AppActivitiesRoute
   '/calendars': typeof AppCalendarsRoute
+  '/month': typeof AppMonthRoute
   '/settings': typeof AppSettingsRoute
+  '/week': typeof AppWeekRoute
+  '/year': typeof AppYearRoute
   '/auth/complete': typeof AuthCompleteRoute
 }
 export interface FileRoutesByTo {
@@ -80,7 +101,10 @@ export interface FileRoutesByTo {
   '/signin': typeof SigninRoute
   '/activities': typeof AppActivitiesRoute
   '/calendars': typeof AppCalendarsRoute
+  '/month': typeof AppMonthRoute
   '/settings': typeof AppSettingsRoute
+  '/week': typeof AppWeekRoute
+  '/year': typeof AppYearRoute
   '/auth/complete': typeof AuthCompleteRoute
   '/': typeof AppIndexRoute
 }
@@ -92,7 +116,10 @@ export interface FileRoutesById {
   '/signin': typeof SigninRoute
   '/_app/activities': typeof AppActivitiesRoute
   '/_app/calendars': typeof AppCalendarsRoute
+  '/_app/month': typeof AppMonthRoute
   '/_app/settings': typeof AppSettingsRoute
+  '/_app/week': typeof AppWeekRoute
+  '/_app/year': typeof AppYearRoute
   '/auth/complete': typeof AuthCompleteRoute
   '/_app/': typeof AppIndexRoute
 }
@@ -105,7 +132,10 @@ export interface FileRouteTypes {
     | '/signin'
     | '/activities'
     | '/calendars'
+    | '/month'
     | '/settings'
+    | '/week'
+    | '/year'
     | '/auth/complete'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -114,7 +144,10 @@ export interface FileRouteTypes {
     | '/signin'
     | '/activities'
     | '/calendars'
+    | '/month'
     | '/settings'
+    | '/week'
+    | '/year'
     | '/auth/complete'
     | '/'
   id:
@@ -125,7 +158,10 @@ export interface FileRouteTypes {
     | '/signin'
     | '/_app/activities'
     | '/_app/calendars'
+    | '/_app/month'
     | '/_app/settings'
+    | '/_app/week'
+    | '/_app/year'
     | '/auth/complete'
     | '/_app/'
   fileRoutesById: FileRoutesById
@@ -189,11 +225,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCalendarsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/month': {
+      id: '/_app/month'
+      path: '/month'
+      fullPath: '/month'
+      preLoaderRoute: typeof AppMonthRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings': {
       id: '/_app/settings'
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/week': {
+      id: '/_app/week'
+      path: '/week'
+      fullPath: '/week'
+      preLoaderRoute: typeof AppWeekRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/year': {
+      id: '/_app/year'
+      path: '/year'
+      fullPath: '/year'
+      preLoaderRoute: typeof AppYearRouteImport
       parentRoute: typeof AppRoute
     }
     '/auth/complete': {
@@ -209,14 +266,20 @@ declare module '@tanstack/react-router' {
 interface AppRouteChildren {
   AppActivitiesRoute: typeof AppActivitiesRoute
   AppCalendarsRoute: typeof AppCalendarsRoute
+  AppMonthRoute: typeof AppMonthRoute
   AppSettingsRoute: typeof AppSettingsRoute
+  AppWeekRoute: typeof AppWeekRoute
+  AppYearRoute: typeof AppYearRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppActivitiesRoute: AppActivitiesRoute,
   AppCalendarsRoute: AppCalendarsRoute,
+  AppMonthRoute: AppMonthRoute,
   AppSettingsRoute: AppSettingsRoute,
+  AppWeekRoute: AppWeekRoute,
+  AppYearRoute: AppYearRoute,
   AppIndexRoute: AppIndexRoute,
 }
 

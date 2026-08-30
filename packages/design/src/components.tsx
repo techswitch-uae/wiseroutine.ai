@@ -1434,6 +1434,11 @@ export const DayGrid: React.FC<DayGridProps> = ({
                 className={cx(
                   "wr-daygrid-item",
                   movable && "wr-daygrid-item-movable",
+                  // Reachable but fixed: a finished slot, a meeting, anything
+                  // the plan has settled. It still opens in the rail when
+                  // pressed, and until this it said so with the same arrow the
+                  // empty grid behind it uses - a click with no invitation.
+                  !movable && keyed && "wr-daygrid-item-pickable",
                   isShadow && "wr-daygrid-item-shadow",
                   block.selected && "wr-daygrid-item-selected",
                 )}
@@ -1571,6 +1576,28 @@ export type WidgetProps = {
  * cleans up after itself when it finishes - which is the whole reason it is
  * less code than the transition would have been.
  */
+/**
+ * Clip the slot for exactly as long as the card is the wrong size for it.
+ *
+ * Only while it moves. A slot that clips at rest cuts the card's own shadow
+ * off flush with its edge, and the property that is supposed to prevent that -
+ * `overflow-clip-margin` - is not honoured everywhere, so the rail looked
+ * right in the gallery and wrong in the desktop build. Nothing overflows a
+ * settled card, so nothing needs hiding once the animation has finished.
+ */
+const GROWING = "wr-widget-slot-growing";
+
+const clipWhile = (el: HTMLElement, animation: Animation): void => {
+  el.classList.add(GROWING);
+  // `finally`: a cancelled animation rejects, and a slot left clipped because
+  // its card was replaced mid-grow is the fault this exists to avoid.
+  void animation.finished
+    .catch(() => undefined)
+    .finally(() => {
+      el.classList.remove(GROWING);
+    });
+};
+
 function useWidgetEntrance(
   leaving?: boolean,
 ): React.RefObject<HTMLDivElement | null> {
@@ -1586,12 +1613,15 @@ function useWidgetEntrance(
     // environment that cannot do it should render the card, not throw.
     if (!el?.animate || quiet()) return;
     full.current = el.scrollHeight;
-    el.animate(
-      [
-        { height: "0px", opacity: 0 },
-        { height: `${full.current}px`, opacity: 1 },
-      ],
-      { duration: 240, easing: "ease" },
+    clipWhile(
+      el,
+      el.animate(
+        [
+          { height: "0px", opacity: 0 },
+          { height: `${full.current}px`, opacity: 1 },
+        ],
+        { duration: 240, easing: "ease" },
+      ),
     );
   }, []);
 
@@ -1600,6 +1630,9 @@ function useWidgetEntrance(
     if (!el?.animate || !leaving || quiet()) return;
     // `forwards`, because nothing else holds it shut: the owner unmounts it a
     // beat later, and without this it would snap back to full height first.
+    // The clip stays on for the same reason - a card that ends at zero height
+    // must not paint at full size for the frame before it is removed.
+    el.classList.add(GROWING);
     el.animate(
       [
         { height: `${el.scrollHeight || full.current}px`, opacity: 1 },

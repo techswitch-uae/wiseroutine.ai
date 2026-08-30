@@ -157,6 +157,13 @@ export const Sidebar: React.FC<{
   items: readonly NavEntry[];
   active: string;
   onNavigate?: (key: string) => void;
+  /**
+   * The calendar scope switcher, above the destinations.
+   *
+   * A slot rather than a prop of its own: the sidebar has no opinion about
+   * what a scope is, and the gallery shows the rail with and without one.
+   */
+  scope?: React.ReactNode;
   children?: React.ReactNode;
   quickAdd?: string;
   onQuickAdd?: () => void;
@@ -165,6 +172,7 @@ export const Sidebar: React.FC<{
   items,
   active,
   onNavigate,
+  scope,
   children,
   quickAdd = "Quick add",
   onQuickAdd,
@@ -175,6 +183,8 @@ export const Sidebar: React.FC<{
       <BrandMark size={28} />
       <span className="wr-brand-name">Wise Routine</span>
     </div>
+
+    {scope}
 
     <div className="wr-nav">
       {items.map((item) => (
@@ -233,6 +243,9 @@ export const AppFrame: React.FC<{
 }> = ({ sidebar, header, rail, reserveRail, children, chrome = true }) => (
   <div className={cx("wr-frame", !chrome && "wr-frame-bare")}>
     {chrome ? <WindowBar /> : null}
+    {/* Drags the window on macOS, where the title bar is a transparent
+        overlay. Inert - and invisible - anywhere else. See `.wr-drag`. */}
+    <div className="wr-drag" data-tauri-drag-region />
     <div className="wr-frame-body">
       {sidebar}
       <main className="wr-page">
@@ -307,6 +320,10 @@ export const DayBar: React.FC<{
   /** The hours picker, already configured. Passed in rather than built here,
    *  so the bar never has to know what a range is. */
   hours?: React.ReactNode;
+  /** Back / Today / forward - see `ScopeNav`. Its own group, left of the
+   *  tools: moving *to* another period and changing what this one shows are
+   *  different acts, and one pill holding both would say they are not. */
+  nav?: React.ReactNode;
   date: string;
   /** The window on screen, e.g. "08:30–17:30". */
   span?: string;
@@ -319,7 +336,7 @@ export const DayBar: React.FC<{
    */
   syncedAt?: number | null;
   now?: number;
-}> = ({ hours, date, span, onRefresh, syncing, syncedAt, now }) => {
+}> = ({ hours, nav, date, span, onRefresh, syncing, syncedAt, now }) => {
   const status = syncing
     ? "Syncing…"
     : syncedAt != null && now !== undefined
@@ -333,10 +350,12 @@ export const DayBar: React.FC<{
         {span ? <span className="wr-page-helper">{span}</span> : null}
       </div>
 
+      {nav ? <div className="wr-daybar-nav">{nav}</div> : null}
+
       {/* The two controls, then what the second of them last achieved - so the
           status sits against the button it belongs to, and the whole group
           against the edge. */}
-      <div className="wr-daybar-tools">
+      <div className="wr-pillgroup wr-daybar-tools">
         {hours}
         {hours && onRefresh ? (
           <span className="wr-daybar-split" aria-hidden="true" />

@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 import {
   AppFrame,
+  ScopeSwitcher,
   Sidebar,
   Toasts,
   UpdatePill,
@@ -16,6 +17,7 @@ import { useEffect, useState } from "react";
 import { setAccount, useAccount } from "../lib/account";
 import { ApiError, api, getSessionToken, setSessionToken } from "../lib/api";
 import { dismiss, useToasts } from "../lib/notify";
+import { dayLabel, periodLabel, scopeOf, todayOf } from "../lib/scope";
 import "../lib/rail";
 import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
 import { SessionOverlay } from "../modules/session";
@@ -34,19 +36,30 @@ import { TrialPill } from "../modules/trial-pill";
  */
 
 /**
- * The navigation, which is every page that exists.
+ * The destinations - which is now everything that is not a calendar scope.
  *
- * Week and Reminders were listed here too as the intended information
- * architecture. They had no routes, so each was a dead click - the rail
- * offered five destinations and reached two. The design kit still carries them
- * as the plan; this list is the product.
+ * Today used to sit at the top of this list. It is a scope of the calendar,
+ * not a fifth place to be, and listing it alongside Activities and Calendars
+ * said the opposite: four rows, one of which quietly meant "the calendar, at
+ * one particular zoom". Day, week, month and year moved into their own
+ * bordered group above - see `ScopeSwitcher`.
+ *
+ * Reminders is still absent. It is in the design kit as the plan; a rail
+ * entry with no route behind it is a dead click, and this list is the product.
  */
 const NAV = [
-  { key: "today", label: "Today", to: "/" },
   { key: "activities", label: "Activities", to: "/activities" },
   { key: "calendars", label: "Calendars", to: "/calendars" },
   { key: "settings", label: "Settings", to: "/settings" },
 ] as const;
+
+/** Where each scope of the calendar lives. */
+const SCOPE_ROUTES = {
+  day: "/",
+  week: "/week",
+  month: "/month",
+  year: "/year",
+} as const;
 
 /** Sign out and nothing else. Settings is a destination in the rail above, and
  *  listing it twice made the menu look like it held more than it did. */
@@ -113,8 +126,19 @@ const UpdateNotice: React.FC = () => {
 const AppLayout: React.FC = () => {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  // The switcher names the period on screen, and the period lives in the URL -
+  // see `lib/scope`. Reading it here rather than from the page keeps the shell
+  // free of any page's state.
+  const search = useRouterState({ select: (s) => s.location.search });
   // Shared with the account page, which can change the name - see lib/account.
   const user = useAccount();
+
+  // The macOS title bar is a transparent overlay, so the traffic lights land on
+  // the sidebar. Tell the stylesheet to leave them room - see `.wr-tauri`.
+  useEffect(() => {
+    if ("__TAURI_INTERNALS__" in globalThis)
+      document.documentElement.classList.add("wr-tauri");
+  }, []);
 
   /**
    * Resolve who is signed in - and notice when nobody is.
@@ -182,14 +206,23 @@ const AppLayout: React.FC = () => {
     };
   }, [navigate]);
 
-  const active =
-    NAV.find((item) => "to" in item && item.to === pathname)?.key ?? "today";
+  // No fallback: on a calendar scope nothing in this list is current, and
+  // defaulting to one would light a row the user is not on.
+  const active = NAV.find((item) => item.to === pathname)?.key ?? "";
+  const today = todayOf();
+  const scope = scopeOf(pathname);
+  const period = periodLabel(scope, search as Record<string, unknown>, today);
 
   // The page in hand decides. Read off the deepest match rather than the whole
   // chain, so a layout route can never impose a rail on a child that did not
   // ask for one.
   const Rail = useRouterState({
     select: (state) => state.matches.at(-1)?.staticData?.rail,
+  });
+
+  /** Pages that want the whole width beside the sidebar - see `lib/rail`. */
+  const fullWidth = useRouterState({
+    select: (state) => state.matches.at(-1)?.staticData?.fullWidth === true,
   });
 
   // In the shell rather than on a page: a save started on Settings can fail
@@ -200,13 +233,23 @@ const AppLayout: React.FC = () => {
     <>
       <AppFrame
         chrome={false}
-        // Always the same width of page, whether or not this one has modules.
-        reserveRail
+        // The same width of page whether or not this one has modules - unless
+        // it has asked for the width instead, which the calendar's wider
+        // scopes do.
+        reserveRail={!fullWidth}
         {...(Rail ? { rail: <Rail /> } : {})}
         sidebar={
           <Sidebar
             items={NAV}
             active={active}
+            scope={
+              <ScopeSwitcher
+                active={scope}
+                dayLabel={dayLabel(today)}
+                {...(period ? { periodLabel: period } : {})}
+                onSelect={(key) => void navigate({ to: SCOPE_ROUTES[key] })}
+              />
+            }
             onNavigate={(key) => {
               const item = NAV.find((entry) => entry.key === key);
               // Destinations without a route yet do nothing rather than
