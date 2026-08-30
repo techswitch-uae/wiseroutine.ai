@@ -51,9 +51,7 @@ export function listConnections(db: UserDatabase) {
  * stop being shown, which the user just did on purpose and does not need
  * explaining; the sentence is about the boundary they cannot see.
  */
-export async function connectedSince(
-  db: UserDatabase,
-): Promise<number | null> {
+export async function connectedSince(db: UserDatabase): Promise<number | null> {
   const first = await db.calendarConnection.findFirst({
     orderBy: { createdAt: "asc" },
     select: { createdAt: true },

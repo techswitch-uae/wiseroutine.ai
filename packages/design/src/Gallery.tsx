@@ -2115,74 +2115,98 @@ export const Gallery: React.FC = () => {
                           { key: "ad4", title: "Anna out" },
                         ],
                       }
-                    : // Late in the week and late in the day: the popover has
-                      // to open leftwards and upwards, or it leaves the week
-                      // on one edge and the track on the other.
-                      index === 6
+                    : // Two meetings back to back across an hour line - the
+                      // case that catches uneven air. Each has to sit the same
+                      // way against its own line, or the pair reads as one
+                      // block that slipped rather than as two that are spaced.
+                      index === 2
                       ? {
                           ...day,
                           blocks: [
                             {
-                              key: "e",
-                              startMinutes: 990,
-                              endMinutes: 1020,
-                              title: "Weekly review and plan",
-                              variant: "slot" as const,
-                              detail: {
-                                when: "16:30–17:00",
-                                note: "Planned",
-                              },
+                              key: "f",
+                              startMinutes: 570,
+                              endMinutes: 600,
+                              title: "Product Operations Check-in",
+                              variant: "meeting" as const,
+                            },
+                            {
+                              key: "g",
+                              startMinutes: 600,
+                              endMinutes: 630,
+                              title: "BB Standup",
+                              variant: "meeting" as const,
                             },
                           ],
                         }
-                      : day.today
+                      : // Late in the week and late in the day: the popover has
+                        // to open leftwards and upwards, or it leaves the week
+                        // on one edge and the track on the other.
+                        index === 6
                         ? {
                             ...day,
-                            note: "2 later",
-                            allDay: [{ key: "ad5", title: "Ramesh out" }],
                             blocks: [
                               {
-                                key: "a",
-                                startMinutes: 570,
-                                endMinutes: 630,
-                                title: "Deep work on the migration",
+                                key: "e",
+                                startMinutes: 990,
+                                endMinutes: 1020,
+                                title: "Weekly review and plan",
                                 variant: "slot" as const,
                                 detail: {
-                                  when: "09:30–10:30",
+                                  when: "16:30–17:00",
                                   note: "Planned",
                                 },
                               },
-                              // Deliberately across the one above: a clash takes
-                              // half a column each, both names truncate, and the
-                              // popover is what makes them readable again.
-                              {
-                                key: "b",
-                                startMinutes: 600,
-                                endMinutes: 660,
-                                title: "Design review",
-                                variant: "meeting" as const,
-                              },
-                              {
-                                key: "c",
-                                startMinutes: 660,
-                                endMinutes: 670,
-                                title: "Stretch",
-                                variant: "live" as const,
-                                detail: {
-                                  when: "11:00–11:10",
-                                  note: "Started",
-                                },
-                              },
-                              {
-                                key: "d",
-                                startMinutes: 685,
-                                endMinutes: 720,
-                                title: "15 min free",
-                                variant: "free" as const,
-                              },
                             ],
                           }
-                        : day,
+                        : day.today
+                          ? {
+                              ...day,
+                              note: "2 later",
+                              allDay: [{ key: "ad5", title: "Ramesh out" }],
+                              blocks: [
+                                {
+                                  key: "a",
+                                  startMinutes: 570,
+                                  endMinutes: 630,
+                                  title: "Deep work on the migration",
+                                  variant: "slot" as const,
+                                  detail: {
+                                    when: "09:30–10:30",
+                                    note: "Planned",
+                                  },
+                                },
+                                // Deliberately across the one above: a clash takes
+                                // half a column each, both names truncate, and the
+                                // popover is what makes them readable again.
+                                {
+                                  key: "b",
+                                  startMinutes: 600,
+                                  endMinutes: 660,
+                                  title: "Design review",
+                                  variant: "meeting" as const,
+                                },
+                                {
+                                  key: "c",
+                                  startMinutes: 660,
+                                  endMinutes: 670,
+                                  title: "Stretch",
+                                  variant: "live" as const,
+                                  detail: {
+                                    when: "11:00–11:10",
+                                    note: "Started",
+                                  },
+                                },
+                                {
+                                  key: "d",
+                                  startMinutes: 685,
+                                  endMinutes: 720,
+                                  title: "15 min free",
+                                  variant: "free" as const,
+                                },
+                              ],
+                            }
+                          : day,
               )}
               startMinutes={8 * 60}
               endMinutes={18 * 60}

@@ -226,9 +226,48 @@ const ALLDAY_MAX = 3;
 const stripHeightOf = (rows: number): number =>
   rows === 0 ? 0 : rows * ALLDAY_ROW + (rows - 1) * ALLDAY_GAP + 6;
 
-/** The shortest a week block is drawn. Below this a fifteen-minute slot is a
- *  line rather than a thing with a name in it. */
-const WEEK_MIN_BLOCK = 16;
+/**
+ * The room a block takes in the column, its own air included.
+ *
+ * Below this a fifteen-minute slot is a line rather than a thing with a name
+ * in it. This is what `layoutDay` is given, so it is also the distance at
+ * which two short blocks start being drawn side by side rather than one under
+ * the other - raise it and a slot at 11:00 and a gap at 11:25 begin to look
+ * like a clash they are not.
+ */
+const WEEK_MIN_BLOCK = 20;
+
+/**
+ * Air above and below every block, in equal measure.
+ *
+ * Equal is the whole point. Drawn at its exact duration a block touches both
+ * the line it starts on and whatever comes next, so a morning of back-to-back
+ * meetings reads as one striped bar. But taking the air off one end only is
+ * worse than taking none: two stacked blocks then sit differently against
+ * their own lines - the upper one flush against the hour it starts on, the
+ * lower one clear of it - and the eye reads that as a mistake rather than as
+ * spacing, because it is one.
+ *
+ * Two pixels is about two minutes at this scale, which is nothing, and it
+ * leaves the hour line visible above the block that starts on it.
+ *
+ * Off the drawn rectangle, not off the placement. `layoutDay` still clusters
+ * on the full boxes, so this can never be what decides that two things are
+ * clear of one another.
+ */
+const WEEK_BLOCK_AIR = 2;
+
+/** The same air between two blocks sharing a column - see `WEEK_BLOCK_AIR`. */
+const WEEK_BLOCK_GUTTER = 4;
+
+/** The rectangle a block is actually drawn as: the layout's box with the air
+ *  taken off. One function, because the popover anchors to the drawn box and
+ *  not the placed one - and the two drifting apart is how a popover ends up
+ *  over the block it belongs to. */
+const drawnBox = (box: { top: number; height: number }) => ({
+  top: box.top + WEEK_BLOCK_AIR,
+  height: box.height - 2 * WEEK_BLOCK_AIR,
+});
 
 /**
  * Where a day's blocks go, by the day view's own arithmetic.
@@ -284,11 +323,12 @@ const POP_OPENS_UP_BELOW = 0.55;
  */
 const BlockDetail: React.FC<{
   block: WeekBlock;
-  top: number;
-  blockHeight: number;
+  /** The block's drawn rectangle - see `drawnBox`. */
+  box: { top: number; height: number };
   trackHeight: number;
   flip: boolean;
-}> = ({ block, top, blockHeight, trackHeight, flip }) => {
+}> = ({ block, box, trackHeight, flip }) => {
+  const { top, height: blockHeight } = box;
   // Below the block, until that would put it off the bottom of the track -
   // then above it. Measured against the track rather than the viewport: the
   // week does not know where it is on screen, and does not need to in order to
@@ -348,6 +388,7 @@ const WeekTrack: React.FC<{
     >
       {placed.map((it) => {
         const block = it.block.block;
+        const box = drawnBox(it);
         // A detail is what makes a block pressable - see `WeekBlock`.
         const Tag = block.detail ? "button" : "div";
         const isOpen = open === block.key;
@@ -369,15 +410,16 @@ const WeekTrack: React.FC<{
               isOpen && "wr-week-block-shown",
             )}
             style={{
-              top: it.top,
-              height: it.height,
+              ...box,
               // Halves of a column, the day's own way of drawing a clash. Two
               // names side by side both truncate, which is exactly what the
-              // popover is for. The 3px comes off the width rather than out of
-              // a margin, so the share stays a share and the gap lands between
-              // the two rather than past them.
+              // popover is for. The gutter comes off the width rather than out
+              // of a margin, so the share stays a share and the gap lands
+              // between the two rather than past them.
               left: `${(it.column / it.columns) * 100}%`,
-              width: `calc(${(it.span / it.columns) * 100}% - 3px)`,
+              width: `calc(${
+                (it.span / it.columns) * 100
+              }% - ${WEEK_BLOCK_GUTTER}px)`,
             }}
           >
             {block.variant === "slot" || block.variant === "live" ? (
@@ -393,8 +435,7 @@ const WeekTrack: React.FC<{
       {shown ? (
         <BlockDetail
           block={shown.block.block}
-          top={shown.top}
-          blockHeight={shown.height}
+          box={drawnBox(shown)}
           trackHeight={height}
           flip={flip}
         />

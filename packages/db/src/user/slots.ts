@@ -525,6 +525,38 @@ export async function autoSlotsToComplete(
   return rows.map(toSlot);
 }
 
+/**
+ * Sessions that were started by hand and never finished.
+ *
+ * `started` is the one status with nothing behind it. An `auto` slot is closed
+ * at its end by the query above; a manual one is closed by the person doing
+ * it, from inside the session - and if the window is shut, the app quit or the
+ * machine sleeps, nobody ever closes it. The row then stays `started` for
+ * ever: still "running now" a week later, still counted as scheduled by
+ * `scheduledForRange`, so the day never asks for the session again either.
+ *
+ * The grace is long on purpose. A session that ran over, or a laptop lid shut
+ * for ten minutes mid-stretch, is someone still doing the activity, and this
+ * must not close a session out from under them. An hour past the end is not
+ * that.
+ *
+ * Any policy, deliberately: run this after `autoSlotsToComplete` and the
+ * `auto` ones are already gone, so what is left really is abandoned.
+ */
+export async function abandonedSlots(
+  db: UserDatabase,
+  now: number,
+  limit: number,
+  grace: number,
+): Promise<SlotRow[]> {
+  const rows = await db.slot.findMany({
+    where: { status: "started", endsAt: { lte: at(now - grace) } },
+    orderBy: { endsAt: "asc" },
+    take: limit,
+  });
+  return rows.map(toSlot);
+}
+
 /** The next moment anything in this database needs attention, so the directory
  *  can be told when to come back. */
 export async function nextGraceDeadline(

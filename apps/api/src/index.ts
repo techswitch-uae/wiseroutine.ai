@@ -1,4 +1,5 @@
 import {
+  abandonedSlots,
   autoSlotsToComplete,
   completeWork,
   createDirectory,
@@ -155,6 +156,17 @@ function clientIds(config: ServerEnv): SyncDeps["clientIds"] {
  */
 const GRACE_WINDOW = 30 * MINUTE;
 
+/**
+ * How long past its end a started session may sit before it is called
+ * abandoned.
+ *
+ * Long on purpose. A stretch someone is still doing, a session that ran over,
+ * a lid shut for ten minutes - all of those are someone still in it, and
+ * closing a session out from under them is worse than leaving it a while
+ * longer. An hour past the end is none of those.
+ */
+const ABANDONED_AFTER = 60 * MINUTE;
+
 async function sweepGrace(
   job: SyncJob,
   config: ServerEnv,
@@ -243,8 +255,42 @@ async function sweepGrace(
     );
   }
 
+  /**
+   * Sessions someone started and never finished.
+   *
+   * The one status with nothing behind it. `auto` slots are closed by the pass
+   * above and manual ones are closed from inside the session - so a window
+   * shut mid-stretch left the row `started` for ever. Still drawn as "running
+   * now" days later, still counted as scheduled, so the day never re-asked for
+   * the session either.
+   *
+   * Recorded as missed, not completed, and this is the judgement call in here:
+   * we know it was started and we do not know it was done. Inventing progress
+   * in someone's own health record is the worse of the two mistakes, and the
+   * missed list can say exactly what happened where a silent completion could
+   * not. The reason code is what makes it reversible if that call is wrong.
+   *
+   * After the `auto` pass on purpose - by here, anything still `started` and an
+   * hour past its end really was abandoned.
+   */
+  const abandoned = await abandonedSlots(db, now, 200, ABANDONED_AFTER);
+  for (const slot of abandoned) {
+    await setSlotStatus(
+      db,
+      {
+        slotId: slot.id,
+        status: "missed",
+        actor: "system",
+        reasonCode: "never_finished",
+        reasonText: "started, then left running",
+      },
+      now,
+      newId,
+    );
+  }
+
   // Come back in a minute while anything is still pending, otherwise back off.
-  return due.length > 0 || finished.length > 0
+  return due.length > 0 || finished.length > 0 || abandoned.length > 0
     ? now + MINUTE
     : now + 15 * MINUTE;
 }

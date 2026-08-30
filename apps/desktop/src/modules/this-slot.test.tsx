@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { TodayResponse, TodaySlot } from "../lib/api";
 import { pick } from "../lib/picked";
 import { publishMove, publishPlan, publishStart } from "../lib/plan-store";
@@ -17,6 +17,19 @@ import { ThisSlot } from "./this-slot";
  */
 
 const AT = Date.UTC(2026, 7, 11, 9, 0);
+
+/**
+ * A clock, because the card now needs one.
+ *
+ * `slotState` reads the time as well as the status - a block started
+ * yesterday is not "running now" - so a fixture dated 2026 would otherwise be
+ * read against the real clock and every one of these blocks would be long
+ * over. Pinned a minute into the block, which is where every case that is not
+ * about the clock means to stand.
+ */
+beforeEach(() => {
+  vi.useFakeTimers({ now: AT + 60_000, shouldAdvanceTime: true });
+});
 
 vi.mock("../lib/api", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -65,6 +78,7 @@ const show = (response: TodayResponse, picked: string | null = "s1") => {
 afterEach(() => {
   publishPlan(null);
   pick(null);
+  vi.useRealTimers();
 });
 
 test("nothing is picked, so there is nothing to say", () => {
@@ -85,7 +99,7 @@ test("a block still ahead of you can be nudged and started", async () => {
   publishMove((...args) => moved.push(args));
   publishStart((id) => started.push(id));
 
-  const user = userEvent.setup();
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
   show(day());
 
   await user.click(screen.getByRole("button", { name: "Later" }));
@@ -211,4 +225,64 @@ test("the X puts it away, after letting it collapse", async () => {
   expect(container.innerHTML).not.toBe("");
 
   await waitFor(() => expect(container.innerHTML).toBe(""));
+});
+
+/**
+ * The block this whole pass exists for: a five-minute breathing session that
+ * was started and then left.
+ *
+ * A manual session is finished from inside itself, so shutting the window
+ * mid-stretch leaves the row `started` with nothing to close it - and the card
+ * used to read it by status alone. It said "Running now" about a block from
+ * yesterday, and stopping it offered to "resume it while its time is still
+ * running". The server does eventually record it as missed, an hour after the
+ * end; until then this is the only place the truth can be told.
+ */
+test("a block left started overnight asks what happened", async () => {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  const yesterday = AT - 24 * 3_600_000;
+  show(
+    day({
+      slots: [
+        slot({
+          status: "started",
+          startsAt: yesterday,
+          endsAt: yesterday + 5 * 60_000,
+        }),
+      ],
+    }),
+  );
+
+  // Not running, and not something to carry on with.
+  expect(screen.queryByText(/Running now/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+
+  // The two answers that are actually available.
+  expect(screen.getByRole("button", { name: "Mark it done" })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "It didn't happen" }));
+
+  const { api } = await import("../lib/api");
+  expect(api.skipSlot).toHaveBeenCalledWith("s1");
+});
+
+test("marking an abandoned block done actually records it", async () => {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  const yesterday = AT - 24 * 3_600_000;
+  show(
+    day({
+      slots: [
+        slot({
+          status: "started",
+          startsAt: yesterday,
+          endsAt: yesterday + 5 * 60_000,
+        }),
+      ],
+    }),
+  );
+
+  await user.click(screen.getByRole("button", { name: "Mark it done" }));
+  const { api } = await import("../lib/api");
+  expect(api.completeSlot).toHaveBeenCalledWith("s1");
 });

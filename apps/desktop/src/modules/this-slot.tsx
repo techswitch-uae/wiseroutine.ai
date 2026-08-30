@@ -79,9 +79,20 @@ const Meeting: React.FC<{
 /** As long as the card takes to collapse - see `useWidgetEntrance`. */
 const LEAVE_MS = 200;
 
+/** How often the card re-reads the clock. What is true of a block changes as
+ *  its window closes - see `slotState` - and a card that only re-rendered when
+ *  the plan did would go on offering Start for a minute after the moment
+ *  passed. */
+const TICK_MS = 30_000;
+
 export const ThisSlot: React.FC = () => {
   const plan = usePlan();
   const picked = usePicked();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), TICK_MS);
+    return () => clearInterval(tick);
+  }, []);
   /**
    * Closed, but still on screen.
    *
@@ -121,7 +132,7 @@ export const ThisSlot: React.FC = () => {
   // the right answer - there is no block to describe any more.
   if (!slot) return null;
 
-  const state = slotState(slot);
+  const state = slotState(slot, now);
   const minutes = Math.round((slot.endsAt - slot.startsAt) / 60_000);
   const module = moduleFor(slot.presetKey);
 
@@ -182,7 +193,7 @@ export const ThisSlot: React.FC = () => {
             the stretch away from the desk, or you did it an hour ago - but the
             session is the thing worth entering, and a Done button as loud as
             Start is an invitation to skip the part that matters. */}
-        {state.startable || state.running ? (
+        {state.startable || state.running || state.unresolved ? (
           <Button variant="quiet" onClick={() => finish("complete")}>
             Mark it done
           </Button>
@@ -193,6 +204,16 @@ export const ThisSlot: React.FC = () => {
         {state.running && !module?.Session ? (
           <Button variant="quiet" onClick={() => finish("skip")}>
             Stop
+          </Button>
+        ) : null}
+        {/* The other half of an unresolved block. "Stop" would be a lie about
+            something that stopped hours ago on its own, and "Resume" - which
+            is what this used to offer - proposes carrying on with a stretch of
+            the day that has already gone. The only honest question left is
+            whether it happened. */}
+        {state.unresolved ? (
+          <Button variant="quiet" onClick={() => finish("skip")}>
+            It didn't happen
           </Button>
         ) : null}
       </Row>

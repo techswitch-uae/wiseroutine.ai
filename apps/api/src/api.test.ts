@@ -1,5 +1,9 @@
 import { exports as worker } from "cloudflare:workers";
-import { slotsPastGrace } from "@wiseroutine/db";
+import {
+  abandonedSlots,
+  autoSlotsToComplete,
+  slotsPastGrace,
+} from "@wiseroutine/db";
 import { beforeEach, describe, expect, test } from "vitest";
 import {
   accessTokenFor,
@@ -1536,6 +1540,126 @@ describe("the grace sweep's window", () => {
 
     const due = await slotsPastGrace(userDb(), now, 200, 30 * 60_000);
     expect(due.map((slot) => slot.title)).toEqual(["Two minutes ago"]);
+  });
+});
+
+/**
+ * The one status with nothing behind it.
+ *
+ * An `auto` slot is closed at its end by the sweep; a manual one is closed
+ * from inside the session. Neither covers the case where somebody presses
+ * Start and then shuts the window - and until this, nothing did: the row
+ * stayed `started` for ever, drawn as "running now" days later and counted as
+ * scheduled, so the day never asked for the session again either.
+ */
+describe("a session that was started and never finished", () => {
+  const HOUR = 3_600_000;
+
+  const startedSlot = async (
+    activityId: string | null,
+    endsAt: number,
+    minutes = 5,
+  ) => {
+    const id = crypto.randomUUID();
+    await userDb().slot.create({
+      data: {
+        id,
+        ...(activityId ? { activityId } : {}),
+        title: "Breathing",
+        kind: "recovery",
+        startsAt: new Date(endsAt - minutes * 60_000),
+        endsAt: new Date(endsAt),
+        timeZone: "UTC",
+        status: "started",
+        createdAt: new Date(),
+      },
+    });
+    return id;
+  };
+
+  test("the auto pass does not reach a manual one, which is the hole", async () => {
+    await seedUser();
+    // `manual` is the schema default, and what every hand-started activity is.
+    const activityId = await seedActivity();
+    await startedSlot(activityId, Date.now() - 24 * HOUR);
+
+    expect(await autoSlotsToComplete(userDb(), Date.now(), 200)).toHaveLength(
+      0,
+    );
+  });
+
+  test("is collected once it is well past its end", async () => {
+    await seedUser();
+    const activityId = await seedActivity();
+    const yesterday = await startedSlot(activityId, Date.now() - 24 * HOUR);
+
+    const found = await abandonedSlots(userDb(), Date.now(), 200, HOUR);
+    expect(found.map((slot) => slot.id)).toEqual([yesterday]);
+  });
+
+  /**
+   * The line that protects someone mid-stretch. A session that ran over, or a
+   * lid shut for ten minutes, is a person still doing the activity - closing
+   * it out from under them is worse than leaving it a while longer.
+   */
+  test("is left alone while it could still be someone in it", async () => {
+    await seedUser();
+    const activityId = await seedActivity();
+    await startedSlot(activityId, Date.now() - 10 * 60_000);
+    await startedSlot(activityId, Date.now() + 60_000);
+
+    expect(await abandonedSlots(userDb(), Date.now(), 200, HOUR)).toHaveLength(
+      0,
+    );
+  });
+
+  test("only ever collects the started ones", async () => {
+    const user = await seedUser();
+    const activityId = await seedActivity();
+    const long = Date.now() - 24 * HOUR;
+    const started = await startedSlot(activityId, long);
+
+    for (const status of ["completed", "skipped", "missed", "planned"]) {
+      await userDb().slot.create({
+        data: {
+          id: crypto.randomUUID(),
+          activityId,
+          title: status,
+          kind: "recovery",
+          startsAt: new Date(long - 60_000),
+          endsAt: new Date(long),
+          timeZone: "UTC",
+          status,
+          createdAt: new Date(),
+        },
+      });
+    }
+
+    const found = await abandonedSlots(userDb(), Date.now(), 200, HOUR);
+    expect(found.map((slot) => slot.id)).toEqual([started]);
+    expect(user).toBeTruthy();
+  });
+
+  /** The client's own escape hatch, which has to keep working on a slot this
+   *  old - it is the only way to correct the record by hand. */
+  test("can still be closed by hand, however long it has been sitting", async () => {
+    const user = await seedUser();
+    const activityId = await seedActivity();
+    const id = await startedSlot(activityId, Date.now() - 24 * HOUR);
+
+    const response = await worker.default.fetch(
+      `http://api/slots/${id}/complete`,
+      {
+        method: "POST",
+        headers: user.headers,
+        body: JSON.stringify({ at: Date.now() }),
+      },
+    );
+
+    expect(response.status).toBe(204);
+    expect((await userDb().slot.findUnique({ where: { id } }))?.status).toBe(
+      "completed",
+    );
   });
 });
 
