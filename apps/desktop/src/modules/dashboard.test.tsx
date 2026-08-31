@@ -5,11 +5,12 @@ import { publishPlan } from "../lib/plan-store";
 import { DashboardWidgets } from "./dashboard";
 
 /**
- * "Up next", which is the one widget that is always there.
+ * "Up next", and when it is there at all.
  *
  * It used to say only how long: the name lived nowhere, and the countdown sat
  * in the head as a static chip - which is upper-cased, so "18m" came out as
- * "18M" and read as a unit nobody uses.
+ * "18M" and read as a unit nobody uses. It also used to be pinned on every
+ * plan, including the ones with nothing left in them.
  */
 
 const AT = Date.UTC(2026, 7, 11, 9, 0);
@@ -85,7 +86,12 @@ test("offers a start only once the block is actually due", () => {
   expect(screen.getByRole("button", { name: "Start now" })).toBeTruthy();
 });
 
-test("says so plainly when the day is done", () => {
-  show(day({ slots: [slot({ status: "completed" })] }));
-  expect(screen.getByText("Nothing left today.")).toBeTruthy();
+// It used to render an ink card reading "Nothing left today." The loudest
+// surface in the rail is the wrong place to say nothing: with no name and no
+// button on it, it reads as something that failed to load, and it takes the
+// top of the rail from the modules that do have something to say.
+test("stands down entirely when the day is done", () => {
+  const { container } = show(day({ slots: [slot({ status: "completed" })] }));
+  expect(container.querySelector(".wr-widget-attention")).toBeNull();
+  expect(screen.queryByText("Up next")).toBeNull();
 });

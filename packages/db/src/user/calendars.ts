@@ -39,6 +39,26 @@ export function listConnections(db: UserDatabase) {
   return db.calendarConnection.findMany();
 }
 
+/**
+ * The day the first calendar was connected, or null if none ever has been.
+ *
+ * What the views say out loud: nothing from before this was ever fetched, so
+ * an empty week in April is the sync window rather than a quiet April. The
+ * *earliest* connection, because that is the first date any meeting could be
+ * known from - a second account added later does not move it.
+ *
+ * Selection is deliberately not part of it. A deselected calendar's events
+ * stop being shown, which the user just did on purpose and does not need
+ * explaining; the sentence is about the boundary they cannot see.
+ */
+export async function connectedSince(db: UserDatabase): Promise<number | null> {
+  const first = await db.calendarConnection.findFirst({
+    orderBy: { createdAt: "asc" },
+    select: { createdAt: true },
+  });
+  return first ? ms(first.createdAt) : null;
+}
+
 /** A connection whose token no longer works. The UI surfaces this as
  *  "reconnect your calendar" - a silently dead connection is fatal to trust. */
 export async function markNeedsReauth(
@@ -280,7 +300,9 @@ export async function getCalendarForSync(db: UserDatabase, calendarId: string) {
       id: true,
       connectionId: true,
       providerCalendarId: true,
-      connection: { select: { provider: true, status: true } },
+      connection: {
+        select: { provider: true, status: true, createdAt: true },
+      },
     },
   });
   if (!row) return undefined;
@@ -291,5 +313,7 @@ export async function getCalendarForSync(db: UserDatabase, calendarId: string) {
     providerCalendarId: row.providerCalendarId,
     provider: row.connection.provider as "google" | "microsoft",
     connectionStatus: row.connection.status,
+    // The floor on how far back a sync reaches - see `syncWindow`.
+    connectedAt: ms(row.connection.createdAt),
   };
 }

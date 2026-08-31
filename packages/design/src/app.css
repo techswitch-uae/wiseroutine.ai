@@ -528,6 +528,20 @@ body.wr-dragging { user-select: none; -webkit-user-select: none; cursor: grabbin
 
 .wr-slot-inset { background: var(--wr-recessed); box-shadow: var(--wr-inset); }
 
+/* A Paused / Off / owed row. It fills whatever it is put in rather than
+   carrying a width of its own - see `StateRow`. */
+.wr-staterow { width: 100%; flex: none; border-radius: 15px; }
+/* `min-width: 0` is what lets the name give way. A flex item's floor is its
+   content, so without it a long activity name cannot shrink and pushes the
+   count and the duration out through the side of the card instead. */
+.wr-staterow-name { flex: 1; min-width: 0; }
+.wr-staterow-name .wr-slot-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The two ends are short and fixed; only the middle is negotiable. */
+.wr-staterow > :first-child,
+.wr-staterow > :last-child { flex: none; white-space: nowrap; }
+
 .wr-slot-meeting {          /* the app does not own it, so it must not compete */
   min-height: 56px; justify-content: space-between;
   background: var(--wr-recessed); box-shadow: var(--wr-inset);
@@ -1893,6 +1907,10 @@ img.wr-avatar { object-fit: cover; }
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #2e2b25 12%, transparent);
 }
 .wr-legend-free { border: 1px dashed var(--wr-dashed); height: 9px; }
+.wr-legend-allday {
+  background: var(--wr-recessed); height: 9px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #2e2b25 12%, transparent);
+}
 .wr-legend-met { height: 6px; background: var(--color-accent); }
 .wr-legend-planned { height: 6px; background: var(--color-accent-200); }
 .wr-legend-none { height: 6px; background: var(--wr-track); }
@@ -1901,7 +1919,13 @@ img.wr-avatar { object-fit: cover; }
    The hour gutter and the seven columns share `--wr-week-hour`, set by the
    component, so 13:00 lands on the same pixel in both. */
 .wr-week { display: flex; gap: 8px; }
-.wr-week-gutter { width: 42px; flex: none; position: relative; margin-top: 52px; }
+/* The tuned 52px that lands 08:00 on the track's first line, plus whatever
+   the all-day strip took. Without the second term the hour labels sit a
+   strip's height above the lines they name. */
+.wr-week-gutter {
+  width: 42px; flex: none; position: relative;
+  margin-top: calc(52px + var(--wr-week-allday, 0px));
+}
 .wr-week-hour {
   position: absolute; right: 0; transform: translateY(-6px);
   font: 600 10px var(--font-body); color: var(--wr-text-soft);
@@ -1931,8 +1955,26 @@ img.wr-avatar { object-fit: cover; }
    opacity, so the text in them still meets contrast. */
 .wr-week-head-past .wr-week-head-name { color: var(--wr-text-muted); }
 
+/* ── The all-day strip ──────────────────────────────────────────────────
+   Drawn for every column once any day has an entry, empty ones included:
+   equal heights are what keep the seven hour grids level with each other. */
+.wr-week-allday { display: flex; flex-direction: column; gap: 3px; }
+.wr-week-allday-chip,
+.wr-week-allday-more {
+  height: 18px; padding: 0 8px; border-radius: 999px;
+  font: 600 9.5px/18px var(--font-body); color: var(--wr-text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* The same recessed surface as a meeting block - an all-day entry is a
+   meeting that lost its hours, not a different kind of thing. */
+.wr-week-allday-chip {
+  background: var(--wr-recessed);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #2e2b25 12%, transparent);
+}
+.wr-week-allday-more { color: var(--wr-text-soft); padding-left: 4px; }
+
 .wr-week-track {
-  position: relative; border-radius: 12px;
+  position: relative; border-radius: 12px; padding: 0 3px;
   background-color: color-mix(in srgb, var(--color-neutral-300) 30%, transparent);
   background-image: repeating-linear-gradient(
     to bottom,
@@ -1945,12 +1987,30 @@ img.wr-avatar { object-fit: cover; }
 }
 .wr-week-track-past { background-color: color-mix(in srgb, var(--color-neutral-300) 18%, transparent); }
 
+/* `left` and `width` are set per block: overlapping blocks take a share of
+   the column each, by the same arithmetic the day uses. Percentages resolve
+   against the track's padding box, which is where the 3px inset went - it
+   cannot be the block's own `left`/`right` any more, and a margin would push
+   each share past its share. */
 .wr-week-block {
-  position: absolute; left: 3px; right: 3px; overflow: hidden;
+  position: absolute; overflow: hidden;
   display: flex; align-items: center; gap: 5px;
   padding: 0 7px; border-radius: 9px;
   font: 600 9.5px var(--font-body);
+  text-align: left;
 }
+/* Half a column is not much, and a clash gives every block half of one. One
+   line ending in an ellipsis, rather than three wrapped ones clipped mid-word
+   by the block's own overflow - and the popover for the rest of the name. */
+.wr-week-block-name {
+  min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.wr-week-block-open {
+  border: 0; font: 600 9.5px var(--font-body); color: inherit; cursor: pointer;
+}
+.wr-week-block-open:hover { box-shadow: var(--wr-lift-2); }
+.wr-week-block-shown { box-shadow: 0 0 0 2px var(--color-accent); }
 /* Meetings sit back on the recessed surface; your own slots come forward. */
 .wr-week-block-meeting {
   background: var(--wr-recessed); color: var(--wr-text-muted);
@@ -1971,6 +2031,28 @@ img.wr-avatar { object-fit: cover; }
   background: var(--wr-ink);
 }
 .wr-week-block-live .wr-week-pip { background: #fff; }
+
+/* ── The block popover ──────────────────────────────────────────────────
+   A sibling of the blocks, not a child of one: a block clips its contents,
+   and one 140px wide would clip this to nothing. */
+.wr-week-pop {
+  position: absolute; left: 3px; z-index: 3;
+  width: 210px; max-width: none;
+  padding: 9px 11px; border-radius: 12px;
+  background: var(--wr-card); box-shadow: var(--wr-lift-3);
+}
+/* The last days of the week open leftwards - the page scroller clips
+   sideways, so opening rightwards there runs off the edge of the week. */
+.wr-week-pop-flip { left: auto; right: 3px; }
+.wr-week-pop-title { font: 600 12px var(--font-body); color: var(--color-text); }
+.wr-week-pop-when {
+  margin-top: 2px; font: 600 11px var(--font-body);
+  color: var(--wr-text-muted); font-variant-numeric: tabular-nums;
+}
+.wr-week-pop-note {
+  margin-top: 5px; font: 400 11px/1.45 var(--font-body);
+  color: var(--wr-text-soft);
+}
 
 /* ── Month ─────────────────────────────────────────────────────────────── */
 .wr-month-heads,
@@ -2016,51 +2098,5 @@ button.wr-month-cell:hover { box-shadow: var(--wr-lift-2); }
   width: 7px; height: 7px; border-radius: 999px; flex: none;
   box-shadow: inset 0 0 0 1.5px var(--color-accent);
 }
-.wr-month-dot-taken { background: var(--color-accent); box-shadow: none; }
+.wr-month-dot-done { background: var(--color-accent); box-shadow: none; }
 
-/* ── Year ──────────────────────────────────────────────────────────────── */
-.wr-year-grid {
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;
-}
-@media (max-width: 900px) { .wr-year-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.wr-year-card {
-  display: flex; flex-direction: column; text-align: left;
-  padding: 14px 15px 15px; border: 0; border-radius: 15px; cursor: pointer;
-  background: var(--wr-card); box-shadow: var(--wr-lift-1);
-  font: inherit; color: inherit;
-}
-.wr-year-card:hover { box-shadow: var(--wr-lift-2); }
-/* A month that has not run yet is a plan, not a record: inset, and its name
-   sits back with it. */
-.wr-year-card-future {
-  background: color-mix(in srgb, var(--color-neutral-200) 88%, transparent);
-  box-shadow: var(--wr-inset);
-}
-.wr-year-card-future .wr-year-name { color: var(--wr-text-muted); }
-.wr-year-card-current {
-  box-shadow: 0 0 0 2px var(--color-accent), 0 8px 24px rgba(46, 43, 37, 0.16);
-}
-.wr-year-card-current .wr-year-name { color: var(--color-accent-900); }
-.wr-year-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.wr-year-name { font-family: var(--font-heading); font-size: 16px; }
-.wr-year-pct { font: 700 11px var(--font-body); color: var(--color-accent-900); }
-.wr-year-now {
-  font: 700 8.5px var(--font-body); letter-spacing: 0.07em;
-  text-transform: uppercase; color: var(--color-accent-900);
-}
-.wr-year-bars { display: flex; flex-direction: column; gap: 4px; margin-top: 11px; }
-.wr-year-bar {
-  position: relative; display: block; height: 6px; border-radius: 999px;
-  background: var(--wr-track);
-}
-.wr-year-fill { display: block; height: 6px; border-radius: 999px; background: var(--color-accent); }
-.wr-year-fill-planned { background: var(--color-accent-200); }
-.wr-year-fill-now { background: var(--color-accent-700); }
-.wr-year-nowmark {
-  position: absolute; right: -30px; top: -3px; font-style: normal;
-  font: 700 8px var(--font-body); letter-spacing: 0.06em;
-  text-transform: uppercase; color: var(--color-accent-900);
-}
-/* The "Now" marker hangs outside its bar, so that row gives it the room. */
-.wr-year-bar:has(.wr-year-nowmark) { margin-right: 30px; }
-.wr-year-note { font: 400 10.5px var(--font-body); color: var(--wr-text-soft); margin-top: 10px; }

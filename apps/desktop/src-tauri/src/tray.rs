@@ -17,17 +17,75 @@
  * own route and its own fetch. Build it when quick-add from the menu bar is
  * the thing people ask for; until then the menu says the same things natively
  * and for free.
+ *
+ * It has since grown a second job, and one file rather than two because both
+ * are the same mechanism: everything the app says while you are not looking at
+ * it. One schedule, one clock, two outputs - the title beside the icon, and
+ * the notification when a slot comes round. Splitting them would mean the
+ * schedule and the tick living in a third file that both imported, which is
+ * more moving parts than either job has on its own.
  */
 use serde::Deserialize;
+use std::collections::HashSet;
+use std::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri_plugin_notification::NotificationExt;
 
-/// What the webview knows about the day, reduced to what fits in a menu bar.
+/// One of the day's remaining slots, as the menu bar needs it.
 ///
-/// Deliberately pre-formatted. Working out that a slot is "in 18 min" needs
-/// the plan, the clock and the user's timezone, all of which the webview
-/// already holds and none of which is worth teaching Rust a second time.
-#[derive(Deserialize, Default)]
+/// Timestamps rather than the finished sentence, and this is the fix for a
+/// real bug: the webview used to work out "Breathing · now" and push the
+/// finished string here every 30 seconds. Closing the window *hides* it (see
+/// `on_window_event`), and a hidden WKWebView's timers are throttled and
+/// eventually suspended by App Nap - so the last thing pushed before the
+/// window went away stayed in the menu bar, naming an activity that had long
+/// since finished. Exactly when the menu bar is the only thing you can see.
+///
+/// So the webview says what the day *is*, once per change, and the picking and
+/// the counting happen here, on a clock that keeps running. `up_next` below is
+/// `upNextOf` in `lib/alerts.ts`, and the two have to keep agreeing - the
+/// webview still uses its copy to decide what "Start now" starts.
+///
+/// The start notifications were lost to the same thing, and worse: a menu bar
+/// that is a minute stale is untidy, but an alert that never arrives is the
+/// whole product failing quietly. They were one `setTimeout` per slot in that
+/// same webview. They are `due_starts` below now.
+#[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct Entry {
+  pub id: String,
+  pub title: String,
+  pub starts_at: i64,
+  pub ends_at: i64,
+}
+
+/// The day as last pushed, and what has already been said about it.
+///
+/// One lock over the three together rather than three locks: every read wants
+/// all of them, and a tick that took them one at a time could announce a start
+/// against a schedule that had been replaced halfway through.
+#[derive(Default)]
+struct DayState {
+  /// Empty until the webview has loaded a plan, which renders "Nothing up
+  /// next" - the honest answer before we know.
+  entries: Vec<Entry>,
+  /// Starts already announced, keyed by id *and* time, so a slot that moves is
+  /// announced again at its new time - which is the whole point of a plan that
+  /// rebuilds itself.
+  announced: HashSet<String>,
+  /// Quiet until this instant. Only the speaking is paused, not the plan:
+  /// slots still run, still go live and still count, and the menu bar goes on
+  /// saying what is next. Someone in a meeting wants the day to carry on
+  /// without being told about it.
+  paused_until: i64,
+}
+
+#[derive(Default)]
+struct Day(Mutex<DayState>);
+
+/// What the menu bar draws, worked out from the schedule and the clock.
+#[derive(Default)]
 pub struct UpNext {
   /// "Shoulder stretch", or absent when the day has nothing left. Named in the
   /// menu bar itself and not only in the menu behind it: a bare "18m" says
@@ -42,6 +100,114 @@ pub struct UpNext {
   /// Present only while a slot is actually startable, which is what decides
   /// whether "Start now" is live or greyed.
   pub slot_id: Option<String>,
+}
+
+fn now_ms() -> i64 {
+  SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map(|d| d.as_millis() as i64)
+    // A clock before 1970 is not a case worth a branch anywhere else.
+    .unwrap_or(0)
+}
+
+/// "18m", or "2h 05m". Rounded up, because a slot 90 seconds away reading
+/// "1m" and then sitting there for the next 89 of them looks stuck.
+fn countdown(ms: i64) -> String {
+  let minutes = if ms <= 0 { 0 } else { (ms + 59_999) / 60_000 };
+  if minutes < 60 {
+    format!("{minutes}m")
+  } else {
+    // Both units named. Without the second one this read "9h 10", which is
+    // not a duration - it is two numbers, and the eye has to guess which.
+    format!("{}h {:02}m", minutes / 60, minutes % 60)
+  }
+}
+
+/// The one slot worth naming: the earliest that has not finished yet.
+///
+/// Note `ends_at > now` rather than `starts_at > now`. Something running right
+/// now *is* what is up next - dropping it the moment it began would leave the
+/// menu bar naming the thing after it while you were still in this one.
+fn up_next(entries: &[Entry], now: i64) -> UpNext {
+  let Some(entry) = entries
+    .iter()
+    .filter(|entry| entry.ends_at > now)
+    .min_by_key(|entry| entry.starts_at)
+  else {
+    return UpNext::default();
+  };
+
+  let live = entry.starts_at <= now;
+  UpNext {
+    title: Some(entry.title.clone()),
+    label: Some(format!("{} min", minutes(entry))),
+    badge: Some(if live {
+      "now".to_string()
+    } else {
+      countdown(entry.starts_at - now)
+    }),
+    // Only offered while it is actually startable. Starting something an hour
+    // early is not a shortcut, it is a different plan.
+    slot_id: live.then(|| entry.id.clone()),
+  }
+}
+
+/// How long a slot runs, in whole minutes.
+fn minutes(entry: &Entry) -> i64 {
+  (entry.ends_at - entry.starts_at + 30_000) / 60_000
+}
+
+/// How late an alert may still fire.
+///
+/// A slot whose start was missed while the machine was asleep should not
+/// announce itself an hour afterwards - by then the day has been replanned
+/// around it and the notification is a lie. But firing only on the exact
+/// millisecond loses every alert to a tick that ran a beat late, so there is a
+/// window rather than an instant.
+const LATE: i64 = 90_000;
+
+/// The starts that have just come round and have not been announced yet.
+///
+/// Takes `&mut` and records what it returns, so calling it twice with the same
+/// clock is not two notifications. That "exactly once" is the whole reason the
+/// announced set exists: the tick runs every fifteen seconds, and a start
+/// stays inside the `LATE` window for six of them.
+fn due_starts(state: &mut DayState, now: i64) -> Vec<Entry> {
+  let ready: Vec<Entry> = state
+    .entries
+    .iter()
+    .filter(|entry| {
+      entry.starts_at <= now
+        && entry.starts_at > now - LATE
+        // A start inside the quiet hour is not announced late afterwards - it
+        // is not announced at all. The slot still runs.
+        && entry.starts_at >= state.paused_until
+    })
+    .cloned()
+    .collect();
+
+  ready
+    .into_iter()
+    .filter(|entry| {
+      state
+        .announced
+        .insert(format!("{}@{}", entry.id, entry.starts_at))
+    })
+    .collect()
+}
+
+/// Say that a slot has come round.
+///
+/// Failure is swallowed on purpose: notifications the user has denied, or an
+/// OS that dropped it, are not something the menu bar can do anything about,
+/// and a panic in the tick would take the clock down with it.
+fn announce<R: Runtime>(app: &AppHandle<R>, entry: &Entry) {
+  let _ = app
+    .notification()
+    .builder()
+    .title(entry.title.clone())
+    .body(format!("{} min. Starting now.", minutes(entry)))
+    .show();
 }
 
 /// How much of a name the menu bar may take.
@@ -120,11 +286,90 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
   Ok(())
 }
 
-/// Tell the menu bar what is up next. Called from the webview whenever the
-/// plan or the clock moves it on.
+/// Say whatever the day now calls for: the starts that have come round, and
+/// the menu bar as it should read this second.
+///
+/// The lock is taken once and let go before anything is shown. Holding it
+/// across the notification would mean a slow OS call blocking the next push
+/// from the webview, for no gain - `due_starts` has already recorded what it
+/// returned, so nothing else can claim the same start.
+fn refresh<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+  let now = now_ms();
+  let Ok((entries, due)) = app.state::<Day>().0.lock().map(|mut state| {
+    let due = due_starts(&mut state, now);
+    (state.entries.clone(), due)
+  }) else {
+    // A poisoned lock means a panic already happened somewhere better placed
+    // to report it. Leaving the menu bar as it was beats taking the app down.
+    return Ok(());
+  };
+
+  for entry in &due {
+    announce(app, entry);
+  }
+  render(app, &up_next(&entries, now))
+}
+
+/// Tell the app what today holds. Called from the webview whenever the plan
+/// changes - not on a clock, which is what `tick` is for.
+///
+/// The announced set is deliberately *not* cleared here. A plan re-read is not
+/// news, and clearing it would announce every slot of the day again every time
+/// the day was reloaded.
 #[tauri::command]
-pub fn set_up_next<R: Runtime>(app: AppHandle<R>, next: UpNext) -> tauri::Result<()> {
-  render(&app, &next)
+pub fn set_schedule<R: Runtime>(app: AppHandle<R>, entries: Vec<Entry>) -> tauri::Result<()> {
+  if let Ok(mut state) = app.state::<Day>().0.lock() {
+    state.entries = entries;
+  }
+  refresh(&app)
+}
+
+/// How long the quiet hour lasts.
+///
+/// ponytail: in memory, so it is forgotten on restart. That is the right
+/// default for an hour-long pause - a machine that has been restarted has
+/// almost certainly outlived the meeting.
+const PAUSE: Duration = Duration::from_secs(60 * 60);
+
+/// Go quiet for an hour, and say until when.
+///
+/// Here rather than in the webview because the webview may be asleep - which
+/// was the bug - and because the press arrives here first: it is a native menu
+/// item. The instant is handed back so the toast can name it without the two
+/// sides having to agree separately on how long an hour is.
+fn pause<R: Runtime>(app: &AppHandle<R>) -> i64 {
+  let until = now_ms() + PAUSE.as_millis() as i64;
+  if let Ok(mut state) = app.state::<Day>().0.lock() {
+    state.paused_until = until;
+  }
+  until
+}
+
+/// How often the app re-reads its own clock.
+///
+/// Under a minute because that is the menu bar's smallest unit, and well
+/// inside `LATE` so no start can pass through the window unannounced. It is a
+/// redraw of six menu items, not work.
+const TICK: Duration = Duration::from_secs(15);
+
+/// The clock the day runs on, in the process rather than in the webview.
+///
+/// A thread rather than a timer in the frontend: see `Entry`. Nothing here
+/// asks the webview for anything, so it keeps counting while the window is
+/// hidden, which is the case that was broken.
+fn tick<R: Runtime>(app: &AppHandle<R>) {
+  let handle = app.clone();
+  std::thread::spawn(move || {
+    loop {
+      std::thread::sleep(TICK);
+      let inner = handle.clone();
+      // Menus and tray titles are AppKit objects, and touching them off the
+      // main thread is undefined behaviour rather than an error.
+      let _ = handle.run_on_main_thread(move || {
+        let _ = refresh(&inner);
+      });
+    }
+  });
 }
 
 /// Bring the window back after a close hid it. Called from the dock icon and
@@ -156,8 +401,11 @@ pub fn install<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
         let _ = app.emit("tray://start", ());
       }
       "pause" => {
+        let until = pause(app);
         show_window(app);
-        let _ = app.emit("tray://pause", ());
+        // The webview only draws the toast. It is told when the quiet ends
+        // rather than working it out, so there is one definition of an hour.
+        let _ = app.emit("tray://pause", until);
       }
       _ => {}
     });
@@ -166,5 +414,142 @@ pub fn install<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
   let tray = tray.icon_as_template(true);
 
   tray.build(app)?;
-  render(&app.handle().clone(), &UpNext::default())
+
+  app.manage(Day::default());
+  let handle = app.handle().clone();
+  tick(&handle);
+  render(&handle, &UpNext::default())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  const MIN: i64 = 60_000;
+  const AT: i64 = 1_700_000_000_000;
+
+  fn entry(id: &str, starts_at: i64, ends_at: i64) -> Entry {
+    Entry {
+      id: id.to_string(),
+      title: "Breathing".to_string(),
+      starts_at,
+      ends_at,
+    }
+  }
+
+  /// The reported bug, as a test: an activity that has finished must leave the
+  /// menu bar, and it must leave on the clock alone - no new push from the
+  /// webview, which is the thing that had stopped arriving.
+  #[test]
+  fn drops_a_slot_once_it_has_finished() {
+    let day = [entry("a", AT, AT + 10 * MIN)];
+
+    let during = up_next(&day, AT + 5 * MIN);
+    assert_eq!(during.title.as_deref(), Some("Breathing"));
+    assert_eq!(during.badge.as_deref(), Some("now"));
+
+    // Same schedule, later clock. Nothing else changed.
+    let after = up_next(&day, AT + 11 * MIN);
+    assert_eq!(after.title, None);
+    assert_eq!(after.badge, None);
+    assert_eq!(menu_bar_title(&after), None);
+  }
+
+  #[test]
+  fn names_the_earliest_slot_still_to_come() {
+    let day = [
+      entry("over", AT - 30 * MIN, AT - 20 * MIN),
+      entry("next", AT + MIN, AT + 11 * MIN),
+      entry("later", AT + 40 * MIN, AT + 50 * MIN),
+    ];
+    let next = up_next(&day, AT);
+    assert_eq!(next.badge.as_deref(), Some("1m"));
+    assert_eq!(next.label.as_deref(), Some("10 min"));
+    // Not startable yet, so the menu item stays greyed.
+    assert_eq!(next.slot_id, None);
+  }
+
+  #[test]
+  fn offers_a_start_only_once_the_slot_is_live() {
+    let day = [entry("a", AT - MIN, AT + 9 * MIN)];
+    assert_eq!(up_next(&day, AT).slot_id.as_deref(), Some("a"));
+  }
+
+  fn day(entries: &[Entry]) -> DayState {
+    DayState {
+      entries: entries.to_vec(),
+      ..DayState::default()
+    }
+  }
+
+  /// The other half of the same bug: these were one `setTimeout` each in a
+  /// webview that gets suspended when the window is hidden.
+  #[test]
+  fn announces_a_start_exactly_once() {
+    let mut state = day(&[entry("a", AT, AT + 10 * MIN)]);
+
+    assert_eq!(due_starts(&mut state, AT - 1).len(), 0, "not yet");
+
+    let due = due_starts(&mut state, AT);
+    assert_eq!(due.len(), 1);
+    assert_eq!(minutes(&due[0]), 10);
+
+    // The tick comes round every 15 seconds and the start stays inside the
+    // late window for six of them. Only the first may speak.
+    assert_eq!(due_starts(&mut state, AT + 15_000).len(), 0);
+    assert_eq!(due_starts(&mut state, AT + 30_000).len(), 0);
+  }
+
+  #[test]
+  fn stays_quiet_about_a_start_it_slept_through() {
+    let mut state = day(&[entry("a", AT, AT + 10 * MIN)]);
+    // Woken well after the fact. By now the day has been replanned around it
+    // and the notification would be a lie.
+    assert_eq!(due_starts(&mut state, AT + LATE + 1).len(), 0);
+  }
+
+  #[test]
+  fn announces_a_slot_again_once_it_has_moved() {
+    let mut state = day(&[entry("a", AT, AT + 10 * MIN)]);
+    assert_eq!(due_starts(&mut state, AT).len(), 1);
+
+    // Same slot, replanned half an hour later. That is a new thing to say.
+    state.entries = vec![entry("a", AT + 30 * MIN, AT + 40 * MIN)];
+    assert_eq!(due_starts(&mut state, AT + 30 * MIN).len(), 1);
+  }
+
+  #[test]
+  fn a_pause_silences_a_start_and_leaves_the_one_after_it() {
+    let mut state = day(&[
+      entry("quiet", AT + 10 * MIN, AT + 20 * MIN),
+      entry("loud", AT + 90 * MIN, AT + 100 * MIN),
+    ]);
+    state.paused_until = AT + 60 * MIN;
+
+    assert_eq!(due_starts(&mut state, AT + 10 * MIN).len(), 0);
+    let after = due_starts(&mut state, AT + 90 * MIN);
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].id, "loud");
+
+    // Silenced, not hidden: the menu bar still names it while the quiet lasts.
+    assert_eq!(
+      up_next(&state.entries, AT + 10 * MIN).title.as_deref(),
+      Some("Breathing")
+    );
+  }
+
+  #[test]
+  fn counts_the_same_way_the_webview_does() {
+    assert_eq!(countdown(90_000), "2m");
+    assert_eq!(countdown(125 * MIN), "2h 05m");
+    assert_eq!(countdown(-5 * MIN), "0m");
+  }
+
+  #[test]
+  fn ellipsises_a_long_name_by_character() {
+    let mut next = up_next(&[entry("a", AT, AT + MIN)], AT);
+    next.title = Some("Café ☕ and a very long stretch name".to_string());
+    let title = menu_bar_title(&next).unwrap();
+    assert_eq!(title, "Café ☕ and a very lon… · now");
+  }
 }

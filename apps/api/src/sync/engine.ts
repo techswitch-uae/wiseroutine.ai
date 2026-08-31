@@ -17,6 +17,7 @@ import {
   ProviderError,
   SyncTokenExpired,
 } from "@wiseroutine/providers";
+import { dayBounds, localDateOf } from "@wiseroutine/scheduler";
 import { open, seal } from "../crypto";
 
 /** How far either side of today we keep concrete event instances. Chosen once:
@@ -24,6 +25,39 @@ import { open, seal } from "../crypto";
  *  later forces a full resync of every calendar. */
 export const WINDOW_BEHIND_DAYS = 7;
 export const WINDOW_AHEAD_DAYS = 60;
+
+/**
+ * How far back a sync reaches: seven days, but never past the connection.
+ *
+ * The later of the two, which is what makes it a floor rather than a second
+ * window. Connect a calendar today and nothing before today is fetched -
+ * someone's back catalogue of meetings is not ours to take, it is not what the
+ * app is for, and on a busy account the first sync would otherwise be far the
+ * largest thing it ever does. A week later `now - 7 days` has overtaken the
+ * connection date and takes over on its own; the floor never applies again.
+ *
+ * Local midnight of the connection day, not the instant. Connecting at two in
+ * the afternoon and finding this morning's meetings missing from *today* would
+ * read as the sync being broken, and would be a strange first impression of a
+ * calendar app.
+ *
+ * On Google this is settled by the first sync and then frozen: `timeMin` lives
+ * inside the sync token, so what matters here is the value the very first pass
+ * uses. That is the one this is written for.
+ */
+export function syncWindowStart(
+  now: number,
+  connectedAt: number,
+  timeZone: string,
+): number {
+  const connectedDay = dayBounds(
+    localDateOf(connectedAt, timeZone),
+    timeZone,
+    0,
+    0,
+  ).start;
+  return Math.max(now - WINDOW_BEHIND_DAYS * DAY, connectedDay);
+}
 
 /** Graph freezes the window inside the delta token, so the far edge creeps
  *  closer as real time advances. Rebuild before it runs out. */
@@ -49,6 +83,15 @@ export interface SyncTarget {
   provider: "google" | "microsoft";
   providerCalendarId: string;
   storeTitles: boolean;
+  /**
+   * The earliest instant this sync may reach - see `syncWindowStart`.
+   *
+   * Optional because `ensureWatch` takes the same target and opens a push
+   * channel, which has no window of its own to bound. Absent, the sync falls
+   * back to the plain rolling window, which is what it did before the floor
+   * existed: more events than needed, never fewer.
+   */
+  windowStart?: number;
 }
 
 export interface SyncOutcome {
@@ -185,7 +228,11 @@ export async function syncCalendar(
     pages: 0,
   };
 
-  const timeMin = new Date(now - WINDOW_BEHIND_DAYS * DAY).toISOString();
+  // The caller supplies the floor because it is the caller that knows the
+  // account's zone; without one this is the window it always was.
+  const timeMin = new Date(
+    target.windowStart ?? now - WINDOW_BEHIND_DAYS * DAY,
+  ).toISOString();
   const timeMax = new Date(now + WINDOW_AHEAD_DAYS * DAY).toISOString();
 
   let pageToken: string | undefined;

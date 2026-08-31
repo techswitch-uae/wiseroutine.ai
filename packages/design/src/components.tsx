@@ -1194,11 +1194,14 @@ export const DayGrid: React.FC<DayGridProps> = ({
       }
 
       if (event.key === "Delete" || event.key === "Backspace") {
-        if (!item.onRemove) return;
-        // Backspace is Back in some shells, and losing the page is a worse
-        // outcome than losing the slot.
+        // Swallowed first, acted on second - and in that order, because the
+        // two are independent. Backspace is Back in some shells, and a block
+        // with nothing to remove - a meeting, a finished slot - used to return
+        // here before defaulting it, so pressing Backspace on one navigated
+        // the app away from the day. Focus is on a block, not a text field:
+        // nothing else on this page has a claim on the key.
         event.preventDefault();
-        item.onRemove();
+        item.onRemove?.();
         return;
       }
 
@@ -2398,12 +2401,13 @@ export const StateRow: React.FC<{
   trailing: React.ReactNode;
   recessed?: boolean;
 }> = ({ name, leading, trailing, recessed }) => (
-  <div
-    className={cx("wr-slot", recessed && "wr-slot-inset")}
-    style={{ width: 236, borderRadius: 15, flex: "none" }}
-  >
+  // Fluid, not 236px. It was a fixed width taken from the widget it was first
+  // drawn in, which is 250px wide and spends 38 of them on padding - so every
+  // row in "To place today" hung 24px out of the card it was inside. A row
+  // takes the width of whatever it is put in; only the card decides that.
+  <div className={cx("wr-slot", "wr-staterow", recessed && "wr-slot-inset")}>
     {leading}
-    <div style={{ flex: 1 }}>
+    <div className="wr-staterow-name">
       <div className="wr-slot-name">{name}</div>
     </div>
     {trailing}

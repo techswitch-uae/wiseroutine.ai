@@ -1,6 +1,7 @@
 import {
   archiveActivity,
   cancelWork,
+  connectedSince,
   countActiveActivities,
   createActivity,
   deleteConnection,
@@ -36,6 +37,8 @@ import {
 } from "@wiseroutine/providers";
 import {
   dayBounds,
+  isBusy,
+  type LocalDate,
   localDateOf,
   localWeekday,
   replayedAt,
@@ -1000,6 +1003,189 @@ app.get("/today", async (c) => {
         // "two stretches left, and both are already on your afternoon".
         scheduled: scheduled.get(a.row.id) ?? 0,
       })),
+  });
+});
+
+/** A month grid is six weeks. Nothing asks for more, and an unbounded window
+ *  is an unbounded query. */
+const MAX_SCOPE_DAYS = 42;
+
+/** `YYYY-MM-DD` as the local date it names, or undefined for anything else -
+ *  a junk query string should fall back to today, not to 1970. */
+function parseLocalDate(iso: string | undefined): LocalDate | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? "");
+  if (!match) return undefined;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  // Rejected rather than rolled over: "2026-02-31" is a typo, and answering
+  // for the 3rd of March would hide it.
+  const at = new Date(Date.UTC(year, month - 1, day));
+  return at.getUTCFullYear() === year &&
+    at.getUTCMonth() + 1 === month &&
+    at.getUTCDate() === day
+    ? { year, month, day }
+    : undefined;
+}
+
+/** Calendar-day arithmetic, done through UTC so it never has to know what the
+ *  zone did overnight - only which date comes next. */
+function addLocalDays(date: LocalDate, days: number): LocalDate {
+  const at = new Date(Date.UTC(date.year, date.month - 1, date.day + days));
+  return {
+    year: at.getUTCFullYear(),
+    month: at.getUTCMonth() + 1,
+    day: at.getUTCDate(),
+  };
+}
+
+const isoOfLocalDate = (date: LocalDate): string =>
+  `${date.year}-${String(date.month).padStart(2, "0")}-${String(
+    date.day,
+  ).padStart(2, "0")}`;
+
+/** How many days the caller may have. A week by default, a month at most. */
+const scopeDays = (asked: string | undefined): number => {
+  const days = Number(asked ?? 7);
+  return Number.isFinite(days)
+    ? Math.min(Math.max(Math.trunc(days), 1), MAX_SCOPE_DAYS)
+    : 7;
+};
+
+/**
+ * One window of the calendar, bucketed into local days.
+ *
+ * Week, month and year all ask the same question - "what is on these days?" -
+ * and differ only in how many days they ask about, so they share one route.
+ * Three routes would be three places for the meeting filter to drift apart,
+ * and the filter is the part that has to match `/today` exactly or the same
+ * meeting appears on the day and not on the week.
+ *
+ * Bucketed here rather than on the client because only the server knows the
+ * account's zone. Each day carries its own bounds, so the client turns an
+ * instant into a position with a subtraction and never has to do zone
+ * arithmetic of its own - which also means a day that gained or lost an hour
+ * to DST still lands its blocks on the right hour line.
+ */
+app.get("/scope", async (c) => {
+  const db = c.get("db");
+  const user = c.get("user");
+  const now = c.get("now");
+
+  const first =
+    parseLocalDate(c.req.query("from")) ?? localDateOf(now, user.timeZone);
+  const count = scopeDays(c.req.query("days"));
+  // The same picker the day has, answering for a week at a time. Falls back
+  // rather than failing on a range deleted since - see `resolveRange`.
+  const range = resolveRange(user, c.req.query("range"));
+
+  const days = Array.from({ length: count }, (_, index) => {
+    const date = addLocalDays(first, index);
+    return {
+      date,
+      // The whole local day, not the visible range. Which meetings the hours
+      // hide is the client's question to answer - it is the one drawing the
+      // window - and a query narrowed to the range could not answer it,
+      // because the events outside are exactly the ones it dropped. Same
+      // reasoning as `/today`.
+      ...dayBounds(date, user.timeZone, 0, FULL_DAY_MINUTES),
+    };
+  });
+
+  // The span, from the dates rather than from the ends of the array: the
+  // midnight after the last day is the exclusive end, and taking it this way
+  // needs no bounds check for a list that cannot be empty anyway.
+  const midnightOf = (date: LocalDate) =>
+    dayBounds(date, user.timeZone, 0, 0).start;
+  const from = midnightOf(first);
+  const to = midnightOf(addLocalDays(first, count));
+
+  const [slots, events, syncedAt, connectedAt] = await Promise.all([
+    listSlotsForRange(db, from, to),
+    listEventsInRange(db, from, to),
+    lastSyncedAt(db),
+    connectedSince(db),
+  ]);
+
+  /**
+   * The meetings worth drawing.
+   *
+   * `isBusy` rather than an overlap against `toBusyBlocks`, which is how
+   * `/today` does it: the two agree on every timed event, and differ exactly
+   * where this view needs them to. Merged blocks lose the boundary between two
+   * back-to-back meetings, and a week wants one rectangle per meeting.
+   *
+   * `allDayIsBusy` is the other difference. All-day events are correctly *not*
+   * busy time - that is what keeps the planner from blanking out a week for a
+   * birthday - but they are still on the calendar, and the strip above the
+   * week grid is the place the day timeline never had for them.
+   */
+  const seenUids = new Set<string>();
+  const meetings = events.filter((event) => {
+    if (!isBusy(event, { allDayIsBusy: true })) return false;
+    // The same meeting on a work and a personal calendar is one meeting; two
+    // identical rectangles side by side would read as two commitments.
+    if (event.icalUid === undefined || event.icalUid === null) return true;
+    if (seenUids.has(event.icalUid)) return false;
+    seenUids.add(event.icalUid);
+    return true;
+  });
+
+  return c.json({
+    timeZone: user.timeZone,
+    // The same field `/today` sends, so every scope can draw the same "synced
+    // 2 min ago" status from the same answer.
+    syncedAt,
+    // The same shape `/today` sends, so the hours picker is one component
+    // fed by one answer whichever scope is on screen.
+    range: range.key,
+    ranges: dayRanges(user),
+    /**
+     * The first day meetings could be known from.
+     *
+     * Nothing before a calendar was connected is ever fetched, so the week and
+     * month have to be able to say why an earlier day is empty. Null when no
+     * calendar is connected at all, which is the one case where saying it
+     * would raise a question rather than answer one.
+     */
+    meetingsFrom: connectedAt,
+    days: days.map((day) => ({
+      iso: isoOfLocalDate(day.date),
+      dayStart: day.start,
+      dayEnd: day.end,
+      // Cancelled slots are history, and history belongs to the day view. An
+      // overview that drew them would report decisions already undone.
+      slots: slots
+        .filter(
+          (slot) =>
+            slot.status !== "cancelled" &&
+            slot.startsAt < day.end &&
+            slot.endsAt > day.start,
+        )
+        .map((slot) => ({
+          id: slot.id,
+          title: slot.title,
+          kind: slot.kind,
+          startsAt: slot.startsAt,
+          endsAt: slot.endsAt,
+          status: slot.status,
+        })),
+      // Listed under every day it touches, and clamped to the column by the
+      // client. A meeting running past midnight belongs to both days; dropping
+      // it from the second is the more surprising answer of the two.
+      meetings: meetings
+        .filter((event) => event.start < day.end && event.end > day.start)
+        .map((event) => ({
+          id: event.id,
+          // Null when the account stores busy intervals without titles. The
+          // client says "Busy"; nothing here invents a name for it.
+          title: event.title ?? null,
+          startsAt: event.start,
+          endsAt: event.end,
+          isAllDay: event.isAllDay,
+        })),
+    })),
   });
 });
 

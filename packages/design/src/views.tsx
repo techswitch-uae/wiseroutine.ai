@@ -1,12 +1,15 @@
 import type React from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   type MonthCell,
   SCOPES,
   type Scope,
+  type WeekAllDay,
+  type WeekBlock,
   type WeekDay,
-  type YearMonth,
 } from "./calendar";
 import { IconButton } from "./components";
+import { layoutDay } from "./daygrid";
 import { clockOf } from "./time";
 
 /**
@@ -172,6 +175,275 @@ const WEEK_HOUR = 52;
  * a lifted one, and free room is drawn dashed. The column head is the button:
  * a week is read and navigated, and a slot is still moved in the day.
  */
+/**
+ * The all-day band above one column.
+ *
+ * Rendered for every day once any day has an entry, empty ones included: the
+ * band is what keeps the seven hour grids aligned, so it cannot be skipped for
+ * the quiet days.
+ */
+const AllDayStrip: React.FC<{
+  entries: readonly WeekAllDay[];
+  rows: number;
+  height: number;
+}> = ({ entries, rows, height }) => {
+  // Past the cap, the last row is spent on the count rather than on one more
+  // name - so it is the overflow *including* the entry it displaces.
+  const over = entries.length - rows;
+  const shown = over > 0 ? entries.slice(0, rows - 1) : entries;
+
+  return (
+    <div className="wr-week-allday" style={{ height }}>
+      {shown.map((entry) => (
+        <span key={entry.key} className="wr-week-allday-chip">
+          {entry.title}
+        </span>
+      ))}
+      {over > 0 ? (
+        <span className="wr-week-allday-more">+{over + 1} more</span>
+      ) : null}
+    </div>
+  );
+};
+
+/** One all-day chip, and the gap under it. */
+const ALLDAY_ROW = 18;
+const ALLDAY_GAP = 3;
+
+/**
+ * How many all-day rows the strip draws before it starts counting.
+ *
+ * Three, because the strip pushes the hour grid down by its full height and a
+ * conference week with eight all-day entries would leave nothing of the day
+ * visible. Past the cap the last row becomes "+5 more" - a number is a worse
+ * answer than a name, and a better one than a grid off the bottom of the
+ * screen.
+ */
+const ALLDAY_MAX = 3;
+
+/** The strip's height, or 0 when no day in the week has an all-day entry -
+ *  a week of ordinary meetings should not carry an empty band. */
+const stripHeightOf = (rows: number): number =>
+  rows === 0 ? 0 : rows * ALLDAY_ROW + (rows - 1) * ALLDAY_GAP + 6;
+
+/**
+ * The room a block takes in the column, its own air included.
+ *
+ * Below this a fifteen-minute slot is a line rather than a thing with a name
+ * in it. This is what `layoutDay` is given, so it is also the distance at
+ * which two short blocks start being drawn side by side rather than one under
+ * the other - raise it and a slot at 11:00 and a gap at 11:25 begin to look
+ * like a clash they are not.
+ */
+const WEEK_MIN_BLOCK = 20;
+
+/**
+ * Air above and below every block, in equal measure.
+ *
+ * Equal is the whole point. Drawn at its exact duration a block touches both
+ * the line it starts on and whatever comes next, so a morning of back-to-back
+ * meetings reads as one striped bar. But taking the air off one end only is
+ * worse than taking none: two stacked blocks then sit differently against
+ * their own lines - the upper one flush against the hour it starts on, the
+ * lower one clear of it - and the eye reads that as a mistake rather than as
+ * spacing, because it is one.
+ *
+ * Two pixels is about two minutes at this scale, which is nothing, and it
+ * leaves the hour line visible above the block that starts on it.
+ *
+ * Off the drawn rectangle, not off the placement. `layoutDay` still clusters
+ * on the full boxes, so this can never be what decides that two things are
+ * clear of one another.
+ */
+const WEEK_BLOCK_AIR = 2;
+
+/** The same air between two blocks sharing a column - see `WEEK_BLOCK_AIR`. */
+const WEEK_BLOCK_GUTTER = 4;
+
+/** The rectangle a block is actually drawn as: the layout's box with the air
+ *  taken off. One function, because the popover anchors to the drawn box and
+ *  not the placed one - and the two drifting apart is how a popover ends up
+ *  over the block it belongs to. */
+const drawnBox = (box: { top: number; height: number }) => ({
+  top: box.top + WEEK_BLOCK_AIR,
+  height: box.height - 2 * WEEK_BLOCK_AIR,
+});
+
+/**
+ * Where a day's blocks go, by the day view's own arithmetic.
+ *
+ * `layoutDay` rather than a second overlap algorithm here. It is the part of
+ * the day that decides two things at once cannot be drawn on top of each
+ * other, it is already tested, and a week that clustered differently from the
+ * day would show the same two slots as a clash on one screen and as one block
+ * hiding another on the next.
+ *
+ * It works in instants, and a week block is minutes from midnight - so
+ * midnight is the epoch. `minutes * 60_000` is not a trick: it is the same
+ * quantity in the units `layoutDay` reads.
+ */
+const layoutColumn = (blocks: readonly WeekBlock[], startMinutes: number) =>
+  layoutDay(
+    blocks.map((block) => ({
+      key: block.key,
+      block,
+      startsAt: block.startMinutes * 60_000,
+      endsAt: block.endMinutes * 60_000,
+    })),
+    {
+      dayStart: startMinutes * 60_000,
+      pxPerMinute: WEEK_HOUR / 60,
+      minHeight: WEEK_MIN_BLOCK,
+    },
+  );
+
+/**
+ * Which side of the column the popover opens on.
+ *
+ * It is wider than the column it belongs to, and the page scroller clips
+ * sideways - so the last days open leftwards rather than off the edge of the
+ * week.
+ */
+const POP_FLIPS_AT = 4;
+
+/** Past this far down the track, the popover opens upwards instead. */
+const POP_OPENS_UP_BELOW = 0.55;
+
+/**
+ * One slot's details, opened by pressing it.
+ *
+ * The whole reason this exists: two overlapping slots take half a column each,
+ * both titles truncate, and the layout that made the clash visible is the same
+ * layout that made it unreadable. So the block shows *that* there is a clash
+ * and this shows what is in it.
+ *
+ * Anchored by arithmetic rather than by measuring: the track's height and the
+ * block's place in it are both already known here, and reading back a
+ * rectangle would tie the popover to a layout pass.
+ */
+const BlockDetail: React.FC<{
+  block: WeekBlock;
+  /** The block's drawn rectangle - see `drawnBox`. */
+  box: { top: number; height: number };
+  trackHeight: number;
+  flip: boolean;
+}> = ({ block, box, trackHeight, flip }) => {
+  const { top, height: blockHeight } = box;
+  // Below the block, until that would put it off the bottom of the track -
+  // then above it. Measured against the track rather than the viewport: the
+  // week does not know where it is on screen, and does not need to in order to
+  // stay inside itself.
+  const up = top > trackHeight * POP_OPENS_UP_BELOW;
+  return (
+    <div
+      className={cx("wr-week-pop", flip && "wr-week-pop-flip")}
+      role="dialog"
+      aria-label={block.title}
+      style={
+        up
+          ? { bottom: Math.max(0, trackHeight - top) + 6 }
+          : { top: top + blockHeight + 6 }
+      }
+    >
+      <div className="wr-week-pop-title">{block.title}</div>
+      <div className="wr-week-pop-when">{block.detail?.when}</div>
+      {block.detail?.note ? (
+        <div className="wr-week-pop-note">{block.detail.note}</div>
+      ) : null}
+    </div>
+  );
+};
+
+/**
+ * One day's hour grid, its blocks, and the details of whichever is open.
+ *
+ * Its own component so the layout is computed once and read twice: the blocks
+ * are drawn from it, and so is the popover's anchor. Passing the open block's
+ * top down from the week meant recomputing it there, and recomputing it from
+ * the start time alone got it wrong - a block is at least `WEEK_MIN_BLOCK`
+ * tall whatever its duration says, and the popover opened over the block it
+ * belonged to.
+ */
+const WeekTrack: React.FC<{
+  day: WeekDay;
+  startMinutes: number;
+  height: number;
+  open: string | null;
+  onToggle: (key: string) => void;
+  flip: boolean;
+}> = ({ day, startMinutes, height, open, onToggle, flip }) => {
+  const placed = layoutColumn(day.blocks ?? [], startMinutes);
+  const shown = placed.find(
+    (it) => it.block.block.key === open && it.block.block.detail,
+  );
+
+  return (
+    <div
+      className={cx(
+        "wr-week-track",
+        day.today && "wr-week-track-today",
+        day.past && "wr-week-track-past",
+      )}
+      style={{ height }}
+    >
+      {placed.map((it) => {
+        const block = it.block.block;
+        const box = drawnBox(it);
+        // A detail is what makes a block pressable - see `WeekBlock`.
+        const Tag = block.detail ? "button" : "div";
+        const isOpen = open === block.key;
+        return (
+          <Tag
+            key={block.key}
+            {...(block.detail
+              ? {
+                  type: "button" as const,
+                  "aria-haspopup": "dialog" as const,
+                  "aria-expanded": isOpen,
+                  onClick: () => onToggle(block.key),
+                }
+              : {})}
+            className={cx(
+              "wr-week-block",
+              `wr-week-block-${block.variant}`,
+              block.detail && "wr-week-block-open",
+              isOpen && "wr-week-block-shown",
+            )}
+            style={{
+              ...box,
+              // Halves of a column, the day's own way of drawing a clash. Two
+              // names side by side both truncate, which is exactly what the
+              // popover is for. The gutter comes off the width rather than out
+              // of a margin, so the share stays a share and the gap lands
+              // between the two rather than past them.
+              left: `${(it.column / it.columns) * 100}%`,
+              width: `calc(${
+                (it.span / it.columns) * 100
+              }% - ${WEEK_BLOCK_GUTTER}px)`,
+            }}
+          >
+            {block.variant === "slot" || block.variant === "live" ? (
+              <span className="wr-week-pip" aria-hidden="true" />
+            ) : null}
+            <span className="wr-week-block-name">{block.title}</span>
+          </Tag>
+        );
+      })}
+
+      {/* A sibling of the blocks, not a child of one: a block clips its own
+          contents, and one 140px wide would clip this to nothing. */}
+      {shown ? (
+        <BlockDetail
+          block={shown.block.block}
+          box={drawnBox(shown)}
+          trackHeight={height}
+          flip={flip}
+        />
+      ) : null}
+    </div>
+  );
+};
+
 export const WeekGrid: React.FC<{
   days: readonly WeekDay[];
   /** The window on screen, minutes from midnight. */
@@ -184,10 +456,49 @@ export const WeekGrid: React.FC<{
   const topOf = (minutes: number) =>
     ((minutes - startMinutes) / 60) * WEEK_HOUR;
 
+  // One height for all seven columns, so the hour lines stay level across the
+  // week - a per-column strip would stagger Tuesday's 09:00 against Monday's.
+  const allDayRows = Math.min(
+    ALLDAY_MAX,
+    days.reduce((most, day) => Math.max(most, day.allDay?.length ?? 0), 0),
+  );
+  const stripHeight = stripHeightOf(allDayRows);
+
+  /** The one block whose details are open, by key. One at a time: two
+   *  popovers over a grid this dense would overlap each other. */
+  const [open, setOpen] = useState<string | null>(null);
+  const root = useRef<HTMLDivElement>(null);
+
+  // Same rule as every other popover in the app - one that survives a click
+  // elsewhere is one people fight with. See `HoursMenu`.
+  useEffect(() => {
+    if (open === null) return;
+
+    const onPointer = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(null);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(null);
+    };
+
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
   return (
     <div
       className="wr-week"
-      style={{ ["--wr-week-hour" as string]: `${WEEK_HOUR}px` }}
+      ref={root}
+      style={{
+        ["--wr-week-hour" as string]: `${WEEK_HOUR}px`,
+        // The gutter is positioned from the top of the column, so it has to be
+        // told how far down the hour grid now starts.
+        ["--wr-week-allday" as string]: `${stripHeight}px`,
+      }}
     >
       <div className="wr-week-gutter" style={{ height }}>
         {Array.from(
@@ -207,7 +518,7 @@ export const WeekGrid: React.FC<{
       </div>
 
       <div className="wr-week-cols">
-        {days.map((day) => (
+        {days.map((day, index) => (
           <div key={day.iso} className="wr-week-col">
             <button
               type="button"
@@ -224,64 +535,28 @@ export const WeekGrid: React.FC<{
               ) : null}
             </button>
 
-            <div
-              className={cx(
-                "wr-week-track",
-                day.today && "wr-week-track-today",
-                day.past && "wr-week-track-past",
-              )}
-              style={{ height }}
-            >
-              {(day.blocks ?? []).map((block) => (
-                <div
-                  key={block.key}
-                  className={cx(
-                    "wr-week-block",
-                    `wr-week-block-${block.variant}`,
-                  )}
-                  style={{
-                    top: topOf(block.startMinutes),
-                    height: Math.max(
-                      16,
-                      topOf(block.endMinutes) - topOf(block.startMinutes),
-                    ),
-                  }}
-                >
-                  {block.variant === "slot" || block.variant === "live" ? (
-                    <span className="wr-week-pip" aria-hidden="true" />
-                  ) : null}
-                  {block.title}
-                </div>
-              ))}
-            </div>
+            {allDayRows > 0 ? (
+              <AllDayStrip
+                entries={day.allDay ?? []}
+                rows={allDayRows}
+                height={stripHeight}
+              />
+            ) : null}
+
+            <WeekTrack
+              day={day}
+              startMinutes={startMinutes}
+              height={height}
+              open={open}
+              onToggle={(key) => setOpen((was) => (was === key ? null : key))}
+              flip={index >= POP_FLIPS_AT}
+            />
           </div>
         ))}
       </div>
     </div>
   );
 };
-
-/** What the week's three surfaces mean, spelled out under it. */
-export const WeekLegend: React.FC = () => (
-  <div className="wr-legend">
-    <span className="wr-legend-item">
-      <i className="wr-legend-swatch wr-legend-slot" />
-      Your slot
-    </span>
-    <span className="wr-legend-item">
-      <i className="wr-legend-swatch wr-legend-meeting" />
-      From a calendar
-    </span>
-    <span className="wr-legend-item">
-      <i className="wr-legend-swatch wr-legend-free" />
-      Free stretch
-    </span>
-    <span className="wr-legend-note">
-      Click a column head to open that day. The week reads and navigates; slots
-      are moved in the day.
-    </span>
-  </div>
-);
 
 /* ── Month ─────────────────────────────────────────────────────────────── */
 
@@ -295,14 +570,24 @@ const dotKeys = (count: number, prefix: string): string[] =>
 /**
  * Month - one dot per slot, so a whole month reads at a glance.
  *
- * Filled dot = a minimum met, hollow = one still planned. Days before today
- * are read-only: there is nothing left to decide about them, and offering a
- * press that does nothing is worse than offering none.
+ * Filled dot = a slot done, hollow = one still planned. Days before today are
+ * read-only: there is nothing left to decide about them, and offering a press
+ * that does nothing is worse than offering none.
  */
 export const MonthGrid: React.FC<{
   cells: readonly MonthCell[];
   onOpenDay?: (iso: string) => void;
-}> = ({ cells, onOpenDay }) => (
+  /**
+   * The first day meetings are known for, written out - "30 August 2026".
+   *
+   * Said here because this is the screen that shows the past, and the past is
+   * where the answer changes: nothing is fetched from before a calendar was
+   * connected, so an empty February is the sync window, not a quiet month.
+   * Absent when no calendar is connected, which is the one case where the
+   * sentence would raise a question rather than answer one.
+   */
+  meetingsFrom?: string;
+}> = ({ cells, onOpenDay, meetingsFrom }) => (
   <div className="wr-month">
     <div className="wr-month-heads">
       {WEEK_HEADS.map((name) => (
@@ -341,10 +626,10 @@ export const MonthGrid: React.FC<{
               ) : null}
             </span>
 
-            {(cell.taken ?? 0) + (cell.planned ?? 0) > 0 ? (
+            {(cell.done ?? 0) + (cell.planned ?? 0) > 0 ? (
               <span className="wr-month-dots">
-                {dotKeys(cell.taken ?? 0, `${cell.iso}-taken`).map((key) => (
-                  <i key={key} className="wr-month-dot wr-month-dot-taken" />
+                {dotKeys(cell.done ?? 0, `${cell.iso}-done`).map((key) => (
+                  <i key={key} className="wr-month-dot wr-month-dot-done" />
                 ))}
                 {dotKeys(cell.planned ?? 0, `${cell.iso}-planned`).map(
                   (key) => (
@@ -360,8 +645,8 @@ export const MonthGrid: React.FC<{
 
     <div className="wr-legend">
       <span className="wr-legend-item">
-        <i className="wr-month-dot wr-month-dot-taken" />
-        Taken
+        <i className="wr-month-dot wr-month-dot-done" />
+        Done
       </span>
       <span className="wr-legend-item">
         <i className="wr-month-dot" />
@@ -369,98 +654,9 @@ export const MonthGrid: React.FC<{
       </span>
       <span className="wr-legend-note">
         Days before today are read-only. Click any day from today on to open it.
-      </span>
-    </div>
-  </div>
-);
-
-/* ── Year ──────────────────────────────────────────────────────────────── */
-
-/** How many week bars a month card draws when it has no weeks of its own. */
-const YEAR_WEEKS = 5;
-
-/**
- * Year - twelve months of rhythm, and a way to jump.
- *
- * One bar per week, filled by the share of daily minimums met. It reads
- * history and jumps to a month; it never places a slot, which is why nothing
- * on this screen is draggable and every card is simply a link.
- */
-export const YearGrid: React.FC<{
-  months: readonly YearMonth[];
-  onOpenMonth?: (month: number) => void;
-}> = ({ months, onOpenMonth }) => (
-  <div className="wr-year">
-    <div className="wr-year-grid">
-      {months.map((entry) => {
-        const weeks =
-          entry.weeks ?? (Array(YEAR_WEEKS).fill(null) as (number | null)[]);
-        return (
-          <button
-            key={entry.month}
-            type="button"
-            className={cx("wr-year-card", `wr-year-card-${entry.state}`)}
-            onClick={() => onOpenMonth?.(entry.month)}
-          >
-            <span className="wr-year-top">
-              <span className="wr-year-name">{entry.label}</span>
-              {entry.state === "current" ? (
-                <span className="wr-year-now">This month</span>
-              ) : entry.percent !== undefined ? (
-                <span className="wr-year-pct">
-                  {Math.round(entry.percent * 100)}%
-                </span>
-              ) : null}
-            </span>
-
-            <span className="wr-year-bars">
-              {weeks
-                .map((share, index) => ({
-                  key: `${entry.month}-w${index}`,
-                  share,
-                  now: index === entry.nowWeek,
-                }))
-                .map((bar) => (
-                  <span key={bar.key} className="wr-year-bar">
-                    {bar.share !== null ? (
-                      <i
-                        className={cx(
-                          "wr-year-fill",
-                          entry.state === "future" && "wr-year-fill-planned",
-                          bar.now && "wr-year-fill-now",
-                        )}
-                        style={{ width: `${Math.round(bar.share * 100)}%` }}
-                      />
-                    ) : null}
-                    {bar.now ? <em className="wr-year-nowmark">Now</em> : null}
-                  </span>
-                ))}
-            </span>
-
-            {entry.note ? (
-              <span className="wr-year-note">{entry.note}</span>
-            ) : null}
-          </button>
-        );
-      })}
-    </div>
-
-    <div className="wr-legend">
-      <span className="wr-legend-item">
-        <i className="wr-legend-swatch wr-legend-met" />
-        Met
-      </span>
-      <span className="wr-legend-item">
-        <i className="wr-legend-swatch wr-legend-planned" />
-        Planned
-      </span>
-      <span className="wr-legend-item">
-        <i className="wr-legend-swatch wr-legend-none" />
-        Nothing yet
-      </span>
-      <span className="wr-legend-note">
-        One bar per week. Click a month to open it - the year reads history and
-        jumps; it never places a slot.
+        {meetingsFrom
+          ? ` Meetings are synced from ${meetingsFrom} onwards.`
+          : ""}
       </span>
     </div>
   </div>

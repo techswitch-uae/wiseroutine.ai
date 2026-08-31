@@ -1,7 +1,15 @@
 import { exports as worker } from "cloudflare:workers";
-import { slotsPastGrace } from "@wiseroutine/db";
+import {
+  abandonedSlots,
+  autoSlotsToComplete,
+  slotsPastGrace,
+} from "@wiseroutine/db";
 import { beforeEach, describe, expect, test } from "vitest";
-import { accessTokenFor } from "./sync/engine";
+import {
+  accessTokenFor,
+  syncWindowStart,
+  WINDOW_BEHIND_DAYS,
+} from "./sync/engine";
 import {
   directory,
   resetDatabases,
@@ -1532,5 +1540,399 @@ describe("the grace sweep's window", () => {
 
     const due = await slotsPastGrace(userDb(), now, 200, 30 * 60_000);
     expect(due.map((slot) => slot.title)).toEqual(["Two minutes ago"]);
+  });
+});
+
+/**
+ * The one status with nothing behind it.
+ *
+ * An `auto` slot is closed at its end by the sweep; a manual one is closed
+ * from inside the session. Neither covers the case where somebody presses
+ * Start and then shuts the window - and until this, nothing did: the row
+ * stayed `started` for ever, drawn as "running now" days later and counted as
+ * scheduled, so the day never asked for the session again either.
+ */
+describe("a session that was started and never finished", () => {
+  const HOUR = 3_600_000;
+
+  const startedSlot = async (
+    activityId: string | null,
+    endsAt: number,
+    minutes = 5,
+  ) => {
+    const id = crypto.randomUUID();
+    await userDb().slot.create({
+      data: {
+        id,
+        ...(activityId ? { activityId } : {}),
+        title: "Breathing",
+        kind: "recovery",
+        startsAt: new Date(endsAt - minutes * 60_000),
+        endsAt: new Date(endsAt),
+        timeZone: "UTC",
+        status: "started",
+        createdAt: new Date(),
+      },
+    });
+    return id;
+  };
+
+  test("the auto pass does not reach a manual one, which is the hole", async () => {
+    await seedUser();
+    // `manual` is the schema default, and what every hand-started activity is.
+    const activityId = await seedActivity();
+    await startedSlot(activityId, Date.now() - 24 * HOUR);
+
+    expect(await autoSlotsToComplete(userDb(), Date.now(), 200)).toHaveLength(
+      0,
+    );
+  });
+
+  test("is collected once it is well past its end", async () => {
+    await seedUser();
+    const activityId = await seedActivity();
+    const yesterday = await startedSlot(activityId, Date.now() - 24 * HOUR);
+
+    const found = await abandonedSlots(userDb(), Date.now(), 200, HOUR);
+    expect(found.map((slot) => slot.id)).toEqual([yesterday]);
+  });
+
+  /**
+   * The line that protects someone mid-stretch. A session that ran over, or a
+   * lid shut for ten minutes, is a person still doing the activity - closing
+   * it out from under them is worse than leaving it a while longer.
+   */
+  test("is left alone while it could still be someone in it", async () => {
+    await seedUser();
+    const activityId = await seedActivity();
+    await startedSlot(activityId, Date.now() - 10 * 60_000);
+    await startedSlot(activityId, Date.now() + 60_000);
+
+    expect(await abandonedSlots(userDb(), Date.now(), 200, HOUR)).toHaveLength(
+      0,
+    );
+  });
+
+  test("only ever collects the started ones", async () => {
+    const user = await seedUser();
+    const activityId = await seedActivity();
+    const long = Date.now() - 24 * HOUR;
+    const started = await startedSlot(activityId, long);
+
+    for (const status of ["completed", "skipped", "missed", "planned"]) {
+      await userDb().slot.create({
+        data: {
+          id: crypto.randomUUID(),
+          activityId,
+          title: status,
+          kind: "recovery",
+          startsAt: new Date(long - 60_000),
+          endsAt: new Date(long),
+          timeZone: "UTC",
+          status,
+          createdAt: new Date(),
+        },
+      });
+    }
+
+    const found = await abandonedSlots(userDb(), Date.now(), 200, HOUR);
+    expect(found.map((slot) => slot.id)).toEqual([started]);
+    expect(user).toBeTruthy();
+  });
+
+  /** The client's own escape hatch, which has to keep working on a slot this
+   *  old - it is the only way to correct the record by hand. */
+  test("can still be closed by hand, however long it has been sitting", async () => {
+    const user = await seedUser();
+    const activityId = await seedActivity();
+    const id = await startedSlot(activityId, Date.now() - 24 * HOUR);
+
+    const response = await worker.default.fetch(
+      `http://api/slots/${id}/complete`,
+      {
+        method: "POST",
+        headers: user.headers,
+        body: JSON.stringify({ at: Date.now() }),
+      },
+    );
+
+    expect(response.status).toBe(204);
+    expect((await userDb().slot.findUnique({ where: { id } }))?.status).toBe(
+      "completed",
+    );
+  });
+});
+
+/**
+ * `GET /scope` - a run of local days, for the week and month views.
+ *
+ * What is worth testing here is not the shape but the two decisions the route
+ * makes on its own: which events belong on a screen at all, and which local
+ * day each one lands on. Both are places `/today` has been wrong before.
+ */
+describe("scope", () => {
+  /** workerd runs in UTC; against the default Europe/Rome a "09:00" written
+   *  with `setUTCHours` would land at 11:00 and the test would be measuring
+   *  the offset. */
+  const utcUser = () => seedUser({ timeZone: "UTC" });
+
+  /** A day's midnight in UTC, `days` after the next weekday noon. */
+  const midnight = (days: number): number => {
+    const at = new Date(weekdayNoon());
+    at.setUTCHours(0, 0, 0, 0);
+    return at.getTime() + days * 86_400_000;
+  };
+
+  const iso = (at: number) => new Date(at).toISOString().slice(0, 10);
+
+  const event = async (
+    calendarId: string,
+    title: string,
+    startsAt: number,
+    endsAt: number,
+    extra: Record<string, unknown> = {},
+  ) => {
+    await userDb().externalEvent.create({
+      data: {
+        id: crypto.randomUUID(),
+        calendarId,
+        providerEventId: `evt-${title}-${crypto.randomUUID().slice(0, 8)}`,
+        title,
+        startsAt: new Date(startsAt),
+        endsAt: new Date(endsAt),
+        updatedAt: new Date(),
+        ...extra,
+      },
+    });
+  };
+
+  type Scope = {
+    timeZone: string;
+    syncedAt: number | null;
+    range: string;
+    ranges: { key: string }[];
+    meetingsFrom: number | null;
+    days: {
+      iso: string;
+      dayStart: number;
+      dayEnd: number;
+      slots: { title: string }[];
+      meetings: { title: string | null; startsAt: number; isAllDay: boolean }[];
+    }[];
+  };
+
+  const scope = async (
+    user: TestUser,
+    from: string,
+    days: number,
+    range?: string,
+  ) =>
+    (await (
+      await worker.default.fetch(
+        `http://api/scope?from=${from}&days=${days}${
+          range ? `&range=${range}` : ""
+        }`,
+        { headers: user.headers },
+      )
+    ).json()) as Scope;
+
+  test("answers with the days asked for, in order, each with its own bounds", async () => {
+    const user = await utcUser();
+    const from = iso(midnight(0));
+
+    const answer = await scope(user, from, 7);
+
+    expect(answer.days).toHaveLength(7);
+    expect(answer.days[0]?.iso).toBe(from);
+    expect(answer.days[6]?.iso).toBe(iso(midnight(6)));
+    expect(answer.days[0]?.dayEnd).toBe(answer.days[1]?.dayStart);
+  });
+
+  test("a meeting lands on its own local day, not on the one either side", async () => {
+    const user = await utcUser();
+    const { calendarId } = await seedCalendar();
+    await event(
+      calendarId,
+      "Standup",
+      midnight(1) + 9 * 3_600_000,
+      midnight(1) + 10 * 3_600_000,
+    );
+
+    const answer = await scope(user, iso(midnight(0)), 3);
+
+    expect(answer.days.map((d) => d.meetings.length)).toEqual([0, 1, 0]);
+    expect(answer.days[1]?.meetings[0]?.title).toBe("Standup");
+  });
+
+  test("a meeting running past midnight is listed under both days", async () => {
+    const user = await utcUser();
+    const { calendarId } = await seedCalendar();
+    await event(
+      calendarId,
+      "Long call",
+      midnight(0) + 23 * 3_600_000,
+      midnight(1) + 1 * 3_600_000,
+    );
+
+    const answer = await scope(user, iso(midnight(0)), 2);
+
+    // Dropping it from the second day is the more surprising answer of the
+    // two - the client clamps it to each column.
+    expect(answer.days.map((d) => d.meetings.length)).toEqual([1, 1]);
+  });
+
+  test("all-day events are kept here, unlike on the day timeline", async () => {
+    const user = await utcUser();
+    const { calendarId } = await seedCalendar();
+    await event(calendarId, "Q3 planning", midnight(0), midnight(1), {
+      isAllDay: true,
+    });
+
+    const answer = await scope(user, iso(midnight(0)), 1);
+
+    expect(answer.days[0]?.meetings[0]).toMatchObject({
+      title: "Q3 planning",
+      isAllDay: true,
+    });
+  });
+
+  test("a working location is not a meeting - the phantom-busy bug, on a week", async () => {
+    const user = await utcUser();
+    const { calendarId } = await seedCalendar();
+    await event(
+      calendarId,
+      "Office",
+      midnight(0) + 9 * 3_600_000,
+      midnight(0) + 18 * 3_600_000,
+      { kind: "workingLocation" },
+    );
+    await event(
+      calendarId,
+      "Declined",
+      midnight(0) + 11 * 3_600_000,
+      midnight(0) + 12 * 3_600_000,
+      { responseStatus: "declined" },
+    );
+
+    const answer = await scope(user, iso(midnight(0)), 1);
+
+    expect(answer.days[0]?.meetings).toEqual([]);
+  });
+
+  test("the same meeting on two calendars is drawn once", async () => {
+    const user = await utcUser();
+    const work = await seedCalendar();
+    const personal = await seedCalendar();
+    const span = [midnight(0) + 9 * 3_600_000, midnight(0) + 10 * 3_600_000];
+
+    for (const { calendarId } of [work, personal]) {
+      await event(calendarId, "Review", span[0] as number, span[1] as number, {
+        icalUid: "shared-uid",
+      });
+    }
+
+    const answer = await scope(user, iso(midnight(0)), 1);
+
+    expect(answer.days[0]?.meetings).toHaveLength(1);
+  });
+
+  test("a junk date falls back to today rather than to 1970", async () => {
+    const user = await utcUser();
+
+    const answer = await scope(user, "2026-02-31", 1);
+
+    expect(answer.days[0]?.iso).toBe(iso(Date.now()));
+  });
+
+  test("the window is capped, so no caller can ask for a year of days", async () => {
+    const user = await utcUser();
+
+    const answer = await scope(user, iso(midnight(0)), 365);
+
+    expect(answer.days).toHaveLength(42);
+  });
+
+  test("carries the hours picker, so the week can offer the same ranges", async () => {
+    const user = await utcUser();
+
+    const opens = await scope(user, iso(midnight(0)), 1);
+    const full = await scope(user, iso(midnight(0)), 1, "full");
+
+    expect(opens.range).toBe("working");
+    expect(opens.ranges.map((r) => r.key)).toContain("full");
+    // The picker answers for a week the same way it answers for a day - and
+    // falls back rather than failing on one that no longer exists.
+    expect(full.range).toBe("full");
+    expect((await scope(user, iso(midnight(0)), 1, "gone")).range).toBe(
+      "working",
+    );
+  });
+
+  test("the days always cover midnight to midnight, whatever the range", async () => {
+    const user = await utcUser();
+    const { calendarId } = await seedCalendar();
+    await event(
+      calendarId,
+      "Late",
+      midnight(0) + 22 * 3_600_000,
+      midnight(0) + 23 * 3_600_000,
+    );
+
+    // The range is the client's window, not the query's. Narrowing the read to
+    // it would make "2 later" unanswerable - the meetings outside are exactly
+    // the ones the query would have dropped.
+    const working = await scope(user, iso(midnight(0)), 1, "working");
+    expect(working.days[0]?.meetings).toHaveLength(1);
+  });
+
+  test("says when meetings start being known, and stays quiet with no calendar", async () => {
+    const user = await utcUser();
+
+    expect((await scope(user, iso(midnight(0)), 1)).meetingsFrom).toBeNull();
+
+    await seedCalendar();
+    const after = await scope(user, iso(midnight(0)), 1);
+    expect(after.meetingsFrom).not.toBeNull();
+  });
+
+  test("refuses an anonymous request", async () => {
+    const response = await worker.default.fetch("http://api/scope");
+    expect(response.status).toBe(401);
+  });
+});
+
+/**
+ * How far back a sync reaches.
+ *
+ * The floor is the whole point: nothing from before a calendar was connected
+ * is ever fetched. Pure arithmetic, so it is tested as arithmetic - the
+ * provider round trip that would exercise it end to end proves nothing extra
+ * about the one decision being made.
+ */
+describe("sync window", () => {
+  const DAY = 86_400_000;
+  const NOON = Date.UTC(2026, 7, 11, 12);
+
+  test("a calendar connected today is not read back into last week", async () => {
+    const start = syncWindowStart(NOON, NOON, "UTC");
+    // Midnight of the connection day, so a calendar connected at noon still
+    // shows that morning's meetings.
+    expect(start).toBe(Date.UTC(2026, 7, 11));
+  });
+
+  test("once the rolling window has overtaken it, the floor stops applying", async () => {
+    const connected = NOON - 30 * DAY;
+    expect(syncWindowStart(NOON, connected, "UTC")).toBe(
+      NOON - WINDOW_BEHIND_DAYS * DAY,
+    );
+  });
+
+  test("the connection day is the account's, not UTC's", async () => {
+    // 23:00 in Los Angeles on the 11th is already the 12th in UTC. Taking the
+    // UTC day would put the floor after their own morning and cut it.
+    const connected = Date.UTC(2026, 7, 12, 6);
+    expect(syncWindowStart(connected, connected, "America/Los_Angeles")).toBe(
+      Date.UTC(2026, 7, 11, 7),
+    );
   });
 });

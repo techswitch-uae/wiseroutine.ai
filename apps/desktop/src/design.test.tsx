@@ -456,6 +456,7 @@ const keyed = (
   over: Partial<{
     onStart: () => void;
     onRemove: () => void;
+    onSelect: () => void;
     movable: boolean;
   }> = {},
 ) => ({
@@ -507,6 +508,23 @@ test("a block that offers neither key is not reachable by one", () => {
   // actually happened.
   const { container } = keyedGrid(keyed());
   expect(container.querySelector('[aria-label^="stretch at"]')).toBeNull();
+});
+
+/**
+ * The one key that costs more than it does.
+ *
+ * Backspace is Back in some shells. A block with nothing to remove - a
+ * meeting, a finished slot - used to bail out of the handler before
+ * defaulting the key, so pressing it navigated the app off the day
+ * altogether. Focus is on a block, not a text field: nothing else here has a
+ * claim on it, whether or not there is anything to delete.
+ */
+test("Backspace is swallowed even by a block with nothing to remove", () => {
+  const { container } = keyedGrid(keyed({ onSelect: () => undefined }));
+  const block = handle(container, "stretch");
+  // `fireEvent` answers false when the default was prevented.
+  expect(fireEvent.keyDown(block, { key: "Backspace" })).toBe(false);
+  expect(fireEvent.keyDown(block, { key: "Delete" })).toBe(false);
 });
 
 test("a block can be focused and removed without ever being movable", () => {

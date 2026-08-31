@@ -227,6 +227,43 @@ export interface TodayResponse {
   progress?: ActivityProgress[];
 }
 
+/** One day of `GET /scope`. The server has already bucketed it and resolved
+ *  the day's own bounds, so the client does no zone arithmetic. */
+export interface ScopeDay {
+  iso: string;
+  /** Local midnight, and the midnight after it, as instants. Positions are
+   *  measured from these rather than from a `Date` the client builds. */
+  dayStart: number;
+  dayEnd: number;
+  slots: ScopeSlot[];
+  meetings: TodayMeeting[];
+}
+
+/** Less than a `TodaySlot`: an overview draws a rectangle and a name, and has
+ *  no Start button to need a module or a policy for. */
+export interface ScopeSlot {
+  id: string;
+  title: string;
+  kind: "recovery" | "focus" | "task";
+  startsAt: number;
+  endsAt: number;
+  status: SlotStatus;
+}
+
+export interface ScopeResponse {
+  timeZone: string;
+  /** When a calendar was last read, or null if none ever has been. */
+  syncedAt: number | null;
+  /** The range these days are drawn against, and the ones on offer - the same
+   *  picker the day view has. */
+  range: string;
+  ranges: DayRange[];
+  /** The day the first calendar was connected. Nothing before it was ever
+   *  fetched; null when no calendar is connected. */
+  meetingsFrom: number | null;
+  days: ScopeDay[];
+}
+
 /** One activity's day, as "Today so far" needs it. Raw numbers rather than a
  *  formatted string: "1 / 3" and "50 m / 2 h" are the same fact rendered two
  *  ways, and which one applies is a question about the minimum's type. */
@@ -618,6 +655,26 @@ export const api = {
       };
     }
   },
+  /**
+   * A run of days - what the week and month views are built from.
+   *
+   * No offline cache behind it, unlike `today()`. The day is the screen
+   * someone opens on a train; a week they are paging through is a screen they
+   * opened because they are looking something up, and an overview quietly
+   * showing yesterday's answer is worse than one that says it cannot reach the
+   * server.
+   */
+  scope: (from: string, days: number, range?: string | null) =>
+    request<ScopeResponse>(
+      `/scope?${new URLSearchParams({
+        from,
+        days: String(days),
+        // Omitted rather than sent empty, so the server answers with whatever
+        // the account opens on - the same first-load contract as `/today`.
+        ...(range ? { range } : {}),
+      })}`,
+    ),
+
   /**
    * Tell the server which zone this device is in.
    *

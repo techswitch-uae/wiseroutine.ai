@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { TodaySlot } from "../../lib/api";
@@ -134,6 +134,44 @@ test("a stretch walks its steps, and only the last one finishes it", async () =>
   await userEvent.click(screen.getByRole("button", { name: "Next step" }));
   await userEvent.click(screen.getByRole("button", { name: "Finish" }));
   expect(onDone).toHaveBeenCalledOnce();
+});
+
+/**
+ * The bug this exists to keep fixed: the countdown hung near its start and no
+ * step ever ended.
+ *
+ * The overlay parses the stored config afresh on every render, so `config` is
+ * a new object every second - which is what the re-render below stands in for.
+ * The old step timer listed `config.steps` among its dependencies, so it was
+ * torn down and restarted, from the top, on every tick.
+ */
+test("the countdown runs down across re-renders, and the step advances itself", () => {
+  const Session = stretch.Session;
+  if (!Session) throw new Error("no session");
+
+  // A fresh object each call, exactly as the overlay hands one over.
+  const config = () => ({
+    steps: [
+      { text: "one", seconds: 3 },
+      { text: "two", seconds: 3 },
+    ],
+  });
+  const props = { slot: slot(), onDone: vi.fn(), onSkip: vi.fn() };
+  const { rerender } = render(<Session {...props} config={config()} />);
+
+  expect(screen.getByText("0:03")).toBeTruthy();
+  act(() => void vi.advanceTimersByTime(2_000));
+  rerender(<Session {...props} config={config()} />);
+  expect(screen.getByText("0:01")).toBeTruthy();
+  expect(screen.getByText("Step 1 of 2")).toBeTruthy();
+
+  act(() => void vi.advanceTimersByTime(1_000));
+  expect(screen.getByText("Step 2 of 2")).toBeTruthy();
+  expect(props.onDone).not.toHaveBeenCalled();
+
+  // And the last step's own deadline finishes the session.
+  act(() => void vi.advanceTimersByTime(3_000));
+  expect(props.onDone).toHaveBeenCalledOnce();
 });
 
 describe("deep work", () => {

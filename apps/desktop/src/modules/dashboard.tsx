@@ -47,9 +47,16 @@ function progressOf(row: ActivityProgress): { value: string; ratio: number } {
   };
 }
 
-/** 3a: the one slot you can start right now. Pinned on every plan, which is
- *  why it is the only module that renders something when there is nothing to
- *  show rather than disappearing. */
+/**
+ * 3a: the one slot you can start right now.
+ *
+ * It used to stay pinned on every plan and say "Nothing left today" - the
+ * only module that rendered for the sake of rendering. The loudest card in
+ * the rail is the wrong place to say nothing: an ink surface with no name and
+ * no button on it reads as something failing to load, and it takes the top of
+ * the rail from the modules that do have something to say. A day with nothing
+ * left says so by not asking.
+ */
 const UpNext: React.FC = () => {
   const plan = usePlan();
   // Its own clock: a countdown that only moved when the timeline re-rendered
@@ -62,6 +69,10 @@ const UpNext: React.FC = () => {
 
   if (!plan) return null;
   const next = upNextOf(plan.slots, now);
+  // Nothing ahead, so nothing to pin. `title` is the test rather than the
+  // whole object: `upNextOf` answers `{}` for an empty day, and a next with no
+  // name is not something anyone can act on.
+  if (!next.title) return null;
 
   return (
     /* No `count`. The countdown used to sit in the head as a static chip,
@@ -69,29 +80,26 @@ const UpNext: React.FC = () => {
        abbreviation. It belongs with the time anyway, next to the name of the
        thing it is counting down to. */
     <Widget variant="attention" eyebrow="Up next">
-      {next.title ? (
-        <>
-          <h3 className="wr-widget-title">{next.title}</h3>
-          <div className="wr-widget-time">
-            {next.badge === "now" ? "Now" : `in ${next.badge}`}
-            <span className="wr-widget-time-soft"> · {next.label}</span>
-          </div>
-          {next.slotId ? (
-            <div style={{ marginTop: 12 }}>
-              <Button
-                variant="commit"
-                onClick={() => next.slotId && startSlot(next.slotId)}
-              >
-                Start now
-              </Button>
-            </div>
-          ) : null}
-        </>
-      ) : (
-        <p className="wr-body" style={{ margin: "2px 0 0" }}>
-          Nothing left today.
-        </p>
-      )}
+      <h3 className="wr-widget-title">{next.title}</h3>
+      <div className="wr-widget-time">
+        {next.badge === "now" ? "Now" : `in ${next.badge}`}
+        <span className="wr-widget-time-soft"> · {next.label}</span>
+      </div>
+      {next.slotId ? (
+        /* `primary`, not `commit`. Commit fills itself with `--color-text`,
+           which is also this card's ground - so the one button on the loudest
+           module in the rail was a dark pill on a dark card, readable only by
+           its shadow. Starting a slot is a start, which is what `primary` is
+           for, and it is what both mocks of this widget draw. */
+        <Button
+          variant="primary"
+          block
+          style={{ marginTop: 14 }}
+          onClick={() => next.slotId && startSlot(next.slotId)}
+        >
+          Start now
+        </Button>
+      ) : null}
     </Widget>
   );
 };

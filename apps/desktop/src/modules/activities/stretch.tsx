@@ -1,20 +1,19 @@
-import { Button } from "@wiseroutine/design";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ActivityModule } from "./index";
 import { SessionFrame } from "./session-chrome";
-import { clock, useEndsAt } from "./session-clock";
+import { clock, useCountdown, useEndsAt } from "./session-clock";
 
 /**
  * A stretch, one step at a time.
  *
- * Screen 4b almost exactly: numbered steps, a timer per step, and three ways
- * through - finish this one, skip this one, or stop. Steps rather than a
- * single timer because a ten-minute block labelled "stretch" is a block people
- * spend looking at their phone; four things to do in order is an activity.
+ * Screen 4b: numbered steps, a countdown to the next one, and two ways
+ * through - move on now, or stop. Steps rather than a single timer because a
+ * ten-minute block labelled "stretch" is a block people spend looking at their
+ * phone; four things to do in order is an activity.
  *
  * Steps advance on their own when their time is up. Someone with their arm in
  * a doorway cannot reach the keyboard, which is the entire reason a guided
- * stretch is guided.
+ * stretch is guided - the button is for going early, not for getting through.
  */
 
 export interface Step {
@@ -29,8 +28,8 @@ export interface StretchConfig {
  *  routine for someone who has been at a desk for an hour. */
 const DEFAULTS: StretchConfig = {
   steps: [
-    { text: "Stand, roll the shoulders back ten times", seconds: 40 },
-    { text: "Doorway chest opener, 30 s each side", seconds: 60 },
+    { text: "Stand, roll the shoulders back and forth", seconds: 40 },
+    { text: "Doorway chest opener, 30s each side", seconds: 60 },
     { text: "Neck side bend, slow, both sides", seconds: 45 },
     { text: "Look out of the window, twenty seconds", seconds: 20 },
   ],
@@ -42,39 +41,49 @@ const StretchSession: React.FC<{
   onDone: () => void;
   onSkip: () => void;
 }> = ({ slot, config, onDone, onSkip }) => {
-  const total = config.steps.length;
+  const steps = config.steps;
+  const total = steps.length;
   const [index, setIndex] = useState(0);
-  const [left, setLeft] = useState(config.steps[0]?.seconds ?? 30);
+  // A deadline, not a number of ticks. A counter decremented once a second
+  // drifts, and a laptop that slept through a step wakes up still counting it.
+  const [stepEndsAt, setStepEndsAt] = useState(
+    () => Date.now() + (steps[0]?.seconds ?? 30) * 1_000,
+  );
+  const left = useCountdown(stepEndsAt);
   // The slot's own time running out ends it too, however far through the steps
   // it got. A stretch that overran into the next meeting is not a stretch that
   // worked.
   useEndsAt(slot.endsAt, onDone);
 
-  const step = config.steps[index];
+  const step = steps[index];
 
-  // One timer for the step, restarted whenever the step changes. Not derived
-  // from the slot's clock: skipping a step has to shorten the session, and a
-  // step whose end was computed from the start time could not be skipped.
-  useEffect(() => {
-    setLeft(config.steps[index]?.seconds ?? 30);
-    const timer = setInterval(() => setLeft((s) => s - 1), 1_000);
-    return () => clearInterval(timer);
-  }, [index, config.steps]);
-
-  const next = () => {
-    if (index + 1 < total) setIndex(index + 1);
-    else onDone();
+  /**
+   * On to the next step, by hand or by the clock.
+   *
+   * In a ref, and this is the whole bug: the overlay above re-parses the
+   * stored config on every render, so `config.steps` is a new array every
+   * second. Anything keyed on it - the old `useEffect([index, config.steps])`
+   * - restarted its timer on every tick, which is why the countdown sat near
+   * 40 and no step ever ended. The timer below depends on the deadline alone.
+   */
+  const advance = useRef(() => {});
+  advance.current = () => {
+    const next = index + 1;
+    if (next >= total) return onDone();
+    setIndex(next);
+    setStepEndsAt(Date.now() + (steps[next]?.seconds ?? 30) * 1_000);
   };
 
-  // A step whose time is up advances on its own. Someone with their arm in a
-  // doorway cannot reach the keyboard, which is the entire reason a guided
-  // stretch is guided. Written out rather than calling `next`, so the effect
-  // states every value it reads.
+  // One timer per step, aimed at its deadline, fired once.
   useEffect(() => {
-    if (left > 0) return;
-    if (index + 1 < total) setIndex(index + 1);
-    else onDone();
-  }, [left, index, total, onDone]);
+    const timer = setTimeout(
+      () => advance.current(),
+      Math.max(0, stepEndsAt - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [stepEndsAt]);
+
+  const last = index + 1 >= total;
 
   if (!step) return null;
 
@@ -82,17 +91,31 @@ const StretchSession: React.FC<{
     <SessionFrame
       title={`Step ${index + 1} of ${total}`}
       meter={
-        <div
-          style={{
-            font: "400 44px/1 var(--font-heading)",
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          {clock(Math.max(0, left))}
+        <div>
+          <div
+            style={{
+              font: "400 44px/1 var(--font-heading)",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {clock(left)}
+          </div>
+          {/* The digits alone read as "hold this for 0:24". Saying what runs
+              out is the difference between a step and a deadline. */}
+          <div
+            style={{
+              font: "400 13px var(--font-body)",
+              letterSpacing: ".04em",
+              opacity: 0.65,
+              marginTop: 6,
+            }}
+          >
+            {last ? "until this finishes" : "until the next step"}
+          </div>
         </div>
       }
-      doneLabel={index + 1 < total ? "Next step" : "Finish"}
-      onDone={next}
+      doneLabel={last ? "Finish" : "Next step"}
+      onDone={() => advance.current()}
       onSkip={onSkip}
     >
       <p
@@ -105,14 +128,8 @@ const StretchSession: React.FC<{
         {step.text}
       </p>
 
-      {index + 1 < total ? (
-        <Button variant="quiet" onClick={() => setIndex(index + 1)}>
-          Skip this step
-        </Button>
-      ) : null}
-
       <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-        {config.steps.map((s, i) => (
+        {steps.map((s, i) => (
           <span
             key={s.text}
             aria-hidden
