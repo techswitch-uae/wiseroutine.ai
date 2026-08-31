@@ -1,5 +1,5 @@
 import { Button, TimeStepper, Widget } from "@wiseroutine/design";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type TodayResponse } from "../lib/api";
 import { notify } from "../lib/notify";
 import { pick, usePicked } from "../lib/picked";
@@ -100,22 +100,30 @@ export const ThisSlot: React.FC = () => {
    * below jumps up. Held for the length of the collapse instead, which is the
    * only part of this the widget cannot do for itself: it does not own the
    * state that decides whether it exists.
+   *
+   * Held here rather than behind the X, because the X is not the only way the
+   * card is put away: pressing the day behind the rail, or paging to another
+   * day, clears the selection too - see `pick`. Those went straight from a
+   * full card to nothing. Watching the id go null covers every one of them,
+   * and it is less code than the timer it replaces.
    */
-  const [leaving, setLeaving] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
+  const [shown, setShown] = useState(picked);
+  const leaving = picked === null && shown !== null;
+  useEffect(() => {
+    if (picked !== null) {
+      setShown(picked);
+      return;
+    }
+    if (shown === null) return;
+    const timer = setTimeout(() => setShown(null), LEAVE_MS);
+    return () => clearTimeout(timer);
+  }, [picked, shown]);
 
-  const close = () => {
-    setLeaving(true);
-    timer.current = setTimeout(() => {
-      setLeaving(false);
-      pick(null);
-    }, LEAVE_MS);
-  };
+  const close = () => pick(null);
 
-  if (!plan || !picked) return null;
+  if (!plan || !shown) return null;
 
-  const meeting = plan.meetings.find((m) => m.id === picked);
+  const meeting = plan.meetings.find((m) => m.id === shown);
   if (meeting) {
     return (
       <Meeting
@@ -127,7 +135,7 @@ export const ThisSlot: React.FC = () => {
     );
   }
 
-  const slot = plan.slots.find((s) => s.id === picked);
+  const slot = plan.slots.find((s) => s.id === shown);
   // Gone: removed, replanned out, or the day rolled over. Saying nothing is
   // the right answer - there is no block to describe any more.
   if (!slot) return null;

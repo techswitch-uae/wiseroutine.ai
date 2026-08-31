@@ -95,3 +95,69 @@ test("stands down entirely when the day is done", () => {
   expect(container.querySelector(".wr-widget-attention")).toBeNull();
   expect(screen.queryByText("Up next")).toBeNull();
 });
+
+/**
+ * The day card, which is the one module that does not go quiet: the rail used
+ * to be empty whenever nothing was due soon.
+ */
+test("names what happened, what did not, and what is left", () => {
+  show(
+    day({
+      slots: [
+        slot({ id: "a", status: "completed" }),
+        slot({ id: "b", status: "skipped" }),
+        slot({ id: "c", status: "missed" }),
+        slot({ id: "d", endsAt: AT + 90 * 60_000 }),
+      ],
+    }),
+  );
+  expect(screen.getByText("Day so far")).toBeTruthy();
+  expect(screen.getByText("1 of 4 done")).toBeTruthy();
+  expect(
+    screen.getByText(/1 skipped · 1 missed\. One more, through/),
+  ).toBeTruthy();
+});
+
+// A block still marked `planned` whose window closed is in the past, whatever
+// the server has got round to calling it. Counting its minutes as time still
+// ahead of you makes the rest of the day look longer than it is.
+test("never counts a closed window as time still to go", () => {
+  show(
+    day({
+      slots: [
+        slot({ id: "a", status: "completed" }),
+        slot({
+          id: "b",
+          startsAt: AT - 90 * 60_000,
+          endsAt: AT - 60 * 60_000,
+        }),
+      ],
+    }),
+  );
+  expect(screen.getByText(/1 overdue/)).toBeTruthy();
+  expect(screen.queryByText(/to go/)).toBeNull();
+  expect(screen.queryByText(/more, through/)).toBeNull();
+  expect(screen.getByText("Day so far")).toBeTruthy();
+});
+
+test("stands the day down once nothing is ahead of it", () => {
+  show(day({ slots: [slot({ status: "completed" })] }));
+  expect(screen.getByText("Day done")).toBeTruthy();
+  expect(screen.getByText("Everything you planned happened")).toBeTruthy();
+  expect(screen.getByText(/10 m done/)).toBeTruthy();
+});
+
+// A cancelled block was taken off the day; counting it as a failure to do it
+// would make every reshuffle read as a worse day.
+test("leaves cancelled blocks out of the total", () => {
+  show(
+    day({
+      slots: [
+        slot({ id: "a", status: "completed" }),
+        slot({ id: "b", status: "cancelled" }),
+      ],
+    }),
+  );
+  expect(screen.getByText("Everything you planned happened")).toBeTruthy();
+  expect(screen.getByText("1 / 1")).toBeTruthy();
+});

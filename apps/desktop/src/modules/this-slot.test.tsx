@@ -328,3 +328,23 @@ test("stays quiet when the action actually went through", async () => {
   await waitFor(() => expect(api.completeSlot).toHaveBeenCalled());
   expect(notify).not.toHaveBeenCalled();
 });
+
+/**
+ * The card is put away by more than its own X: pressing the day behind the
+ * rail, or paging to another day, clears the selection too. Those used to go
+ * from a full card to nothing in one frame, taking the card's height with them
+ * and jumping everything below up.
+ */
+test("collapses when the selection is cleared from outside", () => {
+  show(day());
+  act(() => {
+    pick(null);
+  });
+  // Still mounted, and on its way out.
+  expect(screen.getByText("Eye rest")).toBeTruthy();
+
+  act(() => {
+    vi.advanceTimersByTime(400);
+  });
+  expect(screen.queryByText("Eye rest")).toBeNull();
+});

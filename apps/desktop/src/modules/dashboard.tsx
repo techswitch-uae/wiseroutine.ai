@@ -8,7 +8,12 @@ import {
 } from "@wiseroutine/design";
 import { useEffect, useState } from "react";
 import { upNextOf } from "../lib/alerts";
-import { type ActivityProgress, api, type MissedItem } from "../lib/api";
+import {
+  type ActivityProgress,
+  api,
+  type MissedItem,
+  type TodaySlot,
+} from "../lib/api";
 import { startSlot, usePlan } from "../lib/plan-store";
 
 /**
@@ -48,6 +53,23 @@ function progressOf(row: ActivityProgress): { value: string; ratio: number } {
 }
 
 /**
+ * A clock of its own, for the two modules that read the day against one.
+ *
+ * A countdown - or a "still to go" - that only moved when the timeline
+ * re-rendered would sit still for up to a minute at a time, and a block whose
+ * window closed would go on being counted as ahead until something else on the
+ * page happened to change.
+ */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
+}
+
+/**
  * 3a: the one slot you can start right now.
  *
  * It used to stay pinned on every plan and say "Nothing left today" - the
@@ -59,13 +81,7 @@ function progressOf(row: ActivityProgress): { value: string; ratio: number } {
  */
 const UpNext: React.FC = () => {
   const plan = usePlan();
-  // Its own clock: a countdown that only moved when the timeline re-rendered
-  // would sit still for up to a minute at a time.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
+  const now = useNow();
 
   if (!plan) return null;
   const next = upNextOf(plan.slots, now);
@@ -192,6 +208,158 @@ const TodaySoFar: React.FC = () => {
   );
 };
 
+/** Not dealt with yet. Whether one of these is still ahead of you is a
+ *  question about the clock, not about the status - see `tallyOf`. */
+const PENDING = new Set(["planned", "live", "started"]);
+
+interface DayTally {
+  done: number;
+  skipped: number;
+  missed: number;
+  /** Pending, and still ahead of the clock. */
+  ahead: number;
+  /** Pending, but its window has closed. Not yours to do anything about, and
+   *  never counted as time still to come. */
+  overdue: number;
+  /** Minutes of completed blocks, and minutes of the ones still ahead. */
+  doneMinutes: number;
+  aheadMinutes: number;
+  /** When the last block still ahead finishes, or null when none is. */
+  endsAt: number | null;
+}
+
+/**
+ * The day, bucketed against the clock.
+ *
+ * A slot the server has not resolved yet is not automatically "to go": one
+ * whose window closed while nobody was looking is in the past, and counting
+ * its minutes as time still ahead of you makes the rest of the day look longer
+ * than it is. `started` is the exception - a block you are in the middle of is
+ * allowed to run past its own end.
+ *
+ * Cancelled slots are left out entirely - a block that was taken off the day
+ * was never something the day failed to do.
+ */
+function tallyOf(slots: readonly TodaySlot[], now: number): DayTally {
+  const t: DayTally = {
+    done: 0,
+    skipped: 0,
+    missed: 0,
+    ahead: 0,
+    overdue: 0,
+    doneMinutes: 0,
+    aheadMinutes: 0,
+    endsAt: null,
+  };
+  for (const slot of slots) {
+    const minutes = Math.round((slot.endsAt - slot.startsAt) / 60_000);
+    if (slot.status === "cancelled") continue;
+    if (slot.status === "completed") {
+      t.done++;
+      t.doneMinutes += minutes;
+    } else if (PENDING.has(slot.status)) {
+      if (slot.endsAt > now || slot.status === "started") {
+        t.ahead++;
+        t.aheadMinutes += minutes;
+        t.endsAt = Math.max(t.endsAt ?? 0, slot.endsAt);
+      } else t.overdue++;
+    } else if (slot.status === "skipped") t.skipped++;
+    else t.missed++;
+  }
+  return t;
+}
+
+/** "45 m", "2 h", "2 h 10". The same reading the minimums use, so two cards in
+ *  one rail do not write the same duration two ways. */
+function spanOf(minutes: number): string {
+  if (minutes < 60) return `${minutes} m`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours} h${minutes % 60 ? ` ${minutes % 60}` : ""}`;
+}
+
+/**
+ * The day in one card: what happened, what did not, and what is left.
+ *
+ * The rail used to go empty on a day with nothing due for hours - `UpNext`
+ * stands down when there is no next, and the other three modules each have
+ * their own reason to say nothing. This one always has something true to say
+ * as long as the day has blocks in it, which is what keeps the rail from
+ * reading as something that failed to load.
+ *
+ * Skipped, missed and overdue are named apart, because they are not the same
+ * admission: one you made, one happened to you, and one is still waiting for
+ * the server to decide. Neither is scolded and none is hidden - a day where
+ * two things did not happen should say so in the same card that says four did.
+ *
+ * ponytail: derived from the slots the store already holds - no fetch, no new
+ * module key. Everything it says is in the timeline standing next to it.
+ */
+const DayProgress: React.FC = () => {
+  const plan = usePlan();
+  const now = useNow();
+  if (!plan) return null;
+
+  const t = tallyOf(plan.slots, now);
+  const total = t.done + t.skipped + t.missed + t.ahead + t.overdue;
+  // A day with no blocks is not a day with nothing to report - it is a day
+  // this card knows nothing about. Say nothing rather than "0 / 0".
+  if (total === 0) return null;
+
+  // Over, not merely quiet: a block whose window closed unresolved is still
+  // something the day is waiting on, so it is not a day that is done.
+  const settled = t.ahead === 0 && t.overdue === 0;
+  const lapsed = [
+    t.skipped > 0 ? `${t.skipped} skipped` : null,
+    t.missed > 0 ? `${t.missed} missed` : null,
+    t.overdue > 0 ? `${t.overdue} overdue` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <Widget eyebrow={settled ? "Day done" : "Day so far"}>
+      <h3 className="wr-widget-title">
+        {settled && t.done === total
+          ? "Everything you planned happened"
+          : `${t.done} of ${total} done`}
+      </h3>
+      {/* The same figure in the unit the day is actually spent in. A count
+          says how many things; this says how much of the day they were. */}
+      <div className="wr-widget-time">
+        {spanOf(t.doneMinutes)} done
+        {t.aheadMinutes > 0 ? (
+          <span className="wr-widget-time-soft">
+            {" "}
+            · {spanOf(t.aheadMinutes)} to go
+          </span>
+        ) : null}
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <Metric
+          label="Done"
+          value={`${t.done} / ${total}`}
+          progress={t.done / total}
+        />
+      </div>
+      {lapsed || t.ahead > 0 ? (
+        <p
+          className="wr-body"
+          style={{
+            margin: "10px 0 0",
+            font: "400 12.5px/1.45 var(--font-body)",
+          }}
+        >
+          {lapsed}
+          {lapsed && t.ahead > 0 ? ". " : null}
+          {t.ahead > 0 && t.endsAt !== null
+            ? `${t.ahead === 1 ? "One more" : `${t.ahead} more`}, through ${dueClock(t.endsAt)}`
+            : null}
+        </p>
+      ) : null}
+    </Widget>
+  );
+};
+
 export const DashboardWidgets: React.FC = () => {
   const plan = usePlan();
   if (!plan) return null;
@@ -220,6 +388,9 @@ export const DashboardWidgets: React.FC = () => {
             return null;
         }
       })}
+      {/* Last, and not from `plan.modules`: the other four are the server's to
+          grant, this one only re-reads the day already on screen. */}
+      <DayProgress />
     </>
   );
 };
