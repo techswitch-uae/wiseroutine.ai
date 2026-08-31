@@ -17,8 +17,6 @@
  * not to the week.
  */
 
-const DAY_MS = 86_400_000;
-
 export type Scope = "day" | "week" | "month";
 
 export const SCOPES: readonly { key: Scope; label: string }[] = [
@@ -46,8 +44,24 @@ export const weekStartOf = (at: Date): Date => {
   return start;
 };
 
-export const addDays = (at: Date, days: number): Date =>
-  midnightOf(new Date(at.getTime() + days * DAY_MS));
+/**
+ * The same time of day, N days on. Calendar arithmetic, not milliseconds.
+ *
+ * `at.getTime() + days * DAY_MS` is the obvious version and it is wrong twice
+ * a year: the day the clocks go back is 25 hours long, so adding 24 of them to
+ * its midnight lands at 23:00 the same evening, and snapping that to midnight
+ * gives back the day it started from. The month grid drew 26 October 2025
+ * twice and pulled every day after it back by one - a month of slots hung on
+ * the wrong dates, in every country that changes its clocks.
+ *
+ * `setDate` counts days rather than elapsed time, which is what a calendar
+ * means by "tomorrow", and rolls over months and years on its own.
+ */
+export const addDays = (at: Date, days: number): Date => {
+  const out = midnightOf(at);
+  out.setDate(out.getDate() + days);
+  return out;
+};
 
 /**
  * What a block says when it is pressed.
