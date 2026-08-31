@@ -86,14 +86,19 @@ const UpNext: React.FC = () => {
         <span className="wr-widget-time-soft"> · {next.label}</span>
       </div>
       {next.slotId ? (
-        <div style={{ marginTop: 12 }}>
-          <Button
-            variant="commit"
-            onClick={() => next.slotId && startSlot(next.slotId)}
-          >
-            Start now
-          </Button>
-        </div>
+        /* `primary`, not `commit`. Commit fills itself with `--color-text`,
+           which is also this card's ground - so the one button on the loudest
+           module in the rail was a dark pill on a dark card, readable only by
+           its shadow. Starting a slot is a start, which is what `primary` is
+           for, and it is what both mocks of this widget draw. */
+        <Button
+          variant="primary"
+          block
+          style={{ marginTop: 14 }}
+          onClick={() => next.slotId && startSlot(next.slotId)}
+        >
+          Start now
+        </Button>
       ) : null}
     </Widget>
   );

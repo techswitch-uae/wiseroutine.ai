@@ -1,12 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import {
-  armAlerts,
-  countdown,
-  dueAlerts,
-  pauseAlerts,
-  resetAnnounced,
-  upNextOf,
-} from "./alerts";
+import { describe, expect, it } from "vitest";
+import { armAlerts, countdown, upNextOf } from "./alerts";
 import type { TodaySlot } from "./api";
 
 const AT = Date.UTC(2026, 7, 11, 9, 0);
@@ -27,39 +20,6 @@ const slot = (over: Partial<TodaySlot> & { id: string }): TodaySlot => {
     endsAt: over.endsAt ?? startsAt + 10 * MIN,
   };
 };
-
-beforeEach(resetAnnounced);
-
-describe("dueAlerts", () => {
-  it("carries the length of the slot, not the time it starts", () => {
-    const [alert] = dueAlerts([slot({ id: "a" })], AT - MIN);
-    expect(alert?.title).toBe("Shoulder stretch");
-    expect(alert?.body).toBe("10 min. Starting now.");
-  });
-
-  it("leaves out anything already dealt with", () => {
-    const day = [
-      slot({ id: "done", status: "completed" }),
-      slot({ id: "gone", status: "skipped" }),
-      slot({ id: "left", status: "planned" }),
-    ];
-    expect(dueAlerts(day, AT - MIN).map((a) => a.slotId)).toEqual(["left"]);
-  });
-
-  it("still fires for a start missed by a moment, but not by an hour", () => {
-    const day = [slot({ id: "just", startsAt: AT - 30_000 })];
-    expect(dueAlerts(day, AT)).toHaveLength(1);
-    expect(dueAlerts(day, AT + 60 * MIN)).toHaveLength(0);
-  });
-
-  it("comes due in order", () => {
-    const day = [
-      slot({ id: "late", startsAt: AT + 2 * MIN }),
-      slot({ id: "soon", startsAt: AT + MIN }),
-    ];
-    expect(dueAlerts(day, AT).map((a) => a.slotId)).toEqual(["soon", "late"]);
-  });
-});
 
 describe("upNextOf", () => {
   it("says nothing when the day has nothing left", () => {
@@ -110,30 +70,9 @@ describe("countdown", () => {
 
 describe("armAlerts", () => {
   // Outside Tauri there is nothing to arm, which is exactly the guard worth
-  // pinning: the same bundle ships as the web app.
-  it("is inert in a browser and hands back a disposer that is safe to call", () => {
-    expect(() => armAlerts([slot({ id: "a" })], AT)()).not.toThrow();
-  });
-});
-
-describe("pauseAlerts", () => {
-  const day = [
-    slot({ id: "quiet", startsAt: AT + 10 * MIN }),
-    slot({ id: "loud", startsAt: AT + 90 * MIN }),
-  ];
-
-  it("silences a start inside the pause and leaves the one after it", () => {
-    pauseAlerts(AT);
-    expect(dueAlerts(day, AT).map((a) => a.slotId)).toEqual(["loud"]);
-  });
-
-  it("still says what is up next - the pause silences, it does not hide", () => {
-    pauseAlerts(AT);
-    expect(upNextOf(day, AT).title).toBe("Shoulder stretch");
-  });
-
-  it("wears off", () => {
-    pauseAlerts(AT, 5 * MIN);
-    expect(dueAlerts(day, AT).map((a) => a.slotId)).toEqual(["quiet", "loud"]);
+  // pinning: the same bundle ships as the web app, where there is no menu bar
+  // and no notifications to push a schedule to.
+  it("is inert in a browser", () => {
+    expect(() => armAlerts([slot({ id: "a" })])).not.toThrow();
   });
 });

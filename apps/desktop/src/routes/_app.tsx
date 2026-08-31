@@ -139,25 +139,19 @@ const UpdateNotice: React.FC = () => {
  * day on screen - see `useTodayPlan`. Nothing about a menu bar was ever a
  * property of one route.
  */
-const MENU_BAR_TICK_MS = 30_000;
-
 const useMenuBar = (): void => {
   const plan = useTodayPlan();
-  const [now, setNow] = useState(() => Date.now());
 
-  // Its own clock. The countdown beside the icon is drawn from this, so
-  // without it the menu bar only moves when the plan does - and a plan that is
-  // not changing is exactly when a countdown has to.
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), MENU_BAR_TICK_MS);
-    return () => clearInterval(timer);
-  }, []);
-
+  // On the plan, and on nothing else. There was a thirty-second tick here
+  // once, to move the countdown beside the icon along - and it was the bug:
+  // closing the window hides it, macOS suspends a hidden webview's timers, and
+  // the menu bar froze with it. The clock lives in `tray.rs` now, so this only
+  // has to say when the day itself changes.
   useEffect(
-    // No plan is a real answer, not a reason to skip: `armAlerts` pushes an
-    // empty up-next for it, which is what clears a stale title off the bar.
-    () => armAlerts(plan?.slots ?? [], now),
-    [plan, now],
+    // No plan is a real answer, not a reason to skip: an empty schedule is
+    // what clears a stale title off the bar.
+    () => armAlerts(plan?.slots ?? []),
+    [plan],
   );
 };
 

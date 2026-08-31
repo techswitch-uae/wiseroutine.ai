@@ -32,7 +32,7 @@ pub fn run() {
       tray::install(app)?;
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![greet, tray::set_up_next]);
+    .invoke_handler(tauri::generate_handler![greet, tray::set_schedule]);
 
   #[cfg(not(desktop))]
   let builder = builder.invoke_handler(tauri::generate_handler![greet]);

@@ -14,7 +14,7 @@ import {
   Slot,
 } from "@wiseroutine/design";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PAUSE_MS, pauseAlerts, upNextOf } from "../lib/alerts";
+import { upNextOf } from "../lib/alerts";
 import {
   ApiError,
   api,
@@ -469,10 +469,13 @@ const Today: React.FC = () => {
           const next = upNextOf(plan.slots, at);
           if (next?.slotId) start(next.slotId);
         }),
-        listen("tray://pause", () => {
-          pauseAlerts(Date.now());
+        // The pause itself is applied in `tray.rs`, where the press lands and
+        // where the clock that honours it runs. This draws the toast, and is
+        // told when the quiet ends rather than working it out - one definition
+        // of an hour, not two.
+        listen<number>("tray://pause", (event) => {
           notify(
-            `Quiet until ${hourClock(Date.now() + PAUSE_MS)}. The day carries on.`,
+            `Quiet until ${hourClock(event.payload)}. The day carries on.`,
           );
         }),
       ]);
