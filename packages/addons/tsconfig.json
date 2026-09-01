@@ -1,0 +1,13 @@
+{
+  "extends": "@wiseroutine/typescript-config/base.json",
+  "compilerOptions": {
+    // `WebWorker` rather than `DOM`, and not because this runs in a worker.
+    // It is the lib that declares the WHATWG globals - `URL` here - without
+    // also declaring `document` and `window`. This package is imported by the
+    // Worker and by the webview both, so it may only use what the two have in
+    // common, and the lib is what makes that a compile error rather than a
+    // convention.
+    "lib": ["ES2022", "WebWorker"]
+  },
+  "include": ["src/**/*.ts"]
+}

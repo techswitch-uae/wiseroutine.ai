@@ -640,7 +640,11 @@ export type $SlotEventPayload<ExtArgs extends runtime.Types.Extensions.InternalA
     fromStartsAt: Date | null
     toStartsAt: Date | null
     /**
-     * "system" | "user"
+     * "system" | "user" | "addon"
+     * 
+     * An addon's writes have to be tellable apart from the user's own: this log
+     * is the audit trail, and "who moved this" stops being answerable the
+     * moment a third party can move things and is recorded as the person.
      */
     actor: string
   }, ExtArgs["result"]["slotEvent"]>

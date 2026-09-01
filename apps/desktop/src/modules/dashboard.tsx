@@ -19,7 +19,7 @@ import { startSlot, usePlan } from "../lib/plan-store";
 /**
  * The rail's modules, and which of them a plan is allowed.
  *
- * `/today` already answers with the list - `visibleModules` filters the seven
+ * `/today` already answers with the list - `visibleWidgets` filters the seven
  * keys down to what the plan permits - so nothing here decides entitlement.
  * This file only knows how to draw each key, and skips any it does not
  * recognise: a module added to the server before it is drawn here should leave
@@ -366,7 +366,7 @@ export const DashboardWidgets: React.FC = () => {
 
   return (
     <>
-      {plan.modules.map((key) => {
+      {plan.widgets.map((key) => {
         switch (key) {
           case "up_next":
             return <UpNext key={key} />;
@@ -388,7 +388,7 @@ export const DashboardWidgets: React.FC = () => {
             return null;
         }
       })}
-      {/* Last, and not from `plan.modules`: the other four are the server's to
+      {/* Last, and not from `plan.widgets`: the other four are the server's to
           grant, this one only re-reads the day already on screen. */}
       <DayProgress />
     </>

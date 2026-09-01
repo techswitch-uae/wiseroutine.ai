@@ -23,6 +23,7 @@ import { syncInterval } from "@wiseroutine/scheduler";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
+import { trustedOrigins } from "./auth";
 import {
   type App,
   type Bindings,
@@ -55,7 +56,30 @@ import { webhooks } from "./webhooks";
 
 const api = new Hono<App>();
 
-api.use("*", cors({ origin: (origin) => origin, credentials: true }));
+/**
+ * Who may talk to this API, credentials attached.
+ *
+ * Was `origin: (origin) => origin` - reflect whatever asked - which with
+ * `credentials: true` meant any page on the web could put a credentialed
+ * request to `/auth/*` and read the reply. The list is Better Auth's own, so
+ * the two cannot disagree; see `trustedOrigins` in `auth.ts`.
+ *
+ * Runs before `withContext`, so it reads the raw bindings rather than the
+ * resolved `ServerEnv`. `APP_URL` and `ENVIRONMENT` are plain vars, not
+ * secrets, so they are strings on both.
+ *
+ * An origin that is not on the list gets no `Access-Control-Allow-Origin`
+ * header at all rather than a denial - which is what CORS is: the browser
+ * refuses to hand the answer over. A request with no `Origin` header is not a
+ * browser and is left alone; `requireUser` is what stands behind it.
+ */
+api.use("*", (c, next) =>
+  cors({
+    origin: (origin) =>
+      trustedOrigins(c.env).includes(origin) ? origin : null,
+    credentials: true,
+  })(c, next),
+);
 api.use("*", withContext);
 
 api.get("/health", (c) => c.text("OK"));

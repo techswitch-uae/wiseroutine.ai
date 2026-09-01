@@ -17,7 +17,7 @@ const day = (over: Partial<TodayResponse> = {}): TodayResponse => ({
   meetings: [],
   outside: { before: [], after: [] },
   syncedAt: null,
-  modules: [],
+  widgets: [],
   progress: [],
   ...over,
 });

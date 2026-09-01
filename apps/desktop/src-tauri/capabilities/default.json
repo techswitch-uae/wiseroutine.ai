@@ -16,15 +16,22 @@
     {
       "identifier": "opener:allow-open-url",
       "allow": [
-        { "url": "x-apple.systempreferences:*" },
-        { "url": "spotify:*" },
-        { "url": "music:*" },
-        { "url": "apple-music:*" }
+        {
+          "url": "x-apple.systempreferences:*"
+        },
+        {
+          "url": "spotify:*"
+        },
+        {
+          "url": "music:*"
+        },
+        {
+          "url": "apple-music:*"
+        }
       ]
     },
     "updater:default",
     "process:allow-restart",
-    "notification:default",
-    "mcp-bridge:default"
+    "notification:default"
   ]
 }

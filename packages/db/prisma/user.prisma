@@ -231,6 +231,14 @@ model Activity {
   writeToCalendar         Boolean @default(false) @map("write_to_calendar")
   writeTargetConnectionId String? @map("write_target_connection_id")
 
+  /// The addon that created this activity, or null for one of the app's own.
+  ///
+  /// Provenance, and the only thing that makes "an addon may change what it
+  /// created, and nothing else" a rule the server can enforce rather than a
+  /// promise the client keeps. Not a foreign key: uninstalling an addon must
+  /// not take the user's history with it.
+  ownerAddonId String? @map("owner_addon_id")
+
   createdAt  DateTime  @map("created_at")
   archivedAt DateTime? @map("archived_at")
 
@@ -284,6 +292,14 @@ model Slot {
   /// Capped per day so a slot cannot thrash between filling gaps.
   autoMoveCount Int @default(0) @map("auto_move_count")
 
+  /// The addon that placed this slot.
+  ///
+  /// Usually redundant with the activity's owner, and deliberately stored
+  /// anyway: an addon may place a one-off slot directly rather than through an
+  /// activity, and a slot with no activity would otherwise have no owner to
+  /// check.
+  ownerAddonId String? @map("owner_addon_id")
+
   planRunId String?  @map("plan_run_id")
   createdAt DateTime @map("created_at")
 
@@ -315,7 +331,11 @@ model SlotEvent {
   fromStartsAt DateTime? @map("from_starts_at")
   toStartsAt   DateTime? @map("to_starts_at")
 
-  /// "system" | "user"
+  /// "system" | "user" | "addon"
+  ///
+  /// An addon's writes have to be tellable apart from the user's own: this log
+  /// is the audit trail, and "who moved this" stops being answerable the
+  /// moment a third party can move things and is recorded as the person.
   actor String
 
   slot Slot @relation(fields: [slotId], references: [id])
@@ -369,14 +389,59 @@ model PlanRun {
   @@map("plan_runs")
 }
 
+/// One card in the rail, and where it sits.
+///
 /// Server state, not local UI state - the same set appears in the menu bar and
-/// on the widget.
-model DashboardModule {
-  moduleKey String  @id @map("module_key")
+/// on the widget. `position` is the order the user arranged, and it is read:
+/// `visibleWidgets` returns this list's order rather than the order of the
+/// constant it filters against.
+///
+/// Was `DashboardModule`. "Module" already meant the guided session an
+/// activity runs, and reusing it for a rail card is what made every sentence
+/// about either one ambiguous. A card in the rail is a widget; the package
+/// that ships one is an addon.
+///
+/// `widgetKey` is bare for a first-party widget (`up_next`) and namespaced for
+/// one belonging to an addon (`acme.fitness/next-workout`). No foreign key to
+/// `addons`: a key naming an addon that is not installed draws nothing, which
+/// is the same graceful gap an unrecognised first-party key already leaves.
+model Widget {
+  widgetKey String  @id @map("widget_key")
   position  Int
   isEnabled Boolean @default(true) @map("is_enabled")
 
-  @@map("dashboard_modules")
+  @@map("widgets")
+}
+
+/// An installed addon.
+///
+/// The package, not the card: an addon may contribute widgets, activity types
+/// with their own guided sessions, or both. Nothing loads one yet - this table
+/// exists now so that the thing which does needs no migration, and so that
+/// `owner_addon_id` below has something to mean.
+model Addon {
+  /// Reverse-DNS-ish and globally unique, e.g. `acme.fitness`. The half before
+  /// the `/` in every key this addon owns.
+  id String @id
+
+  version String
+  /// The manifest as published, verbatim. Kept locally so the permissions
+  /// screen can say what this addon asked for without a network round trip.
+  manifestJson String @map("manifest_json")
+  /// Which of the capabilities it asked for were actually granted, as JSON.
+  /// Asked-for and granted are different lists, and only this one is a gate.
+  grantedJson String @map("granted_json")
+  /// sha256 of the bundle whose signature was verified before it was written
+  /// to disk. What a later launch re-checks the files against.
+  bundleHash String @map("bundle_hash")
+
+  /// Off keeps it installed, its settings and its slots. Uninstalling is a
+  /// different act with different consequences.
+  isEnabled Boolean @default(true) @map("is_enabled")
+
+  installedAt DateTime @map("installed_at")
+
+  @@map("addons")
 }
 
 /// Coarse desk sessions for "sitting streak". Deliberately not a presence

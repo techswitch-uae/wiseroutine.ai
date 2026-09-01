@@ -238,23 +238,47 @@ async function sendOtp(env: ServerEnv, to: string, otp: string): Promise<void> {
   }
 }
 
+/**
+ * Every origin allowed to talk to this API.
+ *
+ * One list, used twice: Better Auth trusts it for sign-in, and the CORS
+ * middleware in `index.ts` reflects only what appears here. They used to
+ * disagree - CORS reflected whatever origin asked, so any page on the web
+ * could put a credentialed request to `/auth/*` and read the answer. Two
+ * lists would drift apart again, so there is one.
+ *
+ * Takes the two fields rather than `ServerEnv`, because CORS runs before
+ * `withContext` and has only the raw bindings to read from.
+ */
+export function trustedOrigins(env: {
+  APP_URL: string;
+  ENVIRONMENT?: string;
+}): string[] {
+  return [
+    env.APP_URL,
+    // The desktop app's webview is not served from APP_URL: Tauri gives it a
+    // scheme of its own, which differs by platform. Omitting these makes
+    // sign-in fail in the packaged app while working in the browser.
+    "tauri://localhost",
+    "http://tauri.localhost",
+    ...(env.ENVIRONMENT === "development"
+      ? [
+          // ponytail: the design gallery runs on its own Vite port
+          // (`pnpm design`) and is not APP_URL. Hardcoded, not configurable -
+          // one dev port.
+          "http://localhost:41100",
+        ]
+      : []),
+  ];
+}
+
 export function createAuth(directory: Directory, env: ServerEnv) {
   return betterAuth({
     database: prismaAdapter(directory, { provider: "sqlite" }),
     baseURL: env.API_URL,
     basePath: "/auth",
     secret: required(env.SESSION_SECRET, "SESSION_SECRET"),
-    // The desktop app's webview is not served from APP_URL: Tauri gives it a
-    // scheme of its own, which differs by platform. Omitting these makes
-    // sign-in fail in the packaged app while working in the browser.
-    trustedOrigins: [
-      env.APP_URL,
-      "tauri://localhost",
-      "http://tauri.localhost",
-      // ponytail: the design gallery runs on its own Vite port (`pnpm design`)
-      // and is not APP_URL. Hardcoded, not configurable - one dev port.
-      ...(env.ENVIRONMENT === "development" ? ["http://localhost:41100"] : []),
-    ],
+    trustedOrigins: trustedOrigins(env),
 
     /**
      * Better Auth catches its own errors and returns a response, so nothing

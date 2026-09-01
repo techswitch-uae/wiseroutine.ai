@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "dev",
+  "description": "The MCP bridge, and nothing else. Split out of `default` because `execute-command` and `execute-js` are arbitrary-code primitives: the plugin is registered only under `cfg(debug_assertions)`, but a capability listed in `default` is compiled into the release ACL too, so the only thing standing between a release build and those commands would be the plugin not being registered. Two locks are better than one. This file is granted only by `tauri.dev.conf.json`, which `pnpm dev` passes and no bundle does.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "mcp-bridge:default"
+  ]
+}

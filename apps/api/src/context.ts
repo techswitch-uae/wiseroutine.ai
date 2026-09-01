@@ -26,6 +26,15 @@ import {
 export interface Bindings {
   SYNC_QUEUE: Queue<SyncJob>;
   CONFIG: KVNamespace;
+  /**
+   * Named rather than left to the index signature, because CORS runs before
+   * `withContext` and so reads these off the raw bindings rather than the
+   * resolved `ServerEnv` - see `trustedOrigins` in `auth.ts`. Both are plain
+   * `vars` in wrangler.jsonc, never secrets, so they are strings here as well
+   * as there.
+   */
+  APP_URL: string;
+  ENVIRONMENT?: string;
   [key: string]: unknown;
 }
 

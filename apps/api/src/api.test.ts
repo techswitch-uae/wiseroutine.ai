@@ -52,6 +52,60 @@ describe("health", () => {
   });
 });
 
+/**
+ * CORS used to reflect whatever origin asked, with `credentials: true`.
+ *
+ * That combination let any page on the web put a credentialed request to
+ * `/auth/*` and read the answer. The allowlist is Better Auth's own
+ * `trustedOrigins`, so the two cannot drift; these tests are what notices if
+ * someone widens one and not the other - or reaches for the reflecting
+ * one-liner again.
+ */
+describe("cross-origin access", () => {
+  const preflight = (origin: string) =>
+    worker.default.fetch("http://api/today", {
+      method: "OPTIONS",
+      headers: {
+        origin,
+        "access-control-request-method": "GET",
+      },
+    });
+
+  test("a trusted origin is allowed", async () => {
+    // APP_URL in the test bindings - see vitest.config.ts.
+    const response = await preflight("http://localhost:41000");
+    expect(response.headers.get("access-control-allow-origin")).toBe(
+      "http://localhost:41000",
+    );
+    expect(response.headers.get("access-control-allow-credentials")).toBe(
+      "true",
+    );
+  });
+
+  // The packaged app is not served from APP_URL: Tauri gives its webview a
+  // scheme of its own. Dropping these breaks sign-in in the bundle while
+  // leaving it working in the browser, which is the worst way to find out.
+  test.each(["tauri://localhost", "http://tauri.localhost"])(
+    "the desktop origin %s is allowed",
+    async (origin) => {
+      const response = await preflight(origin);
+      expect(response.headers.get("access-control-allow-origin")).toBe(origin);
+    },
+  );
+
+  test("a stranger gets no allow-origin header at all", async () => {
+    const response = await preflight("https://evil.example");
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  // Not a browser, so CORS has nothing to say about it. `requireUser` is what
+  // stands behind this one, and it is asserted just below.
+  test("a request with no origin is left to the auth check", async () => {
+    const response = await worker.default.fetch("http://api/today");
+    expect(response.status).toBe(401);
+  });
+});
+
 describe("authentication", () => {
   test("a protected route refuses an anonymous request", async () => {
     const response = await worker.default.fetch("http://api/today");

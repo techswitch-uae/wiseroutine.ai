@@ -44,7 +44,7 @@ const day = (): TodayResponse =>
     meetings: [],
     outside: { before: [], after: [] },
     syncedAt: null,
-    modules: [],
+    widgets: [],
     progress: [
       {
         id: "a1",

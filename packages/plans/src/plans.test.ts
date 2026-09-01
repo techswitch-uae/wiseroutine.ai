@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { can, resolvePlan, visibleModules } from "./index";
+import { can, resolvePlan, visibleWidgets } from "./index";
 
 describe("can", () => {
   test("free stops at two active activities, pro does not", () => {
@@ -32,14 +32,14 @@ describe("can", () => {
 
   test("free may only pick from the default module set", () => {
     expect(
-      can("free", { kind: "dashboard.setModules", modules: ["up_next"] }).ok,
+      can("free", { kind: "dashboard.setWidgets", widgets: ["up_next"] }).ok,
     ).toBe(true);
     expect(
-      can("free", { kind: "dashboard.setModules", modules: ["sitting_streak"] })
+      can("free", { kind: "dashboard.setWidgets", widgets: ["sitting_streak"] })
         .ok,
     ).toBe(false);
     expect(
-      can("pro", { kind: "dashboard.setModules", modules: ["sitting_streak"] })
+      can("pro", { kind: "dashboard.setWidgets", widgets: ["sitting_streak"] })
         .ok,
     ).toBe(true);
   });
@@ -137,14 +137,62 @@ describe("the trial, as a grant", () => {
   });
 });
 
-describe("visibleModules", () => {
+describe("visibleWidgets", () => {
   test("a downgraded user keeps only what free allows", () => {
     expect(
-      visibleModules("free", ["up_next", "sitting_streak", "today_so_far"]),
+      visibleWidgets("free", ["up_next", "sitting_streak", "today_so_far"]),
     ).toEqual(["up_next", "today_so_far"]);
   });
 
   test("up_next is always present even if not chosen", () => {
-    expect(visibleModules("free", ["today_so_far"])).toContain("up_next");
+    expect(visibleWidgets("free", ["today_so_far"])).toContain("up_next");
+  });
+
+  /**
+   * The user's order, not the constant's.
+   *
+   * This used to filter `ALL_WIDGETS` by membership, which returned that
+   * constant's hard-coded order however the user had arranged theirs - so
+   * `position` was written and never read, and dragging a widget did nothing.
+   */
+  test("keeps the order the user chose", () => {
+    expect(
+      visibleWidgets("pro", ["today_so_far", "sitting_streak", "up_next"]),
+    ).toEqual(["today_so_far", "sitting_streak", "up_next"]);
+  });
+
+  // Pinned means "always present", not "always first" - a user who has put
+  // Up next third is not overruled.
+  test("a pinned widget the user placed keeps its place", () => {
+    expect(visibleWidgets("pro", ["missed_today", "up_next"])).toEqual([
+      "missed_today",
+      "up_next",
+    ]);
+  });
+
+  // Nowhere else to put it: it cannot be turned off, and the saved list does
+  // not say where it goes.
+  test("a pinned widget the user never chose goes first", () => {
+    expect(visibleWidgets("pro", ["missed_today"])).toEqual([
+      "up_next",
+      "missed_today",
+    ]);
+  });
+
+  /**
+   * An addon's widget is not in `ALL_WIDGETS` and never will be, so the plan
+   * cannot gate it by name. Whether the addon is installed is the caller's
+   * question - this package has no database.
+   */
+  test("a widget belonging to an addon passes through", () => {
+    expect(
+      visibleWidgets("free", ["up_next", "acme.fitness/next-workout"]),
+    ).toEqual(["up_next", "acme.fitness/next-workout"]);
+  });
+
+  test("an unknown first-party key is dropped", () => {
+    expect(visibleWidgets("free", ["up_next", "astrology"])).toEqual([
+      "up_next",
+    ]);
   });
 });

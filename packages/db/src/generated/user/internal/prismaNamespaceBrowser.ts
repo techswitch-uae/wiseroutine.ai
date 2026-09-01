@@ -62,7 +62,8 @@ export const ModelName = {
   SlotEvent: 'SlotEvent',
   Reminder: 'Reminder',
   PlanRun: 'PlanRun',
-  DashboardModule: 'DashboardModule',
+  Widget: 'Widget',
+  Addon: 'Addon',
   DeskSession: 'DeskSession'
 } as const
 
@@ -184,6 +185,7 @@ export const ActivityScalarFieldEnum = {
   bufferBeforeMeetingMinutes: 'bufferBeforeMeetingMinutes',
   writeToCalendar: 'writeToCalendar',
   writeTargetConnectionId: 'writeTargetConnectionId',
+  ownerAddonId: 'ownerAddonId',
   createdAt: 'createdAt',
   archivedAt: 'archivedAt'
 } as const
@@ -214,6 +216,7 @@ export const SlotScalarFieldEnum = {
   conflictEventId: 'conflictEventId',
   conflictSeverity: 'conflictSeverity',
   autoMoveCount: 'autoMoveCount',
+  ownerAddonId: 'ownerAddonId',
   planRunId: 'planRunId',
   createdAt: 'createdAt'
 } as const
@@ -266,13 +269,26 @@ export const PlanRunScalarFieldEnum = {
 export type PlanRunScalarFieldEnum = (typeof PlanRunScalarFieldEnum)[keyof typeof PlanRunScalarFieldEnum]
 
 
-export const DashboardModuleScalarFieldEnum = {
-  moduleKey: 'moduleKey',
+export const WidgetScalarFieldEnum = {
+  widgetKey: 'widgetKey',
   position: 'position',
   isEnabled: 'isEnabled'
 } as const
 
-export type DashboardModuleScalarFieldEnum = (typeof DashboardModuleScalarFieldEnum)[keyof typeof DashboardModuleScalarFieldEnum]
+export type WidgetScalarFieldEnum = (typeof WidgetScalarFieldEnum)[keyof typeof WidgetScalarFieldEnum]
+
+
+export const AddonScalarFieldEnum = {
+  id: 'id',
+  version: 'version',
+  manifestJson: 'manifestJson',
+  grantedJson: 'grantedJson',
+  bundleHash: 'bundleHash',
+  isEnabled: 'isEnabled',
+  installedAt: 'installedAt'
+} as const
+
+export type AddonScalarFieldEnum = (typeof AddonScalarFieldEnum)[keyof typeof AddonScalarFieldEnum]
 
 
 export const DeskSessionScalarFieldEnum = {

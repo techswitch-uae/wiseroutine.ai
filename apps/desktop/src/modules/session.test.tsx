@@ -56,7 +56,7 @@ const day = (status: TodaySlot["status"]): TodayResponse =>
     meetings: [],
     outside: { before: [], after: [] },
     syncedAt: null,
-    modules: [],
+    widgets: [],
     progress: [],
   }) as unknown as TodayResponse;
 

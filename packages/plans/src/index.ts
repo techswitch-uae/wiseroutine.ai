@@ -11,13 +11,13 @@ export type PlanId = "free" | "pro";
 /** Where a user's plan came from. Resolution order is grant > stripe > default. */
 export type PlanSource = "grant" | "stripe" | "default";
 
-export const DEFAULT_MODULES = [
+export const DEFAULT_WIDGETS = [
   "up_next",
   "missed_today",
   "today_so_far",
 ] as const;
 
-export const ALL_MODULES = [
+export const ALL_WIDGETS = [
   "up_next",
   "missed_today",
   "today_so_far",
@@ -27,10 +27,10 @@ export const ALL_MODULES = [
   "reminders_due",
 ] as const;
 
-export type ModuleKey = (typeof ALL_MODULES)[number];
+export type WidgetKey = (typeof ALL_WIDGETS)[number];
 
 /** 3f: "Up next" is Always on - it cannot be turned off on any plan. */
-export const PINNED_MODULES: readonly ModuleKey[] = ["up_next"];
+export const PINNED_WIDGETS: readonly WidgetKey[] = ["up_next"];
 
 export interface PlanLimits {
   maxActiveActivities: number;
@@ -38,8 +38,8 @@ export interface PlanLimits {
   adaptiveReplan: boolean;
   /** Ranked placement options with consequences (screen 3b). */
   rankedRearrange: boolean;
-  modules: readonly ModuleKey[];
-  reorderModules: boolean;
+  widgets: readonly WidgetKey[];
+  reorderWidgets: boolean;
 }
 
 export const PLANS: Record<PlanId, PlanLimits> = {
@@ -47,15 +47,15 @@ export const PLANS: Record<PlanId, PlanLimits> = {
     maxActiveActivities: 2,
     adaptiveReplan: false,
     rankedRearrange: false,
-    modules: DEFAULT_MODULES,
-    reorderModules: false,
+    widgets: DEFAULT_WIDGETS,
+    reorderWidgets: false,
   },
   pro: {
     maxActiveActivities: Number.POSITIVE_INFINITY,
     adaptiveReplan: true,
     rankedRearrange: true,
-    modules: ALL_MODULES,
-    reorderModules: true,
+    widgets: ALL_WIDGETS,
+    reorderWidgets: true,
   },
 };
 
@@ -63,7 +63,7 @@ export type Capability =
   | { kind: "activity.create"; activeCount: number }
   | { kind: "plan.adaptive" }
   | { kind: "plan.rearrange" }
-  | { kind: "dashboard.setModules"; modules: readonly string[] }
+  | { kind: "dashboard.setWidgets"; widgets: readonly string[] }
   | { kind: "dashboard.reorder" };
 
 export type Decision =
@@ -110,24 +110,24 @@ export function can(plan: PlanId, capability: Capability): Decision {
             upsell: `${UPGRADE} to see where it fits and what moves.`,
           };
 
-    case "dashboard.setModules": {
-      const allowed = new Set<string>(limits.modules);
-      const denied = capability.modules.filter((m) => !allowed.has(m));
+    case "dashboard.setWidgets": {
+      const allowed = new Set<string>(limits.widgets);
+      const denied = capability.widgets.filter((w) => !allowed.has(w));
       return denied.length === 0
         ? { ok: true }
         : {
             ok: false,
             reason: `Not on the free plan: ${denied.join(", ")}.`,
-            upsell: `${UPGRADE} to choose any dashboard module.`,
+            upsell: `${UPGRADE} to choose any widget.`,
           };
     }
 
     case "dashboard.reorder":
-      return limits.reorderModules
+      return limits.reorderWidgets
         ? { ok: true }
         : {
             ok: false,
-            reason: "Module order is fixed on the free plan.",
+            reason: "Widget order is fixed on the free plan.",
             upsell: `${UPGRADE} to arrange your dashboard.`,
           };
   }
@@ -180,14 +180,40 @@ export function resolvePlan(
   return { plan: "free", source: "default" };
 }
 
-/** Modules to show, filtered to what the plan allows and always including the
- *  pinned ones. Used when a user downgrades and their saved layout is too rich. */
-export function visibleModules(
+/**
+ * The widgets to draw, in the order to draw them.
+ *
+ * `chosen` is the user's own list, already ordered and already filtered to
+ * what they have enabled - the `widgets` table read by position. Filtering it
+ * to what the plan allows is what makes a downgrade safe: a saved layout too
+ * rich for the plan loses the entries it may not have rather than being thrown
+ * away.
+ *
+ * **Order follows `chosen`, not the plan.** The previous version filtered
+ * `ALL_WIDGETS` by membership in `chosen`, which returned them in the
+ * hard-coded order of that constant - so `position` could be written and would
+ * never be read, and dragging a widget did nothing. Ordering is the whole
+ * point of the column.
+ *
+ * A pinned widget the user has not chosen is prepended, because it cannot be
+ * turned off and has nowhere else to go. One they *have* chosen keeps their
+ * position: pinned means "always present", not "always first".
+ *
+ * Keys naming an addon (`addonId/widgetKey`) pass through untouched. Whether
+ * that addon is installed and enabled is not a question this package can
+ * answer - it has no database, by design, exactly like the rest of
+ * `@wiseroutine/plans` - so the caller checks it. What is settled here is that
+ * the plan does not gate them by name, because their names are not knowable
+ * from inside this file.
+ */
+export const isAddonWidget = (key: string): boolean => key.includes("/");
+
+export function visibleWidgets(
   plan: PlanId,
   chosen: readonly string[],
-): ModuleKey[] {
-  const allowed = PLANS[plan].modules;
-  const kept = allowed.filter((m) => chosen.includes(m));
-  const withPinned = [...new Set([...PINNED_MODULES, ...kept])];
-  return withPinned.filter((m): m is ModuleKey => allowed.includes(m));
+): string[] {
+  const allowed = new Set<string>(PLANS[plan].widgets);
+  const kept = chosen.filter((w) => allowed.has(w) || isAddonWidget(w));
+  const missingPins = PINNED_WIDGETS.filter((w) => !kept.includes(w));
+  return [...new Set([...missingPins, ...kept])];
 }

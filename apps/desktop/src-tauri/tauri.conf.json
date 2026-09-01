@@ -10,7 +10,7 @@
     "frontendDist": "../.output/public"
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [
       {
         "title": "Wise Routine",
@@ -22,7 +22,21 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self'",
+        "connect-src": "'self' ipc: http://ipc.localhost https://api.wiseroutine.ai https://api-dev.wiseroutine.ai http://localhost:8787",
+        "img-src": "'self' data: blob: https:",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self' data:",
+        "frame-src": "https://open.spotify.com",
+        "media-src": "'self' data:",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "frame-ancestors": "'none'"
+      },
+      "capabilities": [
+        "default"
+      ]
     }
   },
   "bundle": {

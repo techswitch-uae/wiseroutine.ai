@@ -44,7 +44,7 @@ const day = (over: Partial<TodayResponse> = {}): TodayResponse =>
     meetings: [],
     outside: { before: [], after: [] },
     syncedAt: null,
-    modules: ["up_next"],
+    widgets: ["up_next"],
     progress: [],
     ...over,
   }) as unknown as TodayResponse;
@@ -89,7 +89,7 @@ test("offers a start only once the block is actually due", () => {
 // It used to render an ink card reading "Nothing left today." The loudest
 // surface in the rail is the wrong place to say nothing: with no name and no
 // button on it, it reads as something that failed to load, and it takes the
-// top of the rail from the modules that do have something to say.
+// top of the rail from the widgets that do have something to say.
 test("stands down entirely when the day is done", () => {
   const { container } = show(day({ slots: [slot({ status: "completed" })] }));
   expect(container.querySelector(".wr-widget-attention")).toBeNull();

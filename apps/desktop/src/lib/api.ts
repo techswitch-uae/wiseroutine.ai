@@ -227,7 +227,16 @@ export interface TodayResponse {
   outside: { before: TodayMeeting[]; after: TodayMeeting[] };
   /** When a calendar was last read, or null if none ever has been. */
   syncedAt: number | null;
-  modules: string[];
+  /**
+   * The rail, in the order to draw it. Server-authoritative: the plan
+   * filter and the user's saved order are both applied there, so the
+   * client only has to know how to draw each key - see `visibleWidgets`.
+   *
+   * `string[]` rather than `WidgetKey[]` on purpose. A key naming an
+   * addon is not in that union and never will be, and an unrecognised
+   * key is already a gap rather than a crash.
+   */
+  widgets: string[];
   /**
    * Per-day minimums and how much of each has been done. Weekly activities are
    * left out - see the note on the server.

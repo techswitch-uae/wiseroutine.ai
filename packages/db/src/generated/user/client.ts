@@ -104,11 +104,35 @@ export type Reminder = Prisma.ReminderModel
  */
 export type PlanRun = Prisma.PlanRunModel
 /**
- * Model DashboardModule
+ * Model Widget
+ * One card in the rail, and where it sits.
+ * 
  * Server state, not local UI state - the same set appears in the menu bar and
- * on the widget.
+ * on the widget. `position` is the order the user arranged, and it is read:
+ * `visibleWidgets` returns this list's order rather than the order of the
+ * constant it filters against.
+ * 
+ * Was `DashboardModule`. "Module" already meant the guided session an
+ * activity runs, and reusing it for a rail card is what made every sentence
+ * about either one ambiguous. A card in the rail is a widget; the package
+ * that ships one is an addon.
+ * 
+ * `widgetKey` is bare for a first-party widget (`up_next`) and namespaced for
+ * one belonging to an addon (`acme.fitness/next-workout`). No foreign key to
+ * `addons`: a key naming an addon that is not installed draws nothing, which
+ * is the same graceful gap an unrecognised first-party key already leaves.
  */
-export type DashboardModule = Prisma.DashboardModuleModel
+export type Widget = Prisma.WidgetModel
+/**
+ * Model Addon
+ * An installed addon.
+ * 
+ * The package, not the card: an addon may contribute widgets, activity types
+ * with their own guided sessions, or both. Nothing loads one yet - this table
+ * exists now so that the thing which does needs no migration, and so that
+ * `owner_addon_id` below has something to mean.
+ */
+export type Addon = Prisma.AddonModel
 /**
  * Model DeskSession
  * Coarse desk sessions for "sitting streak". Deliberately not a presence

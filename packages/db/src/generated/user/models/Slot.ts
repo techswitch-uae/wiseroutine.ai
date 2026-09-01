@@ -48,6 +48,7 @@ export type SlotMinAggregateOutputType = {
   conflictEventId: string | null
   conflictSeverity: string | null
   autoMoveCount: number | null
+  ownerAddonId: string | null
   planRunId: string | null
   createdAt: Date | null
 }
@@ -66,6 +67,7 @@ export type SlotMaxAggregateOutputType = {
   conflictEventId: string | null
   conflictSeverity: string | null
   autoMoveCount: number | null
+  ownerAddonId: string | null
   planRunId: string | null
   createdAt: Date | null
 }
@@ -84,6 +86,7 @@ export type SlotCountAggregateOutputType = {
   conflictEventId: number
   conflictSeverity: number
   autoMoveCount: number
+  ownerAddonId: number
   planRunId: number
   createdAt: number
   _all: number
@@ -112,6 +115,7 @@ export type SlotMinAggregateInputType = {
   conflictEventId?: true
   conflictSeverity?: true
   autoMoveCount?: true
+  ownerAddonId?: true
   planRunId?: true
   createdAt?: true
 }
@@ -130,6 +134,7 @@ export type SlotMaxAggregateInputType = {
   conflictEventId?: true
   conflictSeverity?: true
   autoMoveCount?: true
+  ownerAddonId?: true
   planRunId?: true
   createdAt?: true
 }
@@ -148,6 +153,7 @@ export type SlotCountAggregateInputType = {
   conflictEventId?: true
   conflictSeverity?: true
   autoMoveCount?: true
+  ownerAddonId?: true
   planRunId?: true
   createdAt?: true
   _all?: true
@@ -253,6 +259,7 @@ export type SlotGroupByOutputType = {
   conflictEventId: string | null
   conflictSeverity: string | null
   autoMoveCount: number
+  ownerAddonId: string | null
   planRunId: string | null
   createdAt: Date
   _count: SlotCountAggregateOutputType | null
@@ -294,6 +301,7 @@ export type SlotWhereInput = {
   conflictEventId?: Prisma.StringNullableFilter<"Slot"> | string | null
   conflictSeverity?: Prisma.StringNullableFilter<"Slot"> | string | null
   autoMoveCount?: Prisma.IntFilter<"Slot"> | number
+  ownerAddonId?: Prisma.StringNullableFilter<"Slot"> | string | null
   planRunId?: Prisma.StringNullableFilter<"Slot"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Slot"> | Date | string
   activity?: Prisma.XOR<Prisma.ActivityNullableScalarRelationFilter, Prisma.ActivityWhereInput> | null
@@ -314,6 +322,7 @@ export type SlotOrderByWithRelationInput = {
   conflictEventId?: Prisma.SortOrderInput | Prisma.SortOrder
   conflictSeverity?: Prisma.SortOrderInput | Prisma.SortOrder
   autoMoveCount?: Prisma.SortOrder
+  ownerAddonId?: Prisma.SortOrderInput | Prisma.SortOrder
   planRunId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   activity?: Prisma.ActivityOrderByWithRelationInput
@@ -337,6 +346,7 @@ export type SlotWhereUniqueInput = Prisma.AtLeast<{
   conflictEventId?: Prisma.StringNullableFilter<"Slot"> | string | null
   conflictSeverity?: Prisma.StringNullableFilter<"Slot"> | string | null
   autoMoveCount?: Prisma.IntFilter<"Slot"> | number
+  ownerAddonId?: Prisma.StringNullableFilter<"Slot"> | string | null
   planRunId?: Prisma.StringNullableFilter<"Slot"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Slot"> | Date | string
   activity?: Prisma.XOR<Prisma.ActivityNullableScalarRelationFilter, Prisma.ActivityWhereInput> | null
@@ -357,6 +367,7 @@ export type SlotOrderByWithAggregationInput = {
   conflictEventId?: Prisma.SortOrderInput | Prisma.SortOrder
   conflictSeverity?: Prisma.SortOrderInput | Prisma.SortOrder
   autoMoveCount?: Prisma.SortOrder
+  ownerAddonId?: Prisma.SortOrderInput | Prisma.SortOrder
   planRunId?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.SlotCountOrderByAggregateInput
@@ -383,6 +394,7 @@ export type SlotScalarWhereWithAggregatesInput = {
   conflictEventId?: Prisma.StringNullableWithAggregatesFilter<"Slot"> | string | null
   conflictSeverity?: Prisma.StringNullableWithAggregatesFilter<"Slot"> | string | null
   autoMoveCount?: Prisma.IntWithAggregatesFilter<"Slot"> | number
+  ownerAddonId?: Prisma.StringNullableWithAggregatesFilter<"Slot"> | string | null
   planRunId?: Prisma.StringNullableWithAggregatesFilter<"Slot"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Slot"> | Date | string
 }
@@ -400,6 +412,7 @@ export type SlotCreateInput = {
   conflictEventId?: string | null
   conflictSeverity?: string | null
   autoMoveCount?: number
+  ownerAddonId?: string | null
   planRunId?: string | null
   createdAt: Date | string
   activity?: Prisma.ActivityCreateNestedOneWithoutSlotsInput
@@ -420,6 +433,7 @@ export type SlotUncheckedCreateInput = {
   conflictEventId?: string | null
   conflictSeverity?: string | null
   autoMoveCount?: number
+  ownerAddonId?: string | null
   planRunId?: string | null
   createdAt: Date | string
   events?: Prisma.SlotEventUncheckedCreateNestedManyWithoutSlotInput
@@ -438,6 +452,7 @@ export type SlotUpdateInput = {
   conflictEventId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   conflictSeverity?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   autoMoveCount?: Prisma.IntFieldUpdateOperationsInput | number
+  ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   planRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   activity?: Prisma.ActivityUpdateOneWithoutSlotsNestedInput
@@ -458,6 +473,7 @@ export type SlotUncheckedUpdateInput = {
   conflictEventId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   conflictSeverity?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   autoMoveCount?: Prisma.IntFieldUpdateOperationsInput | number
+  ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   planRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   events?: Prisma.SlotEventUncheckedUpdateManyWithoutSlotNestedInput
@@ -477,6 +493,7 @@ export type SlotCreateManyInput = {
   conflictEventId?: string | null
   conflictSeverity?: string | null
   autoMoveCount?: number
+  ownerAddonId?: string | null
   planRunId?: string | null
   createdAt: Date | string
 }
@@ -494,6 +511,7 @@ export type SlotUpdateManyMutationInput = {
   conflictEventId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   conflictSeverity?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   autoMoveCount?: Prisma.IntFieldUpdateOperationsInput | number
+  ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   planRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -512,6 +530,7 @@ export type SlotUncheckedUpdateManyInput = {
   conflictEventId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   conflictSeverity?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   autoMoveCount?: Prisma.IntFieldUpdateOperationsInput | number
+  ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   planRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -540,6 +559,7 @@ export type SlotCountOrderByAggregateInput = {
   conflictEventId?: Prisma.SortOrder
   conflictSeverity?: Prisma.SortOrder
   autoMoveCount?: Prisma.SortOrder
+  ownerAddonId?: Prisma.SortOrder
   planRunId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -562,6 +582,7 @@ export type SlotMaxOrderByAggregateInput = {
   conflictEventId?: Prisma.SortOrder
   conflictSeverity?: Prisma.SortOrder
   autoMoveCount?: Prisma.SortOrder
+  ownerAddonId?: Prisma.SortOrder
   planRunId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -580,6 +601,7 @@ export type SlotMinOrderByAggregateInput = {
   conflictEventId?: Prisma.SortOrder
   conflictSeverity?: Prisma.SortOrder
   autoMoveCount?: Prisma.SortOrder
+  ownerAddonId?: Prisma.SortOrder
   planRunId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -662,6 +684,7 @@ export type SlotCreateWithoutActivityInput = {
   conflictEventId?: string | null
   conflictSeverity?: string | null
   autoMoveCount?: number
+  ownerAddonId?: string | null
   planRunId?: string | null
   createdAt: Date | string
   events?: Prisma.SlotEventCreateNestedManyWithoutSlotInput
@@ -680,6 +703,7 @@ export type SlotUncheckedCreateWithoutActivityInput = {
   conflictEventId?: string | null
   conflictSeverity?: string | null
   autoMoveCount?: number
+  ownerAddonId?: string | null
   planRunId?: string | null
   createdAt: Date | string
   events?: Prisma.SlotEventUncheckedCreateNestedManyWithoutSlotInput
@@ -727,6 +751,7 @@ export type SlotScalarWhereInput = {
   conflictEventId?: Prisma.StringNullableFilter<"Slot"> | string | null
   conflictSeverity?: Prisma.StringNullableFilter<"Slot"> | string | null
   autoMoveCount?: Prisma.IntFilter<"Slot"> | number
+  ownerAddonId?: Prisma.StringNullableFilter<"Slot"> | string | null
   planRunId?: Prisma.StringNullableFilter<"Slot"> | string | null
   createdAt?: Prisma.DateTimeFilter<"Slot"> | Date | string
 }
@@ -744,6 +769,7 @@ export type SlotCreateWithoutEventsInput = {
   conflictEventId?: string | null
   conflictSeverity?: string | null
   autoMoveCount?: number
+  ownerAddonId?: string | null
   planRunId?: string | null
   createdAt: Date | string
   activity?: Prisma.ActivityCreateNestedOneWithoutSlotsInput
@@ -763,6 +789,7 @@ export type SlotUncheckedCreateWithoutEventsInput = {
   conflictEventId?: string | null
   conflictSeverity?: string | null
   autoMoveCount?: number
+  ownerAddonId?: string | null
   planRunId?: string | null
   createdAt: Date | string
 }
@@ -796,6 +823,7 @@ export type SlotUpdateWithoutEventsInput = {
   conflictEventId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   conflictSeverity?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   autoMoveCount?: Prisma.IntFieldUpdateOperationsInput | number
+  ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   planRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   activity?: Prisma.ActivityUpdateOneWithoutSlotsNestedInput
@@ -815,6 +843,7 @@ export type SlotUncheckedUpdateWithoutEventsInput = {
   conflictEventId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   conflictSeverity?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   autoMoveCount?: Prisma.IntFieldUpdateOperationsInput | number
+  ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   planRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -832,6 +861,7 @@ export type SlotCreateManyActivityInput = {
   conflictEventId?: string | null
   conflictSeverity?: string | null
   autoMoveCount?: number
+  ownerAddonId?: string | null
   planRunId?: string | null
   createdAt: Date | string
 }
@@ -849,6 +879,7 @@ export type SlotUpdateWithoutActivityInput = {
   conflictEventId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   conflictSeverity?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   autoMoveCount?: Prisma.IntFieldUpdateOperationsInput | number
+  ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   planRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   events?: Prisma.SlotEventUpdateManyWithoutSlotNestedInput
@@ -867,6 +898,7 @@ export type SlotUncheckedUpdateWithoutActivityInput = {
   conflictEventId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   conflictSeverity?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   autoMoveCount?: Prisma.IntFieldUpdateOperationsInput | number
+  ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   planRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   events?: Prisma.SlotEventUncheckedUpdateManyWithoutSlotNestedInput
@@ -885,6 +917,7 @@ export type SlotUncheckedUpdateManyWithoutActivityInput = {
   conflictEventId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   conflictSeverity?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   autoMoveCount?: Prisma.IntFieldUpdateOperationsInput | number
+  ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   planRunId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -934,6 +967,7 @@ export type SlotSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   conflictEventId?: boolean
   conflictSeverity?: boolean
   autoMoveCount?: boolean
+  ownerAddonId?: boolean
   planRunId?: boolean
   createdAt?: boolean
   activity?: boolean | Prisma.Slot$activityArgs<ExtArgs>
@@ -955,6 +989,7 @@ export type SlotSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   conflictEventId?: boolean
   conflictSeverity?: boolean
   autoMoveCount?: boolean
+  ownerAddonId?: boolean
   planRunId?: boolean
   createdAt?: boolean
   activity?: boolean | Prisma.Slot$activityArgs<ExtArgs>
@@ -974,6 +1009,7 @@ export type SlotSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   conflictEventId?: boolean
   conflictSeverity?: boolean
   autoMoveCount?: boolean
+  ownerAddonId?: boolean
   planRunId?: boolean
   createdAt?: boolean
   activity?: boolean | Prisma.Slot$activityArgs<ExtArgs>
@@ -993,11 +1029,12 @@ export type SlotSelectScalar = {
   conflictEventId?: boolean
   conflictSeverity?: boolean
   autoMoveCount?: boolean
+  ownerAddonId?: boolean
   planRunId?: boolean
   createdAt?: boolean
 }
 
-export type SlotOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "activityId" | "reminderId" | "title" | "kind" | "startsAt" | "endsAt" | "timeZone" | "status" | "isLocked" | "conflictEventId" | "conflictSeverity" | "autoMoveCount" | "planRunId" | "createdAt", ExtArgs["result"]["slot"]>
+export type SlotOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "activityId" | "reminderId" | "title" | "kind" | "startsAt" | "endsAt" | "timeZone" | "status" | "isLocked" | "conflictEventId" | "conflictSeverity" | "autoMoveCount" | "ownerAddonId" | "planRunId" | "createdAt", ExtArgs["result"]["slot"]>
 export type SlotInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   activity?: boolean | Prisma.Slot$activityArgs<ExtArgs>
   events?: boolean | Prisma.Slot$eventsArgs<ExtArgs>
@@ -1048,6 +1085,15 @@ export type $SlotPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
      * Capped per day so a slot cannot thrash between filling gaps.
      */
     autoMoveCount: number
+    /**
+     * The addon that placed this slot.
+     * 
+     * Usually redundant with the activity's owner, and deliberately stored
+     * anyway: an addon may place a one-off slot directly rather than through an
+     * activity, and a slot with no activity would otherwise have no owner to
+     * check.
+     */
+    ownerAddonId: string | null
     planRunId: string | null
     createdAt: Date
   }, ExtArgs["result"]["slot"]>
@@ -1488,6 +1534,7 @@ export interface SlotFieldRefs {
   readonly conflictEventId: Prisma.FieldRef<"Slot", 'String'>
   readonly conflictSeverity: Prisma.FieldRef<"Slot", 'String'>
   readonly autoMoveCount: Prisma.FieldRef<"Slot", 'Int'>
+  readonly ownerAddonId: Prisma.FieldRef<"Slot", 'String'>
   readonly planRunId: Prisma.FieldRef<"Slot", 'String'>
   readonly createdAt: Prisma.FieldRef<"Slot", 'DateTime'>
 }

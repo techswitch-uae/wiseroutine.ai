@@ -30,7 +30,7 @@ import {
   updateUserSettings,
   upsertCalendars,
 } from "@wiseroutine/db";
-import { can, visibleModules } from "@wiseroutine/plans";
+import { can, visibleWidgets } from "@wiseroutine/plans";
 import {
   googleListCalendars,
   microsoftListCalendars,
@@ -966,7 +966,7 @@ app.get("/today", async (c) => {
           after: meetings.filter((m) => m.startsAt >= bounds.end),
         }
       : { before: [], after: [] },
-    modules: visibleModules(user.plan, []),
+    widgets: visibleWidgets(user.plan, []),
     /**
      * Progress against today's minimums, for the "Today so far" module.
      *

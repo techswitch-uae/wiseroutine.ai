@@ -44,7 +44,7 @@ const plan = (over: Partial<TodayResponse> = {}): TodayResponse => ({
   meetings: [],
   outside: { before: [], after: [] },
   syncedAt: NOON - HOUR,
-  modules: [],
+  widgets: [],
   ...over,
 });
 
