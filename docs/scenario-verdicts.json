@@ -1,0 +1,208 @@
+{
+  "verdicts": {
+    "a1-meeting-moved-onto-slot": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "MOVED s1 10:00 \u2192 10:30\u201311:20",
+      "at": "2026-09-01T11:45:38.682Z"
+    },
+    "a2-meeting-extended-over-slot": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "MOVED s1 10:00 \u2192 11:00\u201311:50",
+      "at": "2026-09-01T11:26:44.638Z"
+    },
+    "a4-meeting-deleted-frees-morning": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "nothing to do",
+      "at": "2026-09-01T11:43:20.344Z"
+    },
+    "b1-morning-window-still-fits": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "MOVED s1 09:30 \u2192 09:15\u201309:30",
+      "at": "2026-09-01T11:51:24.238Z"
+    },
+    "b2-morning-window-overflows": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "SUGGESTED s1 09:30 \u2192 12:00\u201312:15 (outside_window)",
+      "at": "2026-09-01T11:51:37.850Z"
+    },
+    "b3-morning-window-overflow-blocked": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "BLOCKED s1 (no_gap)",
+      "at": "2026-09-01T11:51:53.380Z"
+    },
+    "b4-two-windows-second-one-free": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "MOVED s1 09:00 \u2192 09:30\u201309:50",
+      "at": "2026-09-01T11:51:57.688Z"
+    },
+    "b5-straddles-the-window-edge": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "SUGGESTED s1 09:30 \u2192 11:50\u201312:05 (outside_window)",
+      "at": "2026-09-01T11:52:03.426Z"
+    },
+    "b6-window-narrower-than-session": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "SUGGESTED s1 09:30 \u2192 10:00\u201310:45 (outside_window)",
+      "at": "2026-09-01T11:52:10.863Z"
+    },
+    "c1-spread-displaced-keeps-spacing": {
+      "call": "wrong",
+      "comment": "needs to move 5 min before, so there is no partial overlap",
+      "outcome": "MOVED s3 14:30 \u2192 14:15\u201314:25",
+      "at": "2026-09-01T11:53:38.242Z"
+    },
+    "c3-spread-two-displaced-at-once": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "MOVED s2 11:30 \u2192 13:00\u201313:10\nMOVED s3 12:30 \u2192 17:50\u201318:00",
+      "at": "2026-09-01T11:54:37.979Z"
+    },
+    "c4-spread-collapses-to-back-to-back": {
+      "call": "wrong",
+      "comment": "s1 needs to be 5/10 min earlier, so it doesn't overlap with the marathon. Perhaps we can also use the gap rule here, since the Marathon is such a long event. And then s2 and s3 are too close -> 1 goes in the bucket for the user to decide",
+      "outcome": "MOVED s1 10:00 \u2192 09:00\u201309:10\nMOVED s2 12:00 \u2192 17:20\u201317:30\nSUGGESTED s3 15:00 \u2192 17:30\u201317:40 (spacing_tight)",
+      "at": "2026-09-01T11:56:33.754Z"
+    },
+    "c5-spread-single-session": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "MOVED s1 10:00 \u2192 09:50\u201310:00",
+      "at": "2026-09-01T11:56:49.512Z"
+    },
+    "c6-spread-with-window": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "MOVED s2 09:45 \u2192 09:25\u201309:45",
+      "at": "2026-09-01T11:57:04.713Z"
+    },
+    "d1-long-meeting-covers-three-slots": {
+      "call": "wrong",
+      "comment": "if s2 has a partial overlap with the workshop, we need to move it earlier, and perhaps apply the gap rule as well. the rest is correct",
+      "outcome": "MOVED s1 09:15 \u2192 11:30\u201311:45\nMOVED s2 10:00 \u2192 09:00\u201309:10\nSUGGESTED s3 10:30 \u2192 11:45\u201312:35 (large_drift)",
+      "at": "2026-09-01T11:58:21.741Z"
+    },
+    "d2-two-meetings-moved-at-once": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "MOVED s1 10:00 \u2192 09:25\u201310:15\nMOVED s2 14:00 \u2192 13:50\u201314:00",
+      "at": "2026-09-01T12:22:57.111Z"
+    },
+    "d3-cascade-runs-out-of-day": {
+      "call": "wrong",
+      "comment": "3 identical slots next to each other (even 5 min apart should be considered next). Leave one and move two into the bucket for the user to decide",
+      "outcome": "SUGGESTED s1 09:30 \u2192 13:00\u201313:50 (large_drift)\nSUGGESTED s2 10:30 \u2192 13:50\u201314:40 (large_drift)\nSUGGESTED s3 11:30 \u2192 14:40\u201315:30 (large_drift)",
+      "at": "2026-09-01T12:23:48.811Z"
+    },
+    "d4-meetings-shift-back-to-back": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "MOVED s1 10:05 \u2192 09:50\u201310:00\nMOVED s2 11:35 \u2192 12:00\u201312:10",
+      "at": "2026-09-01T12:24:02.044Z"
+    },
+    "d5-repair-may-not-evict-a-healthy-slot": {
+      "call": "ok",
+      "comment": "when available, and moving right next our slot, give them 5/10 min gap",
+      "outcome": "SUGGESTED s1 10:00 \u2192 11:10\u201312:00 (large_drift)",
+      "at": "2026-09-01T12:24:39.967Z"
+    },
+    "e2-running-slot-conflicted": {
+      "call": "ok",
+      "comment": "Running slot should stay where it is. If the user wants, they can drag it to sometime later. ",
+      "outcome": "CLASHES, NOT MOVED s1",
+      "at": "2026-09-01T12:26:31.380Z"
+    },
+    "e4-completed-slot-untouched": {
+      "call": "ok",
+      "comment": "completed slots don't move anymore. Correct",
+      "outcome": "nothing to do",
+      "at": "2026-09-01T12:31:32.847Z"
+    },
+    "e6-slot-in-the-past-ignored": {
+      "call": "ok",
+      "comment": "past slots don't change. Correct",
+      "outcome": "nothing to do",
+      "at": "2026-09-01T12:32:58.405Z"
+    },
+    "e7-slot-straddling-now": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "CLASHES, NOT MOVED s1",
+      "at": "2026-09-01T12:33:20.105Z"
+    },
+    "f1-only-room-is-after-the-day-ends": {
+      "call": "ok",
+      "comment": "into the bucket for the user to decide",
+      "outcome": "BLOCKED s1 (no_gap)",
+      "at": "2026-09-01T12:33:45.651Z"
+    },
+    "f2-space-is-partly-in-the-past": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "SUGGESTED s1 10:15 \u2192 09:00\u201309:50 (large_drift)",
+      "at": "2026-09-01T12:34:14.813Z"
+    },
+    "f3-day-nearly-over": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "BLOCKED s1 (no_gap)",
+      "at": "2026-09-01T12:34:44.691Z"
+    },
+    "g1-all-day-event-added": {
+      "call": "wrong",
+      "comment": "we don't detect synced events type. Can be anything. In this case if all day gets blocked, we put the slot in the bucket and let the user decide",
+      "outcome": "nothing to do",
+      "at": "2026-09-01T12:37:11.767Z"
+    },
+    "g3-declined-meeting-moved-onto-slot": {
+      "call": "unsure",
+      "comment": "If we get also declined events back from the providers, then this may be applicable, but in general something that's declined should disappear from the calendar, so we get the real free time",
+      "outcome": "nothing to do",
+      "at": "2026-09-01T12:38:25.008Z"
+    },
+    "g4-tentative-meeting-moved-onto-slot": {
+      "call": "ok",
+      "comment": "again, same as declined. If we get the answer of the synced event, and If it's a tentative, it can count as valid, so we plan around it",
+      "outcome": "MOVED s1 10:00 \u2192 10:30\u201311:20",
+      "at": "2026-09-01T12:39:53.949Z"
+    },
+    "g5-same-meeting-on-two-calendars": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "MOVED s1 10:00 \u2192 10:30\u201311:20",
+      "at": "2026-09-01T12:40:04.466Z"
+    },
+    "g6-event-cancelled-in-place": {
+      "call": "wrong",
+      "comment": "cancelled events synced from the providers should not be shown in our day, so we treat that as free time.",
+      "outcome": "nothing to do",
+      "at": "2026-09-01T12:40:59.875Z"
+    },
+    "g7-working-location-spans-the-day": {
+      "call": "wrong",
+      "comment": "we treat this as a full day event, so put into bucket, let the user decide. ",
+      "outcome": "nothing to do",
+      "at": "2026-09-01T12:41:55.439Z"
+    },
+    "g8-meeting-marked-free": {
+      "call": "wrong",
+      "comment": "FYI still shows as a slot. We don't really deal with statuses like busyStatus, so treat as valid event  - slot needs to move",
+      "outcome": "nothing to do",
+      "at": "2026-09-01T12:43:14.663Z"
+    },
+    "g9-zero-length-event": {
+      "call": "ok",
+      "comment": "",
+      "outcome": "nothing to do",
+      "at": "2026-09-01T12:43:28.251Z"
+    }
+  }
+}

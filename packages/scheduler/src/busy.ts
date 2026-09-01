@@ -7,6 +7,25 @@ export interface BusyOptions {
   /** All-day events are almost never real busy time. Override per calendar
    *  for the user who genuinely blocks whole days. */
   allDayIsBusy?: boolean;
+  /**
+   * Trust the calendar: if it is on the day and has a duration, it takes time.
+   *
+   * The filtering below is all inference - that a working-location event is
+   * metadata, that an all-day entry is a label rather than a commitment, that
+   * `transparency: transparent` means the user is really free. Each inference
+   * is right often enough to be tempting and wrong often enough to schedule a
+   * stretch during something real, and only the second kind of mistake is one
+   * the user notices.
+   *
+   * Under `literal`, the only things that stop being busy are the two that
+   * genuinely left the calendar: cancelled, and declined. Everything else
+   * occupies its time, and a day that fills up says so rather than quietly
+   * planning through it.
+   *
+   * Off by default - `planDay` has shipped on the inferring behaviour, and
+   * switching it is a product decision, not a detail of this function.
+   */
+  literal?: boolean;
 }
 
 /**
@@ -21,19 +40,25 @@ export function isBusy(
   event: CalendarEvent,
   options: BusyOptions = {},
 ): boolean {
-  const { tentativeIsBusy = true, allDayIsBusy = false } = options;
+  const {
+    tentativeIsBusy = true,
+    allDayIsBusy = false,
+    literal = false,
+  } = options;
 
   if (event.isCancelled) return false;
+
+  // A meeting the user declined is not their time. Checked before `literal`,
+  // because it is one of the two the literal reading also drops.
+  if (event.responseStatus === "declined") return false;
+
+  if (literal) return true;
 
   // Google's working-location events span the entire workday and are pure
   // metadata. Treating them as busy is THE bug that makes every user appear
   // to have zero free time, so it is checked before anything else.
   if (event.kind === "workingLocation") return false;
   if (event.kind === "birthday" || event.kind === "fromGmail") return false;
-
-  // A meeting the user declined is not their time. Second most common cause
-  // of phantom-busy after working locations.
-  if (event.responseStatus === "declined") return false;
 
   if (event.busyStatus === "free") return false;
 

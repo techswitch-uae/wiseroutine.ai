@@ -10,6 +10,7 @@
     "frontendDist": "../.output/public"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "Wise Routine",

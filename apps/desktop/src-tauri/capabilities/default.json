@@ -24,6 +24,7 @@
     },
     "updater:default",
     "process:allow-restart",
-    "notification:default"
+    "notification:default",
+    "mcp-bridge:default"
   ]
 }

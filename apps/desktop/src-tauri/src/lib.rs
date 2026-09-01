@@ -19,6 +19,10 @@ pub fn run() {
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_notification::init());
 
+  // ponytail: debug builds only, so it never ships.
+  #[cfg(debug_assertions)]
+  let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
+
   // The updater downloads and swaps the app bundle; `process` is what lets it
   // restart into the version it just installed. Neither exists on mobile.
   #[cfg(desktop)]

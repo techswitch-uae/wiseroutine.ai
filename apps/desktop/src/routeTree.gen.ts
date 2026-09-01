@@ -13,6 +13,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as DesignRouteImport } from './routes/design'
 import { Route as DesignSessionsRouteImport } from './routes/design-sessions'
 import { Route as SigninRouteImport } from './routes/signin'
+import { Route as SimRouteImport } from './routes/sim'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppActivitiesRouteImport } from './routes/_app.activities'
 import { Route as AppCalendarsRouteImport } from './routes/_app.calendars'
@@ -38,6 +39,11 @@ const DesignSessionsRoute = DesignSessionsRouteImport.update({
 const SigninRoute = SigninRouteImport.update({
   id: '/signin',
   path: '/signin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SimRoute = SimRouteImport.update({
+  id: '/sim',
+  path: '/sim',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
@@ -81,6 +87,7 @@ export interface FileRoutesByFullPath {
   '/design': typeof DesignRoute
   '/design-sessions': typeof DesignSessionsRoute
   '/signin': typeof SigninRoute
+  '/sim': typeof SimRoute
   '/activities': typeof AppActivitiesRoute
   '/calendars': typeof AppCalendarsRoute
   '/month': typeof AppMonthRoute
@@ -92,6 +99,7 @@ export interface FileRoutesByTo {
   '/design': typeof DesignRoute
   '/design-sessions': typeof DesignSessionsRoute
   '/signin': typeof SigninRoute
+  '/sim': typeof SimRoute
   '/activities': typeof AppActivitiesRoute
   '/calendars': typeof AppCalendarsRoute
   '/month': typeof AppMonthRoute
@@ -106,6 +114,7 @@ export interface FileRoutesById {
   '/design': typeof DesignRoute
   '/design-sessions': typeof DesignSessionsRoute
   '/signin': typeof SigninRoute
+  '/sim': typeof SimRoute
   '/_app/activities': typeof AppActivitiesRoute
   '/_app/calendars': typeof AppCalendarsRoute
   '/_app/month': typeof AppMonthRoute
@@ -121,6 +130,7 @@ export interface FileRouteTypes {
     | '/design'
     | '/design-sessions'
     | '/signin'
+    | '/sim'
     | '/activities'
     | '/calendars'
     | '/month'
@@ -132,6 +142,7 @@ export interface FileRouteTypes {
     | '/design'
     | '/design-sessions'
     | '/signin'
+    | '/sim'
     | '/activities'
     | '/calendars'
     | '/month'
@@ -145,6 +156,7 @@ export interface FileRouteTypes {
     | '/design'
     | '/design-sessions'
     | '/signin'
+    | '/sim'
     | '/_app/activities'
     | '/_app/calendars'
     | '/_app/month'
@@ -159,6 +171,7 @@ export interface RootRouteChildren {
   DesignRoute: typeof DesignRoute
   DesignSessionsRoute: typeof DesignSessionsRoute
   SigninRoute: typeof SigninRoute
+  SimRoute: typeof SimRoute
   AuthCompleteRoute: typeof AuthCompleteRoute
 }
 
@@ -190,6 +203,13 @@ declare module '@tanstack/react-router' {
       path: '/signin'
       fullPath: '/signin'
       preLoaderRoute: typeof SigninRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sim': {
+      id: '/sim'
+      path: '/sim'
+      fullPath: '/sim'
+      preLoaderRoute: typeof SimRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/': {
@@ -269,6 +289,7 @@ const rootRouteChildren: RootRouteChildren = {
   DesignRoute: DesignRoute,
   DesignSessionsRoute: DesignSessionsRoute,
   SigninRoute: SigninRoute,
+  SimRoute: SimRoute,
   AuthCompleteRoute: AuthCompleteRoute,
 }
 export const routeTree = rootRouteImport
