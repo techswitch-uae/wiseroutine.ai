@@ -770,6 +770,45 @@ describe("day view hours", () => {
     expect(full.outside.before).toEqual([]);
   });
 
+  /**
+   * Where the call is, carried through to the block that draws it.
+   *
+   * Both providers send it and the sync stores it - this is the half in
+   * between, which used to end at the database: the column was written and
+   * nothing ever read it back out.
+   */
+  test("a meeting carries its join link to the day", async () => {
+    const user = await utcUser();
+    const { calendarId } = await seedCalendar();
+    const at = weekdayNoon();
+    const noon = new Date(at);
+    noon.setHours(12, 0, 0, 0);
+
+    await userDb().externalEvent.create({
+      data: {
+        id: crypto.randomUUID(),
+        calendarId,
+        providerEventId: "evt-call",
+        title: "Design review",
+        startsAt: noon,
+        endsAt: new Date(noon.getTime() + 1_800_000),
+        joinUrl: "https://meet.google.com/abc-defg-hij",
+        updatedAt: new Date(),
+      },
+    });
+
+    const today = (await (
+      await worker.default.fetch(`http://api/today?at=${at}`, {
+        headers: user.headers,
+      })
+    ).json()) as { meetings: { title: string; joinUrl: string | null }[] };
+
+    expect(today.meetings).toHaveLength(1);
+    expect(today.meetings[0]?.joinUrl).toBe(
+      "https://meet.google.com/abc-defg-hij",
+    );
+  });
+
   test("turning the setting off empties the edges rather than the day", async () => {
     const user = await utcUser();
     const { calendarId } = await seedCalendar();

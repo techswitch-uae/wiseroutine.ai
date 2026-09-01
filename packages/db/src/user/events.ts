@@ -16,7 +16,17 @@ export interface NormalisedEvent {
   isCancelled: boolean;
   changeTag?: string | null;
   providerUpdatedAt?: number | null;
+  joinUrl?: string | null;
 }
+
+/**
+ * A stored event, as everything above the database wants it.
+ *
+ * `CalendarEvent` is the scheduler's, and the solver has no use for a join
+ * link - so rather than push a screen's field into a type that exists to be
+ * free of them, the extra travels alongside.
+ */
+export type StoredEvent = CalendarEvent & { joinUrl: string | null };
 
 export interface UpsertResult {
   written: number;
@@ -69,6 +79,10 @@ export async function upsertEvents(
       // Data minimisation: a user can opt out of storing titles entirely and
       // keep only busy intervals.
       title: params.storeTitles ? (event.title ?? null) : null,
+      // Under the same opt-out as the title: a join link names the meeting's
+      // host and its room, which is the thing someone turning titles off is
+      // asking us not to keep.
+      joinUrl: params.storeTitles ? (event.joinUrl ?? null) : null,
       startsAt: at(event.startsAt),
       endsAt: at(event.endsAt),
       timeZone: event.timeZone ?? null,
@@ -130,7 +144,7 @@ export async function listEventsInRange(
   db: UserDatabase,
   from: number,
   to: number,
-): Promise<CalendarEvent[]> {
+): Promise<StoredEvent[]> {
   const rows = await db.externalEvent.findMany({
     where: {
       deletedAt: null,
@@ -152,6 +166,7 @@ export async function listEventsInRange(
     busyStatus: row.busyStatus as CalendarEvent["busyStatus"],
     responseStatus: row.responseStatus as CalendarEvent["responseStatus"],
     isCancelled: row.isCancelled,
+    joinUrl: row.joinUrl ?? null,
   }));
 }
 

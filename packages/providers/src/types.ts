@@ -35,6 +35,33 @@ export interface NormalisedEvent {
   isCancelled: boolean;
   changeTag: string | null;
   providerUpdatedAt: number | null;
+  /**
+   * Where the meeting is held, when it is held anywhere - a Meet, Teams or
+   * Zoom link off the event itself.
+   *
+   * Null rather than absent, because "this event has no video link" is an
+   * answer the UI acts on: the block in the rail offers a Join button or it
+   * does not, and an undefined would make that two states to write for.
+   */
+  joinUrl: string | null;
+}
+
+/**
+ * A link we are willing to hand to the operating system, or nothing.
+ *
+ * Provider data reaches a button the user presses, and `openUrl` will open
+ * whatever scheme it is allowed to - so the filter belongs here, at the edge
+ * where the value arrives, rather than at each of the places that later show
+ * it. `http`/`https` only: a meeting is on the web.
+ */
+export function joinableUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value === "") return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 export interface SyncPage {

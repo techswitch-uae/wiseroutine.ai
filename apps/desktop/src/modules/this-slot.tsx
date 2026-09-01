@@ -2,6 +2,7 @@ import { Button, TimeStepper, Widget } from "@wiseroutine/design";
 import { useEffect, useState } from "react";
 import { api, type TodayResponse } from "../lib/api";
 import { notify } from "../lib/notify";
+import { openExternal } from "../lib/open-external";
 import { pick, usePicked } from "../lib/picked";
 import { moveSlotTo, reloadPlan, startSlot, usePlan } from "../lib/plan-store";
 import { slotState } from "../lib/slot-state";
@@ -69,12 +70,60 @@ const Meeting: React.FC<{
     <div className="wr-widget-time">
       {clock(meeting.startsAt, timeZone)}–{clock(meeting.endsAt, timeZone)}
     </div>
+    {/* The one thing that can be *done* to someone else's block. It is not a
+        link: the app's own webview must not navigate away from the app, and a
+        meeting opens in the browser that is already signed in to it - see
+        `lib/open-external`. */}
+    {meeting.joinUrl ? (
+      <Button
+        variant="primary"
+        block
+        style={{ marginTop: 12 }}
+        onClick={() => {
+          const url = meeting.joinUrl;
+          if (!url) return;
+          void openExternal(url).then((opened) => {
+            if (!opened) notify("Couldn't open that meeting link.");
+          });
+        }}
+      >
+        {joinLabel(meeting.joinUrl)}
+      </Button>
+    ) : null}
     <Note>
       From your calendar. Wise Routine plans around this one and never writes
       back to it, so it can only be moved where it came from.
     </Note>
   </Widget>
 );
+
+/**
+ * What to call the button.
+ *
+ * The provider is not stored - the link is, and it says so plainly enough.
+ * Naming it is the difference between "Join" and knowing whether this is the
+ * call you already have Teams open for. Anything unrecognised stays a plain
+ * "Join" rather than naming a hostname, which is not a product anyone has
+ * heard of.
+ */
+const HOSTS: Record<string, string> = {
+  "meet.google.com": "Google Meet",
+  "teams.microsoft.com": "Teams",
+  "teams.live.com": "Teams",
+  "zoom.us": "Zoom",
+};
+
+function joinLabel(url: string): string {
+  try {
+    const host = new URL(url).hostname;
+    const match = Object.keys(HOSTS).find(
+      (known) => host === known || host.endsWith(`.${known}`),
+    );
+    return match ? `Join ${HOSTS[match]}` : "Join";
+  } catch {
+    return "Join";
+  }
+}
 
 /** As long as the card takes to collapse - see `useWidgetEntrance`. */
 const LEAVE_MS = 200;

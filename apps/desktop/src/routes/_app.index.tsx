@@ -58,14 +58,6 @@ const SYNC_AFTER_AWAY_MS = 20_000;
  */
 const SETTLE_MS = [1_200, 4_000, 10_000];
 
-/** A wall clock time, in the same 24-hour shape the rest of the day uses. */
-const hourClock = (at: number): string =>
-  new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).format(new Date(at));
-
 /**
  * Midday on the chosen date, which is what the server is asked for.
  *
@@ -483,15 +475,6 @@ const Today: React.FC = () => {
           if (!plan || at < plan.dayStart || at >= plan.dayEnd) return;
           const next = upNextOf(plan.slots, at);
           if (next?.slotId) start(next.slotId);
-        }),
-        // The pause itself is applied in `tray.rs`, where the press lands and
-        // where the clock that honours it runs. This draws the toast, and is
-        // told when the quiet ends rather than working it out - one definition
-        // of an hour, not two.
-        listen<number>("tray://pause", (event) => {
-          notify(
-            `Quiet until ${hourClock(event.payload)}. The day carries on.`,
-          );
         }),
       ]);
     });

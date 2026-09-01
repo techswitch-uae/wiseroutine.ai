@@ -190,6 +190,14 @@ export interface TodayMeeting {
   startsAt: number;
   endsAt: number;
   isAllDay: boolean;
+  /**
+   * Where the call is - a Meet, Teams or Zoom link off the event itself.
+   *
+   * Optional as well as nullable: a day restored from the offline cache may
+   * have been written before this field existed, and the block that draws it
+   * should offer nothing rather than crash on it.
+   */
+  joinUrl?: string | null;
 }
 
 /** One of the day view's ranges, as the server derives them. */

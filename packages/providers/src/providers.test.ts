@@ -246,3 +246,90 @@ describe("microsoft recurring series", () => {
     expect(fetched.events[0]?.title).toBeNull();
   });
 });
+
+/**
+ * Where the meeting is held.
+ *
+ * Both providers have sent this all along and it was read off the wire and
+ * thrown away, so a block on the day said when a call was and never how to get
+ * into it.
+ */
+describe("the join link", () => {
+  test("google: the video entry, not the phone number beside it", () => {
+    const event = normaliseGoogleEvent({
+      id: "g1",
+      summary: "Design review",
+      start: { dateTime: "2026-08-24T10:00:00Z" },
+      end: { dateTime: "2026-08-24T11:00:00Z" },
+      conferenceData: {
+        entryPoints: [
+          { entryPointType: "phone", uri: "tel:+39-0000000" },
+          {
+            entryPointType: "video",
+            uri: "https://meet.google.com/abc-defg-hij",
+          },
+          { entryPointType: "more", uri: "https://tel.meet/abc-defg-hij" },
+        ],
+      },
+    });
+
+    expect(event.joinUrl).toBe("https://meet.google.com/abc-defg-hij");
+  });
+
+  // Still the only link on events created before conferenceData existed.
+  test("google: falls back to the older hangoutLink", () => {
+    const event = normaliseGoogleEvent({
+      id: "g2",
+      start: { dateTime: "2026-08-24T10:00:00Z" },
+      end: { dateTime: "2026-08-24T11:00:00Z" },
+      hangoutLink: "https://meet.google.com/old-style-link",
+    });
+
+    expect(event.joinUrl).toBe("https://meet.google.com/old-style-link");
+  });
+
+  test("microsoft: the online meeting's join url", () => {
+    const event = normaliseMicrosoftEvent({
+      id: "m1",
+      subject: "Standup",
+      start: { dateTime: "2026-08-24T10:00:00.0000000", timeZone: "UTC" },
+      end: { dateTime: "2026-08-24T10:15:00.0000000", timeZone: "UTC" },
+      isOnlineMeeting: true,
+      onlineMeeting: { joinUrl: "https://teams.microsoft.com/l/meetup-join/x" },
+    });
+
+    expect(event.joinUrl).toBe("https://teams.microsoft.com/l/meetup-join/x");
+  });
+
+  test("a meeting in a room has no link at all", () => {
+    const event = normaliseGoogleEvent({
+      id: "g3",
+      start: { dateTime: "2026-08-24T10:00:00Z" },
+      end: { dateTime: "2026-08-24T11:00:00Z" },
+    });
+
+    expect(event.joinUrl).toBeNull();
+  });
+
+  /**
+   * The link reaches a button that hands a URL to the operating system, so
+   * what arrives from a provider is filtered where it arrives rather than at
+   * each of the places that later show it.
+   */
+  test("anything that is not a web address is dropped", () => {
+    for (const uri of [
+      "tel:+39-0000000",
+      "javascript:alert(1)",
+      "file:///Users/someone/secrets",
+      "not a url at all",
+    ]) {
+      const event = normaliseGoogleEvent({
+        id: `g-${uri}`,
+        start: { dateTime: "2026-08-24T10:00:00Z" },
+        end: { dateTime: "2026-08-24T11:00:00Z" },
+        conferenceData: { entryPoints: [{ entryPointType: "video", uri }] },
+      });
+      expect(event.joinUrl).toBeNull();
+    }
+  });
+});

@@ -4,7 +4,7 @@ import type {
   ProviderCalendar,
   SyncPage,
 } from "./types";
-import { ProviderError, SyncTokenExpired } from "./types";
+import { joinableUrl, ProviderError, SyncTokenExpired } from "./types";
 
 /**
  * Microsoft Graph, over plain `fetch`.
@@ -244,6 +244,12 @@ export function normaliseMicrosoftEvent(
     providerUpdatedAt: raw.lastModifiedDateTime
       ? Date.parse(String(raw.lastModifiedDateTime))
       : null,
+    // Teams, or whatever else the tenant books with - Graph reports a Zoom
+    // link through the same field.
+    joinUrl:
+      joinableUrl(
+        (raw.onlineMeeting as Record<string, unknown> | null)?.joinUrl,
+      ) ?? joinableUrl(raw.onlineMeetingUrl),
   };
 }
 
@@ -274,6 +280,11 @@ const EVENT_FIELDS = [
   "isCancelled",
   "changeKey",
   "lastModifiedDateTime",
+  // Where the meeting is held. `onlineMeeting` is the current shape and
+  // carries the join URL; `onlineMeetingUrl` is the older single field, still
+  // the only one on events created by Skype-era clients.
+  "onlineMeeting",
+  "onlineMeetingUrl",
   // Load-bearing: without `type` a seriesMaster is indistinguishable from a
   // real booking, and the two must be treated in opposite ways below.
   "type",

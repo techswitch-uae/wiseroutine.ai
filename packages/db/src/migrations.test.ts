@@ -18,8 +18,11 @@ describe("splitStatements", () => {
       // count of those is what has to survive the split. Matching the verbs
       // rather than only CREATE is what lets a migration alter a table -
       // otherwise the first ALTER-only one fails this on the day it is added.
-      const expected = (migration.sql.match(/^(CREATE|ALTER|DROP) /gm) ?? [])
-        .length;
+      // UPDATE for the same reason: a column added to a table that already has
+      // rows in it sometimes has to say something about those rows.
+      const expected = (
+        migration.sql.match(/^(CREATE|ALTER|DROP|UPDATE) /gm) ?? []
+      ).length;
       expect(expected).toBeGreaterThan(0);
       expect(splitStatements(migration.sql)).toHaveLength(expected);
     }

@@ -6,6 +6,16 @@ import { pick } from "../lib/picked";
 import { publishMove, publishPlan, publishStart } from "../lib/plan-store";
 import { ThisSlot } from "./this-slot";
 
+/** Where a press on Join ends up. The real one hands the URL to the operating
+ *  system, which a test has no business doing. */
+const opened: string[] = [];
+vi.mock("../lib/open-external", () => ({
+  openExternal: async (url: string) => {
+    opened.push(url);
+    return true;
+  },
+}));
+
 /**
  * The rail's answer to "what is this block, and what can I do about it".
  *
@@ -81,6 +91,7 @@ const show = (response: TodayResponse, picked: string | null = "s1") => {
 };
 
 afterEach(() => {
+  opened.length = 0;
   publishPlan(null);
   pick(null);
   vi.useRealTimers();
@@ -347,4 +358,58 @@ test("collapses when the selection is cleared from outside", () => {
     vi.advanceTimersByTime(400);
   });
   expect(screen.queryByText("Eye rest")).toBeNull();
+});
+
+/**
+ * The one thing that can be done to someone else's block.
+ *
+ * Both providers have always sent the link; it was read off the wire and
+ * thrown away, so a card could say when a call was and never how to get into
+ * it. It opens in the real browser - the one already signed in to it - and
+ * never in the app's own webview, which would replace the app.
+ */
+test("offers the meeting's own join link, named by where it goes", async () => {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  show(
+    day({
+      slots: [],
+      meetings: [
+        {
+          id: "m1",
+          title: "Design review",
+          startsAt: AT,
+          endsAt: AT + 3_600_000,
+          isAllDay: false,
+          joinUrl: "https://meet.google.com/abc-defg-hij",
+        },
+      ],
+    }),
+    "m1",
+  );
+
+  const join = screen.getByRole("button", { name: "Join Google Meet" });
+  await user.click(join);
+  expect(opened).toEqual(["https://meet.google.com/abc-defg-hij"]);
+});
+
+// Most meetings are in a room. A button that opens nothing is worse than no
+// button.
+test("says nothing about joining a meeting that is not online", () => {
+  show(
+    day({
+      slots: [],
+      meetings: [
+        {
+          id: "m1",
+          title: "Standup",
+          startsAt: AT,
+          endsAt: AT + 900_000,
+          isAllDay: false,
+          joinUrl: null,
+        },
+      ],
+    }),
+    "m1",
+  );
+  expect(screen.queryByRole("button", { name: /^Join/ })).toBeNull();
 });

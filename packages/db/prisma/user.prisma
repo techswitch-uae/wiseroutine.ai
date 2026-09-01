@@ -148,6 +148,11 @@ model ExternalEvent {
   responseStatus String  @default("none") @map("response_status")
   isCancelled    Boolean @default(false) @map("is_cancelled")
 
+  /// Where the meeting is held: a Meet, Teams or Zoom link off the event.
+  /// Stored with the title, and dropped with it - a calendar the user asked us
+  /// not to keep titles for is not one to keep join links for either.
+  joinUrl String? @map("join_url")
+
   /// Google etag / Graph changeKey. Compared to skip no-op writes, because a
   /// row written costs far more than a row read.
   changeTag         String?   @map("change_tag")

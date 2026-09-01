@@ -74,11 +74,6 @@ struct DayState {
   /// announced again at its new time - which is the whole point of a plan that
   /// rebuilds itself.
   announced: HashSet<String>,
-  /// Quiet until this instant. Only the speaking is paused, not the plan:
-  /// slots still run, still go live and still count, and the menu bar goes on
-  /// saying what is next. Someone in a meeting wants the day to carry on
-  /// without being told about it.
-  paused_until: i64,
 }
 
 #[derive(Default)]
@@ -177,11 +172,7 @@ fn due_starts(state: &mut DayState, now: i64) -> Vec<Entry> {
     .entries
     .iter()
     .filter(|entry| {
-      entry.starts_at <= now
-        && entry.starts_at > now - LATE
-        // A start inside the quiet hour is not announced late afterwards - it
-        // is not announced at all. The slot still runs.
-        && entry.starts_at >= state.paused_until
+      entry.starts_at <= now && entry.starts_at > now - LATE
     })
     .cloned()
     .collect();
@@ -266,8 +257,6 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
     .enabled(next.slot_id.is_some())
     .build(app)?;
 
-  let pause = MenuItemBuilder::with_id("pause", "Pause for an hour").build(app)?;
-
   // Quit stays, and is not swapped for a Hide. Closing the window already
   // hides it, and once it is hidden this menu is the only way to stop the app
   // that is always reachable - Cmd+Q needs the app to be focused, which it
@@ -278,8 +267,6 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
     .items(&[
       &heading,
       &start,
-      &PredefinedMenuItem::separator(app)?,
-      &pause,
       &PredefinedMenuItem::separator(app)?,
       &quit,
     ])
@@ -341,27 +328,6 @@ pub fn set_schedule<R: Runtime>(app: AppHandle<R>, entries: Vec<Entry>) -> tauri
   refresh(&app)
 }
 
-/// How long the quiet hour lasts.
-///
-/// ponytail: in memory, so it is forgotten on restart. That is the right
-/// default for an hour-long pause - a machine that has been restarted has
-/// almost certainly outlived the meeting.
-const PAUSE: Duration = Duration::from_secs(60 * 60);
-
-/// Go quiet for an hour, and say until when.
-///
-/// Here rather than in the webview because the webview may be asleep - which
-/// was the bug - and because the press arrives here first: it is a native menu
-/// item. The instant is handed back so the toast can name it without the two
-/// sides having to agree separately on how long an hour is.
-fn pause<R: Runtime>(app: &AppHandle<R>) -> i64 {
-  let until = now_ms() + PAUSE.as_millis() as i64;
-  if let Ok(mut state) = app.state::<Day>().0.lock() {
-    state.paused_until = until;
-  }
-  until
-}
-
 /// How often the app re-reads its own clock.
 ///
 /// Under a minute because that is the menu bar's smallest unit, and well
@@ -420,13 +386,6 @@ pub fn install<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
       // makes these work offline. Rust only carries the press across.
       "start" => {
         let _ = app.emit("tray://start", ());
-      }
-      "pause" => {
-        let until = pause(app);
-        show_window(app);
-        // The webview only draws the toast. It is told when the quiet ends
-        // rather than working it out, so there is one definition of an hour.
-        let _ = app.emit("tray://pause", until);
       }
       _ => {}
     });
@@ -540,26 +499,6 @@ mod tests {
     // Same slot, replanned half an hour later. That is a new thing to say.
     state.entries = vec![entry("a", AT + 30 * MIN, AT + 40 * MIN)];
     assert_eq!(due_starts(&mut state, AT + 30 * MIN).len(), 1);
-  }
-
-  #[test]
-  fn a_pause_silences_a_start_and_leaves_the_one_after_it() {
-    let mut state = day(&[
-      entry("quiet", AT + 10 * MIN, AT + 20 * MIN),
-      entry("loud", AT + 90 * MIN, AT + 100 * MIN),
-    ]);
-    state.paused_until = AT + 60 * MIN;
-
-    assert_eq!(due_starts(&mut state, AT + 10 * MIN).len(), 0);
-    let after = due_starts(&mut state, AT + 90 * MIN);
-    assert_eq!(after.len(), 1);
-    assert_eq!(after[0].id, "loud");
-
-    // Silenced, not hidden: the menu bar still names it while the quiet lasts.
-    assert_eq!(
-      up_next(&state.entries, AT + 10 * MIN).title.as_deref(),
-      Some("Breathing")
-    );
   }
 
   #[test]
