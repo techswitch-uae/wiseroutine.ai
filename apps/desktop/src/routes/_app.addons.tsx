@@ -300,10 +300,10 @@ const Addons: React.FC = () => {
         <h2 className="wr-settings-title">Addons</h2>
 
         <p className="wr-body" style={{ margin: "0 0 22px" }}>
-          Every guided session in Wise Routine is an addon, including the ones
-          we wrote. Each says what it needs, and can do nothing else. Switch one
-          off and the activities that use it are paused until you switch it back
-          on.
+          Every guided session and every card in the rail is an addon, including
+          the ones we wrote. Each says what it needs, and can do nothing else.
+          Switch one off and it stops running - any activities that use it are
+          paused until you switch it back on.
         </p>
 
         <div style={{ display: "grid", gap: 14 }}>

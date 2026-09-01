@@ -7,7 +7,7 @@
  * its slot, and a card sits in the rail for as long as the app is open,
  * redrawing whenever the day underneath it changes.
  *
- * Three things follow from that, and they are the whole file:
+ * Four things follow from that, and they are the whole file:
  *
  * 1. **It asks to be shown, and it can ask not to be.** A day with no blocks
  *    is not a day with nothing to report - it is a day this card knows nothing
@@ -19,7 +19,8 @@
  *    within a frame of the press. A timer would have been the lazier thing to
  *    write and would have left the card disagreeing with the timeline beside
  *    it for up to its interval.
- * 3. **It still keeps one clock.** Not for the data - the data is pushed - but
+ * 3. **It measures itself, and keeps measuring.** See `sizeUp`.
+ * 4. **It still keeps one clock.** Not for the data - the data is pushed - but
  *    because half of what the card says is about *now*: a block whose window
  *    closes while nobody presses anything moves from "to go" to "overdue" with
  *    no server event behind it. A minute is fine; nothing here is to the
@@ -34,7 +35,38 @@ async function main(): Promise<void> {
   const wr = await connect();
   if (wr.role.kind !== "widget") return;
 
+  /** The eyebrow the last reading called for, or null while off the rail. */
+  let eyebrow: string | null = null;
+  let sent = 0;
   let drawn = false;
+
+  /**
+   * Tell the host how tall to draw the card.
+   *
+   * Called after every redraw *and* whenever the frame's own content changes
+   * size, which is the part that matters and is easy to miss. A height
+   * measured once is right until the rail is narrower than it was - a resized
+   * window, a smaller display, the web build in a phone-width column - and
+   * then the text rewraps to more lines inside a frame still sized for fewer,
+   * and the last line is cut off with nothing to say so.
+   *
+   * The host cannot fix this for us. The frame is a document with an opaque
+   * origin, so nothing outside it can measure what is inside it; only the
+   * addon can see its own reflow. So the addon watches its own body and
+   * re-reports, and the card is as tall as its text at whatever width the rail
+   * happens to be.
+   *
+   * Guarded on the height actually changing, because a `ResizeObserver` fires
+   * per frame while a window is being dragged and each report is a state
+   * change on the host's side.
+   */
+  const sizeUp = async () => {
+    if (eyebrow === null) return;
+    const height = heightOf(document);
+    if (height === sent) return;
+    sent = height;
+    await wr.card({ eyebrow, height });
+  };
 
   const draw = async () => {
     const day = await wr.day();
@@ -45,7 +77,8 @@ async function main(): Promise<void> {
     // to load, and it takes a place in the rail from a card that has something
     // to say.
     if (totalOf(tally) === 0) {
-      drawn = false;
+      eyebrow = null;
+      sent = 0;
       await wr.card(null);
       return;
     }
@@ -58,19 +91,21 @@ async function main(): Promise<void> {
     }
     fill(document.body, tally, day.timeZone);
 
-    await wr.card({
-      // The one thing that cannot be a fixed name: whether the day is still
-      // going is a reading of the data, not a fact about this addon.
-      eyebrow: settledOf(tally) ? "Day done" : "Day so far",
-      // After `fill`, so what is measured is what the card actually says.
-      height: heightOf(document),
-    });
+    // The one thing that cannot be a fixed name: whether the day is still
+    // going is a reading of the data, not a fact about this addon.
+    eyebrow = settledOf(tally) ? "Day done" : "Day so far";
+    // Forced, because the eyebrow may have changed while the height did not.
+    sent = 0;
+    await sizeUp();
   };
 
   const redraw = () => void draw().catch(() => undefined);
 
   wr.onDayChange(redraw);
-  // See (3) above: the clock moves blocks between buckets with no event.
+  new ResizeObserver(() => void sizeUp().catch(() => undefined)).observe(
+    document.body,
+  );
+  // See (4) above: the clock moves blocks between buckets with no event.
   const timer = setInterval(redraw, 30_000);
   globalThis.addEventListener("pagehide", () => clearInterval(timer));
 
