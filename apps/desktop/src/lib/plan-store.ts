@@ -146,6 +146,16 @@ function subscribe(listen: () => void): () => void {
   };
 }
 
+/**
+ * The same subscription, for a reader that is not a React component.
+ *
+ * The addon host, which pushes a "the day changed" message down each addon's
+ * port so a rail card does not have to poll for it. It cannot use
+ * `useSyncExternalStore`: it lives on the far side of a `MessagePort`, in code
+ * that runs once when a frame is served rather than on every render.
+ */
+export const subscribePlan = subscribe;
+
 const snapshot = (): TodayResponse | null => plan;
 
 /** The day as Today last saw it, or null before the first load. The server

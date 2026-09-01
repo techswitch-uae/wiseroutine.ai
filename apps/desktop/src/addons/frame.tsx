@@ -1,7 +1,8 @@
 import type { AddonManifest } from "@wiseroutine/addons";
 import { useEffect, useRef, useState } from "react";
-import { serve } from "./host";
+import { type AddonContext, serve } from "./host";
 import { frameUrlFor } from "./installed";
+import { addonTheme } from "./theme";
 
 /**
  * An addon, running.
@@ -104,8 +105,9 @@ export interface AddonFrameProps {
    * What this frame was loaded to do, answered when the addon asks. The host
    * decides; the addon is not asked to identify itself.
    */
-  context: { kind: "session"; slot: unknown; config: unknown };
-  /** Sized by whatever is drawing it - a session takes the window. */
+  context: AddonContext;
+  /** Sized by whatever is drawing it - a session takes the window, a widget
+   *  takes the height it asked the host for. */
   style?: React.CSSProperties;
   title: string;
 }
@@ -139,6 +141,23 @@ export const AddonFrame: React.FC<AddonFrameProps> = ({
   const [html] = useState(() => documentFor(manifest, bundle));
 
   /**
+   * The context as of this render, without the port depending on it.
+   *
+   * `context` is an object literal built by whoever draws this frame, so it is
+   * a new object every render and an effect that depended on it re-ran every
+   * render: teardown, new `MessageChannel`, new listener. After the frame had
+   * loaded once, the `load` event that hands over the port never fires again -
+   * so from the second render onwards the addon was holding a port nobody was
+   * answering, and every call it made hung for ever.
+   *
+   * A session hid it, because a session's parent rarely re-renders while it is
+   * open. A rail card would not have: it re-renders whenever the day does,
+   * which is the moment it most needs its port.
+   */
+  const latest = useRef(context);
+  latest.current = context;
+
+  /**
    * Hand the addon its port once the document has loaded.
    *
    * A `MessageChannel`, transferred once, rather than letting the addon talk
@@ -157,12 +176,30 @@ export const AddonFrame: React.FC<AddonFrameProps> = ({
     if (!frame) return;
 
     const channel = new MessageChannel();
-    const stop = serve(channel.port1, manifest, context);
+    const stop = serve(channel.port1, manifest, () => latest.current);
 
+    /**
+     * The port, and the two things that cannot change while it is open.
+     *
+     * `role` is why this frame exists and `theme` is what the app looks like.
+     * Both are known here, before the addon's first line runs, and sending
+     * them with the port is what spares every addon two round trips - and a
+     * widget a first paint in the wrong colours.
+     */
     const send = () => {
-      frame.contentWindow?.postMessage("wiseroutine:addon:port", "*", [
-        channel.port2,
-      ]);
+      const context = latest.current;
+      frame.contentWindow?.postMessage(
+        {
+          type: "wiseroutine:addon:port",
+          role:
+            context.kind === "widget"
+              ? { kind: "widget", widgetKey: context.widgetKey }
+              : { kind: "session" },
+          theme: addonTheme(),
+        },
+        "*",
+        [channel.port2],
+      );
     };
 
     frame.addEventListener("load", send);
@@ -171,7 +208,7 @@ export const AddonFrame: React.FC<AddonFrameProps> = ({
       stop();
       channel.port1.close();
     };
-  }, [manifest, context]);
+  }, [manifest]);
 
   return (
     <iframe

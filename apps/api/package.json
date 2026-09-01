@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@wiseroutine/addon-breathing": "workspace:*",
+    "@wiseroutine/addon-day-so-far": "workspace:*",
     "@wiseroutine/addon-deep-work": "workspace:*",
     "@wiseroutine/addon-eye-rest": "workspace:*",
     "@wiseroutine/addon-stretch": "workspace:*",

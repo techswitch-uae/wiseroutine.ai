@@ -37,6 +37,25 @@ importers:
         specifier: ^4.1.10
         version: 4.1.11(@types/node@26.2.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12))
 
+  addons/day-so-far:
+    dependencies:
+      '@wiseroutine/addon-sdk':
+        specifier: workspace:*
+        version: link:../../packages/addon-sdk
+    devDependencies:
+      '@wiseroutine/typescript-config':
+        specifier: workspace:*
+        version: link:../../packages/typescript-config
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vite:
+        specifier: ^8.2.2
+        version: 8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.11(@types/node@26.2.0)(jsdom@30.0.1(@noble/hashes@2.3.0))(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12))
+
   addons/deep-work:
     dependencies:
       '@wiseroutine/addon-sdk':
@@ -99,6 +118,9 @@ importers:
       '@wiseroutine/addon-breathing':
         specifier: workspace:*
         version: link:../../addons/breathing
+      '@wiseroutine/addon-day-so-far':
+        specifier: workspace:*
+        version: link:../../addons/day-so-far
       '@wiseroutine/addon-deep-work':
         specifier: workspace:*
         version: link:../../addons/deep-work

@@ -4,6 +4,10 @@ import { bundledEntries, entryFor, registry } from "./registry";
 
 const IDS = [
   "wiseroutine.breathing",
+  // A card in the rail and no activity type at all. It is on this list to
+  // prove the widget path is one the app itself depends on, rather than one
+  // kept alive for strangers.
+  "wiseroutine.day-so-far",
   "wiseroutine.deep-work",
   "wiseroutine.eye-rest",
   "wiseroutine.stretch",
@@ -38,7 +42,7 @@ describe("registry", () => {
     }
   });
 
-  it("treats all four as bundled, so none of them offers an Install button", () => {
+  it("treats every one of them as bundled, so none of them offers an Install button", () => {
     expect(
       bundledEntries()
         .map((entry) => entry.id)

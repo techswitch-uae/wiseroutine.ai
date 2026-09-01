@@ -1,4 +1,5 @@
 import breathing from "@wiseroutine/addon-breathing/manifest";
+import daySoFar from "@wiseroutine/addon-day-so-far/manifest";
 import deepWork from "@wiseroutine/addon-deep-work/manifest";
 import eyeRest from "@wiseroutine/addon-eye-rest/manifest";
 import stretch from "@wiseroutine/addon-stretch/manifest";
@@ -87,15 +88,26 @@ export interface RegistryEntry {
 }
 
 /**
- * The app's own four.
+ * The app's own five.
  *
  * Every guided session Wise Routine ships is an addon, and there is no
  * built-in activity type left. That is deliberate: the extension point is the
  * only point, so it cannot rot behind a shortcut only the app is allowed to
  * take. When somebody outside this repo writes their first one, the code path
  * it runs on has been in production for months.
+ *
+ * `daySoFar` is the same argument made about the other surface. It contributes
+ * a card in the rail and no activity type at all, which is the shape most
+ * community addons will have - so the widget path is one the app itself
+ * depends on rather than one kept alive for strangers.
  */
-const BUNDLED: readonly unknown[] = [breathing, eyeRest, stretch, deepWork];
+const BUNDLED: readonly unknown[] = [
+  breathing,
+  eyeRest,
+  stretch,
+  deepWork,
+  daySoFar,
+];
 
 /**
  * Every entry, validated the same way the client will validate it.

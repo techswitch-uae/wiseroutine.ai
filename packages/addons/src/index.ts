@@ -424,6 +424,28 @@ export const canvasFor = (
 const clamp = (value: number, to: { min: number; max: number }): number =>
   Math.min(to.max, Math.max(to.min, Math.round(value)));
 
+/**
+ * How tall a rail card may be.
+ *
+ * The same argument as `CANVAS_BOUNDS` and a tighter ceiling, because the rail
+ * is shared. A session's frame is the only thing on screen; a card sits above
+ * and below other cards, and an addon that could name its own height could
+ * push every one of them out of view by asking for four thousand pixels. 320
+ * is taller than any first-party card and short enough that three of them
+ * still fit.
+ *
+ * The floor is not politeness either: a card of zero height is a card that is
+ * on screen, has an eyebrow, and appears to have failed. An addon with nothing
+ * to say says it with `card(null)`.
+ */
+export const CARD_BOUNDS = { min: 40, max: 320 } as const;
+
+/** The height a widget's frame gets, clamped. */
+export const cardHeightFor = (height: number | undefined): number =>
+  clamp(typeof height === "number" && Number.isFinite(height) ? height : 120, {
+    ...CARD_BOUNDS,
+  });
+
 const START_POLICIES = ["manual", "auto", "prompt"] as const;
 
 /** The config an activity type starts with, built from its own schema. */

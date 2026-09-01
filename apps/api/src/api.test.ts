@@ -5,6 +5,7 @@ import {
   slotsPastGrace,
 } from "@wiseroutine/db";
 import { beforeEach, describe, expect, test } from "vitest";
+import { bundledEntries } from "./addons/registry";
 import {
   accessTokenFor,
   syncWindowStart,
@@ -125,6 +126,7 @@ describe("addons", () => {
 
     expect(body.addons.map((addon) => addon.id).sort()).toEqual([
       "wiseroutine.breathing",
+      "wiseroutine.day-so-far",
       "wiseroutine.deep-work",
       "wiseroutine.eye-rest",
       "wiseroutine.stretch",
@@ -145,7 +147,8 @@ describe("addons", () => {
     expect(body.addons.find((addon) => addon.id === BREATHING)?.isEnabled).toBe(
       false,
     );
-    expect(body.addons).toHaveLength(4);
+    // And no duplicate row for the one that was already there.
+    expect(body.addons).toHaveLength(bundledEntries().length);
   });
 
   /**

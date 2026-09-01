@@ -2,6 +2,7 @@ import { render } from "@testing-library/react";
 import type { AddonManifest } from "@wiseroutine/addons";
 import { parseManifest } from "@wiseroutine/addons";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { publishPlan, resetPlans } from "../lib/plan-store";
 import { AddonFrame } from "./frame";
 import { type AddonContext, serve } from "./host";
 
@@ -68,7 +69,7 @@ function connectTo(
   stop: () => void;
 } {
   const channel = new MessageChannel();
-  const stop = serve(channel.port1, addon, context);
+  const stop = serve(channel.port1, addon, () => context);
   channel.port2.start();
 
   let nextId = 1;
@@ -304,14 +305,12 @@ describe("what the host allows", () => {
   test("an addon is given the session it was loaded for", async () => {
     const { call, stop } = connectTo(manifest());
     const reply = (await call("session")) as { result?: unknown };
-    // The theme travels with the session rather than being asked for. An
-    // addon's frame inherits no stylesheet and no custom properties, so
-    // without this it would have to hard-code colours and be illegible in one
-    // of the two themes.
+    // The theme is not here: it travels with the port, in the handshake, so
+    // that a widget - which never calls `session` - has it too, and so that
+    // neither pays a round trip for a value that cannot change.
     expect(reply.result).toMatchObject({
       slot: SESSION.slot,
       config: SESSION.config,
-      theme: { text: expect.any(String), fontBody: expect.any(String) },
     });
     stop();
   });
@@ -437,5 +436,195 @@ describe("opening a link outside the app", () => {
     expect(denied(await call("openExternal", { url: 42 }))).toBe(true);
     expect(opened).toEqual([]);
     stop();
+  });
+});
+
+/**
+ * A card in the rail, which is the other thing an addon may be.
+ *
+ * The surface is one method, and that is the design rather than an accident.
+ * An addon draws the inside of its own frame and says three things about the
+ * outside: the eyebrow, the height, and whether the card is there at all.
+ * Everything else about the card - its ground, its radius, where it sits in
+ * the rail - belongs to the host, and there is no way to ask about any of it.
+ *
+ * So these tests are mostly about what the one method cannot be made to do.
+ */
+describe("a widget's card", () => {
+  /** What the host would draw, captured instead of drawn. */
+  const widget = (
+    capabilities: AddonManifest["capabilities"] = [
+      { kind: "ui:widget" },
+      { kind: "read:schedule", scope: "today" },
+    ],
+  ) => {
+    const shown: (unknown | null)[] = [];
+    const { call, stop } = connectTo(manifest({ capabilities }), {
+      kind: "widget",
+      widgetKey: "progress",
+      present: (card) => shown.push(card),
+    });
+    return { call, stop, shown };
+  };
+
+  test("appears when the addon asks, with what it asked for", async () => {
+    const { call, stop, shown } = widget();
+    await call("card", { card: { eyebrow: "Day so far", height: 150 } });
+    expect(shown).toEqual([{ eyebrow: "Day so far", height: 150 }]);
+    stop();
+  });
+
+  /**
+   * The card an addon can take away is its own, and that is the whole reach of
+   * it: there is no parameter naming which card, so there is nothing to point
+   * at somebody else's.
+   */
+  test("can take itself off the rail", async () => {
+    const { call, stop, shown } = widget();
+    await call("card", { card: null });
+    await call("card", {});
+    expect(shown).toEqual([null, null]);
+    stop();
+  });
+
+  /**
+   * The rail is shared. An addon that could name its own height could push
+   * every other card off the screen by asking for four thousand pixels, and
+   * one that asked for zero would be a labelled card that appears to have
+   * failed to load.
+   */
+  test("cannot grow beyond what the rail will give it", async () => {
+    const { call, stop, shown } = widget();
+    for (const height of [4000, -20, 0, Number.NaN, "tall", undefined]) {
+      await call("card", { card: { height } });
+    }
+    for (const card of shown) {
+      const { height } = card as { height: number };
+      expect(height).toBeGreaterThanOrEqual(40);
+      expect(height).toBeLessThanOrEqual(320);
+    }
+    stop();
+  });
+
+  /** The eyebrow is the only text the host draws on an addon's behalf, so it
+   *  is bounded: a label is a label, not a paragraph in a label's clothes. */
+  test("cannot write an essay in the eyebrow", async () => {
+    const { call, stop, shown } = widget();
+    await call("card", { card: { eyebrow: "x".repeat(500) } });
+    const { eyebrow } = shown[0] as { eyebrow: string };
+    expect(eyebrow.length).toBeLessThanOrEqual(40);
+    stop();
+  });
+
+  test("refuses an addon that was not granted ui:widget", async () => {
+    const { call, stop, shown } = widget([
+      { kind: "read:schedule", scope: "today" },
+    ]);
+    expect(denied(await call("card", { card: { height: 100 } }))).toBe(true);
+    expect(shown).toEqual([]);
+    stop();
+  });
+
+  /**
+   * The two contexts refuse each other's questions, and not because a
+   * capability is missing - because the question is meaningless. A card has no
+   * slot, and a session has no eyebrow to set.
+   */
+  test("a widget cannot ask for a session", async () => {
+    const { call, stop } = widget([
+      { kind: "ui:widget" },
+      { kind: "ui:session" },
+    ]);
+    expect(denied(await call("session"))).toBe(true);
+    stop();
+  });
+
+  test("a session cannot draw a card", async () => {
+    const { call, stop } = connectTo(
+      manifest({
+        capabilities: [{ kind: "ui:session" }, { kind: "ui:widget" }],
+      }),
+      SESSION,
+    );
+    expect(denied(await call("card", { card: { height: 100 } }))).toBe(true);
+    stop();
+  });
+
+  /**
+   * A widget-only addon is not a second kind of addon.
+   *
+   * It declares no activity types, asks for `ui:widget` rather than
+   * `ui:session`, and travels the same manifest parser, the same capability
+   * check and the same sandbox as every other. This asserts the first half:
+   * the parser accepts a manifest with widgets and nothing else.
+   */
+  test("a manifest with a widget and no session is a valid addon", () => {
+    const parsed = parseManifest({
+      id: "acme.day",
+      name: "Acme Day",
+      version: "1.0.0",
+      description: "A card and nothing else.",
+      capabilities: [
+        { kind: "ui:widget" },
+        { kind: "read:schedule", scope: "today" },
+      ],
+      widgets: [{ key: "progress", name: "Day so far" }],
+    });
+    expect(parsed?.widgets).toEqual([{ key: "progress", name: "Day so far" }]);
+    expect(parsed?.activityTypes).toEqual([]);
+  });
+});
+
+/**
+ * The host speaking first.
+ *
+ * The one message that is not an answer, and the reason a rail card does not
+ * need a timer. Without it every widget wanting to stay current would poll -
+ * a wakeup the machine pays for whether or not anything happened, and a card
+ * that goes on saying "3 of 7 done" for the rest of its interval after the
+ * user pressed Done.
+ */
+describe("being told the day changed", () => {
+  beforeEach(() => resetPlans());
+
+  /** On the port, so it reaches this addon and no other. The rest of the page
+   *  has no way to hear it and no way to send it. */
+  const listen = (port: MessagePort): unknown[] => {
+    const heard: unknown[] = [];
+    port.addEventListener("message", (event: MessageEvent) => {
+      if (event.data?.event) heard.push(event.data);
+    });
+    port.start();
+    return heard;
+  };
+
+  test("tells the addon, without telling it what changed", async () => {
+    const channel = new MessageChannel();
+    const heard = listen(channel.port2);
+    const stop = serve(channel.port1, manifest(), () => SESSION);
+
+    publishPlan(null);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // No payload. One would be a second copy of the narrowing in `day` - the
+    // same fields, filtered the same way, in a second place to get wrong.
+    expect(heard).toEqual([{ event: "day" }]);
+    stop();
+  });
+
+  /**
+   * A subscription that outlived its frame would be a torn-down addon still
+   * being woken for the rest of the session, and a `postMessage` into a closed
+   * port every time the day moved.
+   */
+  test("stops when the frame does", async () => {
+    const channel = new MessageChannel();
+    const heard = listen(channel.port2);
+    const stop = serve(channel.port1, manifest(), () => SESSION);
+    stop();
+
+    publishPlan(null);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(heard).toEqual([]);
   });
 });

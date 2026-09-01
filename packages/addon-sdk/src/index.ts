@@ -80,8 +80,6 @@ export interface SessionSlot {
 export interface Session<Config = unknown> {
   slot: SessionSlot;
   config: Config;
-  /** The app's own colours and fonts, resolved. See `AddonTheme`. */
-  theme: AddonTheme;
 }
 
 /**
@@ -113,6 +111,9 @@ export interface AddonTheme {
   background: string;
   /** The one-pixel rule the app draws between things. */
   hairline: string;
+  /** The empty half of a progress bar. Distinct from `hairline`, which is a
+   *  border: a track is a filled shape and needs to read as one. */
+  track: string;
   /** The app's own accent. Use sparingly - it is the colour the user's eye
    *  has learned means "this is the app talking". */
   accent: string;
@@ -155,6 +156,64 @@ export interface DayView {
   slots: DaySlot[];
 }
 
+/* ── Why you were loaded ─────────────────────────────────────────────────── */
+
+/**
+ * What the host loaded you to be.
+ *
+ * An addon may contribute a guided session, a card in the rail, or both, and
+ * the same bundle runs in every case - one addon is one bundle, served from
+ * one `addon://` document. So the role has to arrive from outside, and it
+ * arrives in the handshake rather than as a call: it is known before your
+ * first line runs, and a round trip to ask "what am I?" would be a round trip
+ * every addon pays before it can draw anything.
+ *
+ * Branch on it at the top of your entry point:
+ *
+ * ```ts
+ * const wr = await connect();
+ * if (wr.role.kind === "widget") return drawCard(wr);
+ * return runSession(wr);
+ * ```
+ */
+export type AddonRole =
+  | { kind: "session" }
+  /** `widgetKey` is the bare key from your manifest's `widgets`, not the
+   *  namespaced one - inside your own bundle there is nothing to namespace
+   *  against. It tells an addon contributing two cards which one this is. */
+  | { kind: "widget"; widgetKey: string };
+
+/**
+ * How the host should frame your card.
+ *
+ * The rail card around your frame is the host's - its ground, its corner
+ * radius, its spacing, the same as every other card beside it. You draw the
+ * inside. What you get to say about the outside is this, and it exists
+ * because three things genuinely cannot be decided from a manifest:
+ *
+ * - **Whether there is anything to show at all.** A card that says nothing
+ *   is worse than no card: an empty surface in the rail reads as something
+ *   that failed to load. Pass `null` to `card()` and the host takes it down.
+ * - **The eyebrow**, which is often a reading of the data rather than a name
+ *   for the addon - "Day so far" against "Day done".
+ * - **How tall you are.** An iframe has no intrinsic height, so something
+ *   has to say, and only you know how many lines you drew.
+ *
+ * Your card starts hidden and appears when you first call `card()`. That way
+ * round on purpose: a card that appeared and then vanished a tick later,
+ * because the addon had nothing after all, is a flicker in the corner of the
+ * user's eye every time the rail renders.
+ */
+export interface WidgetCard {
+  /** The small upper-case label at the top of the card. Falls back to the
+   *  name your manifest gave this widget. */
+  eyebrow?: string;
+  /** CSS pixels, clamped by the host - see `CARD_BOUNDS` in
+   *  `@wiseroutine/addons`. You cannot grow until you have pushed the rest of
+   *  the rail off the screen. */
+  height?: number;
+}
+
 /* ── Errors ──────────────────────────────────────────────────────────────── */
 
 /**
@@ -180,13 +239,54 @@ export class AddonError extends Error {
 
 export interface AddonClient {
   /**
+   * Why the host loaded you. Known at connect, so it is a value, not a call.
+   */
+  readonly role: AddonRole;
+
+  /**
+   * The app's own colours and fonts, resolved. See `AddonTheme`.
+   *
+   * Handed over with the port rather than fetched, so there is no first paint
+   * in the wrong colours - a flash of unreadable text at the start of a
+   * session is worse than no theming at all.
+   */
+  readonly theme: AddonTheme;
+
+  /**
    * The session you were loaded for.
    *
-   * Only meaningful when the host loaded you as a session - if your addon was
-   * loaded to draw a widget, this rejects. Which one you are is not something
-   * you have to detect: the host loads a different entry point for each.
+   * Rejects if `role.kind` is not `"session"`. Check the role rather than
+   * catching this: it is a programming mistake, not a condition.
    */
   session<Config = unknown>(): Promise<Session<Config>>;
+
+  /**
+   * Show your card in the rail, or take it down.
+   *
+   * Only for `role.kind === "widget"`; rejects otherwise. Call it as often as
+   * your reading changes - it is a plain state update on the host side, not a
+   * remount, so your frame keeps running and nothing reloads.
+   *
+   * `card(null)` hides you. Until the first call you are not on screen at all.
+   */
+  card(card: WidgetCard | null): Promise<void>;
+
+  /**
+   * Be told when the user's day changes, instead of asking on a timer.
+   *
+   * Fires when a slot is completed, skipped, moved, or the day is re-read -
+   * whatever the reason, the answer `day()` would give is no longer the one
+   * you drew. It carries nothing: call `day()` for the new one.
+   *
+   * A rail card has to be current, and polling is the wrong shape for that.
+   * Every addon on a timer is a wakeup the machine pays for whether or not
+   * anything happened, and the lag between pressing Done and the card
+   * agreeing is the interval you picked.
+   *
+   * Returns the unsubscribe. You rarely need it - your frame is torn down
+   * with your card - but a listener you cannot remove is not a listener.
+   */
+  onDayChange(listener: () => void): () => void;
 
   /**
    * The user's day, as far as your granted scope reaches.
@@ -297,7 +397,37 @@ interface RpcReply {
   error?: { message: string; kind: "denied" | "failed" };
 }
 
+/**
+ * Something the host announces, rather than answers.
+ *
+ * On the same port and told apart by having no `id`: a reply is always to a
+ * call, so anything without one is the host talking first. One shape rather
+ * than a second channel - a second port would be a second thing to transfer,
+ * tear down, and get wrong.
+ */
+interface HostEvent {
+  event: "day";
+}
+
 const HANDSHAKE = "wiseroutine:addon:port";
+
+/**
+ * The handshake, which carries more than a port.
+ *
+ * `role` and `theme` are both known to the host before your bundle runs and
+ * neither can change for the life of the frame, so sending them with the port
+ * costs nothing and saves every addon two round trips before its first paint.
+ */
+interface Handshake {
+  type: typeof HANDSHAKE;
+  role: AddonRole;
+  theme: AddonTheme;
+}
+
+const isHandshake = (data: unknown): data is Handshake =>
+  typeof data === "object" &&
+  data !== null &&
+  (data as { type?: unknown }).type === HANDSHAKE;
 
 /**
  * Connect to the host.
@@ -321,34 +451,49 @@ export function connect(timeoutMs = 10_000): Promise<AddonClient> {
       // The handshake is the only message accepted on the global listener, and
       // everything afterwards travels on the port. A page that could keep
       // talking to the frame's `window` would be a second way in.
-      if (event.data !== HANDSHAKE) return;
+      if (!isHandshake(event.data)) return;
       const port = event.ports[0];
       if (!port) return;
 
       clearTimeout(timer);
       globalThis.removeEventListener("message", onMessage);
-      resolve(clientOver(port));
+      resolve(clientOver(port, event.data));
     }
 
     globalThis.addEventListener("message", onMessage);
   });
 }
 
-function clientOver(port: MessagePort): AddonClient {
+function clientOver(port: MessagePort, hello: Handshake): AddonClient {
   let nextId = 1;
   const waiting = new Map<
     number,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
+  const onDay = new Set<() => void>();
 
-  port.addEventListener("message", (event: MessageEvent<RpcReply>) => {
-    const { id, result, error } = event.data ?? {};
-    const pending = waiting.get(id);
-    if (!pending) return;
-    waiting.delete(id);
-    if (error) pending.reject(new AddonError(error.message, error.kind));
-    else pending.resolve(result);
-  });
+  port.addEventListener(
+    "message",
+    (event: MessageEvent<RpcReply | HostEvent>) => {
+      const data = event.data;
+      if (!data) return;
+
+      // No id means the host spoke first - see `HostEvent`.
+      if (!("id" in data)) {
+        // Copied before iterating: a listener that unsubscribes itself would
+        // otherwise mutate the set mid-loop.
+        if (data.event === "day") for (const listen of [...onDay]) listen();
+        return;
+      }
+
+      const { id, result, error } = data;
+      const pending = waiting.get(id);
+      if (!pending) return;
+      waiting.delete(id);
+      if (error) pending.reject(new AddonError(error.message, error.kind));
+      else pending.resolve(result);
+    },
+  );
   port.start();
 
   const call = <T>(method: string, params?: unknown): Promise<T> =>
@@ -363,7 +508,16 @@ function clientOver(port: MessagePort): AddonClient {
     });
 
   return {
+    role: hello.role,
+    theme: hello.theme,
     session: <Config>() => call<Session<Config>>("session"),
+    card: (card) => call<void>("card", { card }),
+    onDayChange: (listener) => {
+      onDay.add(listener);
+      return () => {
+        onDay.delete(listener);
+      };
+    },
     day: () => call<DayView>("day"),
     placeSlot: (request) => call<DaySlot>("placeSlot", request),
     setSlotStatus: (slotId, status) =>

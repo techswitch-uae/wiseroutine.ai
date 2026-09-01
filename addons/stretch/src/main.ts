@@ -38,7 +38,8 @@ import {
 
 async function main(): Promise<void> {
   const wr = await connect();
-  const { config, theme } = await wr.session<{ routine?: string }>();
+  const { config } = await wr.session<{ routine?: string }>();
+  const theme = wr.theme;
 
   const steps = stepsFor(config?.routine);
   document.body.innerHTML = markup(steps, theme);

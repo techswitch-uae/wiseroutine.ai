@@ -1,0 +1,11 @@
+{
+  "id": "wiseroutine.day-so-far",
+  "name": "Day so far",
+  "version": "1.0.0",
+  "description": "A card in the rail showing how much of today happened, and how much did not.",
+  "capabilities": [
+    { "kind": "ui:widget" },
+    { "kind": "read:schedule", "scope": "today" }
+  ],
+  "widgets": [{ "key": "progress", "name": "Day so far" }]
+}

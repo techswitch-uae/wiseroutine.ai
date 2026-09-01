@@ -10,7 +10,8 @@ import { clock, markup, secondsLeft, spotify } from "./focus";
 
 async function main(): Promise<void> {
   const wr = await connect();
-  const { slot, config, theme } = await wr.session<{ musicUrl?: string }>();
+  const { slot, config } = await wr.session<{ musicUrl?: string }>();
+  const theme = wr.theme;
 
   const music = spotify(config?.musicUrl);
   document.body.innerHTML = markup(music, theme);

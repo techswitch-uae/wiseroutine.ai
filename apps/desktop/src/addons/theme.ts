@@ -34,6 +34,7 @@ export const addonTheme = (): AddonTheme => ({
   muted: token("--wr-text-muted", "rgba(46, 43, 37, 0.74)"),
   background: token("--wr-page", "#f6f1e8"),
   hairline: token("--wr-hairline", "rgba(46, 43, 37, 0.1)"),
+  track: token("--wr-track", "rgba(46, 43, 37, 0.09)"),
   accent: token("--color-accent-700", "#7a6a4f"),
   fontBody: token("--font-body", "system-ui, sans-serif"),
   fontHeading: token("--font-heading", "Georgia, serif"),
