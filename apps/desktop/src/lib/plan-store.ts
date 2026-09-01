@@ -43,7 +43,7 @@ const listeners = new Set<() => void>();
  * plan stale at seven in the evening, which is exactly when someone most wants
  * to know what is left.
  */
-const isToday = (candidate: TodayResponse, now: number): boolean => {
+export const isToday = (candidate: TodayResponse, now: number): boolean => {
   const here = new Intl.DateTimeFormat("en-CA", {
     timeZone: candidate.timeZone,
     year: "numeric",
@@ -77,9 +77,19 @@ export function publishPlan(
   now: number = Date.now(),
 ): void {
   plan = next;
-  // Only ever replaced by another plan for today - never cleared by one for
-  // another day. Paging forward is looking, and looking must not cost the menu
-  // bar the day it is reporting on.
+  /**
+   * Only ever replaced by another plan for today - never cleared by one for
+   * another day. Paging forward is looking, and looking must not cost the menu
+   * bar the day it is reporting on.
+   *
+   * But a day ends. Held with no expiry, the plan that *was* today went on
+   * being today's plan after midnight, so the menu bar kept being armed from a
+   * day that had finished - naming slots nobody could still do anything about,
+   * on a day whose own slots had not been placed yet. Yesterday's plan is not
+   * "no plan for today", and the difference is the whole bug: the first says
+   * something is coming, the second says nothing is.
+   */
+  if (todayPlan && !isToday(todayPlan, now)) todayPlan = null;
   if (next && isToday(next, now)) todayPlan = next;
   for (const listen of listeners) listen();
 }

@@ -21,12 +21,20 @@ import type { TodaySlot } from "./api";
  * `started` and the server's own sweep is what decides whether it was
  * completed or missed.
  */
-const startedHere = new Set<string>();
+const startedHere = new Map<string, number>();
 
-/** Called by the one place that starts a slot - see `start` on Today. */
-export const markStarted = (slotId: string): void => {
-  startedHere.add(slotId);
+/** Called by the one place that starts a slot - see `start` on Today.
+ *
+ *  The instant is kept, not just the fact: a block started before its window
+ *  opens still runs for as long as it was planned to, and the only thing that
+ *  knows when it actually began is the press. */
+export const markStarted = (slotId: string, at = Date.now()): void => {
+  startedHere.set(slotId, at);
 };
+
+/** When this run started that slot, or undefined if it did not. */
+export const startedAtOf = (slotId: string): number | undefined =>
+  startedHere.get(slotId);
 
 /** Only for tests, which cannot restart the process between cases. */
 export const forgetStarted = (): void => startedHere.clear();

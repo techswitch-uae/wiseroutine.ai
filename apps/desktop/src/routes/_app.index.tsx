@@ -26,7 +26,9 @@ import {
 import { setDensity, useDensity } from "../lib/density";
 import { notify } from "../lib/notify";
 import { pick, usePicked } from "../lib/picked";
+import { PLACING_KEY, usePlacing } from "../lib/placing";
 import {
+  isToday,
   publishMove,
   publishPlan,
   publishReload,
@@ -90,6 +92,8 @@ const Today: React.FC = () => {
   /** The block the rail is describing - see `lib/picked`. Held there rather
    *  than here because the rail is mounted by the shell, not by this page. */
   const picked = usePicked();
+  /** A session being dragged in from the rail - see `modules/to-place`. */
+  const placing = usePlacing();
 
   /**
    * Which hours are on screen, for as long as this window is open.
@@ -306,7 +310,18 @@ const Today: React.FC = () => {
               slot.status === "planned" &&
               slot.startsAt <= at,
           );
-          if (due) latest.current();
+          /**
+           * And the day itself ending, which nothing else here noticed.
+           *
+           * `load` is memoised on the range and the date in the URL, and today
+           * has no date in the URL - so a window left open across midnight
+           * went on drawing yesterday's slots, and went on handing them to the
+           * menu bar, until something else happened to re-read the day. The
+           * clock is the only thing that knows, and it is already ticking.
+           */
+          const rolled =
+            dataRef.current !== null && !isToday(dataRef.current, at);
+          if (due || rolled) latest.current();
           atNextMinute();
         },
         60_000 - (Date.now() % 60_000),
@@ -497,6 +512,45 @@ const Today: React.FC = () => {
   }
 
   const rows = buildTimeline(data, now);
+
+  /**
+   * The session being dragged in from the rail, as a block on the day.
+   *
+   * Only once it is over the day: a drag wandering the sidebar has no time to
+   * be drawn at, and a block pinned to the top of the grid until the cursor
+   * arrives is a placement nobody asked for.
+   */
+  /**
+   * The session being dragged in from the rail, as a block on the day.
+   *
+   * Only once it is over the day: a drag wandering the sidebar has no time to
+   * be drawn at, and a block pinned to the top of the grid until the cursor
+   * arrives is a placement nobody asked for. The block and the cursor travel
+   * together because the grid needs both - one to lay out, one to hang the
+   * card from.
+   */
+  const at = placing?.startsAt ?? null;
+  const ghost =
+    placing && at !== null
+      ? {
+          block: {
+            key: PLACING_KEY,
+            startsAt: at,
+            endsAt: at + placing.minutes * 60_000,
+            title: placing.name,
+            node: (
+              <Slot
+                variant={placing.kind === "focus" ? "focus" : "recovery"}
+                time=""
+                name={placing.name}
+                meta={`${placing.minutes} min`}
+              />
+            ),
+          },
+          cursor: { key: PLACING_KEY, x: placing.x, y: placing.y },
+        }
+      : null;
+
   const dayLabel = new Intl.DateTimeFormat("en-GB", {
     timeZone: data.timeZone,
     weekday: "long",
@@ -592,47 +646,55 @@ const Today: React.FC = () => {
             quarterStep={density.quarterStep}
             minBlockHeight={density.minBlockHeight}
             onMove={move}
-            items={rows.map((row) => ({
-              key: row.key,
-              startsAt: row.startsAt,
-              endsAt: row.endsAt,
-              movable: row.movable === true,
-              title: row.title,
-              // Every block, meetings included: "what is this and what can I
-              // do about it" is a fair question to ask of a block you cannot
-              // move, and the answer is worth giving.
-              onSelect: () => pick(row.key),
-              selected: row.key === picked,
-              // Enter and Delete, for a block that has focus. A finished slot
-              // offers neither: there is nothing left to start, and taking it
-              // off the day would erase what actually happened.
-              ...(row.slotId && row.done !== true
-                ? {
-                    onStart: () => row.slotId && start(row.slotId),
-                    onRemove: () => row.slotId && remove(row.slotId, row.title),
-                  }
-                : {}),
-              node: (
-                <Slot
-                  variant={row.variant}
-                  // The gutter already says when this is; repeating it inside
-                  // the card is noise the grid was built to remove.
-                  time=""
-                  name={row.title}
-                  meta={row.meta ?? ""}
-                  done={row.done ?? false}
-                  // Stopped, not unstarted. The rail says the same thing in
-                  // words - see `slotState`.
-                  action={row.resumable === true ? "resume" : "start"}
-                  // No grace bar or "moves itself" line inside the grid: those
-                  // are list-row affordances, and here they make a 25-minute
-                  // block draw twice its own height and collide with the next.
-                  onStart={() => {
-                    if (row.slotId) start(row.slotId);
-                  }}
-                />
-              ),
-            }))}
+            /* The block the drop would produce, handed to the grid as a block
+               like any other so it is laid out - lane, column and all - by
+               exactly the rules that will apply once it exists. */
+            placing={ghost?.cursor ?? null}
+            items={[
+              ...(ghost ? [ghost.block] : []),
+              ...rows.map((row) => ({
+                key: row.key,
+                startsAt: row.startsAt,
+                endsAt: row.endsAt,
+                movable: row.movable === true,
+                title: row.title,
+                // Every block, meetings included: "what is this and what can I
+                // do about it" is a fair question to ask of a block you cannot
+                // move, and the answer is worth giving.
+                onSelect: () => pick(row.key),
+                selected: row.key === picked,
+                // Enter and Delete, for a block that has focus. A finished slot
+                // offers neither: there is nothing left to start, and taking it
+                // off the day would erase what actually happened.
+                ...(row.slotId && row.done !== true
+                  ? {
+                      onStart: () => row.slotId && start(row.slotId),
+                      onRemove: () =>
+                        row.slotId && remove(row.slotId, row.title),
+                    }
+                  : {}),
+                node: (
+                  <Slot
+                    variant={row.variant}
+                    // The gutter already says when this is; repeating it inside
+                    // the card is noise the grid was built to remove.
+                    time=""
+                    name={row.title}
+                    meta={row.meta ?? ""}
+                    done={row.done ?? false}
+                    // Stopped, not unstarted. The rail says the same thing in
+                    // words - see `slotState`.
+                    action={row.resumable === true ? "resume" : "start"}
+                    // No grace bar or "moves itself" line inside the grid: those
+                    // are list-row affordances, and here they make a 25-minute
+                    // block draw twice its own height and collide with the next.
+                    onStart={() => {
+                      if (row.slotId) start(row.slotId);
+                    }}
+                  />
+                ),
+              })),
+            ]}
           />
         )}
 

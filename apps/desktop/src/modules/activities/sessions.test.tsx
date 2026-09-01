@@ -2,7 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { TodaySlot } from "../../lib/api";
-import { breathing } from "./breathing";
+import { breathing, ringKeyframes } from "./breathing";
 import { deepWork } from "./deep-work";
 import { eyeRest } from "./eye-rest";
 import { stretch } from "./stretch";
@@ -259,5 +259,24 @@ describe("deep work", () => {
     );
     expect(screen.queryByTitle("Music for this block")).toBeNull();
     expect(screen.queryByRole("button", { name: "Play music" })).toBeNull();
+  });
+});
+
+/**
+ * The ring around the breathing circle: full at the start of each phase, empty
+ * by the end of it. A countdown you do not have to read.
+ */
+describe("breathing phase ring", () => {
+  test("drains once per phase, and refills off the boundary", () => {
+    // 4-7-8, whose fourth phase is zero: three sweeps, not four.
+    const frames = ringKeyframes([4, 7, 8, 0], 19);
+    const drains = frames.match(/stroke-dashoffset: 7\d\d/g) ?? [];
+    expect(drains.length).toBe(3);
+    // Nothing sits on a boundary twice: two keyframes at one stop are one
+    // keyframe, and the refill would eat the phase that just drained.
+    const stops = [...frames.matchAll(/([\d.]+)% \{/g)].map((m) => m[1]);
+    expect(new Set(stops).size).toBe(stops.length);
+    // The last phase ends the cycle, so it has nothing to refill into.
+    expect(frames.trimEnd().endsWith("} }")).toBe(true);
   });
 });

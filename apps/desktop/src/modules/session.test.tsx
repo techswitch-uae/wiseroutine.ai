@@ -113,3 +113,25 @@ test("a finished session does not reopen on the same plan", async () => {
   act(() => publishPlan(day("started")));
   expect(screen.queryByRole("dialog")).toBeNull();
 });
+
+/**
+ * A block pressed before its window opens.
+ *
+ * The countdown used to run to where the block is parked on the day, so a
+ * five-minute rest started four minutes early opened saying nine. What was
+ * asked for is five minutes of rest, and the press is the only thing that
+ * knows when they began.
+ */
+test("runs for as long as the block was planned, not until it was parked", () => {
+  const early = AT - 4 * 60_000;
+  vi.setSystemTime(early);
+  forgetStarted();
+  markStarted("s1", early);
+
+  publishPlan(day("started"));
+  render(<SessionOverlay />);
+
+  // 5:00 of rest, not the 9:00 between the press and the block's own end.
+  expect(screen.getByText("5:00")).toBeTruthy();
+  expect(screen.queryByText("9:00")).toBeNull();
+});

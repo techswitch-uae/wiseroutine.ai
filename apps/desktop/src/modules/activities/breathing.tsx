@@ -63,6 +63,47 @@ export function phaseAt(
   return { label: labels[0] as string, index: 0 };
 }
 
+/**
+ * The ring around the circle, and how much of this phase is left in it.
+ *
+ * The ask was a countdown per phase that is not a number: watching digits is
+ * not the same activity as breathing, and neither is counting dots. So the
+ * ring is drawn full at the start of each phase and drains to nothing by the
+ * end of it - four seconds of "in" and eight of "out" read as the same shape
+ * moving at two speeds, which is the thing being taught.
+ *
+ * ponytail: the same trick as the circle - one keyframe set computed from the
+ * pattern, `linear` because time is, animated on the compositor. No timer, no
+ * per-frame state, and it cannot fall out of step with the circle beside it
+ * because both are one animation on the same clock.
+ */
+const RADIUS = 124;
+const RING = 2 * Math.PI * RADIUS;
+
+export function ringKeyframes(
+  pattern: BreathingConfig["pattern"],
+  cycle: number,
+): string {
+  const at = (seconds: number): string => ((seconds / cycle) * 100).toFixed(3);
+  const keys = ["0% { stroke-dashoffset: 0 }"];
+  let elapsed = 0;
+
+  for (const seconds of pattern) {
+    // A phase the pattern does not have - "4-7-8" has no closing hold - is not
+    // an instant of empty ring.
+    if (seconds <= 0) continue;
+    elapsed += seconds;
+    const pct = Number(at(elapsed));
+    keys.push(`${pct}% { stroke-dashoffset: ${RING.toFixed(2)} }`);
+    // A hair past the boundary, never on it: two keyframes at the same stop
+    // are one keyframe, and the refill would simply replace the end of the
+    // phase that just drained.
+    if (pct < 100)
+      keys.push(`${(pct + 0.05).toFixed(3)}% { stroke-dashoffset: 0 }`);
+  }
+  return `@keyframes wr-breathe-ring { ${keys.join(" ")} }`;
+}
+
 const BreathingSession: React.FC<{
   slot: { endsAt: number; startsAt: number };
   config: BreathingConfig;
@@ -70,12 +111,26 @@ const BreathingSession: React.FC<{
   onSkip: () => void;
 }> = ({ slot, config, onDone, onSkip }) => {
   const left = useEndsAt(slot.endsAt, onDone);
+  /**
+   * Seconds since the circle started moving, read from the clock rather than
+   * counted up.
+   *
+   * The word and the circle are two clocks describing one breath: the circle
+   * is a CSS animation on real time, and a counter that added one per interval
+   * fell behind it - every late tick was kept - until "Breathe out" was being
+   * said over a circle already filling. Four ticks a second so the word turns
+   * at the phase boundary rather than up to a second after it.
+   */
+  const [startedAt] = useState(() => Date.now());
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    const timer = setInterval(() => setElapsed((e) => e + 1), 1_000);
+    const timer = setInterval(
+      () => setElapsed((Date.now() - startedAt) / 1_000),
+      250,
+    );
     return () => clearInterval(timer);
-  }, []);
+  }, [startedAt]);
 
   const [inSec, hold1, outSec, hold2] = config.pattern;
   const cycle = inSec + hold1 + outSec + hold2;
@@ -98,19 +153,63 @@ const BreathingSession: React.FC<{
               ${((inSec + hold1 + outSec) / cycle) * 100}% { transform: scale(.55) }
               100%                              { transform: scale(.55) }
             }
+            ${ringKeyframes(config.pattern, cycle)}
           `}</style>
           <div
             style={{
-              width: 220,
-              height: 220,
-              borderRadius: "50%",
-              background:
-                "radial-gradient(circle at 50% 45%, #d9cfbe 0%, #a8977c 70%)",
-              // Steps computed from the pattern, so changing 4-4-4-4 to 4-7-8
-              // changes the motion and nothing else.
-              animation: `wr-breathe ${cycle}s ease-in-out infinite`,
+              position: "relative",
+              width: 2 * RADIUS + 12,
+              height: 2 * RADIUS + 12,
+              display: "grid",
+              placeItems: "center",
             }}
-          />
+          >
+            {/* Rotated so the ring empties from the top, which is where an eye
+                that is not really looking expects a clock to start. */}
+            <svg
+              aria-hidden="true"
+              viewBox={`0 0 ${2 * RADIUS + 12} ${2 * RADIUS + 12}`}
+              style={{
+                position: "absolute",
+                inset: 0,
+                transform: "rotate(-90deg)",
+              }}
+            >
+              <circle
+                cx={RADIUS + 6}
+                cy={RADIUS + 6}
+                r={RADIUS}
+                fill="none"
+                stroke="rgba(217, 207, 190, .12)"
+                strokeWidth={1.5}
+              />
+              <circle
+                cx={RADIUS + 6}
+                cy={RADIUS + 6}
+                r={RADIUS}
+                fill="none"
+                stroke="rgba(217, 207, 190, .5)"
+                strokeWidth={1.5}
+                strokeLinecap="round"
+                strokeDasharray={RING}
+                style={{
+                  animation: `wr-breathe-ring ${cycle}s linear infinite`,
+                }}
+              />
+            </svg>
+            <div
+              style={{
+                width: 220,
+                height: 220,
+                borderRadius: "50%",
+                background:
+                  "radial-gradient(circle at 50% 45%, #d9cfbe 0%, #a8977c 70%)",
+                // Steps computed from the pattern, so changing 4-4-4-4 to 4-7-8
+                // changes the motion and nothing else.
+                animation: `wr-breathe ${cycle}s ease-in-out infinite`,
+              }}
+            />
+          </div>
         </>
       }
     >

@@ -73,3 +73,30 @@ describe("which plan the menu bar reads", () => {
     expect(todaySnapshot()?.date.day).toBe(12);
   });
 });
+
+/**
+ * A day ends, and the menu bar has to notice.
+ *
+ * Held with no expiry, the plan that *was* today went on being today's plan
+ * after midnight - so the tray kept naming a slot from a day that had already
+ * finished, over a new day whose slots had not been placed yet.
+ */
+describe("when today stops being today", () => {
+  beforeEach(() => resetPlans());
+
+  it("lets go of yesterday's plan rather than reporting it", () => {
+    publishPlan(planFor(2026, 8, 11), NOW);
+    expect(todaySnapshot()?.date.day).toBe(11);
+
+    // The next morning, before anything has been fetched for it.
+    publishPlan(null, Date.UTC(2026, 7, 12, 9, 0));
+    expect(todaySnapshot()).toBeNull();
+  });
+
+  it("takes the new day as soon as one is loaded", () => {
+    const morning = Date.UTC(2026, 7, 12, 9, 0);
+    publishPlan(planFor(2026, 8, 11), NOW);
+    publishPlan(planFor(2026, 8, 12), morning);
+    expect(todaySnapshot()?.date.day).toBe(12);
+  });
+});

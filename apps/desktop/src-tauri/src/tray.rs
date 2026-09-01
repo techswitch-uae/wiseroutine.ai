@@ -244,6 +244,10 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
   use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
 
   let Some(tray) = app.tray_by_id(TRAY_ID) else {
+    // Said out loud. A menu bar that stops updating looks exactly like one
+    // with nothing to say, so the one thing that must not happen here is
+    // failing quietly - see the note on `refresh`.
+    eprintln!("tray: no icon with id {TRAY_ID}; menu bar left as it was");
     return Ok(());
   };
 
@@ -295,13 +299,26 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
 /// returned, so nothing else can claim the same start.
 fn refresh<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
   let now = now_ms();
-  let Ok((entries, due)) = app.state::<Day>().0.lock().map(|mut state| {
+  let (entries, due) = {
+    /*
+     * Taken back off a panic rather than given up on.
+     *
+     * This used to return on a poisoned lock, on the grounds that the panic
+     * was better reported elsewhere. But the tick is the only thing that ever
+     * redraws the bar, so one poisoned lock stopped it redrawing *for the life
+     * of the process* - the menu bar frozen on whatever it happened to be
+     * saying, hours after that was true, on a machine where everything else
+     * still worked. A stale title is indistinguishable from a correct one,
+     * which is what made it so hard to see.
+     *
+     * The state behind the lock is a schedule and a set of ids. A panic
+     * mid-update can leave it out of date, never inconsistent, and the next
+     * push replaces it wholesale.
+     */
+    let day = app.state::<Day>();
+    let mut state = day.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let due = due_starts(&mut state, now);
     (state.entries.clone(), due)
-  }) else {
-    // A poisoned lock means a panic already happened somewhere better placed
-    // to report it. Leaving the menu bar as it was beats taking the app down.
-    return Ok(());
   };
 
   for entry in &due {
@@ -365,9 +382,13 @@ fn tick<R: Runtime>(app: &AppHandle<R>) {
       let inner = handle.clone();
       // Menus and tray titles are AppKit objects, and touching them off the
       // main thread is undefined behaviour rather than an error.
-      let _ = handle.run_on_main_thread(move || {
-        let _ = refresh(&inner);
-      });
+      if let Err(error) = handle.run_on_main_thread(move || {
+        if let Err(error) = refresh(&inner) {
+          eprintln!("tray: refresh failed: {error}");
+        }
+      }) {
+        eprintln!("tray: could not reach the main thread: {error}");
+      }
     }
   });
 }
@@ -413,9 +434,12 @@ pub fn install<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
   #[cfg(target_os = "macos")]
   let tray = tray.icon_as_template(true);
 
+  // Before the tray, not after. The menu items and the webview's first push
+  // both read this state, and either arriving in the gap between building the
+  // tray and managing it would panic on a `State` that does not exist yet.
+  app.manage(Day::default());
   tray.build(app)?;
 
-  app.manage(Day::default());
   let handle = app.handle().clone();
   tick(&handle);
   render(&handle, &UpNext::default())

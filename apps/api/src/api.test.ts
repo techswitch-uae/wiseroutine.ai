@@ -195,6 +195,44 @@ describe("planning end to end", () => {
     expect(body.slots.length).toBe(result.placed);
   });
 
+  /**
+   * The reported bug: "place the rest for me" placed the lot.
+   *
+   * A session dragged onto the day by hand is pinned, so a replan keeps it -
+   * but the demand was worked out from what had been *completed*, which a
+   * placed-but-not-yet-done session is not. So a three-a-day activity with one
+   * already on the timeline asked for three more and got a day with four.
+   */
+  test("counts what is already on the day against the day's minimum", async () => {
+    const user = await seedUser({ plan: "free" });
+    const activityId = await seedActivity({
+      minimumValue: 3,
+      sessionMinutes: 10,
+    });
+    const at = tomorrowNoon();
+
+    const placed = await worker.default.fetch("http://api/slots", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ activityId, startsAt: at }),
+    });
+    expect(placed.status).toBe(201);
+
+    const planned = await worker.default.fetch("http://api/plan", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ trigger: "user_request", at }),
+    });
+    // Two, not three: the one already there is one of the three.
+    expect(((await planned.json()) as { placed: number }).placed).toBe(2);
+
+    const today = await worker.default.fetch(`http://api/today?at=${at}`, {
+      headers: user.headers,
+    });
+    const body = (await today.json()) as { slots: unknown[] };
+    expect(body.slots.length).toBe(3);
+  });
+
   // Found while writing these tests: planning a day whose window has already
   // closed correctly places nothing. Pinned so it stays deliberate, and so the
   // suite does not quietly depend on what time it is run.

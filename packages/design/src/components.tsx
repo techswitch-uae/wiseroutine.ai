@@ -902,6 +902,19 @@ export type DayGridProps = {
   /** Fires once, on drop, with instants already snapped to the ruler. Without
    *  it nothing is draggable however the items are marked. */
   onMove?: (key: string, startsAt: number, endsAt: number) => void;
+  /**
+   * A block being dragged in from outside the grid, and where the cursor is.
+   *
+   * The block itself is passed in `items` like any other - it is the drop the
+   * grid would produce, so it must be laid out by the same rules - and this
+   * says which one it is. Drawn exactly as a block being moved is: the outline
+   * where it would land, and the card under the cursor with its range on it.
+   * Anything else would teach two placements for one gesture.
+   *
+   * The grid still owns none of it: what is dragged, what happens on release
+   * and when this clears are all the caller's - see `modules/to-place`.
+   */
+  placing?: { key: string; x: number; y: number } | null;
   /** A press on the day itself rather than on anything in it. What "click
    *  somewhere empty to put it away" is made of. */
   onBackdrop?: () => void;
@@ -1051,6 +1064,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
   minBlockHeight = 46,
   onMove,
   onBackdrop,
+  placing,
 }) => {
   const label = new Intl.DateTimeFormat("en-GB", {
     timeZone,
@@ -1372,7 +1386,31 @@ export const DayGrid: React.FC<DayGridProps> = ({
     // drag would detach them in the middle of the gesture they are running.
   }, [dragging, topOf]);
 
-  const dragged = drag?.live === true ? drag : null;
+  /**
+   * The one block that is in the air, however it got there.
+   *
+   * A drag started on the grid carries its own grab point; one arriving from
+   * the rail was picked up by a handle that is not this block, so the card
+   * hangs from the cursor instead. Everything below reads this and cannot tell
+   * the two apart, which is the point.
+   */
+  const outside = placing
+    ? items.find((item) => item.key === placing.key)
+    : undefined;
+  const dragged =
+    drag?.live === true
+      ? drag
+      : outside && placing
+        ? {
+            key: outside.key,
+            x: placing.x,
+            y: placing.y,
+            grabX: 0,
+            grabY: 0,
+            startsAt: outside.startsAt,
+            endsAt: outside.endsAt,
+          }
+        : null;
 
   return (
     <div
@@ -2400,7 +2438,10 @@ export const StateRow: React.FC<{
   leading: React.ReactNode;
   trailing: React.ReactNode;
   recessed?: boolean;
-}> = ({ name, leading, trailing, recessed }) => (
+  /** A second line under the name - a length, a count, what it costs. Absent
+   *  leaves the row exactly as tall as it was. */
+  meta?: string;
+}> = ({ name, leading, trailing, recessed, meta }) => (
   // Fluid, not 236px. It was a fixed width taken from the widget it was first
   // drawn in, which is 250px wide and spends 38 of them on padding - so every
   // row in "To place today" hung 24px out of the card it was inside. A row
@@ -2409,6 +2450,7 @@ export const StateRow: React.FC<{
     {leading}
     <div className="wr-staterow-name">
       <div className="wr-slot-name">{name}</div>
+      {meta ? <div className="wr-slot-meta">{meta}</div> : null}
     </div>
     {trailing}
   </div>

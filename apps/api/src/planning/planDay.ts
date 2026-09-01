@@ -101,6 +101,33 @@ export async function planDay(
       end: s.endsAt,
     }));
 
+  /**
+   * Sessions already on the day that the replan will keep, per activity.
+   *
+   * The demand below is worked out from what has been *completed*, which was
+   * the whole story for as long as the planner was the only thing that put
+   * anything on a day. It is not: a session dragged onto the timeline by hand
+   * is pinned, so it survives this replan untouched - and asking for three
+   * more on top of it is how "place the rest for me" placed the lot again.
+   *
+   * Completed slots are left out on purpose: they are already counted, in
+   * `completedToday`. So are the ones that will not happen - skipped, missed,
+   * cancelled - because a day that lost one still owes it.
+   *
+   * ponytail: sessions, not minutes. A duration minimum whose kept slot was
+   * cut short by hand is a session short of its target, and the day says so
+   * tomorrow rather than quietly placing a fourth block today.
+   */
+  const keptToday = new Map<string, number>();
+  for (const slot of slots) {
+    const keeps =
+      slot.status === "planned"
+        ? slot.isLocked
+        : slot.status === "live" || slot.status === "started";
+    if (!keeps || !slot.activityId) continue;
+    keptToday.set(slot.activityId, (keptToday.get(slot.activityId) ?? 0) + 1);
+  }
+
   const weekday = localWeekday(dayStart, zone);
   const weekStart = dayStart - weekday * 86_400_000;
   const [todayProgress, weekProgress] = await Promise.all([
@@ -114,16 +141,17 @@ export async function planDay(
     const today = todayProgress.get(row.id) ?? { count: 0, minutes: 0 };
     const week = weekProgress.get(row.id) ?? { count: 0, minutes: 0 };
 
-    const sessionsNeeded = sessionsNeededToday(
-      activity,
-      {
-        completedToday: today.count,
-        completedMinutesToday: today.minutes,
-        completedThisWeek: week.count,
-      },
-      weekday,
-    );
-    if (sessionsNeeded === 0) continue;
+    const sessionsNeeded =
+      sessionsNeededToday(
+        activity,
+        {
+          completedToday: today.count,
+          completedMinutesToday: today.minutes,
+          completedThisWeek: week.count,
+        },
+        weekday,
+      ) - (keptToday.get(row.id) ?? 0);
+    if (sessionsNeeded <= 0) continue;
 
     demands.push({
       activity,

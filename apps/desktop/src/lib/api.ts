@@ -884,7 +884,13 @@ export function buildTimeline(data: TodayResponse, now: number): TimelineRow[] {
       endsAt: slot.endsAt,
       variant: isLive ? "live" : slot.kind === "focus" ? "focus" : "recovery",
       title: slot.title,
-      meta: `${Math.round((slot.endsAt - slot.startsAt) / 60_000)} min`,
+      // A live block says how much of itself is left rather than how long it
+      // was: while it is running, the length it was planned at is the one
+      // thing about it you can no longer act on. Rounded up and floored at a
+      // minute, so it never reads "0 min left" while it is still going.
+      meta: isLive
+        ? `${Math.max(1, Math.ceil((slot.endsAt - now) / 60_000))} min left`
+        : `${Math.round((slot.endsAt - slot.startsAt) / 60_000)} min`,
       done: slot.status === "completed",
       // Only while it is still ahead of you. `started` is left out on purpose
       // as well as the three terminal ones - see `movable` above.
