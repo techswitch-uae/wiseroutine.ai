@@ -1,3 +1,4 @@
+import { isGrantable } from "@wiseroutine/addons";
 import {
   archiveActivity,
   cancelWork,
@@ -6,9 +7,12 @@ import {
   createActivity,
   deleteConnection,
   forgetStoredTitles,
+  getAddon,
   getCalendarForSync,
+  installAddon,
   lastSyncedAt,
   listActivities,
+  listAddons,
   listCalendars,
   listConnections,
   listEventsInRange,
@@ -18,10 +22,12 @@ import {
   moveSlot,
   placeSlot,
   progressForRange,
+  removeAddon,
   scheduledForRange,
   scheduleWork,
   setActivityActive,
   setActivityWindows,
+  setAddonEnabled,
   setCalendarSelected,
   setSlotStatus,
   toSchedulerActivity,
@@ -49,6 +55,7 @@ import {
 } from "@wiseroutine/scheduler";
 import { Hono, type MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { entryFor, registry } from "../addons/registry";
 import {
   type App,
   type Ctx,
@@ -190,6 +197,130 @@ const foreground: MiddlewareHandler<App> = async (c, next) => {
 
 app.use("*", requireUser);
 app.use("*", foreground);
+
+/* ── Addons ──────────────────────────────────────────────────────────────── */
+
+/**
+ * What may be installed.
+ *
+ * Served by us rather than fetched from wherever the bundles live, so that an
+ * addon approved last month can stop being installable today - see the note in
+ * `addons/registry`. Not gated on a plan: `packages/plans` has the hook for it
+ * and it is deliberately left open, so the policy is a one-line change on the
+ * day it is decided rather than a thing to unpick.
+ */
+app.get("/addons/available", (c) =>
+  c.json({
+    addons: registry()
+      .filter((entry) => !entry.revoked)
+      .map((entry) => ({
+        id: entry.id,
+        version: entry.version,
+        author: entry.author,
+        bundleUrl: entry.bundleUrl,
+        manifest: entry.manifest,
+      })),
+  }),
+);
+
+/**
+ * What this user has installed.
+ *
+ * `revoked` is carried on each one rather than filtered out. An addon
+ * withdrawn after it was installed is exactly the case the user has to be told
+ * about - dropping it from the list would take it off their screen while it
+ * was still on their disk.
+ */
+app.get("/addons", async (c) => {
+  const installed = await listAddons(c.get("db"));
+  return c.json({
+    addons: installed.map((row) => ({
+      id: row.id,
+      version: row.version,
+      isEnabled: row.isEnabled,
+      installedAt: row.installedAt,
+      granted: JSON.parse(row.grantedJson) as unknown,
+      manifest: JSON.parse(row.manifestJson) as unknown,
+      revoked: entryFor(row.id)?.revoked === true,
+    })),
+  });
+});
+
+/**
+ * Install, or re-install something removed earlier.
+ *
+ * The manifest is taken from the registry and never from the request. A client
+ * that could name its own capabilities would be a client that could grant
+ * itself any of them - the body says which addon, and the server says what
+ * that addon is.
+ *
+ * Every capability is checked against `isGrantable` before anything is
+ * written. That is the policy gate rather than the user\'s: a scope nobody may
+ * have yet - a read wider than today - is refused here whatever the install
+ * screen offered.
+ */
+app.post("/addons/:id/install", async (c) => {
+  const entry = entryFor(c.req.param("id"));
+  if (!entry || entry.revoked) {
+    throw new HTTPException(404, { message: "No such addon" });
+  }
+
+  for (const capability of entry.manifest.capabilities) {
+    const decision = isGrantable(capability);
+    if (!decision.ok) {
+      throw new HTTPException(400, { message: decision.reason });
+    }
+  }
+
+  const row = await installAddon(
+    c.get("db"),
+    {
+      id: entry.id,
+      version: entry.version,
+      manifestJson: JSON.stringify(entry.manifest),
+      // Everything it asked for, because every one of them was grantable and
+      // the install screen showed them. A partial grant is a real thing to
+      // want and there is nowhere to express it yet; `canAddon` already reads
+      // this list rather than the manifest, so adding it later changes this
+      // line and nothing else.
+      grantedJson: JSON.stringify(entry.manifest.capabilities),
+      bundleHash: entry.bundleHash,
+    },
+    c.get("now"),
+  );
+
+  return c.json({ id: row.id, version: row.version }, 201);
+});
+
+/** Switched off, still installed. Its settings and its activities stay. */
+app.patch("/addons/:id", async (c) => {
+  const body = await c.req
+    .json<{ isEnabled?: boolean }>()
+    .catch(() => ({}) as { isEnabled?: boolean });
+  if (typeof body.isEnabled !== "boolean") {
+    throw new HTTPException(400, { message: "isEnabled must be a boolean" });
+  }
+
+  const existing = await getAddon(c.get("db"), c.req.param("id"));
+  if (!existing) throw new HTTPException(404, { message: "Not installed" });
+
+  await setAddonEnabled(c.get("db"), existing.id, body.isEnabled);
+  return c.body(null, 204);
+});
+
+/** Take the future it claimed, leave the past. See `removeAddon`. */
+app.delete("/addons/:id", async (c) => {
+  const existing = await getAddon(c.get("db"), c.req.param("id"));
+  if (!existing) throw new HTTPException(404, { message: "Not installed" });
+
+  const result = await removeAddon(
+    c.get("db"),
+    existing.id,
+    c.get("now"),
+    newId,
+  );
+  return c.json(result);
+});
 
 /**
  * Sync now, whatever the debounce thinks.

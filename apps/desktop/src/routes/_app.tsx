@@ -21,8 +21,8 @@ import { dismiss, useToasts } from "../lib/notify";
 import { useTodayPlan } from "../lib/plan-store";
 import { dayLabel, periodLabel, scopeOf, todayOf } from "../lib/scope";
 import "../lib/rail";
-import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
 import { loadAddons } from "../addons/installed";
+import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
 import { SessionOverlay } from "../modules/session";
 import { TrialPill } from "../modules/trial-pill";
 
@@ -53,6 +53,10 @@ import { TrialPill } from "../modules/trial-pill";
 const NAV = [
   { key: "activities", label: "Activities", to: "/activities" },
   { key: "calendars", label: "Calendars", to: "/calendars" },
+  // The packages, not the cards they contribute - see `_app.addons`. Above
+  // Settings because it is a place things are added, and below the two that
+  // are the routine itself.
+  { key: "addons", label: "Addons", to: "/addons" },
   { key: "settings", label: "Settings", to: "/settings" },
 ] as const;
 

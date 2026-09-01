@@ -12,6 +12,7 @@ export type {
 export * from "./keys";
 // User tier - one database per person. Everything they own.
 export * from "./user/activities";
+export * from "./user/addons";
 export * from "./user/calendars";
 export * from "./user/events";
 export * from "./user/slots";

@@ -370,6 +370,41 @@ export interface CalendarSummary {
   accessRole: string;
 }
 
+/**
+ * An addon the registry offers, or one already installed.
+ *
+ * `manifest` is `unknown` here on purpose. It is the addon's document, parsed
+ * and validated by `parseManifest` in `@wiseroutine/addons` - the one place
+ * that knows its shape - and a second hand-written mirror of it in this file
+ * would be a second thing to keep in step.
+ */
+export interface AvailableAddon {
+  id: string;
+  version: string;
+  author: string;
+  /** Where to fetch the bundle. Relative for one bundled with the app. */
+  bundleUrl: string;
+  manifest: unknown;
+}
+
+export interface InstalledAddonRow {
+  id: string;
+  version: string;
+  isEnabled: boolean;
+  installedAt: number;
+  /** What was granted, which is not always what the manifest now asks for. */
+  granted: unknown;
+  manifest: unknown;
+  /** Withdrawn from the registry after it was installed. Still on disk. */
+  revoked: boolean;
+}
+
+/** What removing an addon took with it. See `removeAddon` on the server. */
+export interface AddonRemoval {
+  paused: number;
+  cancelled: number;
+}
+
 export interface CalendarsResponse {
   connections: CalendarConnection[];
   calendars: CalendarSummary[];
@@ -809,6 +844,26 @@ export const api = {
         ...(endsAt !== undefined ? { endsAt } : {}),
       }),
     }),
+  /* ── Addons ──────────────────────────────────────────────────────────── */
+
+  availableAddons: () =>
+    request<{ addons: AvailableAddon[] }>("/addons/available"),
+  installedAddons: () => request<{ addons: InstalledAddonRow[] }>("/addons"),
+  installAddon: (id: string) =>
+    request<{ id: string; version: string }>(
+      `/addons/${encodeURIComponent(id)}/install`,
+      { method: "POST" },
+    ),
+  setAddonEnabled: (id: string, isEnabled: boolean) =>
+    send(`/addons/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ isEnabled }),
+    }).then(() => undefined),
+  removeAddon: (id: string) =>
+    request<AddonRemoval>(`/addons/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
+
   startSlot: (id: string) => slotAction(id, "start"),
   completeSlot: (id: string) => slotAction(id, "complete"),
   skipSlot: (id: string, reason?: string) => slotAction(id, "skip", reason),

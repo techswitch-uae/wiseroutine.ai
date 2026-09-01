@@ -39,6 +39,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@wiseroutine/addons':
+        specifier: workspace:*
+        version: link:../../packages/addons
       '@wiseroutine/db':
         specifier: workspace:*
         version: link:../../packages/db

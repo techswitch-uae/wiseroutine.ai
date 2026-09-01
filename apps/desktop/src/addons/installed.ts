@@ -1,5 +1,6 @@
 import { type AddonManifest, parseManifest } from "@wiseroutine/addons";
 import { useSyncExternalStore } from "react";
+import { type AvailableAddon, api, type InstalledAddonRow } from "../lib/api";
 
 /** Whether there is a Tauri host to talk to. The same test `lib/alerts` uses. */
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in globalThis;
@@ -64,16 +65,6 @@ export function frameUrlFor(id: string): string | null {
  * meant to constrain, and the user's approval would mean nothing.
  */
 
-/**
- * ponytail: a constant until there is something to read.
- *
- * This becomes a read of the `addons` table - which exists, with the granted
- * capabilities and the enabled flag on it - once anything can install one.
- * Until then the app ships exactly one addon and hard-coding its id is a line
- * rather than a subsystem.
- */
-const INSTALLED = ["wiseroutine.breathing"] as const;
-
 export interface InstalledAddon {
   manifest: AddonManifest;
   /** The built bundle, as text. Injected into the frame - see `frame.tsx`. */
@@ -101,28 +92,24 @@ export const installedAddons = snapshot;
 export const useInstalledAddons = (): ReadonlyMap<string, InstalledAddon> =>
   useSyncExternalStore(subscribe, snapshot, snapshot);
 
-async function load(id: string): Promise<InstalledAddon | null> {
-  const base = `/addons/${id}`;
+/**
+ * Fetch one addon's manifest and bundle, and put it where the frame can serve
+ * it from.
+ *
+ * `bundleUrl` comes from the server rather than being built here: an addon
+ * bundled with the app is a relative path, and one from the registry is an
+ * absolute URL, and the loader should not be the thing that knows which is
+ * which.
+ */
+async function load(
+  id: string,
+  bundleUrl: string,
+  manifest: AddonManifest,
+): Promise<InstalledAddon | null> {
   try {
-    const [manifestResponse, bundleResponse] = await Promise.all([
-      fetch(`${base}/manifest.json`),
-      fetch(`${base}/addon.js`),
-    ]);
-    if (!manifestResponse.ok || !bundleResponse.ok) return null;
-
-    const manifest = parseManifest(await manifestResponse.json());
-    if (!manifest) return null;
-
-    /**
-     * The id in the manifest must be the id it was installed under.
-     *
-     * Otherwise an addon could claim another's namespace simply by saying so,
-     * and every key derived from it - `wiseroutine.breathing/pacer` - would
-     * point at somebody else's activity and somebody else's stored settings.
-     */
-    if (manifest.id !== id) return null;
-
-    const bundle = await bundleResponse.text();
+    const response = await fetch(bundleUrl);
+    if (!response.ok) return null;
+    const bundle = await response.text();
 
     /**
      * Hand it to Rust, which is what actually serves the frame.
@@ -132,18 +119,16 @@ async function load(id: string): Promise<InstalledAddon | null> {
      * refused - see `src-tauri/src/addons.rs`. Rust cannot read what the
      * webview fetched, so the bytes are passed across.
      *
-     * The manifest handed over is the *parsed* one, re-serialised, rather than
-     * the text that was fetched. `parseManifest` has already refused anything
-     * malformed, so what reaches Rust - and becomes a Content-Security-Policy
-     * header - is the validated shape rather than whatever a stranger wrote.
+     * The manifest handed over is the one the *server* holds, which is the one
+     * the user approved at install. Not a manifest fetched alongside the
+     * bundle: those two could disagree, and the one that decides what an addon
+     * may do should be the one somebody said yes to.
      *
      * A failure here is not fatal and must not be: the same frontend ships as
      * a web app, where there is no Tauri and no custom scheme, and it falls
      * back to `srcdoc` there - see `frame.tsx`.
      */
-    await store(manifest.id, JSON.stringify(manifest), bundle).catch(
-      () => undefined,
-    );
+    await store(id, JSON.stringify(manifest), bundle).catch(() => undefined);
 
     return { manifest, bundle };
   } catch {
@@ -155,17 +140,44 @@ async function load(id: string): Promise<InstalledAddon | null> {
 }
 
 /**
- * Load every installed addon.
+ * Load every addon this user has installed and switched on.
  *
- * Called once from the app shell. Idempotent, so a remount does not refetch.
+ * Called from the app shell, and again after anything is installed or removed.
+ * Not idempotent any more, deliberately: it used to guard on a flag because
+ * the list was a constant and could not change, and now it can.
  */
-let started = false;
-
 export async function loadAddons(): Promise<void> {
-  if (started) return;
-  started = true;
+  let rows: InstalledAddonRow[];
+  try {
+    rows = (await api.installedAddons()).addons;
+  } catch {
+    // Offline, or not signed in yet. Leave whatever is already loaded rather
+    // than emptying the rail because one request failed.
+    return;
+  }
 
-  const loaded = await Promise.all(INSTALLED.map(load));
+  const available = await api
+    .availableAddons()
+    .then((response) => response.addons)
+    .catch(() => [] as AvailableAddon[]);
+
+  const loaded = await Promise.all(
+    rows
+      // Switched off is still installed. Revoked is withdrawn *after* it was
+      // installed, and is the one case where the user's own choice is
+      // overridden: an addon pulled from the registry stops running here.
+      .filter((row) => row.isEnabled && !row.revoked)
+      .map(async (row) => {
+        const manifest = parseManifest(row.manifest);
+        if (!manifest || manifest.id !== row.id) return null;
+
+        const entry = available.find((candidate) => candidate.id === row.id);
+        if (!entry) return null;
+
+        return load(row.id, entry.bundleUrl, manifest);
+      }),
+  );
+
   const next = new Map<string, InstalledAddon>();
   for (const addon of loaded) {
     if (addon) next.set(addon.manifest.id, addon);
@@ -175,6 +187,5 @@ export async function loadAddons(): Promise<void> {
 
 /** Test seam. Nothing in the app calls this. */
 export function resetAddons(): void {
-  started = false;
   publish(new Map());
 }

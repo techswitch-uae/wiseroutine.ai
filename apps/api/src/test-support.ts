@@ -141,6 +141,7 @@ export async function resetUserDatabase(): Promise<void> {
   await db.oAuthToken.deleteMany();
   await db.calendarConnection.deleteMany();
   await db.reminder.deleteMany();
+  await db.addon.deleteMany();
 }
 
 export async function seedActivity(
@@ -152,6 +153,8 @@ export async function seedActivity(
     sessionMinutes: number;
     daysOfWeek: number;
     isActive: boolean;
+    /** The addon that owns it. Null, as almost everything is, unless said. */
+    ownerAddonId: string;
   }> = {},
 ): Promise<string> {
   const db = userDb();
@@ -167,6 +170,9 @@ export async function seedActivity(
       minimumValue: overrides.minimumValue ?? 2,
       sessionMinutes: overrides.sessionMinutes ?? 10,
       daysOfWeek: overrides.daysOfWeek ?? 0b1111111,
+      ...(overrides.ownerAddonId !== undefined
+        ? { ownerAddonId: overrides.ownerAddonId }
+        : {}),
       createdAt: new Date(),
     },
   });
@@ -208,8 +214,24 @@ export async function seedCalendar(): Promise<{
   return { connectionId, calendarId };
 }
 
-/** Noon tomorrow - a deterministic point inside a day that has not started
- *  yet, so planning tests do not depend on the wall clock. */
+/**
+ * Noon tomorrow - a deterministic point inside a day that has not started yet,
+ * so planning tests do not depend on the wall clock.
+ *
+ * It used to be `Date.now() + 86_400_000`, which is the same *time* tomorrow
+ * rather than noon, and so depended on the wall clock in exactly the way this
+ * comment says it does not. Run in the evening, the instant it returned fell
+ * outside the seeded user\'s 08:00-18:00 window: a slot pinned there was
+ * outside the day being planned, was not counted against the activity\'s
+ * minimum, and "counts what is already on the day" failed - after six o\'clock,
+ * every day, and never before it.
+ *
+ * Noon UTC rather than noon local, because the fixture user is in Europe/Rome
+ * and the window is read in their zone: 12:00 UTC is 13:00 or 14:00 there, and
+ * comfortably inside it either way.
+ */
 export function tomorrowNoon(): number {
-  return Date.now() + 86_400_000;
+  const tomorrow = new Date(Date.now() + 86_400_000);
+  tomorrow.setUTCHours(12, 0, 0, 0);
+  return tomorrow.getTime();
 }

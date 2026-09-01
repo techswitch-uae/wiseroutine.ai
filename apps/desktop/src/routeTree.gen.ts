@@ -16,6 +16,7 @@ import { Route as SigninRouteImport } from './routes/signin'
 import { Route as SimRouteImport } from './routes/sim'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppActivitiesRouteImport } from './routes/_app.activities'
+import { Route as AppAddonsRouteImport } from './routes/_app.addons'
 import { Route as AppCalendarsRouteImport } from './routes/_app.calendars'
 import { Route as AppMonthRouteImport } from './routes/_app.month'
 import { Route as AppSettingsRouteImport } from './routes/_app.settings'
@@ -56,6 +57,11 @@ const AppActivitiesRoute = AppActivitiesRouteImport.update({
   path: '/activities',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAddonsRoute = AppAddonsRouteImport.update({
+  id: '/addons',
+  path: '/addons',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppCalendarsRoute = AppCalendarsRouteImport.update({
   id: '/calendars',
   path: '/calendars',
@@ -89,6 +95,7 @@ export interface FileRoutesByFullPath {
   '/signin': typeof SigninRoute
   '/sim': typeof SimRoute
   '/activities': typeof AppActivitiesRoute
+  '/addons': typeof AppAddonsRoute
   '/calendars': typeof AppCalendarsRoute
   '/month': typeof AppMonthRoute
   '/settings': typeof AppSettingsRoute
@@ -101,6 +108,7 @@ export interface FileRoutesByTo {
   '/signin': typeof SigninRoute
   '/sim': typeof SimRoute
   '/activities': typeof AppActivitiesRoute
+  '/addons': typeof AppAddonsRoute
   '/calendars': typeof AppCalendarsRoute
   '/month': typeof AppMonthRoute
   '/settings': typeof AppSettingsRoute
@@ -116,6 +124,7 @@ export interface FileRoutesById {
   '/signin': typeof SigninRoute
   '/sim': typeof SimRoute
   '/_app/activities': typeof AppActivitiesRoute
+  '/_app/addons': typeof AppAddonsRoute
   '/_app/calendars': typeof AppCalendarsRoute
   '/_app/month': typeof AppMonthRoute
   '/_app/settings': typeof AppSettingsRoute
@@ -132,6 +141,7 @@ export interface FileRouteTypes {
     | '/signin'
     | '/sim'
     | '/activities'
+    | '/addons'
     | '/calendars'
     | '/month'
     | '/settings'
@@ -144,6 +154,7 @@ export interface FileRouteTypes {
     | '/signin'
     | '/sim'
     | '/activities'
+    | '/addons'
     | '/calendars'
     | '/month'
     | '/settings'
@@ -158,6 +169,7 @@ export interface FileRouteTypes {
     | '/signin'
     | '/sim'
     | '/_app/activities'
+    | '/_app/addons'
     | '/_app/calendars'
     | '/_app/month'
     | '/_app/settings'
@@ -226,6 +238,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppActivitiesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/addons': {
+      id: '/_app/addons'
+      path: '/addons'
+      fullPath: '/addons'
+      preLoaderRoute: typeof AppAddonsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/calendars': {
       id: '/_app/calendars'
       path: '/calendars'
@@ -266,6 +285,7 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppActivitiesRoute: typeof AppActivitiesRoute
+  AppAddonsRoute: typeof AppAddonsRoute
   AppCalendarsRoute: typeof AppCalendarsRoute
   AppMonthRoute: typeof AppMonthRoute
   AppSettingsRoute: typeof AppSettingsRoute
@@ -275,6 +295,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppActivitiesRoute: AppActivitiesRoute,
+  AppAddonsRoute: AppAddonsRoute,
   AppCalendarsRoute: AppCalendarsRoute,
   AppMonthRoute: AppMonthRoute,
   AppSettingsRoute: AppSettingsRoute,

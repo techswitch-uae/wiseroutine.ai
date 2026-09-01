@@ -61,6 +61,170 @@ describe("health", () => {
  * someone widens one and not the other - or reaches for the reflecting
  * one-liner again.
  */
+/**
+ * Installing, removing, and what removing is allowed to take with it.
+ *
+ * An addon is a package somebody outside this repo wrote, so every rule about
+ * one has to be enforced here rather than in the app: the client calls the
+ * same functions, but only this side is the gate.
+ */
+describe("addons", () => {
+  const BREATHING = "wiseroutine.breathing";
+
+  test("lists what may be installed", async () => {
+    const user = await seedUser({ plan: "free" });
+    const response = await worker.default.fetch("http://api/addons/available", {
+      headers: user.headers,
+    });
+    const body = (await response.json()) as {
+      addons: { id: string; manifest: { capabilities: unknown[] } }[];
+    };
+    const breathing = body.addons.find((addon) => addon.id === BREATHING);
+    expect(breathing).toBeDefined();
+    expect(breathing?.manifest.capabilities).toEqual([{ kind: "ui:session" }]);
+  });
+
+  /**
+   * The capabilities come from the registry, never from the request.
+   *
+   * A client that could name its own would be a client that could grant itself
+   * any of them - which is the whole install flow defeated by one extra field
+   * in a body.
+   */
+  test("grants what the registry says, not what the caller asks for", async () => {
+    const user = await seedUser({ plan: "pro" });
+    const installed = await worker.default.fetch(
+      `http://api/addons/${BREATHING}/install`,
+      {
+        method: "POST",
+        headers: { ...user.headers, "content-type": "application/json" },
+        body: JSON.stringify({
+          capabilities: [
+            { kind: "read:schedule", scope: "history" },
+            { kind: "write:own" },
+          ],
+        }),
+      },
+    );
+    expect(installed.status).toBe(201);
+
+    const list = await worker.default.fetch("http://api/addons", {
+      headers: user.headers,
+    });
+    const body = (await list.json()) as {
+      addons: { id: string; granted: { kind: string }[] }[];
+    };
+    expect(body.addons[0]?.granted).toEqual([{ kind: "ui:session" }]);
+  });
+
+  test("refuses an addon that is not on the registry", async () => {
+    const user = await seedUser({ plan: "pro" });
+    const response = await worker.default.fetch(
+      "http://api/addons/acme.evil/install",
+      { method: "POST", headers: user.headers },
+    );
+    expect(response.status).toBe(404);
+  });
+
+  test("installing again is how something removed comes back", async () => {
+    const user = await seedUser({ plan: "pro" });
+    const install = () =>
+      worker.default.fetch(`http://api/addons/${BREATHING}/install`, {
+        method: "POST",
+        headers: user.headers,
+      });
+
+    expect((await install()).status).toBe(201);
+    await worker.default.fetch(`http://api/addons/${BREATHING}`, {
+      method: "DELETE",
+      headers: user.headers,
+    });
+    expect((await install()).status).toBe(201);
+
+    const list = await worker.default.fetch("http://api/addons", {
+      headers: user.headers,
+    });
+    const body = (await list.json()) as { addons: unknown[] };
+    expect(body.addons).toHaveLength(1);
+  });
+
+  /**
+   * The rule, and the reason this has a test rather than a comment.
+   *
+   * Removing an addon takes the future it had claimed and leaves the past
+   * alone. A completed slot is a fact about someone\'s week that the progress
+   * numbers were computed from; deleting it would make last Tuesday change
+   * retroactively. A slot still ahead of the clock is only a plan.
+   */
+  test("removing takes the future and leaves the past", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await worker.default.fetch(`http://api/addons/${BREATHING}/install`, {
+      method: "POST",
+      headers: user.headers,
+    });
+
+    const activityId = await seedActivity({
+      name: "Breathing",
+      ownerAddonId: BREATHING,
+    });
+
+    const db = userDb();
+    const hour = 3_600_000;
+    await db.slot.createMany({
+      data: [
+        {
+          id: "done",
+          activityId,
+          title: "Breathing",
+          kind: "recovery",
+          startsAt: new Date(Date.now() - hour),
+          endsAt: new Date(Date.now() - hour + 600_000),
+          timeZone: "UTC",
+          status: "completed",
+          createdAt: new Date(),
+        },
+        {
+          id: "ahead",
+          activityId,
+          title: "Breathing",
+          kind: "recovery",
+          startsAt: new Date(Date.now() + hour),
+          endsAt: new Date(Date.now() + hour + 600_000),
+          timeZone: "UTC",
+          status: "planned",
+          createdAt: new Date(),
+        },
+      ],
+    });
+
+    const removed = await worker.default.fetch(
+      `http://api/addons/${BREATHING}`,
+      { method: "DELETE", headers: user.headers },
+    );
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toEqual({ paused: 1, cancelled: 1 });
+
+    expect((await db.slot.findUnique({ where: { id: "done" } }))?.status).toBe(
+      "completed",
+    );
+    expect((await db.slot.findUnique({ where: { id: "ahead" } }))?.status).toBe(
+      "cancelled",
+    );
+
+    /**
+     * Pausing the activity is what makes the cancelling stick. Left active,
+     * the planner would work from its minimum and place the slots again on the
+     * next run, and everything just cancelled would be back within minutes.
+     */
+    const activity = await db.activity.findUnique({
+      where: { id: activityId },
+    });
+    expect(activity?.isActive).toBe(false);
+    // Paused, not deleted: installing it again should find it waiting.
+    expect(activity).not.toBeNull();
+  });
+});
+
 describe("cross-origin access", () => {
   const preflight = (origin: string) =>
     worker.default.fetch("http://api/today", {

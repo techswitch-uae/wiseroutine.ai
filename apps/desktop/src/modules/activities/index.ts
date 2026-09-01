@@ -1,5 +1,5 @@
-import type { TodaySlot } from "../../lib/api";
 import { addonModuleFor } from "../../addons/activity-type";
+import type { TodaySlot } from "../../lib/api";
 import { deepWork } from "./deep-work";
 import { eyeRest } from "./eye-rest";
 import { stretch } from "./stretch";

@@ -19,6 +19,7 @@
     "grant": "node scripts/grant.mjs"
   },
   "dependencies": {
+    "@wiseroutine/addons": "workspace:*",
     "@wiseroutine/db": "workspace:*",
     "@wiseroutine/env": "workspace:*",
     "@wiseroutine/plans": "workspace:*",
