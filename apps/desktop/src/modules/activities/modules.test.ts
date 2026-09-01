@@ -6,7 +6,6 @@ import {
   markStarted,
   runningSlot,
 } from "../../lib/running-slot";
-import { breathing, PATTERNS, phaseAt } from "./breathing";
 import { deepWork } from "./deep-work";
 import { eyeRest } from "./eye-rest";
 import { configFor, MODULES, moduleFor } from "./index";
@@ -28,7 +27,7 @@ const slot = (over: Partial<TodaySlot> & { id: string }): TodaySlot => ({
 
 describe("the registry", () => {
   it("finds a module by the key stored on the activity", () => {
-    expect(moduleFor("breathing")).toBe(breathing);
+    expect(moduleFor("stretch")).toBe(stretch);
   });
 
   it("has nothing for an activity with no module", () => {
@@ -57,9 +56,7 @@ describe("configFor", () => {
   // The column is opaque text. Something hand-edited, truncated, or written by
   // a version that stored a different shape must not take the session down.
   it("falls back rather than throwing on unparseable text", () => {
-    expect(configFor(breathing, "{not json")).toEqual(
-      breathing.defaults.config,
-    );
+    expect(configFor(eyeRest, "{not json")).toEqual(eyeRest.defaults.config);
   });
 
   it("falls back on JSON of the wrong shape", () => {
@@ -69,9 +66,8 @@ describe("configFor", () => {
   });
 
   it("returns what was stored when it is good", () => {
-    const stored = JSON.stringify({ pattern: PATTERNS["4-7-8"] });
-    expect(configFor(breathing, stored)).toEqual({
-      pattern: PATTERNS["4-7-8"],
+    expect(configFor(eyeRest, JSON.stringify({ metres: 12 }))).toEqual({
+      metres: 12,
     });
   });
 });
@@ -89,42 +85,23 @@ describe("eye rest", () => {
   });
 });
 
-describe("breathing", () => {
-  it("names the phase the pattern is in", () => {
-    const box = PATTERNS["box 4-4-4-4"];
-    if (!box) throw new Error("missing pattern");
-    expect(phaseAt(box, 0).label).toBe("Breathe in");
-    expect(phaseAt(box, 5).label).toBe("Hold");
-    expect(phaseAt(box, 9).label).toBe("Breathe out");
+/**
+ * Breathing is an addon now, so its pacer, its patterns and its settings are
+ * tested in `addons/breathing`. What is still this file's business is that a
+ * key belonging to an addon is looked up rather than ignored, and that a key
+ * belonging to an addon which is not installed leaves a gap.
+ */
+describe("an addon's activity type", () => {
+  it("is not in the app's own registry", () => {
+    expect(MODULES["wiseroutine.breathing/pacer"]).toBeUndefined();
   });
 
-  it("repeats every cycle", () => {
-    const box = PATTERNS["box 4-4-4-4"];
-    if (!box) throw new Error("missing pattern");
-    expect(phaseAt(box, 16).label).toBe(phaseAt(box, 0).label);
-  });
-
-  // 4-7-8 has no closing hold. Flashing the word for an instant would be a lie
-  // about the pattern.
-  it("skips a phase the pattern gives no time to", () => {
-    const p478 = PATTERNS["4-7-8"];
-    if (!p478) throw new Error("missing pattern");
-    // The last second of the out-breath, which runs to 19; there is no hold
-    // after it, so the cycle wraps straight back to the in-breath.
-    expect(phaseAt(p478, 18).label).toBe("Breathe out");
-    expect(phaseAt(p478, 19).label).toBe("Breathe in");
-  });
-
-  it("refuses a pattern that would never move", () => {
-    expect(breathing.parse({ pattern: [0, 0, 0, 0] })).toEqual(
-      breathing.defaults.config,
-    );
-  });
-
-  it("refuses a pattern of the wrong length", () => {
-    expect(breathing.parse({ pattern: [4, 4] })).toEqual(
-      breathing.defaults.config,
-    );
+  // Nothing is installed in a unit test, so this is the uninstalled case -
+  // which is the one that has to be safe. An activity created by an addon the
+  // user has since removed still has rows naming it, and those slots keep
+  // running as plain timed ones.
+  it("is undefined when its addon is not installed", () => {
+    expect(moduleFor("wiseroutine.breathing/pacer")).toBeUndefined();
   });
 });
 

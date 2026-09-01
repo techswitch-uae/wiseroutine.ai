@@ -1,0 +1,164 @@
+import type { AddonManifest } from "@wiseroutine/addons";
+import { useEffect, useRef, useState } from "react";
+import { serve } from "./host";
+
+/**
+ * An addon, running.
+ *
+ * One `<iframe>` with no `allow-same-origin`, which is the whole security
+ * story and worth stating plainly rather than leaving to be inferred from an
+ * attribute.
+ *
+ * `sandbox="allow-scripts"` alone gives the frame an **opaque origin**. It is
+ * not the app's origin with some things switched off; it is a different origin
+ * that matches nothing, including itself. From inside it:
+ *
+ * - `localStorage` throws, so the session token in `wiseroutine.session`
+ *   cannot be read. That token is a thirty-day bearer for the whole API, and
+ *   keeping it unreachable is the single thing this boundary exists for.
+ * - `window.parent` is cross-origin, so the app's DOM and its React tree are
+ *   unreachable.
+ * - Tauri's IPC is unreachable. Capabilities in Tauri 2 are granted per origin
+ *   (`remote.urls`) and every plugin command is denied by default, so an
+ *   origin nothing names gets nothing. There is no capability file to forget
+ *   to write - the default is already no.
+ * - `fetch` reaches only what the CSP below allows, which is built from the
+ *   addon's own manifest.
+ *
+ * `allow-same-origin` must never be added. With it, every line above stops
+ * being true at once, and the frame becomes the app.
+ *
+ * ## Why srcdoc rather than a URL
+ *
+ * The document is written here, by the host, and the addon supplies only the
+ * script inside it. That is what lets the CSP be a `<meta>` tag the host
+ * controls: the addon cannot edit the document that constrains it, because it
+ * does not exist until this component builds it. Serving the addon from a URL
+ * would mean the CSP had to arrive as a response header, which means a Rust
+ * custom protocol - more moving parts for a boundary that is already opaque.
+ *
+ * ponytail: no loader, no origin registry, no protocol handler. The platform
+ * has a sandbox; this uses it.
+ */
+
+/**
+ * The document an addon runs in.
+ *
+ * `default-src 'none'` and then only what an addon genuinely needs: its own
+ * inline script, inline styles for what it draws, and images it inlines
+ * itself. `connect-src` is the addon's declared origins and nothing else - so
+ * an addon that has not asked for network access cannot make a request at all,
+ * enforced by the browser rather than by a check it might route around.
+ *
+ * The script is inlined rather than linked because the frame has no origin to
+ * resolve a relative URL against. `'unsafe-inline'` in `script-src` sounds
+ * alarming and is not: the only script in this document is the one the host
+ * just put there, and the frame has nothing worth stealing.
+ */
+function documentFor(manifest: AddonManifest, bundle: string): string {
+  const origins = manifest.capabilities
+    .filter((c) => c.kind === "net:fetch")
+    .flatMap((c) => (c.kind === "net:fetch" ? c.origins : []));
+
+  const csp = [
+    "default-src 'none'",
+    "script-src 'unsafe-inline'",
+    "style-src 'unsafe-inline'",
+    "img-src data: blob:",
+    "font-src data:",
+    `connect-src ${origins.length > 0 ? origins.join(" ") : "'none'"}`,
+    "form-action 'none'",
+    "base-uri 'none'",
+  ].join("; ");
+
+  // The bundle goes in a script element rather than through innerHTML, so
+  // `</script>` inside a string literal cannot end the element early. Escaping
+  // the one sequence that can is cheaper than a parser.
+  const safe = bundle.replace(/<\/script/gi, "<\\/script");
+
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${csp}">
+</head>
+<body>
+<script>${safe}</script>
+</body>
+</html>`;
+}
+
+export interface AddonFrameProps {
+  manifest: AddonManifest;
+  /** The addon's built bundle, as text. */
+  bundle: string;
+  /**
+   * What this frame was loaded to do, answered when the addon asks. The host
+   * decides; the addon is not asked to identify itself.
+   */
+  context: { kind: "session"; slot: unknown; config: unknown };
+  /** Sized by whatever is drawing it - a session takes the window. */
+  style?: React.CSSProperties;
+  title: string;
+}
+
+export const AddonFrame: React.FC<AddonFrameProps> = ({
+  manifest,
+  bundle,
+  context,
+  style,
+  title,
+}) => {
+  const ref = useRef<HTMLIFrameElement>(null);
+  const [html] = useState(() => documentFor(manifest, bundle));
+
+  /**
+   * Hand the addon its port once the document has loaded.
+   *
+   * A `MessageChannel`, transferred once, rather than letting the addon talk
+   * to `window.parent` directly: possession of the port is the capability, so
+   * nothing else on the page can speak to the host as this addon, and this
+   * addon cannot speak to another. The handshake is the only message the
+   * frame's own `window` ever receives.
+   *
+   * `"*"` as the target origin is correct here and only here: the frame's
+   * origin is opaque, so there is no origin string that would match it. What
+   * makes this safe is the reference - `frame.contentWindow` is this frame and
+   * no other - not the origin check that cannot be written.
+   */
+  useEffect(() => {
+    const frame = ref.current;
+    if (!frame) return;
+
+    const channel = new MessageChannel();
+    const stop = serve(channel.port1, manifest, context);
+
+    const send = () => {
+      frame.contentWindow?.postMessage("wiseroutine:addon:port", "*", [
+        channel.port2,
+      ]);
+    };
+
+    frame.addEventListener("load", send);
+    return () => {
+      frame.removeEventListener("load", send);
+      stop();
+      channel.port1.close();
+    };
+  }, [manifest, context]);
+
+  return (
+    <iframe
+      ref={ref}
+      title={title}
+      srcDoc={html}
+      // Scripts, and nothing else. Not `allow-same-origin` - see the note at
+      // the top of this file. Not `allow-popups`, `allow-modals`,
+      // `allow-top-navigation` or `allow-forms`: an addon drawing inside a
+      // session has no use for any of them, and each is a way to reach past
+      // the frame at the user.
+      sandbox="allow-scripts"
+      style={{ border: 0, background: "transparent", ...style }}
+    />
+  );
+};

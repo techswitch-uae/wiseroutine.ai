@@ -619,6 +619,10 @@ const Today: React.FC = () => {
             dayStart={data.dayStart}
             dayEnd={data.dayEnd}
             timeZone={data.timeZone}
+            // Open the day where the day has got to. Unconditional because the
+            // now line is only drawn on a day that contains now, so this asks
+            // for nothing on any other date.
+            revealNow
             // Pressing the day itself puts the rail's card away. The blocks
             // stop the press before it gets here, so this is only ever the
             // empty parts of the grid.

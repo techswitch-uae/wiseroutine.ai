@@ -2,7 +2,6 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { TodaySlot } from "../../lib/api";
-import { breathing, ringKeyframes } from "./breathing";
 import { deepWork } from "./deep-work";
 import { eyeRest } from "./eye-rest";
 import { stretch } from "./stretch";
@@ -11,7 +10,7 @@ import { stretch } from "./stretch";
  * Each session reaches its two ways out.
  *
  * Not a test of what a session looks like - that is the gallery's job, and a
- * snapshot of a breathing circle would fail on every retune. What matters here
+ * snapshot of a stretch step would fail on every retune. What matters here
  * is that "finished" and "gave up" stay two distinct answers and both are
  * actually reachable: a session with no way to say you did it records nothing,
  * and one where stopping counts as finishing puts a stretch nobody did into
@@ -52,7 +51,7 @@ const MODULES: readonly {
   Session?: React.FC<any>;
   // biome-ignore lint/suspicious/noExplicitAny: erased on purpose, see above
   defaults: { config: any };
-}[] = [eyeRest, breathing, stretch];
+}[] = [eyeRest, stretch];
 
 describe.each(MODULES)("$name", (module) => {
   test("stopping is a skip, never a completion", async () => {
@@ -259,24 +258,5 @@ describe("deep work", () => {
     );
     expect(screen.queryByTitle("Music for this block")).toBeNull();
     expect(screen.queryByRole("button", { name: "Play music" })).toBeNull();
-  });
-});
-
-/**
- * The ring around the breathing circle: full at the start of each phase, empty
- * by the end of it. A countdown you do not have to read.
- */
-describe("breathing phase ring", () => {
-  test("drains once per phase, and refills off the boundary", () => {
-    // 4-7-8, whose fourth phase is zero: three sweeps, not four.
-    const frames = ringKeyframes([4, 7, 8, 0], 19);
-    const drains = frames.match(/stroke-dashoffset: 7\d\d/g) ?? [];
-    expect(drains.length).toBe(3);
-    // Nothing sits on a boundary twice: two keyframes at one stop are one
-    // keyframe, and the refill would eat the phase that just drained.
-    const stops = [...frames.matchAll(/([\d.]+)% \{/g)].map((m) => m[1]);
-    expect(new Set(stops).size).toBe(stops.length);
-    // The last phase ends the cycle, so it has nothing to refill into.
-    expect(frames.trimEnd().endsWith("} }")).toBe(true);
   });
 });

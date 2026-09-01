@@ -256,6 +256,144 @@ export interface AddonContribution {
   name: string;
 }
 
+/* ── Settings, declared rather than drawn ────────────────────────────────── */
+
+/**
+ * One setting, as a description rather than a form.
+ *
+ * The addon says what it needs; the *host* renders the field, with the app's
+ * own components. Three reasons, in order of how much they matter:
+ *
+ * 1. **The host can read an addon's config without running the addon.**
+ *    Guided sessions used to hand every module a `parse` function and call it,
+ *    which is fine for four modules in this repo and not fine at all for code
+ *    a stranger wrote. A schema is data: it can be validated at the boundary,
+ *    stored, and re-read years later by a version of the app that has never
+ *    loaded that addon.
+ * 2. A settings form is a second sandboxed surface to build, secure and style,
+ *    for what is nearly always three fields and a dropdown.
+ * 3. Every addon's settings then look like the rest of the app, which is what
+ *    the user is entitled to and what an addon author should not have to
+ *    reimplement.
+ *
+ * The cost is honest and worth naming: an addon whose settings genuinely need
+ * a custom interface cannot have one. That is a real limit, and it buys the
+ * three things above.
+ */
+export type SettingField =
+  | {
+      key: string;
+      label: string;
+      type: "select";
+      default: string;
+      options: readonly string[];
+    }
+  | {
+      key: string;
+      label: string;
+      type: "number";
+      default: number;
+      min?: number;
+      max?: number;
+    }
+  | {
+      key: string;
+      label: string;
+      type: "text";
+      default: string;
+      maxLength?: number;
+    };
+
+/**
+ * An activity type an addon defines - a guided session of its own.
+ *
+ * The same four things the app's own sessions have carried since they existed
+ * (`preset_key`, a blurb, a default length, a start policy), which is not a
+ * coincidence: an addon's activity type is stored in exactly the columns a
+ * first-party one is, with a namespaced key.
+ */
+export interface AddonActivityType extends AddonContribution {
+  /** Finishes "When this is on, ...". See the note on `ActivityModule`. */
+  blurb: string;
+  defaults: {
+    sessionMinutes: number;
+    startPolicy: "manual" | "auto" | "prompt";
+  };
+  /**
+   * The ground the host paints behind the session.
+   *
+   * `dim` is the near-black one, for a session about looking away from a
+   * screen. It is the host's to paint and not the addon's, because the frame
+   * around a session - and the contrast the Done button needs to stay
+   * legible - is the host's. An addon says which of the two it was drawn
+   * against; it does not get to paint its own.
+   */
+  ground?: "page" | "dim";
+  settings: readonly SettingField[];
+}
+
+const START_POLICIES = ["manual", "auto", "prompt"] as const;
+
+/** The config an activity type starts with, built from its own schema. */
+export function defaultConfig(
+  type: AddonActivityType,
+): Record<string, unknown> {
+  const config: Record<string, unknown> = {};
+  for (const field of type.settings) config[field.key] = field.default;
+  return config;
+}
+
+/**
+ * Stored settings, checked against the schema that describes them.
+ *
+ * Never throws, and never returns a field the schema does not name. A value
+ * that has gone bad - written by an older version, edited by hand, or simply
+ * absent - falls back to that field's default rather than failing the whole
+ * config: settings written by a newer version of an addon still have to run
+ * under an older one, and a crash in a session is worse than a default.
+ *
+ * The same rule the app's own modules follow in `configFor`, moved to where it
+ * can be applied to code nobody here wrote.
+ */
+export function parseConfig(
+  type: AddonActivityType,
+  raw: unknown,
+): Record<string, unknown> {
+  const stored: Record<string, unknown> =
+    typeof raw === "object" && raw !== null && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+
+  const config: Record<string, unknown> = {};
+  for (const field of type.settings) {
+    const value = stored[field.key];
+    switch (field.type) {
+      case "select":
+        config[field.key] =
+          typeof value === "string" && field.options.includes(value)
+            ? value
+            : field.default;
+        break;
+      case "number": {
+        const ok =
+          typeof value === "number" &&
+          Number.isFinite(value) &&
+          (field.min === undefined || value >= field.min) &&
+          (field.max === undefined || value <= field.max);
+        config[field.key] = ok ? value : field.default;
+        break;
+      }
+      case "text":
+        config[field.key] =
+          typeof value === "string" && value.length <= (field.maxLength ?? 500)
+            ? value
+            : field.default;
+        break;
+    }
+  }
+  return config;
+}
+
 export interface AddonManifest {
   id: string;
   name: string;
@@ -264,7 +402,7 @@ export interface AddonManifest {
   /** What it asks for. What it was *given* lives in `addons.granted_json`. */
   capabilities: readonly AddonCapability[];
   widgets: readonly AddonContribution[];
-  activityTypes: readonly AddonContribution[];
+  activityTypes: readonly AddonActivityType[];
 }
 
 /**
@@ -298,7 +436,7 @@ export function parseManifest(raw: unknown): AddonManifest | null {
   if (capabilities === null) return null;
 
   const widgets = parseContributions(m.widgets);
-  const activityTypes = parseContributions(m.activityTypes);
+  const activityTypes = parseActivityTypes(m.activityTypes);
   if (widgets === null || activityTypes === null) return null;
 
   return {
@@ -368,6 +506,148 @@ function parseContributions(raw: unknown): AddonContribution[] | null {
     if (typeof c.name !== "string" || c.name.length === 0) return null;
     if (c.name.length > 200) return null;
     out.push({ key: c.key, name: c.name });
+  }
+  return out;
+}
+
+function parseActivityTypes(raw: unknown): AddonActivityType[] | null {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) return null;
+
+  const out: AddonActivityType[] = [];
+  for (const entry of raw) {
+    const base = parseContributions([entry]);
+    if (base === null || base[0] === undefined) return null;
+    const c = entry as Record<string, unknown>;
+
+    if (typeof c.blurb !== "string" || c.blurb.length === 0) return null;
+    if (c.blurb.length > 300) return null;
+
+    const defaults = c.defaults;
+    if (typeof defaults !== "object" || defaults === null) return null;
+    const d = defaults as Record<string, unknown>;
+
+    const minutes = d.sessionMinutes;
+    // A session is a block on someone's day, not a background job. The upper
+    // bound is what stops an addon claiming an afternoon by declaring one.
+    if (typeof minutes !== "number" || !Number.isInteger(minutes)) return null;
+    if (minutes < 1 || minutes > 240) return null;
+
+    const policy = d.startPolicy;
+    if (typeof policy !== "string") return null;
+    if (!START_POLICIES.includes(policy as (typeof START_POLICIES)[number])) {
+      return null;
+    }
+
+    const settings = parseSettings(c.settings);
+    if (settings === null) return null;
+
+    const ground = c.ground;
+    if (ground !== undefined && ground !== "page" && ground !== "dim") {
+      return null;
+    }
+
+    out.push({
+      key: base[0].key,
+      name: base[0].name,
+      blurb: c.blurb,
+      defaults: {
+        sessionMinutes: minutes,
+        startPolicy: policy as (typeof START_POLICIES)[number],
+      },
+      ...(ground !== undefined ? { ground } : {}),
+      settings,
+    });
+  }
+  return out;
+}
+
+/**
+ * The settings schema, which the host will render fields from.
+ *
+ * Strict, because the host draws whatever this says: a `default` outside its
+ * own `options` would put a value in the form that the form cannot represent,
+ * and the user would be looking at a setting they cannot restore.
+ */
+function parseSettings(raw: unknown): SettingField[] | null {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) return null;
+  // Not a limit anyone should meet. It is here so that a manifest cannot ask
+  // the host to draw ten thousand fields.
+  if (raw.length > 20) return null;
+
+  const out: SettingField[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) return null;
+    const f = entry as Record<string, unknown>;
+
+    if (typeof f.key !== "string" || !ADDON_KEY.test(f.key)) return null;
+    if (f.key.length > 64 || seen.has(f.key)) return null;
+    seen.add(f.key);
+
+    if (typeof f.label !== "string" || f.label.length === 0) return null;
+    if (f.label.length > 100) return null;
+
+    switch (f.type) {
+      case "select": {
+        const options = f.options;
+        if (!Array.isArray(options) || options.length === 0) return null;
+        if (options.length > 50) return null;
+        if (!options.every((o) => typeof o === "string" && o.length <= 100)) {
+          return null;
+        }
+        if (typeof f.default !== "string") return null;
+        if (!options.includes(f.default)) return null;
+        out.push({
+          key: f.key,
+          label: f.label,
+          type: "select",
+          default: f.default,
+          options: options as string[],
+        });
+        break;
+      }
+      case "number": {
+        if (typeof f.default !== "number" || !Number.isFinite(f.default)) {
+          return null;
+        }
+        const min = f.min === undefined ? undefined : f.min;
+        const max = f.max === undefined ? undefined : f.max;
+        if (min !== undefined && typeof min !== "number") return null;
+        if (max !== undefined && typeof max !== "number") return null;
+        if (typeof min === "number" && f.default < min) return null;
+        if (typeof max === "number" && f.default > max) return null;
+        out.push({
+          key: f.key,
+          label: f.label,
+          type: "number",
+          default: f.default,
+          ...(typeof min === "number" ? { min } : {}),
+          ...(typeof max === "number" ? { max } : {}),
+        });
+        break;
+      }
+      case "text": {
+        if (typeof f.default !== "string") return null;
+        const maxLength = f.maxLength;
+        if (maxLength !== undefined && typeof maxLength !== "number") {
+          return null;
+        }
+        if (f.default.length > (maxLength ?? 500)) return null;
+        out.push({
+          key: f.key,
+          label: f.label,
+          type: "text",
+          default: f.default,
+          ...(typeof maxLength === "number" ? { maxLength } : {}),
+        });
+        break;
+      }
+      default:
+        return null;
+    }
   }
   return out;
 }

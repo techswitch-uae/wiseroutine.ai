@@ -1,0 +1,21 @@
+{
+  "name": "@wiseroutine/addon-sdk",
+  "version": "0.1.0",
+  "description": "Write an addon for Wise Routine.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "git clean -xdf .cache .turbo dist node_modules"
+  },
+  "devDependencies": {
+    "@wiseroutine/typescript-config": "workspace:*",
+    "jsdom": "^30.0.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

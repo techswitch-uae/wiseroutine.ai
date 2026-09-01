@@ -895,6 +895,15 @@ export type DayGridProps = {
    *  the line is live and keeps its own minute-aligned clock - see `NowLine`.
    *  Either way it is drawn only when it falls inside the window. */
   now?: number;
+  /**
+   * Scroll the now line into view once, when this grid first appears.
+   *
+   * Off by default, and asked for rather than assumed: the gallery and the
+   * tests both draw a day, and neither wants the page moved under it. Today
+   * asks; a day the user has navigated to does not, because the line is not
+   * drawn on a day that is not today.
+   */
+  revealNow?: boolean;
   /** Height of a quarter-hour. The scale, and the only one there is. */
   quarterStep?: number;
   /** The shortest a block may be drawn - see `DayScale.minHeight`. */
@@ -946,8 +955,40 @@ const NowLine: React.FC<{
   dayEnd: number;
   scale: DayScale;
   label: Intl.DateTimeFormat;
-}> = ({ at, dayStart, dayEnd, scale, label }) => {
+  reveal?: boolean;
+}> = ({ at, dayStart, dayEnd, scale, label, reveal = false }) => {
   const [tick, setTick] = useState(() => Date.now());
+
+  /**
+   * Bring the line into view when the day is first opened.
+   *
+   * The day is a ruled surface from the start of the window to the end of it,
+   * which is taller than any screen, and it opened at the top - so a day
+   * opened at four in the afternoon showed the morning, and the first thing
+   * anyone did was scroll. What someone wants from Today is where they have
+   * got to.
+   *
+   * Once, on mount, and only when asked: a line that re-centred itself every
+   * minute would drag the page out from under someone reading the evening.
+   * `scrollIntoView` rather than arithmetic on a scroller, because the line
+   * is inside two of them and the browser already knows which ones move.
+   *
+   * Instant rather than smooth. This runs as the page appears, and a page
+   * that arrives already sliding reads as a page that has not settled.
+   */
+  const line = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!reveal) return;
+    // Null on a day that is not today: this component draws nothing then, so
+    // there is no line to bring into view and nothing to do.
+    // jsdom has no layout and no implementation of `scrollIntoView`.
+    line.current?.scrollIntoView?.({ block: "center", behavior: "instant" });
+    // Keyed to the day rather than to the mount. Navigating to tomorrow and
+    // back is opening today again and should land in the same place; the
+    // minute tick is state, not a dependency, so the line does not drag the
+    // page along with it as it moves.
+  }, [reveal, dayStart]);
 
   useEffect(() => {
     // Pinned: there is nothing to follow.
@@ -990,7 +1031,7 @@ const NowLine: React.FC<{
     Math.abs(yOf(hour, scale) - top) < LABEL_CLEARANCE;
 
   return (
-    <div className="wr-daygrid-now" style={{ top }}>
+    <div ref={line} className="wr-daygrid-now" style={{ top }}>
       {crowded ? null : (
         <span className="wr-daygrid-now-label">
           {label.format(new Date(now))}
@@ -1060,6 +1101,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
   timeZone,
   items,
   now,
+  revealNow = false,
   quarterStep = 64,
   minBlockHeight = 46,
   onMove,
@@ -1453,6 +1495,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
         dayEnd={dayEnd}
         scale={scale}
         label={label}
+        reveal={revealNow}
       />
 
       <div className="wr-daygrid-lanes">

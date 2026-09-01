@@ -22,6 +22,7 @@ import { useTodayPlan } from "../lib/plan-store";
 import { dayLabel, periodLabel, scopeOf, todayOf } from "../lib/scope";
 import "../lib/rail";
 import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
+import { loadAddons } from "../addons/installed";
 import { SessionOverlay } from "../modules/session";
 import { TrialPill } from "../modules/trial-pill";
 
@@ -153,6 +154,13 @@ const useMenuBar = (): void => {
     () => armAlerts(plan?.slots ?? []),
     [plan],
   );
+
+  // In the shell rather than on the Today page: a session takes over whatever
+  // page is open, so the addon that draws it has to be loaded whatever page
+  // was open. Idempotent, and a failure leaves the app running without it.
+  useEffect(() => {
+    void loadAddons();
+  }, []);
 };
 
 const AppLayout: React.FC = () => {

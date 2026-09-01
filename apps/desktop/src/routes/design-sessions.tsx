@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Button, Card } from "@wiseroutine/design";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { addonModules } from "../addons/activity-type";
+import { loadAddons, useInstalledAddons } from "../addons/installed";
 import type { TodaySlot } from "../lib/api";
 import { MODULES } from "../modules/activities";
 import {
@@ -21,6 +23,13 @@ import {
  * Worth having at all because a session is the one thing in this app that is
  * genuinely hard to reach on purpose. Seeing the breathing circle otherwise
  * means configuring an activity, waiting for its slot, and starting it.
+ *
+ * Installed addons appear here too, and that is the point rather than a
+ * convenience: an addon's session runs in a sandboxed frame, and a page that
+ * opens one without a sign-in, an activity and a slot is how anyone writing
+ * one iterates on it. The app's own breathing pacer is an addon, so without
+ * this it would be the least reachable session in the app rather than the
+ * most.
  */
 
 const previewSlot = (title: string, minutes: number): TodaySlot => ({
@@ -39,7 +48,7 @@ const previewSlot = (title: string, minutes: number): TodaySlot => ({
  *  only behind a sign-in and an open activity sheet. */
 const Fields: React.FC = () => {
   const [draft, setDraft] = useState<ModuleDraft>({
-    presetKey: "breathing",
+    presetKey: "wiseroutine.breathing/pacer",
     sessionEnabled: true,
     startPolicy: "manual",
     configJson: null,
@@ -57,7 +66,16 @@ const Fields: React.FC = () => {
 
 const Sessions: React.FC = () => {
   const [open, setOpen] = useState<string | null>(null);
-  const module = open ? MODULES[open] : undefined;
+
+  // Loaded here rather than relying on the app shell: this route is a sibling
+  // of it, so nothing else on this page would fetch them.
+  const installed = useInstalledAddons();
+  useEffect(() => {
+    void loadAddons();
+  }, []);
+
+  const all = { ...MODULES, ...addonModules() };
+  const module = open ? all[open] : undefined;
   const Session = module?.Session;
 
   return (
@@ -67,10 +85,11 @@ const Sessions: React.FC = () => {
       </h1>
       <p className="wr-body" style={{ margin: 0 }}>
         Each activity module, running against a made-up slot. Stop or finish to
-        come back.
+        come back. {installed.size} addon
+        {installed.size === 1 ? "" : "s"} installed.
       </p>
 
-      {Object.values(MODULES).map((entry) => (
+      {Object.values(all).map((entry) => (
         <Card key={entry.key} title={entry.name} note={entry.blurb}>
           <Button
             variant="secondary"

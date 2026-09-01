@@ -1,0 +1,32 @@
+{
+  "id": "wiseroutine.breathing",
+  "name": "Breathing",
+  "version": "1.0.0",
+  "description": "A circle paces your breathing for the whole slot - box, 4-7-8 or coherent.",
+  "capabilities": [
+    {
+      "kind": "ui:session"
+    }
+  ],
+  "activityTypes": [
+    {
+      "key": "pacer",
+      "name": "Breathing",
+      "blurb": "a circle paces your breathing for the whole slot - box, 4-7-8 or coherent",
+      "defaults": {
+        "sessionMinutes": 3,
+        "startPolicy": "manual"
+      },
+      "ground": "dim",
+      "settings": [
+        {
+          "key": "pattern",
+          "label": "Pattern",
+          "type": "select",
+          "default": "box 4-4-4-4",
+          "options": ["box 4-4-4-4", "4-7-8", "coherent 5-5"]
+        }
+      ]
+    }
+  ]
+}

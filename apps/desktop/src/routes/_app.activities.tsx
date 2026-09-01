@@ -112,7 +112,11 @@ const LIBRARY_MODULES: Record<string, string> = {
   "shoulder-stretch": "stretch",
   "eye-rest": "eye_rest",
   "deep-work": "deep_work",
-  breathing: "breathing",
+  // Namespaced, because breathing is an addon now - the app's own, installed
+  // the way any other would be. If it is not installed, `moduleFor` returns
+  // undefined and the template falls through to `NO_MODULE`, which is the same
+  // answer "walk" and "water" already get: a plain timed slot.
+  breathing: "wiseroutine.breathing/pacer",
 };
 
 function moduleForTemplate(key: string): ModuleDraft {

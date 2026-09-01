@@ -1,5 +1,5 @@
 import type { TodaySlot } from "../../lib/api";
-import { breathing } from "./breathing";
+import { addonModuleFor } from "../../addons/activity-type";
 import { deepWork } from "./deep-work";
 import { eyeRest } from "./eye-rest";
 import { stretch } from "./stretch";
@@ -7,12 +7,20 @@ import { stretch } from "./stretch";
 /**
  * What an activity does when its slot is running.
  *
- * A plain object keyed by string, not a plugin system. Every benefit of one -
- * a per-activity experience, a settings form that belongs to the module rather
- * than to the activity sheet, room for a marketplace later - falls out of a
- * typed record, and none of the cost does: no loader, no manifest, no version
- * negotiation, no sandbox, and nothing to secure. A new module is a file and
- * one line here.
+ * A plain object keyed by string for the app's own, and a lookup into the
+ * installed addons for everything else. That second half is the marketplace
+ * this comment used to say there was room for, and it turned out to need
+ * exactly one seam: `moduleFor`.
+ *
+ * The record stays because it is right for code that ships with the app - no
+ * loader, no manifest, no version negotiation, nothing to secure, and a new
+ * one is a file and a line. What changed is that it is no longer the only
+ * source. An addon's activity type arrives as data, is parsed without being
+ * executed, and is handed back here wearing this same interface, so nothing
+ * that consults a module had to learn the difference.
+ *
+ * The app's own breathing pacer is now one of those addons. Deliberately: a
+ * path only strangers' code takes is a path nobody maintains.
  *
  * Kept deliberately small. `Config` renders inside the existing activity form;
  * `Session` is the full-window takeover a running slot puts on screen. Both
@@ -73,15 +81,24 @@ export interface ActivityModule<C = unknown> {
 // biome-ignore lint/suspicious/noExplicitAny: erased on purpose, see above
 export const MODULES: Record<string, ActivityModule<any>> = {
   [eyeRest.key]: eyeRest,
-  [breathing.key]: breathing,
   [stretch.key]: stretch,
   [deepWork.key]: deepWork,
 };
 
-/** The module a slot runs under, or undefined for a plain timed slot. */
+/**
+ * The module a slot runs under, or undefined for a plain timed slot.
+ *
+ * The app's own first, then the installed addons. Undefined for a key nobody
+ * claims, which is a real and permanent state: an addon can be uninstalled
+ * while the activities it created are still on the day, and those have to keep
+ * running as plain timed slots rather than crashing.
+ */
 export const moduleFor = (
   presetKey: string | null | undefined,
-): ActivityModule | undefined => (presetKey ? MODULES[presetKey] : undefined);
+): ActivityModule | undefined => {
+  if (!presetKey) return undefined;
+  return MODULES[presetKey] ?? addonModuleFor(presetKey);
+};
 
 /**
  * The stored settings, as the module wants them.
