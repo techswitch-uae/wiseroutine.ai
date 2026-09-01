@@ -51,8 +51,12 @@ export const TODAY_FIXTURE: readonly TodaySlotFixture[] = [
  */
 export const ACTIVITY_LIBRARY: readonly ActivityTemplate[] = [
   {
-    key: "shoulder-stretch",
-    name: "Shoulder stretch",
+    // Named for what it is rather than for one of the routines behind it.
+    // The stretch addon offers shoulders-and-neck, back-and-hips and
+    // wrists-and-eyes, and the template that starts all three cannot be called
+    // after the first of them.
+    key: "stretch",
+    name: "Stretch",
     kind: "recovery",
     sessionMinutes: 10,
     perDay: 3,

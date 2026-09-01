@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@fontsource-variable/figtree": "^5.2.9",
-    "@fontsource/caprasimo": "^5.2.8"
+    "@fontsource/caprasimo": "^5.2.8",
+    "@tabler/icons-react": "^3.46.0"
   },
   "peerDependencies": {
     "react": "^19.0.0"

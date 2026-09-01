@@ -14,10 +14,27 @@
  * "Next step", which meant the only way to leave a stretch early was Stop,
  * and Stop records a skip. Somebody who finished three of four steps was
  * telling their week they had done none.
+ *
+ * The line those two draw is why there is no button on the last step. This
+ * addon's button means "move the routine on", and on the last step there is
+ * nothing to move on to - what is left is ending the *slot*, which is the
+ * host's "Done early" sitting right underneath. A second button there would
+ * be two controls for one action, one of which cannot actually do it: the
+ * addon holds `ui:session` and nothing else, so it could not complete the
+ * slot however the button was labelled.
  */
 
 import { connect } from "@wiseroutine/addon-sdk";
-import { clock, markup, type Step, stepsFor } from "./routine";
+import {
+  advance,
+  clock,
+  leftOn,
+  markup,
+  onLastStep,
+  type Progress,
+  startAt,
+  stepsFor,
+} from "./routine";
 
 async function main(): Promise<void> {
   const wr = await connect();
@@ -32,58 +49,43 @@ async function main(): Promise<void> {
   const next = document.querySelector<HTMLButtonElement>(".next");
   const pips = [...document.querySelectorAll<HTMLElement>(".pip")];
 
-  let index = 0;
-  // A deadline, not a number of ticks: a counter decremented once a second
-  // drifts, and a laptop that slept through a step wakes up still counting it.
-  let endsAt = Date.now() + (steps[0] as Step).seconds * 1_000;
-  let done = false;
+  let at: Progress = startAt(steps, Date.now());
 
   const show = () => {
-    const step = steps[index] as Step;
-    const last = index + 1 >= steps.length;
-    if (say) say.textContent = step.text;
+    const step = steps[at.index];
+    if (say) {
+      say.textContent = at.finished
+        ? "That is the routine. Press Done early to finish."
+        : (step?.text ?? "");
+    }
     if (until) {
-      until.textContent = last ? "until this finishes" : "until the next step";
+      until.textContent = at.finished
+        ? ""
+        : onLastStep(steps, at)
+          ? "until this finishes"
+          : "until the next step";
     }
-    if (next) next.textContent = last ? "Finish the routine" : "Next step";
+    // Taken off the last step rather than relabelled - see the note above.
+    if (next) next.hidden = at.finished || onLastStep(steps, at);
     for (const [i, pip] of pips.entries()) {
-      pip.classList.toggle("on", i <= index);
+      pip.classList.toggle("on", at.finished || i <= at.index);
     }
+    if (at.finished && left) left.textContent = "";
   };
 
-  /**
-   * The end of the routine, which is not the end of the slot.
-   *
-   * The addon cannot complete a slot - that is `write:own`, and this addon
-   * holds only `ui:session`. So it says so and stops, and the host's clock
-   * completes the slot when its time is up, or the user presses Done. Saying
-   * "that is the routine" beats a frozen last step with no explanation.
-   */
-  const finish = () => {
-    done = true;
-    if (say) say.textContent = "That is the routine. Well done.";
-    if (left) left.textContent = "";
-    if (until) until.textContent = "";
-    next?.remove();
-    for (const pip of pips) pip.classList.add("on");
-  };
-
-  const advance = () => {
-    if (done) return;
-    index += 1;
-    if (index >= steps.length) return finish();
-    endsAt = Date.now() + (steps[index] as Step).seconds * 1_000;
+  const step = () => {
+    at = advance(steps, at, Date.now());
     show();
   };
 
   const draw = () => {
-    if (done) return;
-    const remaining = Math.max(0, Math.round((endsAt - Date.now()) / 1_000));
+    if (at.finished) return;
+    const remaining = leftOn(at, Date.now());
     if (left) left.textContent = clock(remaining);
-    if (remaining === 0) advance();
+    if (remaining === 0) step();
   };
 
-  next?.addEventListener("click", advance);
+  next?.addEventListener("click", step);
   show();
   draw();
   const timer = setInterval(draw, 250);

@@ -246,6 +246,39 @@ export function addonModules(): Record<string, ActivityModule> {
   return modules;
 }
 
+/**
+ * Every activity type, with the schema it declared.
+ *
+ * `ActivityModule` deliberately does not carry the settings schema - nothing
+ * in the app needs it, because `parse` and `Config` are built from it here and
+ * the rest of the app only ever uses those. The preview gallery is the one
+ * exception: it enumerates a session's variants, and to do that it has to read
+ * what the variants *are* rather than be told about them.
+ *
+ * Returned rather than exposed on the module, so the extra surface exists for
+ * the one caller that needs it instead of for everything that touches a
+ * module.
+ */
+export function addonActivityTypes(): {
+  key: string;
+  addonId: string;
+  type: AddonActivityType;
+}[] {
+  const types: { key: string; addonId: string; type: AddonActivityType }[] = [];
+
+  for (const addon of installedAddons().values()) {
+    for (const type of addon.manifest.activityTypes) {
+      types.push({
+        key: qualify(addon.manifest.id, type.key),
+        addonId: addon.manifest.id,
+        type,
+      });
+    }
+  }
+
+  return types;
+}
+
 /** The module for a key belonging to an addon, if that addon is installed. */
 export function addonModuleFor(key: string): ActivityModule | undefined {
   if (ownerOf(key) === null) return undefined;

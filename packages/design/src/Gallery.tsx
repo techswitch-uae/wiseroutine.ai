@@ -22,7 +22,6 @@ import {
   NavItem,
   OutsideRange,
   PlanNote,
-  PlayGlyph,
   ProviderButton,
   ProviderChoice,
   Rule,
@@ -42,6 +41,7 @@ import {
   WidgetEmpty,
 } from "./components";
 import { ACTIVITY_LIBRARY, TODAY_FIXTURE } from "./fixtures";
+import { PlayGlyph } from "./icons";
 import { DayBar } from "./layout";
 import {
   AccountScreen,

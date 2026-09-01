@@ -28,6 +28,7 @@ import {
   Widget,
   WidgetEmpty,
 } from "./components";
+import { SettingsGlyph } from "./icons";
 import { AppFrame, AuthFrame, PageHead, Sidebar, UserMenu } from "./layout";
 
 /**
@@ -1011,6 +1012,55 @@ export interface TemplateNote {
    * than the addon did.
    */
   caveat?: string;
+  /**
+   * The heading this template sits under.
+   *
+   * Templates with no group, and any the caller says nothing about, fall into
+   * one unlabelled group at the end - so a library that groups nothing looks
+   * exactly as it did before, and grouping is something the caller opts into
+   * rather than something every caller has to answer.
+   *
+   * The kit does not know what the groups mean. The app's are "this comes from
+   * an addon" and "this is just a block of time", which is a distinction about
+   * addons, and addons are not this package's business.
+   */
+  group?: string;
+}
+
+/**
+ * The templates, split into the groups the caller named.
+ *
+ * First-seen order, so the caller decides which heading comes first by the
+ * order of the templates rather than by sorting a second list. Everything the
+ * caller said nothing about falls into one unlabelled group, and that group is
+ * always last - it is where "Something else" lives, and a heading over a
+ * single unnamed chip would be noise.
+ *
+ * A library whose caller passes no `noteFor` comes out as exactly one
+ * unlabelled group, which renders identically to the flat list this replaced.
+ */
+function groupsOf(
+  templates: readonly ActivityTemplate[],
+  noteFor?: (template: ActivityTemplate) => TemplateNote | undefined,
+): { heading: string | null; members: ActivityTemplate[] }[] {
+  const named = new Map<string, ActivityTemplate[]>();
+  const rest: ActivityTemplate[] = [];
+
+  for (const template of templates) {
+    const heading = noteFor?.(template)?.group;
+    if (heading === undefined) {
+      rest.push(template);
+      continue;
+    }
+    const members = named.get(heading);
+    if (members) members.push(template);
+    else named.set(heading, [template]);
+  }
+
+  return [
+    ...[...named].map(([heading, members]) => ({ heading, members })),
+    { heading: null, members: rest },
+  ];
 }
 
 /**
@@ -1040,69 +1090,68 @@ export const ActivityLibrary: React.FC<{
       ? { action: <span className="wr-setup-count">{used}</span> }
       : {})}
   >
-    <div className="wr-library">
-      {templates.map((template) => {
-        const note = noteFor?.(template);
+    {groupsOf(templates, noteFor).map(({ heading, members }) => (
+      <div key={heading ?? "ungrouped"} className="wr-library-group">
+        {heading ? <span className="wr-label">{heading}</span> : null}
+        <div className="wr-library">
+          {members.map((template) => {
+            const note = noteFor?.(template);
 
-        // A chip with a cog is two controls, so it cannot be one button - a
-        // button inside a button is invalid and the inner one is unreachable
-        // by keyboard. The wrapper carries the chip's own styling and the two
-        // buttons sit inside it.
-        return (
-          <span
-            key={template.key}
-            className="wr-chip wr-chip-dashed wr-library-chip"
-            data-disabled={disabled ? "" : undefined}
-          >
-            <button
-              type="button"
-              className="wr-library-pick"
-              disabled={disabled}
-              onClick={() => onPick(template)}
-            >
-              <b>{template.name}</b> {template.sessionMinutes} min
-              {note?.caveat ? (
-                <em className="wr-library-caveat">{note.caveat}</em>
-              ) : null}
-            </button>
-            {note?.onConfigure ? (
+            // A chip with a cog is two controls, so it cannot be one button - a
+            // button inside a button is invalid and the inner one is unreachable
+            // by keyboard. The wrapper carries the chip's own styling and the two
+            // buttons sit inside it.
+            return (
+              <span
+                key={template.key}
+                className="wr-chip wr-chip-dashed wr-library-chip"
+                data-disabled={disabled ? "" : undefined}
+              >
+                <button
+                  type="button"
+                  className="wr-library-pick"
+                  disabled={disabled}
+                  onClick={() => onPick(template)}
+                >
+                  <b>{template.name}</b> {template.sessionMinutes} min
+                  {note?.caveat ? (
+                    <em className="wr-library-caveat">{note.caveat}</em>
+                  ) : null}
+                </button>
+                {note?.onConfigure ? (
+                  <button
+                    type="button"
+                    className="wr-library-cog"
+                    aria-label={note.configureLabel ?? "Configure"}
+                    title={note.configureLabel ?? "Configure"}
+                    onClick={note.onConfigure}
+                  >
+                    {/* The label is on the button, so the glyph's own title would
+                        be read out twice. */}
+                    <SettingsGlyph aria-hidden />
+                  </button>
+                ) : null}
+              </span>
+            );
+          })}
+          {/* Last, and in the last group: it is the door out of the library
+              rather than a thing in it, and every group above is a kind of
+              activity while this is the absence of one. */}
+          {heading === null ? (
+            <span className="wr-chip wr-chip-dashed wr-library-chip">
               <button
                 type="button"
-                className="wr-library-cog"
-                aria-label={note.configureLabel ?? "Configure"}
-                title={note.configureLabel ?? "Configure"}
-                onClick={note.onConfigure}
+                className="wr-library-pick"
+                disabled={disabled}
+                onClick={() => onPick(null)}
               >
-                {/* Inline rather than an icon set: one glyph, and a
-                    dependency for it would be forty kilobytes to draw a
-                    circle with six teeth. */}
-                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden>
-                  <title>Settings</title>
-                  <path
-                    fill="currentColor"
-                    d="M8 5.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6Zm0 4.3a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z"
-                  />
-                  <path
-                    fill="currentColor"
-                    d="m14 9.1-.1-1.1.1-1.1-1.4-.5-.4-1 .6-1.3-1.5-1.5-1.3.6-1-.4L8.6 1H7.4l-.4 1.4-1 .4-1.3-.6-1.5 1.5.6 1.3-.4 1-1.4.4.1 1.1-.1 1.1 1.4.5.4 1-.6 1.3 1.5 1.5 1.3-.6 1 .4.4 1.4h1.2l.4-1.4 1-.4 1.3.6 1.5-1.5-.6-1.3.4-1 1.4-.5Zm-2.5.6-.6 1.5.4.9-.3.3-.9-.4-1.5.6-.3 1h-.5l-.3-1-1.5-.6-.9.4-.3-.3.4-.9-.6-1.5-1-.3v-.5l1-.3.6-1.5-.4-.9.3-.3.9.4 1.5-.6.3-1h.5l.3 1 1.5.6.9-.4.3.3-.4.9.6 1.5 1 .3v.5l-1 .3Z"
-                  />
-                </svg>
+                <b>Something else</b>
               </button>
-            ) : null}
-          </span>
-        );
-      })}
-      <span className="wr-chip wr-chip-dashed wr-library-chip">
-        <button
-          type="button"
-          className="wr-library-pick"
-          disabled={disabled}
-          onClick={() => onPick(null)}
-        >
-          <b>Something else</b>
-        </button>
-      </span>
-    </div>
+            </span>
+          ) : null}
+        </div>
+      </div>
+    ))}
   </Card>
 );
 

@@ -10,6 +10,7 @@ import {
 } from "./calendar";
 import { IconButton } from "./components";
 import { layoutDay } from "./daygrid";
+import { ChevronLeftGlyph, ChevronRightGlyph } from "./icons";
 import { clockOf } from "./time";
 
 /**
@@ -86,37 +87,16 @@ export const ScopeSwitcher: React.FC<{
   </div>
 );
 
-const ChevronLeft: React.FC = () => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.75"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="m15 18-6-6 6-6" />
-  </svg>
-);
-
-const ChevronRight: React.FC = () => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.75"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="m9 18 6-6-6-6" />
-  </svg>
-);
+/**
+ * The two arrows, from the kit's icon set rather than drawn here.
+ *
+ * They used to be two inline paths, at a stroke weight that happened not to
+ * match the ones in `components.tsx` - which is the failure mode of drawing
+ * icons by hand across files, and the reason all of them now come from one
+ * place. See the note above `CheckGlyph`.
+ */
+const ChevronLeft = ChevronLeftGlyph;
+const ChevronRight = ChevronRightGlyph;
 
 /**
  * Back, Today, forward - the same object in every view.

@@ -11,6 +11,13 @@ import {
   yOf,
 } from "./daygrid";
 import {
+  CheckGlyph,
+  HoursGlyph,
+  IconArrowRight,
+  PlayGlyph,
+  ResumeGlyph,
+} from "./icons";
+import {
   clockOf,
   DAY_NAMES,
   daysLabel,
@@ -22,108 +29,6 @@ import {
 
 const cx = (...parts: (string | false | undefined)[]): string =>
   parts.filter(Boolean).join(" ");
-
-/** The one glyph the kit uses inline. Everything else is Lucide at
- *  stroke-width 2.75 - add `lucide-react` when the first screen needs it. */
-/**
- * Done.
- *
- * A stroke rather than a character, because "✓" is a font's opinion - it
- * arrives at a different weight and a different height on every machine, and
- * this one has to sit centred inside a 16px disc.
- */
-export const CheckGlyph: React.FC = () => (
-  <svg
-    width="9"
-    height="8"
-    viewBox="0 0 9 8"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.8"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    role="img"
-  >
-    <title>Done</title>
-    <path d="M1 4.2 3.4 6.6 8 1.6" />
-  </svg>
-);
-
-/**
- * Pick it back up.
- *
- * A distinct mark from the play triangle on purpose: one of them means "this
- * has not happened yet" and the other means "you stopped this and can go
- * back to it". The same glyph for both left someone looking at a block they
- * had already been in and being offered a start.
- */
-export const ResumeGlyph: React.FC = () => (
-  <svg
-    width="11"
-    height="11"
-    viewBox="0 0 11 11"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    role="img"
-  >
-    <title>Resume</title>
-    <path d="M1.6 5.5a3.9 3.9 0 1 0 1.5-3.1" />
-    <path d="M1.2 1.1v2.6h2.6" />
-  </svg>
-);
-
-export const PlayGlyph: React.FC = () => (
-  <svg
-    width="10"
-    height="12"
-    viewBox="0 0 10 12"
-    fill="currentColor"
-    role="img"
-  >
-    <title>Start</title>
-    <polygon points="0,0 10,6 0,12" />
-  </svg>
-);
-
-/** The second inline glyph. Still no icon dependency: two shapes do not earn
- *  one, and a dependency for an arrow is a dependency to keep updated. */
-export const RefreshGlyph: React.FC = () => (
-  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" role="img">
-    <title>Sync</title>
-    <path
-      d="M14 8a6 6 0 1 1-1.76-4.24M14 2v4h-4"
-      stroke="currentColor"
-      strokeWidth="2.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
-/** The third and last inline glyph: the day-view hours control. Two ruled
- *  lines with a handle on each, which is the range being moved. */
-export const HoursGlyph: React.FC = () => (
-  <svg
-    width="15"
-    height="15"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.75"
-    strokeLinecap="round"
-    role="img"
-  >
-    <title>Hours shown</title>
-    <path d="M4 8h10" />
-    <path d="M18 8h2" />
-    <path d="M4 16h4" />
-    <path d="M12 16h8" />
-    <circle cx="16" cy="8" r="2.2" />
-    <circle cx="10" cy="16" r="2.2" />
-  </svg>
-);
 
 /**
  * One end of a window.
@@ -535,20 +440,7 @@ export const HoursMenu: React.FC<{
               }}
             >
               Edit hours and ranges
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M5 12h14" />
-                <path d="M13 6l6 6-6 6" />
-              </svg>
+              <IconArrowRight size={14} stroke={2.4} aria-hidden="true" />
             </button>
           </div>
 

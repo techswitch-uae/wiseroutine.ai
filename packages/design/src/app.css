@@ -1729,6 +1729,21 @@ img.wr-avatar { object-fit: cover; }
 /* ── Activities ────────────────────────────────────────────────────────────
    The library is a palette of starting points, so its chips are dashed - the
    kit's word for "not a real object on the page yet". */
+/* One block per heading.
+   The first version set the group gap barely above the chip gap, so the
+   heading, its chips and the next heading all sat at roughly one rhythm and
+   the whole card read as one run of text and pills. Three separations, each
+   deliberately different: a heading sits close to the chips it names, the
+   chips sit close to each other, and the groups sit well apart with a rule
+   between them - so the eye finds the two categories before it starts reading
+   any of the names. */
+.wr-library-group { display: grid; gap: 11px; }
+.wr-library-group + .wr-library-group {
+  margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--wr-hairline);
+}
+/* The card's own note is a sentence about the whole card, not about the first
+   group, and it was sitting one line above that group's heading. */
+.wr-library-group:first-of-type { margin-top: 4px; }
 .wr-library { display: flex; flex-wrap: wrap; gap: 9px; }
 /* The chip is a wrapper now, not the button: one whose session comes from an
    addon carries a cog beside its name, and a button inside a button is invalid

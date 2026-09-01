@@ -1,7 +1,7 @@
 import { render } from "@testing-library/react";
 import type { AddonManifest } from "@wiseroutine/addons";
 import { parseManifest } from "@wiseroutine/addons";
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { AddonFrame } from "./frame";
 import { type AddonContext, serve } from "./host";
 
@@ -18,6 +18,22 @@ import { type AddonContext, serve } from "./host";
  * Written before the registry exists, deliberately. It is much cheaper to fix
  * a boundary before anyone is invited through it.
  */
+
+/**
+ * Where a link would go.
+ *
+ * Mocked rather than exercised: the real one hands the URL to the operating
+ * system, and a test suite that opens a browser is a test suite nobody runs
+ * twice. What is under test is everything *before* that call - which is where
+ * the whole of this capability lives.
+ */
+const opened: string[] = [];
+vi.mock("../lib/open-external", () => ({
+  openExternal: async (url: string) => {
+    opened.push(url);
+    return true;
+  },
+}));
 
 const manifest = (over: Partial<AddonManifest> = {}): AddonManifest => {
   const base = parseManifest({
@@ -311,6 +327,115 @@ describe("what the host allows", () => {
       result?: { slot?: { id?: string } };
     };
     expect(reply.result?.slot?.id).toBe("s1");
+    stop();
+  });
+});
+
+/**
+ * Opening a link leaves the sandbox entirely.
+ *
+ * Whatever is on the other side runs in the user's own browser, as the user,
+ * with their cookies and their sessions, and nothing in this app is between
+ * them any more. So it is the narrowest capability here: granted per origin,
+ * https only, and re-checked against the URL actually being opened rather than
+ * against the grant alone - because an addon computes the URL it opens, and
+ * what was approved is not necessarily what arrives.
+ */
+describe("opening a link outside the app", () => {
+  const SPOTIFY = "https://open.spotify.com";
+
+  const withOpener = (origins: string[]) =>
+    manifest({
+      capabilities: [
+        { kind: "ui:session" },
+        { kind: "open:external", origins },
+      ],
+    });
+
+  beforeEach(() => {
+    opened.length = 0;
+  });
+
+  test("opens a link on an origin the manifest declared", async () => {
+    const { call, stop } = connectTo(withOpener([SPOTIFY]));
+    const reply = (await call("openExternal", {
+      url: `${SPOTIFY}/playlist/abc`,
+    })) as { result?: unknown };
+
+    expect(reply.result).toBe(true);
+    expect(opened).toEqual([`${SPOTIFY}/playlist/abc`]);
+    stop();
+  });
+
+  test("refuses an addon that was not granted it at all", async () => {
+    const { call, stop } = connectTo(manifest());
+    expect(denied(await call("openExternal", { url: `${SPOTIFY}/x` }))).toBe(
+      true,
+    );
+    expect(opened).toEqual([]);
+    stop();
+  });
+
+  /**
+   * The check that makes the grant mean anything.
+   *
+   * An addon builds the URL it opens, so a grant checked only at install would
+   * let one approved for a player open a phishing page. The origin of the URL
+   * in hand is compared to the list, every call.
+   */
+  test("refuses an origin it was not granted, however plausible", async () => {
+    const { call, stop } = connectTo(withOpener([SPOTIFY]));
+
+    for (const url of [
+      "https://evil.example/",
+      // The declared origin as a path, a subdomain and a prefix. All three are
+      // different origins, and all three are the shapes a fake link takes.
+      "https://evil.example/https://open.spotify.com/x",
+      "https://open.spotify.com.evil.example/x",
+      "https://openspotify.com/x",
+    ]) {
+      expect(denied(await call("openExternal", { url }))).toBe(true);
+    }
+
+    expect(opened).toEqual([]);
+    stop();
+  });
+
+  /**
+   * A scheme is not a host, and some of them are instructions to the machine.
+   *
+   * The app itself opens `x-apple.systempreferences:` URLs and is entitled to.
+   * An addon is not, and refusing by scheme rather than by allowlist means a
+   * scheme nobody has thought of yet is refused too.
+   */
+  test("refuses anything that is not plain https", async () => {
+    const { call, stop } = connectTo(
+      // Granted the widest thing that can be granted, so what refuses these is
+      // the scheme check and not a missing origin.
+      withOpener([SPOTIFY]),
+    );
+
+    for (const url of [
+      "javascript:alert(1)",
+      "file:///etc/passwd",
+      "data:text/html,<script>alert(1)</script>",
+      "x-apple.systempreferences:com.apple.Notifications-Settings.extension",
+      "http://open.spotify.com/x",
+      "not a url at all",
+      "",
+    ]) {
+      expect(denied(await call("openExternal", { url }))).toBe(true);
+    }
+
+    expect(opened).toEqual([]);
+    stop();
+  });
+
+  test("refuses a call with no link in it", async () => {
+    const { call, stop } = connectTo(withOpener([SPOTIFY]));
+    expect(denied(await call("openExternal", {}))).toBe(true);
+    expect(denied(await call("openExternal", { url: 42 }))).toBe(true);
+    expect(opened).toEqual([]);
     stop();
   });
 });

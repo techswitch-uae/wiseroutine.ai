@@ -119,7 +119,7 @@ const NO_MODULE: ModuleDraft = {
  * hypothetical strangers'.
  */
 const LIBRARY_MODULES: Record<string, string> = {
-  "shoulder-stretch": "wiseroutine.stretch/guided",
+  stretch: "wiseroutine.stretch/guided",
   "eye-rest": "wiseroutine.eye-rest/look-away",
   "deep-work": "wiseroutine.deep-work/focus",
   breathing: "wiseroutine.breathing/pacer",
@@ -281,7 +281,21 @@ const Activities: React.FC = () => {
   };
 
   /**
-   * What to say on a library chip, and where its cog goes.
+   * What to say on a library chip, which group it sits in, and where its cog
+   * goes.
+   *
+   * The grouping is the first thing the list needed. Seven chips in a row gave
+   * no hint that four of them bring something with them and three simply
+   * reserve the time - which is the difference somebody is actually choosing
+   * between, and it was legible only after picking one.
+   *
+   * The heading is "From an addon" rather than anything about sessions.
+   * Everything in that group happens to run a guided session today, because
+   * those are the four addons that exist - but an addon is a package, and the
+   * next one may contribute a widget, a background job or an integration and
+   * no full-screen session at all. A heading that describes what today's
+   * addons happen to do is a heading that has to be renamed the first time one
+   * of them does something else.
    *
    * Every template here whose session is real belongs to an addon, so almost
    * all of them get a cog - and the cog goes to the Addons page rather than to
@@ -297,10 +311,16 @@ const Activities: React.FC = () => {
   const noteFor = (template: ActivityTemplate): TemplateNote | undefined => {
     const presetKey = LIBRARY_MODULES[template.key];
     const addonId = addonBehind(presetKey);
-    if (!addonId) return undefined;
+    // A walk is a block of time. Nothing is behind it and there is nothing to
+    // manage - so it gets a heading saying exactly that, and no cog. The two
+    // groups answer the question somebody actually has in front of this list:
+    // does picking this bring something with it, or does it just put the time
+    // aside.
+    if (!addonId) return { group: "Just a block of time" };
 
     const installed = addons.has(addonId);
     return {
+      group: "From an addon",
       onConfigure: () => void navigate({ to: "/addons" }),
       configureLabel: installed
         ? `Manage the addon behind ${template.name}`

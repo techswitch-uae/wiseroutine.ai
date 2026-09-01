@@ -119,6 +119,9 @@ export function markup(steps: readonly Step[], theme: Theme): string {
     border: 1px solid ${theme.hairline};
   }
   .next:hover { border-color: ${theme.text}; }
+  /* Hidden on the last step, where the only thing left to do is end the slot -
+     and that button is the host's, just below this frame. */
+  .next[hidden] { display: none; }
 </style>
 <div class="wrap">
   <div class="left" aria-live="off">--:--</div>
@@ -128,3 +131,63 @@ export function markup(steps: readonly Step[], theme: Theme): string {
   <button type="button" class="next">Next step</button>
 </div>`;
 }
+
+/**
+ * Where the routine is, as a value.
+ *
+ * Split out of `main.ts` for the reason `addons/breathing` gives: an entry
+ * point does DOM work on import and cannot be tested, so everything that is a
+ * *decision* lives here and the entry is left holding only the wiring.
+ *
+ * It earns the split. "Which step is showing", "how long until the next one"
+ * and "is there a next one at all" are three answers that have to agree, and
+ * the last of them decides whether this addon draws a button - which is the
+ * thing the host's Done early would otherwise be competing with.
+ */
+export interface Progress {
+  /** 0-based. Never past the last step; `finished` says the rest. */
+  index: number;
+  /** When the current step ends, as an instant. */
+  endsAt: number;
+  /** Past the last step. The routine is over; the slot is not. */
+  finished: boolean;
+}
+
+export const startAt = (steps: readonly Step[], now: number): Progress => ({
+  index: 0,
+  endsAt: now + (steps[0]?.seconds ?? 30) * 1_000,
+  finished: false,
+});
+
+/**
+ * On to the next step, by hand or by the clock.
+ *
+ * The two are deliberately the same function. A step the user skipped and a
+ * step that ran out are the same event as far as the routine is concerned, and
+ * making them one path is what stops the button and the timer disagreeing
+ * about which step is showing.
+ */
+export function advance(
+  steps: readonly Step[],
+  at: Progress,
+  now: number,
+): Progress {
+  if (at.finished) return at;
+
+  const next = at.index + 1;
+  if (next >= steps.length) return { ...at, finished: true };
+
+  return {
+    index: next,
+    endsAt: now + (steps[next]?.seconds ?? 30) * 1_000,
+    finished: false,
+  };
+}
+
+/** Is this the last step, so there is nothing to advance *to*? */
+export const onLastStep = (steps: readonly Step[], at: Progress): boolean =>
+  !at.finished && at.index + 1 >= steps.length;
+
+/** Seconds left on the current step. Never negative. */
+export const leftOn = (at: Progress, now: number): number =>
+  Math.max(0, Math.round((at.endsAt - now) / 1_000));

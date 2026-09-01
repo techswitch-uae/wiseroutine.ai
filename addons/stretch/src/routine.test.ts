@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { clock, markup, ROUTINES, stepsFor } from "./routine";
+import {
+  advance,
+  clock,
+  leftOn,
+  markup,
+  onLastStep,
+  ROUTINES,
+  type Step,
+  startAt,
+  stepsFor,
+} from "./routine";
 
 const THEME = {
   text: "#2e2b25",
@@ -69,5 +79,71 @@ describe("markup", () => {
     const steps = ROUTINES["Wrists & eyes"] as never as unknown[];
     const html = markup(steps as never, THEME);
     expect(html.split('class="pip"').length - 1).toBe(steps.length);
+  });
+});
+
+describe("walking the routine", () => {
+  const steps = ROUTINES["Wrists & eyes"] as readonly Step[];
+  const AT = 1_700_000_000_000;
+
+  it("starts on the first step, timed from now", () => {
+    const at = startAt(steps, AT);
+    expect(at).toEqual({
+      index: 0,
+      endsAt: AT + (steps[0] as Step).seconds * 1_000,
+      finished: false,
+    });
+  });
+
+  it("times each step from when it began, not from the routine's start", () => {
+    // A step the user sat through and one they skipped both start their own
+    // clock. Timing from the routine's start would make every step after a
+    // skipped one shorter than it says.
+    const later = AT + 12_345;
+    const second = advance(steps, startAt(steps, AT), later);
+    expect(second.endsAt).toBe(later + (steps[1] as Step).seconds * 1_000);
+  });
+
+  /**
+   * The button is gone on the last step, not relabelled.
+   *
+   * This addon's button means "move the routine on", and on the last step
+   * there is nothing to move on to - what is left is ending the *slot*, which
+   * is the host's Done early just below the frame. It could not end the slot
+   * itself whatever the label said: it holds `ui:session` and nothing else.
+   */
+  it("offers a next step until there is not one", () => {
+    let at = startAt(steps, AT);
+    for (let i = 0; i < steps.length - 1; i += 1) {
+      expect(onLastStep(steps, at)).toBe(false);
+      at = advance(steps, at, AT);
+    }
+    expect(at.index).toBe(steps.length - 1);
+    expect(onLastStep(steps, at)).toBe(true);
+  });
+
+  it("finishes past the last step rather than running off the end", () => {
+    let at = startAt(steps, AT);
+    for (let i = 0; i < steps.length; i += 1) at = advance(steps, at, AT);
+
+    expect(at.finished).toBe(true);
+    // Held at the last real step, so nothing reads `steps[4]` of a four-step
+    // routine while the finished message is up.
+    expect(at.index).toBe(steps.length - 1);
+    // And it stays finished. The 250ms tick keeps calling in.
+    expect(advance(steps, at, AT + 9_999)).toEqual(at);
+    expect(onLastStep(steps, at)).toBe(false);
+  });
+
+  it("counts down without going negative", () => {
+    const at = startAt(steps, AT);
+    expect(leftOn(at, AT)).toBe((steps[0] as Step).seconds);
+    expect(leftOn(at, AT + 999_999)).toBe(0);
+  });
+
+  it("hides the button with CSS rather than only the attribute", () => {
+    // `hidden` is not honoured on an element the stylesheet gives a display
+    // value to, and this one is an inline-flex button.
+    expect(markup(steps, THEME)).toContain(".next[hidden] { display: none; }");
   });
 });

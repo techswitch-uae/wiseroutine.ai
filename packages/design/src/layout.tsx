@@ -1,13 +1,7 @@
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
-import {
-  Avatar,
-  BrandMark,
-  IconButton,
-  Keycap,
-  NavItem,
-  RefreshGlyph,
-} from "./components";
+import { Avatar, BrandMark, IconButton, Keycap, NavItem } from "./components";
+import { RefreshGlyph } from "./icons";
 import { agoOf } from "./time";
 
 /**

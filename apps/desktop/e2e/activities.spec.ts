@@ -115,7 +115,7 @@ test("a connected calendar ticks its own step, and activities tick theirs", asyn
     .click();
   await expect(page).toHaveURL(/\/activities$/);
 
-  await add(page, "Shoulder stretch");
+  await add(page, "Stretch");
   await add(page, "Eye rest");
 
   await page.goto("/");
@@ -148,7 +148,7 @@ test("free keeps two, and removing one makes room for another", async ({
   await signIn();
   await openActivities(page);
 
-  await add(page, "Shoulder stretch");
+  await add(page, "Stretch");
   await add(page, "Eye rest");
   await expect(page.getByText("2 of 2 used")).toBeVisible();
 
@@ -175,11 +175,9 @@ test("an edit survives a reload, and says Update rather than Add", async ({
 }) => {
   await signIn();
   await openActivities(page);
-  await add(page, "Shoulder stretch");
+  await add(page, "Stretch");
 
-  await activity(page, "Shoulder stretch")
-    .getByRole("button", { name: "Edit" })
-    .click();
+  await activity(page, "Stretch").getByRole("button", { name: "Edit" }).click();
   await expect(sheet(page)).toBeVisible();
   // Which job the sheet is doing is said on its one committing button.
   await expect(
@@ -193,7 +191,7 @@ test("an edit survives a reload, and says Update rather than Add", async ({
 
   await page.reload();
   await expect(
-    activity(page, "Shoulder stretch").getByText(
+    activity(page, "Stretch").getByText(
       "15 min · 3 × day · Every day · mornings",
     ),
   ).toBeVisible();
@@ -251,7 +249,7 @@ test("an activity on no days cannot be saved", async ({ page, signIn }) => {
 test("an added activity is planned onto today", async ({ page, signIn }) => {
   await signIn(CALENDARS);
   await openActivities(page);
-  await add(page, "Shoulder stretch");
+  await add(page, "Stretch");
 
   await page.goto("/");
   await dayShown(page);
@@ -261,7 +259,7 @@ test("an added activity is planned onto today", async ({ page, signIn }) => {
   // started this: an activity added after six placed nothing, and Today drew
   // an empty ruler with no explanation on it.
   await expect(
-    page.locator(".wr-daygrid-item", { hasText: "Shoulder stretch" }).first(),
+    page.locator(".wr-daygrid-item", { hasText: "Stretch" }).first(),
   ).toBeVisible();
 });
 
