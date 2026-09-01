@@ -1,27 +1,40 @@
-import { act, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
+import { testAddon } from "../../addons/fixtures";
+import { seedAddons } from "../../addons/installed";
 import type { TodaySlot } from "../../lib/api";
-import { deepWork } from "./deep-work";
-import { eyeRest } from "./eye-rest";
-import { stretch } from "./stretch";
+import { moduleFor } from "./index";
 
 /**
- * Each session reaches its two ways out.
+ * A session reaches its two ways out, whoever wrote it.
  *
  * Not a test of what a session looks like - that is the gallery's job, and a
- * snapshot of a stretch step would fail on every retune. What matters here
- * is that "finished" and "gave up" stay two distinct answers and both are
- * actually reachable: a session with no way to say you did it records nothing,
- * and one where stopping counts as finishing puts a stretch nobody did into
- * this week's numbers.
+ * snapshot of a stretch step would fail on every retune. What matters is that
+ * "finished" and "gave up" stay two distinct answers and both stay reachable:
+ * a session with no way to say you did it records nothing, and one where
+ * stopping counts as finishing puts a stretch nobody did into this week's
+ * numbers.
+ *
+ * ## Why this is now one test and not four
+ *
+ * It used to run over the four built-in sessions. There are none: every
+ * session is an addon, drawn inside a sandboxed frame, and the frame around it
+ * is the host's. So there is exactly one piece of code that puts Done and Stop
+ * on the screen, and this is the test of it - which is a stronger guarantee
+ * than the old one, because it now holds for sessions nobody here has written
+ * yet.
+ *
+ * The addon's own drawing is not exercised here and cannot be: it is inside an
+ * iframe with an opaque origin, which jsdom will not run and which is the
+ * entire point. What each addon draws is tested in the addon's own package.
  */
 
 const AT = Date.UTC(2026, 7, 11, 9, 0);
 
 const slot = (over: Partial<TodaySlot> = {}): TodaySlot => ({
   id: "s1",
-  title: "Deep work",
+  title: "Morning workout",
   kind: "recovery",
   startsAt: AT,
   // Well into the future, so nothing ends itself mid-test.
@@ -34,229 +47,89 @@ const slot = (over: Partial<TodaySlot> = {}): TodaySlot => ({
 
 beforeEach(() => {
   vi.useFakeTimers({ now: AT, shouldAdvanceTime: true });
+  seedAddons([testAddon()]);
 });
 
-/**
- * The three timed sessions, with their config types erased.
- *
- * `describe.each` over the modules as written would intersect their configs -
- * a case would have to satisfy `EyeRestConfig & BreathingConfig &
- * StretchConfig` at once. Each case supplies its own defaults, which is
- * exactly the pairing the intersection loses.
- */
-const MODULES: readonly {
-  name: string;
-  key: string;
-  // biome-ignore lint/suspicious/noExplicitAny: erased on purpose, see above
-  Session?: React.FC<any>;
-  // biome-ignore lint/suspicious/noExplicitAny: erased on purpose, see above
-  defaults: { config: any };
-}[] = [eyeRest, stretch];
+const show = (over: Partial<TodaySlot> = {}) => {
+  const module = moduleFor("acme.fitness/workout");
+  const Session = module?.Session;
+  if (!Session) throw new Error("the fixture addon has no session");
 
-describe.each(MODULES)("$name", (module) => {
-  test("stopping is a skip, never a completion", async () => {
-    const onDone = vi.fn();
-    const onSkip = vi.fn();
-    const Session = module.Session;
-    if (!Session) throw new Error(`${module.key} has no session`);
-
-    render(
-      <Session
-        slot={slot()}
-        config={module.defaults.config}
-        onDone={onDone}
-        onSkip={onSkip}
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: "Stop" }));
-    expect(onSkip).toHaveBeenCalledOnce();
-    expect(onDone).not.toHaveBeenCalled();
-  });
-
-  test("names itself, so the window says what is running", () => {
-    const Session = module.Session;
-    if (!Session) throw new Error(`${module.key} has no session`);
-    render(
-      <Session
-        slot={slot()}
-        config={module.defaults.config}
-        onDone={vi.fn()}
-        onSkip={vi.fn()}
-      />,
-    );
-    expect(screen.getByRole("dialog")).toBeTruthy();
-  });
-});
-
-test("eye rest can be finished early", async () => {
   const onDone = vi.fn();
-  const Session = eyeRest.Session;
-  if (!Session) throw new Error("no session");
-
+  const onSkip = vi.fn();
   render(
     <Session
-      slot={slot()}
-      config={eyeRest.defaults.config}
+      slot={slot(over)}
+      config={module.defaults.config}
       onDone={onDone}
-      onSkip={vi.fn()}
+      onSkip={onSkip}
     />,
   );
+  return { onDone, onSkip };
+};
+
+test("stopping is a skip, never a completion", async () => {
+  const { onDone, onSkip } = show();
+
+  await userEvent.click(screen.getByRole("button", { name: "Stop" }));
+  expect(onSkip).toHaveBeenCalledOnce();
+  expect(onDone).not.toHaveBeenCalled();
+});
+
+test("finishing is a completion, never a skip", async () => {
+  const { onDone, onSkip } = show();
+
   await userEvent.click(screen.getByRole("button", { name: "Done early" }));
   expect(onDone).toHaveBeenCalledOnce();
-});
-
-test("a stretch walks its steps, and only the last one finishes it", async () => {
-  const onDone = vi.fn();
-  const Session = stretch.Session;
-  if (!Session) throw new Error("no session");
-
-  render(
-    <Session
-      slot={slot()}
-      config={stretch.defaults.config}
-      onDone={onDone}
-      onSkip={vi.fn()}
-    />,
-  );
-
-  const steps = stretch.defaults.config.steps;
-  expect(screen.getByText(`Step 1 of ${steps.length}`)).toBeTruthy();
-  expect(screen.getByText(steps[0]?.text ?? "")).toBeTruthy();
-
-  await userEvent.click(screen.getByRole("button", { name: "Next step" }));
-  expect(screen.getByText(`Step 2 of ${steps.length}`)).toBeTruthy();
-  expect(onDone).not.toHaveBeenCalled();
-
-  // Through to the end. Only the final press means the routine happened.
-  await userEvent.click(screen.getByRole("button", { name: "Next step" }));
-  await userEvent.click(screen.getByRole("button", { name: "Next step" }));
-  await userEvent.click(screen.getByRole("button", { name: "Finish" }));
-  expect(onDone).toHaveBeenCalledOnce();
+  expect(onSkip).not.toHaveBeenCalled();
 });
 
 /**
- * The bug this exists to keep fixed: the countdown hung near its start and no
- * step ever ended.
+ * The buttons belong to the host, not to the addon.
  *
- * The overlay parses the stored config afresh on every render, so `config` is
- * a new object every second - which is what the re-render below stands in for.
- * The old step timer listed `config.steps` among its dependencies, so it was
- * torn down and restarted, from the top, on every tick.
+ * This is the invariant worth stating out loud. A full-window takeover whose
+ * exit button was drawn by the addon would be an exit button the addon could
+ * fake, restyle or refuse to honour - and a session is exactly the moment a
+ * user has to be able to leave. Both controls are outside the frame, in the
+ * app's own DOM, which is why they are reachable from this test at all.
  */
-test("the countdown runs down across re-renders, and the step advances itself", () => {
-  const Session = stretch.Session;
-  if (!Session) throw new Error("no session");
+test("both ways out are the host's own buttons, outside the addon's frame", () => {
+  show();
 
-  // A fresh object each call, exactly as the overlay hands one over.
-  const config = () => ({
-    steps: [
-      { text: "one", seconds: 3 },
-      { text: "two", seconds: 3 },
-    ],
-  });
-  const props = { slot: slot(), onDone: vi.fn(), onSkip: vi.fn() };
-  const { rerender } = render(<Session {...props} config={config()} />);
-
-  expect(screen.getByText("0:03")).toBeTruthy();
-  act(() => void vi.advanceTimersByTime(2_000));
-  rerender(<Session {...props} config={config()} />);
-  expect(screen.getByText("0:01")).toBeTruthy();
-  expect(screen.getByText("Step 1 of 2")).toBeTruthy();
-
-  act(() => void vi.advanceTimersByTime(1_000));
-  expect(screen.getByText("Step 2 of 2")).toBeTruthy();
-  expect(props.onDone).not.toHaveBeenCalled();
-
-  // And the last step's own deadline finishes the session.
-  act(() => void vi.advanceTimersByTime(3_000));
-  expect(props.onDone).toHaveBeenCalledOnce();
+  const frame = document.querySelector("iframe");
+  expect(frame).toBeTruthy();
+  for (const name of ["Done early", "Stop"]) {
+    const button = screen.getByRole("button", { name });
+    expect(frame?.contains(button)).toBe(false);
+  }
 });
 
-describe("deep work", () => {
-  /**
-   * The block is already running by the time this screen exists.
-   *
-   * It used to open behind a "Play music & start" button, which made a
-   * session that had begun look like one that had not - and asked for an
-   * intention nobody had come here to write.
-   */
-  test("opens straight into the countdown, with nothing to fill in first", () => {
-    const Session = deepWork.Session;
-    if (!Session) throw new Error("no session");
+test("the session names the block, not the activity type", () => {
+  // Somebody who called their focus block "Thesis" is looking at a session
+  // about the thesis. Telling them it is a "Workout" tells them something they
+  // already decided not to call it.
+  show({ title: "Thesis" });
+  expect(screen.getByRole("dialog", { name: "Thesis" })).toBeTruthy();
+});
 
-    render(
-      <Session
-        slot={slot()}
-        config={{ musicUrl: "" }}
-        onDone={vi.fn()}
-        onSkip={vi.fn()}
-      />,
-    );
+test("the addon is given a canvas it cannot grow past", () => {
+  show();
+  const frame = document.querySelector("iframe");
+  // The manifest declares no canvas, so it gets the default. What matters is
+  // that a size is imposed at all: an iframe has no intrinsic height, and an
+  // addon that could set its own could cover the buttons above.
+  expect(frame?.style.width).toBe("360px");
+  expect(frame?.style.height).toBe("400px");
+  // A flex item shrinks by default, and SessionFrame is a flex column. On a
+  // short window that silently cut the addon's lower half off.
+  expect(frame?.style.flexShrink).toBe("0");
+});
 
-    expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Finish now" })).toBeTruthy();
-  });
-
-  test("plays the playlist in the block rather than only linking to it", () => {
-    const Session = deepWork.Session;
-    if (!Session) throw new Error("no session");
-
-    render(
-      <Session
-        slot={slot()}
-        config={{ musicUrl: "https://open.spotify.com/playlist/37i9dQZF1DX" }}
-        onDone={vi.fn()}
-        onSkip={vi.fn()}
-      />,
-    );
-
-    const player = screen.getByTitle("Music for this block");
-    expect(player.getAttribute("src")).toBe(
-      "https://open.spotify.com/embed/playlist/37i9dQZF1DX",
-    );
-    // Spotify's own troubleshooting page names this attribute as the
-    // difference between full playback and thirty-second previews.
-    expect(player.getAttribute("allow")).toContain("encrypted-media");
-    // And the way out to the whole playlist, because in here nobody is
-    // signed in.
-    expect(
-      screen.getByRole("button", { name: /Open in Spotify/ }),
-    ).toBeTruthy();
-  });
-
-  // Apple Music, a radio stream, anything with no embed. The only honest
-  // offer is the app that owns it.
-  test("offers to open anything it cannot embed", () => {
-    const Session = deepWork.Session;
-    if (!Session) throw new Error("no session");
-
-    render(
-      <Session
-        slot={slot()}
-        config={{ musicUrl: "https://music.apple.com/playlist/x" }}
-        onDone={vi.fn()}
-        onSkip={vi.fn()}
-      />,
-    );
-    expect(screen.queryByTitle("Music for this block")).toBeNull();
-    expect(screen.getByRole("button", { name: "Play music" })).toBeTruthy();
-  });
-
-  test("shows no player at all when no music was set", () => {
-    const Session = deepWork.Session;
-    if (!Session) throw new Error("no session");
-
-    render(
-      <Session
-        slot={slot()}
-        config={{ musicUrl: "" }}
-        onDone={vi.fn()}
-        onSkip={vi.fn()}
-      />,
-    );
-    expect(screen.queryByTitle("Music for this block")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Play music" })).toBeNull();
-  });
+test("the frame is sandboxed with no same-origin access", () => {
+  show();
+  const frame = document.querySelector("iframe");
+  // The single most important attribute in the app. Without `allow-scripts`
+  // no addon runs; with `allow-same-origin` every addon becomes the app, and
+  // the session token in localStorage is a thirty-day bearer for the API.
+  expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
 });

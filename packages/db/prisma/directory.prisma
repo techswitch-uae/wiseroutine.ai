@@ -72,6 +72,21 @@ model User {
   /// database is not ready yet must not be handed a session.
   databaseReady Boolean @default(false) @map("database_ready")
 
+  /// How many user-database migrations this user's database has received.
+  ///
+  /// Compared against the number the running Worker carries, on the request
+  /// path, the same way `planExpiresAt` is: behind means catch up once and
+  /// write this, level means do nothing at all. Without it, migrations ran
+  /// only at signup - so every migration written after an account was created
+  /// reached that account never, and a migration that *renames* something
+  /// silently broke it.
+  ///
+  /// Not the record of what was applied. The user's own `_migrations` table is
+  /// that, and it is what makes catching up idempotent; this is only a cheap
+  /// answer to "is there anything to do" that can be read without opening the
+  /// database.
+  schemaVersion Int @default(0) @map("schema_version")
+
   /// Last request from this user's app. Drives how often their calendars are
   /// polled - see `syncInterval` in packages/scheduler. Null means they have
   /// never opened it, which counts as dormant rather than new.

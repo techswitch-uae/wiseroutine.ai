@@ -197,9 +197,19 @@ model Activity {
   /// "low" | "normal" | "high" - wins the gap when two activities compete.
   importance String @default("normal")
 
-  /// Which module runs this activity - "eye_rest", "breathing", "stretch",
-  /// "deep_work". Null is a plain timed slot with no session of its own, which
-  /// is what every activity was before modules existed.
+  /// Which activity type runs this activity, as `addonId/typeKey` -
+  /// "wiseroutine.breathing/pacer", "wiseroutine.deep-work/focus". Null is a
+  /// plain timed slot with no session of its own, which is what every activity
+  /// was before guided sessions existed.
+  ///
+  /// The keys used to be bare - "eye_rest", "stretch" - because the sessions
+  /// were compiled into the app. Every one of them is an addon now, including
+  /// the app's own, and the half before the slash is how the app finds which.
+  /// Migrations 0010 and 0012 moved the existing rows.
+  ///
+  /// Deliberately unvalidated: a key naming an addon that is not installed is
+  /// a real and permanent state, and it degrades to a plain timed slot rather
+  /// than failing. An addon removed must leave a day that still works.
   presetKey String? @map("preset_key")
 
   /// Whether the module's session takes over when the slot starts.
@@ -238,6 +248,19 @@ model Activity {
   /// promise the client keeps. Not a foreign key: uninstalling an addon must
   /// not take the user's history with it.
   ownerAddonId String? @map("owner_addon_id")
+
+  /// When an addon's switch took this activity off the day, or null.
+  ///
+  /// Distinguishes "the user paused this" from "the addon that runs it was
+  /// switched off", which `isActive` alone cannot - and the difference decides
+  /// what happens when the addon comes back. An activity the user paused stays
+  /// paused; one this column names is switched back on and this is cleared.
+  ///
+  /// Set for activities that *depend on* an addon, which is a wider set than
+  /// the ones an addon created: an activity the user made from an addon's
+  /// activity type has `ownerAddonId` null and a `presetKey` naming the addon,
+  /// and it stops working just as completely when that addon goes away.
+  pausedByAddonAt DateTime? @map("paused_by_addon_at")
 
   createdAt  DateTime  @map("created_at")
   archivedAt DateTime? @map("archived_at")

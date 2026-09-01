@@ -288,9 +288,14 @@ describe("what the host allows", () => {
   test("an addon is given the session it was loaded for", async () => {
     const { call, stop } = connectTo(manifest());
     const reply = (await call("session")) as { result?: unknown };
-    expect(reply.result).toEqual({
+    // The theme travels with the session rather than being asked for. An
+    // addon's frame inherits no stylesheet and no custom properties, so
+    // without this it would have to hard-code colours and be illegible in one
+    // of the two themes.
+    expect(reply.result).toMatchObject({
       slot: SESSION.slot,
       config: SESSION.config,
+      theme: { text: expect.any(String), fontBody: expect.any(String) },
     });
     stop();
   });

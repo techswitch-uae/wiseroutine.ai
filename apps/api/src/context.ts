@@ -1,7 +1,9 @@
 import {
+  applyMigrations,
   createDirectory,
   type Directory,
   refreshUserPlan,
+  USER_MIGRATIONS,
   type UserDatabase,
 } from "@wiseroutine/db";
 import { required } from "@wiseroutine/env";
@@ -14,6 +16,7 @@ import {
   directoryCredentials,
   resolveServerEnv,
   type ServerEnv,
+  userCredentials,
 } from "./env";
 
 /**
@@ -176,10 +179,68 @@ export const requireUser: MiddlewareHandler<App> = async (c, next) => {
     storeEventTitles: session.user.storeEventTitles,
     lastSeenAt: session.user.lastSeenAt?.getTime() ?? null,
   });
+  await catchUpSchema(c, session.user.id, {
+    databaseName: session.user.databaseName,
+    schemaVersion: session.user.schemaVersion,
+  });
+
   c.set("db", createUserDb(c.get("env"), session.user.databaseName));
 
   await next();
 };
+
+/**
+ * Bring a user's database up to the migrations this Worker carries.
+ *
+ * The same shape as the plan-expiry refresh above, and for the same reason:
+ * one extra read that is an integer comparison on every request, one write on
+ * the first request after a deploy that added a migration, and nothing at all
+ * on all the others.
+ *
+ * It is here rather than in a background job because it must finish *before*
+ * the handler reads the database. A route that ran against a schema one
+ * migration behind would not fail loudly - it would read a renamed column as
+ * absent, which is the quiet kind of wrong.
+ *
+ * ## Why this exists at all
+ *
+ * `provisionUserDatabase` was the only caller of `applyMigrations`, so
+ * migrations ran exactly once per account: at signup. Everything written
+ * afterwards reached new users and nobody else. That was survivable while
+ * migrations only added columns nothing read yet, and stopped being survivable
+ * when they started *renaming* things - 0010 and 0012 move activities onto
+ * their addons' keys, and a user who never receives them is a user whose
+ * guided sessions quietly stop opening.
+ *
+ * ## When it fails
+ *
+ * The request continues. `applyMigrations` records what it applied in the
+ * user's own `_migrations` table and skips it next time, so a half-finished
+ * run is resumed rather than repeated - and refusing to serve a user because
+ * one statement failed would turn a stale column into an outage. The version
+ * is written only after the whole run succeeds, so a failure means the next
+ * request tries again.
+ */
+async function catchUpSchema(
+  c: Context<App>,
+  userId: string,
+  user: { databaseName: string; schemaVersion: number },
+): Promise<void> {
+  if (user.schemaVersion >= USER_MIGRATIONS.length) return;
+
+  try {
+    await applyMigrations(
+      userCredentials(c.get("env"), user.databaseName),
+      USER_MIGRATIONS,
+    );
+    await c.get("directory").user.update({
+      where: { id: userId },
+      data: { schemaVersion: USER_MIGRATIONS.length },
+    });
+  } catch (error) {
+    console.error("schema catch-up", userId, error);
+  }
+}
 
 /**
  * Enforce a plan capability.

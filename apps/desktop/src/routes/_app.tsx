@@ -52,11 +52,11 @@ import { TrialPill } from "../modules/trial-pill";
  */
 const NAV = [
   { key: "activities", label: "Activities", to: "/activities" },
-  { key: "calendars", label: "Calendars", to: "/calendars" },
   // The packages, not the cards they contribute - see `_app.addons`. Above
   // Settings because it is a place things are added, and below the two that
   // are the routine itself.
   { key: "addons", label: "Addons", to: "/addons" },
+  { key: "calendars", label: "Calendars", to: "/calendars" },
   { key: "settings", label: "Settings", to: "/settings" },
 ] as const;
 

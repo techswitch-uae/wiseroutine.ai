@@ -2,6 +2,7 @@ import {
   createDirectory,
   createUserDatabase,
   type Directory,
+  USER_MIGRATIONS,
   type UserDatabase,
 } from "@wiseroutine/db";
 import { generateToken } from "./crypto";
@@ -34,6 +35,14 @@ export async function seedUser(
     plan: "free" | "pro";
     timeZone: string;
     storeEventTitles: boolean;
+    /**
+     * How far through the migrations this user's database claims to be.
+     *
+     * Level with the running Worker by default, because the local database is
+     * migrated once by the harness and re-running the set on every request
+     * would only be slow. Pass 0 to test the catch-up itself.
+     */
+    schemaVersion: number;
   }> = {},
 ): Promise<TestUser> {
   const dir = directory();
@@ -53,6 +62,7 @@ export async function seedUser(
       // The local server has one database that already exists, so a test user
       // is ready immediately.
       databaseReady: true,
+      schemaVersion: overrides.schemaVersion ?? USER_MIGRATIONS.length,
       createdAt: new Date(now),
       updatedAt: new Date(now),
     },
@@ -155,6 +165,14 @@ export async function seedActivity(
     isActive: boolean;
     /** The addon that owns it. Null, as almost everything is, unless said. */
     ownerAddonId: string;
+    /**
+     * The activity type that runs it, as `addonId/typeKey`.
+     *
+     * The other, and far more common, way an activity depends on an addon: it
+     * was created by the *user* from an addon's activity type, so nothing owns
+     * it and the key is the only link.
+     */
+    presetKey: string;
   }> = {},
 ): Promise<string> {
   const db = userDb();
@@ -172,6 +190,9 @@ export async function seedActivity(
       daysOfWeek: overrides.daysOfWeek ?? 0b1111111,
       ...(overrides.ownerAddonId !== undefined
         ? { ownerAddonId: overrides.ownerAddonId }
+        : {}),
+      ...(overrides.presetKey !== undefined
+        ? { presetKey: overrides.presetKey }
         : {}),
       createdAt: new Date(),
     },

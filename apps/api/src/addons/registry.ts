@@ -1,3 +1,7 @@
+import breathing from "@wiseroutine/addon-breathing/manifest";
+import deepWork from "@wiseroutine/addon-deep-work/manifest";
+import eyeRest from "@wiseroutine/addon-eye-rest/manifest";
+import stretch from "@wiseroutine/addon-stretch/manifest";
 import { type AddonManifest, parseManifest } from "@wiseroutine/addons";
 
 /**
@@ -12,11 +16,25 @@ import { type AddonManifest, parseManifest } from "@wiseroutine/addons";
  * with the release key and publishes both the bundle and an updated index.
  *
  * So this file is the *shape* of the index rather than its permanent home.
- * Today it is a constant, because there is one addon and it is ours. When CI
- * starts publishing, this becomes a read of what it published, and the entries
- * stop being written by hand. Nothing downstream changes: an entry is an entry.
+ * Today it is a constant, because the four addons on it are ours and ship
+ * inside the app. When CI starts publishing, this gains a read of what it
+ * published, and those entries stop being written by hand. Nothing downstream
+ * changes: an entry is an entry.
  *
- * ## Why the server owns it at all
+ * ## Why the manifests are imported rather than restated
+ *
+ * The Worker cannot read the repository at runtime, so the obvious thing is to
+ * copy each manifest into a constant here. The obvious thing is wrong: the
+ * manifest a user approves at install has to be the manifest the addon
+ * actually ships with, and two copies of a permission list are two lists that
+ * eventually disagree - at which point the install screen is describing a
+ * different program from the one that runs.
+ *
+ * So each addon package exports its own `manifest.json` and this imports it.
+ * The bundler inlines it, so the Worker still carries no filesystem read, and
+ * there is exactly one copy of every permission list in the repository.
+ *
+ * ## Why the server owns the list at all
  *
  * The bundle could be fetched straight from wherever CI put it, and then there
  * would be no revoking it. An addon that turns out to be malicious after it was
@@ -28,7 +46,8 @@ import { type AddonManifest, parseManifest } from "@wiseroutine/addons";
 export interface RegistryEntry {
   id: string;
   version: string;
-  /** Where the bundle is. Relative today; a CDN URL once CI publishes. */
+  /** Where the bundle is. Relative for a bundled one; a CDN URL once CI
+   *  publishes a community addon. */
   bundleUrl: string;
   /** sha256 of the bundle, as published. Empty until CI signs. */
   bundleHash: string;
@@ -44,76 +63,75 @@ export interface RegistryEntry {
   revoked?: boolean;
   /** Shown on the addon's card. Who to blame, and who to thank. */
   author: string;
+  /**
+   * Ships inside the app rather than being downloaded.
+   *
+   * The difference the *user* sees is Install against a switch. A bundled
+   * addon is already on the machine - its bundle is in the app's own static
+   * directory, put there by its build - so there is nothing to fetch and
+   * nothing to verify, and offering to "install" something already sitting on
+   * disk is a button describing the implementation rather than the choice. It
+   * is switched on and off instead, and `bundledEntries` is what the install
+   * of record is seeded from the first time the list is read.
+   *
+   * A community addon keeps Install and Remove, because for it those words are
+   * true: bytes arrive, a signature is checked, and removing it takes them off
+   * the machine again.
+   *
+   * What is *not* different: the permissions, the sandbox, the capability
+   * checks, the manifest parsing, the uninstall rule. A bundled addon travels
+   * exactly the same path, which is the only way to know that path works - a
+   * route only strangers' code takes is a route nobody maintains.
+   */
+  bundled?: boolean;
 }
 
 /**
- * The app's own breathing pacer, listed like anything else.
+ * The app's own four.
  *
- * Deliberately not special-cased. It is installed, removed and re-installed
- * through exactly the path a community addon takes, which is the only way to
- * know that path works - a route only strangers' code travels is a route
- * nobody maintains.
+ * Every guided session Wise Routine ships is an addon, and there is no
+ * built-in activity type left. That is deliberate: the extension point is the
+ * only point, so it cannot rot behind a shortcut only the app is allowed to
+ * take. When somebody outside this repo writes their first one, the code path
+ * it runs on has been in production for months.
  */
-const BREATHING = {
-  id: "wiseroutine.breathing",
-  name: "Breathing",
-  version: "1.0.0",
-  description:
-    "A circle paces your breathing for the whole slot - box, 4-7-8 or coherent.",
-  capabilities: [{ kind: "ui:session" }],
-  activityTypes: [
-    {
-      key: "pacer",
-      name: "Breathing",
-      blurb:
-        "a circle paces your breathing for the whole slot - box, 4-7-8 or coherent",
-      defaults: { sessionMinutes: 3, startPolicy: "manual" },
-      ground: "dim",
-      settings: [
-        {
-          key: "pattern",
-          label: "Pattern",
-          type: "select",
-          default: "box 4-4-4-4",
-          options: ["box 4-4-4-4", "4-7-8", "coherent 5-5"],
-        },
-      ],
-    },
-  ],
-};
+const BUNDLED: readonly unknown[] = [breathing, eyeRest, stretch, deepWork];
 
 /**
  * Every entry, validated the same way the client will validate it.
  *
- * `parseManifest` runs here rather than being trusted: this file is edited by
- * hand today and generated by CI tomorrow, and a manifest that does not parse
- * would be an addon the client silently refuses to install with no clue why.
- * Better that the server refuses to list it.
+ * `parseManifest` runs here rather than being trusted. A manifest that does not
+ * parse would otherwise be an addon the client silently refuses to install with
+ * no clue why; better that the server refuses to list it. It also means the
+ * `unknown` above is not a shrug - a JSON import is a shape nobody checked, and
+ * this is where it becomes an `AddonManifest`.
  */
 export function registry(): RegistryEntry[] {
-  const entries: { raw: unknown; entry: Omit<RegistryEntry, "manifest"> }[] = [
-    {
-      raw: BREATHING,
-      entry: {
-        id: "wiseroutine.breathing",
-        version: "1.0.0",
-        // Bundled with the app rather than downloaded, so a relative path.
-        // A community addon's is an absolute URL and nothing else differs.
-        bundleUrl: "/addons/wiseroutine.breathing/addon.js",
-        bundleHash: "",
-        author: "Wise Routine",
-      },
-    },
-  ];
-
   const listed: RegistryEntry[] = [];
-  for (const { raw, entry } of entries) {
+
+  for (const raw of BUNDLED) {
     const manifest = parseManifest(raw);
-    if (!manifest || manifest.id !== entry.id) continue;
-    listed.push({ ...entry, manifest });
+    if (!manifest) continue;
+    listed.push({
+      id: manifest.id,
+      version: manifest.version,
+      // The id, not a path written beside it. The desktop app stores a bundle
+      // under the addon's id and serves it from there, so deriving the URL is
+      // what stops the two from ever disagreeing.
+      bundleUrl: `/addons/${manifest.id}/addon.js`,
+      bundleHash: "",
+      author: "Wise Routine",
+      bundled: true,
+      manifest,
+    });
   }
+
   return listed;
 }
 
 export const entryFor = (id: string): RegistryEntry | undefined =>
   registry().find((entry) => entry.id === id);
+
+/** The ones that ship with the app, and so are switched rather than installed. */
+export const bundledEntries = (): RegistryEntry[] =>
+  registry().filter((entry) => entry.bundled && !entry.revoked);

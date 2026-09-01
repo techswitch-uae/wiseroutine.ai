@@ -1298,6 +1298,7 @@ export const UserScalarFieldEnum = {
   storeEventTitles: 'storeEventTitles',
   databaseName: 'databaseName',
   databaseReady: 'databaseReady',
+  schemaVersion: 'schemaVersion',
   lastSeenAt: 'lastSeenAt',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt',

@@ -1,11 +1,12 @@
 import {
   type AddonActivityType,
+  canvasFor,
   defaultConfig,
   ownerOf,
   parseConfig,
   qualify,
 } from "@wiseroutine/addons";
-import { SelectField } from "@wiseroutine/design";
+import { Field, SelectField } from "@wiseroutine/design";
 import type { ActivityModule } from "../modules/activities";
 import { SessionFrame } from "../modules/activities/session-chrome";
 import { useEndsAt } from "../modules/activities/session-clock";
@@ -49,23 +50,24 @@ import { type InstalledAddon, installedAddons } from "./installed";
 /**
  * The canvas an addon gets inside a session.
  *
- * Fixed, and the same for every addon. An iframe has no intrinsic height, so
- * something has to say - and letting the addon say would let it grow until it
- * covered the Done button. Sized to the app's own breathing pacer, which is
- * the widest thing a session has needed.
+ * Asked for by the manifest and clamped by `canvasFor`, rather than fixed for
+ * everyone. One size for all of them meant a breathing circle and a four-line
+ * stretch instruction got the same square; the clamp is what stops the other
+ * extreme, because an addon that could size its own frame could grow it until
+ * it covered the Done button - the one control a session must never be able
+ * to take away.
+ *
+ * `flexShrink: 0` is not decoration. `SessionFrame` is a flex column and a
+ * flex item shrinks by default, so on a short window the frame was squeezed
+ * from 400 to 255 and the addon's lower half was cut off with nothing to say
+ * so. An iframe has no intrinsic height to fall back on, so the shrink has to
+ * be refused rather than negotiated.
  */
-const CANVAS = {
-  width: 360,
-  height: 400,
-  /**
-   * `SessionFrame` is a flex column, and a flex item shrinks by default. On a
-   * short window the frame was squeezed from 400 to 255 and the addon's lower
-   * half - its progress bar and its "3 min left" - was simply cut off, with
-   * nothing to say so. An iframe has no intrinsic height to fall back on, so
-   * the shrink has to be refused rather than negotiated.
-   */
+const canvasStyle = (type: AddonActivityType): React.CSSProperties => ({
+  ...canvasFor(type),
+  maxWidth: "100%",
   flexShrink: 0,
-} as const;
+});
 
 function sessionFor(
   addon: InstalledAddon,
@@ -83,7 +85,11 @@ function sessionFor(
     return (
       <SessionFrame
         dim={type.ground === "dim"}
-        title={type.name}
+        // The activity's name, not the activity type's. Someone who called
+        // their focus block "Thesis" is looking at a session about the thesis,
+        // and being told it is "Deep work" is being told something they
+        // already decided not to call it.
+        title={slot.title || type.name}
         doneLabel="Done early"
         onDone={onDone}
         onSkip={onSkip}
@@ -105,7 +111,7 @@ function sessionFor(
               },
               config,
             }}
-            style={CANVAS}
+            style={canvasStyle(type)}
           />
         }
       />
@@ -136,10 +142,69 @@ function configFormFor(
                   }
                 />
               );
-            // ponytail: `number` and `text` are in the published schema and
-            // have no field drawn for them yet, because no addon declares one.
-            // A field the host cannot draw is skipped rather than guessed at -
-            // the stored value keeps its default and nothing lies about it.
+            /**
+             * Both drawn with the app's own `Field`, which is an `<input>`
+             * with the app's label and pill. No new component for either:
+             * `number` is that input with `type="number"`, and inventing a
+             * `NumberField` beside it would be a second thing to keep in step
+             * with the first for no reader's benefit.
+             */
+            case "number":
+              return (
+                <Field
+                  key={field.key}
+                  type="number"
+                  label={field.label}
+                  value={String(current)}
+                  {...(field.min !== undefined ? { min: field.min } : {})}
+                  {...(field.max !== undefined ? { max: field.max } : {})}
+                  onChange={(event) => {
+                    /**
+                     * Clamped on the way in, not only on the way out.
+                     *
+                     * The input's own `min` and `max` guard the arrows and
+                     * nothing else - a typed 999 sails past them. Stored as
+                     * typed, `parseConfig` would reject it on the next read
+                     * and fall back to the default, so the field would appear
+                     * to forget what was put into it. An empty field is not a
+                     * number at all and holds the default rather than storing
+                     * NaN, which the same fallback would silently erase.
+                     */
+                    const typed = Number(event.target.value);
+                    const next = Number.isFinite(typed) ? typed : field.default;
+                    onChange({
+                      ...config,
+                      [field.key]: Math.min(
+                        field.max ?? Number.POSITIVE_INFINITY,
+                        Math.max(field.min ?? Number.NEGATIVE_INFINITY, next),
+                      ),
+                    });
+                  }}
+                />
+              );
+            case "text":
+              return (
+                <Field
+                  key={field.key}
+                  label={field.label}
+                  value={String(current)}
+                  {...(field.placeholder
+                    ? { placeholder: field.placeholder }
+                    : {})}
+                  onChange={(event) =>
+                    onChange({
+                      ...config,
+                      // Truncated rather than refused. Someone pasting a long
+                      // URL should find the field stops taking characters,
+                      // not lose the paste with no explanation.
+                      [field.key]: event.target.value.slice(
+                        0,
+                        field.maxLength ?? 500,
+                      ),
+                    })
+                  }
+                />
+              );
             default:
               return null;
           }

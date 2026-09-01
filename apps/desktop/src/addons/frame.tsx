@@ -57,9 +57,11 @@ import { frameUrlFor } from "./installed";
  * just put there, and the frame has nothing worth stealing.
  */
 function documentFor(manifest: AddonManifest, bundle: string): string {
-  const origins = manifest.capabilities
-    .filter((c) => c.kind === "net:fetch")
-    .flatMap((c) => (c.kind === "net:fetch" ? c.origins : []));
+  const origins = (kind: "net:fetch" | "ui:embed"): string =>
+    manifest.capabilities
+      .filter((c) => c.kind === kind)
+      .flatMap((c) => ("origins" in c ? c.origins : []))
+      .join(" ") || "'none'";
 
   const csp = [
     "default-src 'none'",
@@ -67,7 +69,12 @@ function documentFor(manifest: AddonManifest, bundle: string): string {
     "style-src 'unsafe-inline'",
     "img-src data: blob:",
     "font-src data:",
-    `connect-src ${origins.length > 0 ? origins.join(" ") : "'none'"}`,
+    `connect-src ${origins("net:fetch")}`,
+    // What the addon may put in a frame of its own - a player, a map. A
+    // separate list from `connect-src` because it is a separate risk: one is
+    // data the addon reads, the other is somebody else's document drawing
+    // pixels the user will read as part of the app.
+    `frame-src ${origins("ui:embed")}`,
     "form-action 'none'",
     "base-uri 'none'",
   ].join("; ");

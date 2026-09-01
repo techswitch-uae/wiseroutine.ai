@@ -128,13 +128,19 @@ pub fn install_addon<R: Runtime>(
   Ok(())
 }
 
-/// The origins an addon declared, as a `connect-src` value.
+/// The origins an addon declared for one capability, as a CSP source list.
 ///
 /// Read from the manifest rather than passed in, so the policy cannot be
 /// widened by whatever asked for the frame. An addon that declared nothing
 /// gets `'none'`, which is most of them and is the right default: a pacer that
 /// draws a circle has no business making requests.
-fn connect_src(manifest: &str) -> String {
+///
+/// `kind` is `net:fetch` for `connect-src` and `ui:embed` for `frame-src`.
+/// One function rather than two because the parsing and the origin filtering
+/// are the same work, and the filtering is the half that must not diverge -
+/// two copies of a rule about what may go in a header are two chances to get
+/// one of them wrong.
+fn origins_for(manifest: &str, kind: &str) -> String {
   let parsed: serde_json::Value = match serde_json::from_str(manifest) {
     Ok(value) => value,
     Err(_) => return "'none'".to_string(),
@@ -147,7 +153,7 @@ fn connect_src(manifest: &str) -> String {
       capabilities
         .iter()
         .filter(|capability| {
-          capability.get("kind").and_then(|k| k.as_str()) == Some("net:fetch")
+          capability.get("kind").and_then(|k| k.as_str()) == Some(kind)
         })
         .filter_map(|capability| capability.get("origins")?.as_array())
         .flatten()
@@ -180,10 +186,10 @@ fn connect_src(manifest: &str) -> String {
 /// governs one document, whose only script is the bundle put there on the line
 /// below, in a frame with an opaque origin and nothing worth taking. The point
 /// of serving it from here is precisely that this policy is *not* the app's.
-fn document(bundle: &str, connect: &str) -> (String, String) {
+fn document(bundle: &str, connect: &str, frame: &str) -> (String, String) {
   let csp = format!(
     "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; \
-     img-src data: blob:; font-src data:; connect-src {connect}; \
+     img-src data: blob:; font-src data:; connect-src {connect}; frame-src {frame}; \
      form-action 'none'; base-uri 'none'; frame-ancestors *"
   );
 
@@ -244,7 +250,11 @@ pub fn serve<R: Runtime>(
     return not_found("that addon is not installed");
   };
 
-  let (html, csp) = document(&bundle, &connect_src(&manifest));
+  let (html, csp) = document(
+    &bundle,
+    &origins_for(&manifest, "net:fetch"),
+    &origins_for(&manifest, "ui:embed"),
+  );
 
   http::Response::builder()
     .status(http::StatusCode::OK)
@@ -260,6 +270,19 @@ pub fn serve<R: Runtime>(
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn embed_and_fetch_origins_do_not_leak_into_each_other() {
+    let manifest = r#"{"capabilities":[
+      {"kind":"net:fetch","origins":["https://api.acme.example"]},
+      {"kind":"ui:embed","origins":["https://player.acme.example"]}
+    ]}"#;
+    assert_eq!(origins_for(manifest, "net:fetch"), "https://api.acme.example");
+    assert_eq!(origins_for(manifest, "ui:embed"), "https://player.acme.example");
+    // Nothing declared for a kind is 'none', not "everything the other kind
+    // declared" and not the empty string, which a browser reads as allow-all.
+    assert_eq!(origins_for(manifest, "open:external"), "'none'");
+  }
 
   #[test]
   fn accepts_the_ids_the_manifest_format_allows() {
@@ -292,10 +315,10 @@ mod tests {
 
   #[test]
   fn an_addon_that_declared_nothing_may_reach_nothing() {
-    assert_eq!(connect_src(r#"{"capabilities":[]}"#), "'none'");
-    assert_eq!(connect_src("not json"), "'none'");
+    assert_eq!(origins_for(r#"{"capabilities":[]}"#, "net:fetch"), "'none'");
+    assert_eq!(origins_for("not json", "net:fetch"), "'none'");
     assert_eq!(
-      connect_src(r#"{"capabilities":[{"kind":"ui:session"}]}"#),
+      origins_for(r#"{"capabilities":[{"kind":"ui:session"}]}"#, "net:fetch"),
       "'none'"
     );
   }
@@ -305,7 +328,7 @@ mod tests {
     let manifest = r#"{"capabilities":[
       {"kind":"net:fetch","origins":["https://api.acme.example"]}
     ]}"#;
-    assert_eq!(connect_src(manifest), "https://api.acme.example");
+    assert_eq!(origins_for(manifest, "net:fetch"), "https://api.acme.example");
   }
 
   /// A wildcard is a request for the whole web wearing a specific coat, and a
@@ -319,20 +342,23 @@ mod tests {
       "https://a.example; script-src *",
       "https://b.example c.example"
     ]}]}"#;
-    assert_eq!(connect_src(manifest), "'none'");
+    assert_eq!(origins_for(manifest, "net:fetch"), "'none'");
   }
 
   #[test]
   fn a_bundle_cannot_close_its_own_script_element() {
-    let (html, _) = document("</script><img onerror=alert(1)>", "'none'");
+    let (html, _) = document("</script><img onerror=alert(1)>", "'none'", "'none'");
     assert!(!html.contains("</script><img"));
     assert!(html.contains("<\\/script>"));
   }
 
   #[test]
   fn the_policy_names_the_addons_own_origins_and_nothing_else() {
-    let (_, csp) = document("", "https://api.acme.example");
+    let (_, csp) = document("", "https://api.acme.example", "https://open.spotify.com");
     assert!(csp.contains("default-src 'none'"));
     assert!(csp.contains("connect-src https://api.acme.example"));
+    // A separate list from connect-src, and separately defaulted to 'none'.
+    // An addon that may talk to an API must not thereby be able to frame it.
+    assert!(csp.contains("frame-src https://open.spotify.com"));
   }
 }

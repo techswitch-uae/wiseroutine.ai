@@ -1,0 +1,27 @@
+{
+  "id": "wiseroutine.eye-rest",
+  "name": "Eye rest",
+  "version": "1.0.0",
+  "description": "The screen dims and your eyes are asked to find something far away.",
+  "capabilities": [{ "kind": "ui:session" }],
+  "activityTypes": [
+    {
+      "key": "look-away",
+      "name": "Eye rest",
+      "blurb": "the screen dims for the whole slot and asks your eyes to find something far away",
+      "defaults": { "sessionMinutes": 5, "startPolicy": "auto" },
+      "ground": "dim",
+      "canvas": { "width": 420, "height": 220 },
+      "settings": [
+        {
+          "key": "metres",
+          "label": "How far to look, in metres",
+          "type": "number",
+          "default": 6,
+          "min": 1,
+          "max": 50
+        }
+      ]
+    }
+  ]
+}

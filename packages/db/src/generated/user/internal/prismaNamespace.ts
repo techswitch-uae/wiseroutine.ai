@@ -1608,6 +1608,7 @@ export const ActivityScalarFieldEnum = {
   writeToCalendar: 'writeToCalendar',
   writeTargetConnectionId: 'writeTargetConnectionId',
   ownerAddonId: 'ownerAddonId',
+  pausedByAddonAt: 'pausedByAddonAt',
   createdAt: 'createdAt',
   archivedAt: 'archivedAt'
 } as const

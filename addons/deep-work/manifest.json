@@ -1,0 +1,30 @@
+{
+  "id": "wiseroutine.deep-work",
+  "name": "Deep work",
+  "version": "1.0.0",
+  "description": "The block takes over the screen with a countdown, and your music if you have set a link.",
+  "capabilities": [
+    { "kind": "ui:session" },
+    { "kind": "ui:embed", "origins": ["https://open.spotify.com"] },
+    { "kind": "open:external", "origins": ["https://open.spotify.com"] }
+  ],
+  "activityTypes": [
+    {
+      "key": "focus",
+      "name": "Deep work",
+      "blurb": "the block takes over the screen with a countdown, and your music if you have set a link",
+      "defaults": { "sessionMinutes": 25, "startPolicy": "manual" },
+      "canvas": { "width": 460, "height": 430 },
+      "settings": [
+        {
+          "key": "musicUrl",
+          "label": "Music to work to (optional)",
+          "type": "text",
+          "default": "",
+          "maxLength": 300,
+          "placeholder": "https://open.spotify.com/playlist/…"
+        }
+      ]
+    }
+  ]
+}

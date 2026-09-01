@@ -1,5 +1,6 @@
 import { isGrantable } from "@wiseroutine/addons";
 import {
+  addonImpact,
   archiveActivity,
   cancelWork,
   connectedSince,
@@ -20,9 +21,11 @@ import {
   listSlotEvents,
   listSlotsForRange,
   moveSlot,
+  pauseDependents,
   placeSlot,
   progressForRange,
   removeAddon,
+  resumeDependents,
   scheduledForRange,
   scheduleWork,
   setActivityActive,
@@ -55,7 +58,7 @@ import {
 } from "@wiseroutine/scheduler";
 import { Hono, type MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { entryFor, registry } from "../addons/registry";
+import { bundledEntries, entryFor, registry } from "../addons/registry";
 import {
   type App,
   type Ctx,
@@ -232,6 +235,8 @@ app.get("/addons/available", (c) =>
  * was still on their disk.
  */
 app.get("/addons", async (c) => {
+  await ensureBundled(c);
+
   const installed = await listAddons(c.get("db"));
   return c.json({
     addons: installed.map((row) => ({
@@ -242,8 +247,76 @@ app.get("/addons", async (c) => {
       granted: JSON.parse(row.grantedJson) as unknown,
       manifest: JSON.parse(row.manifestJson) as unknown,
       revoked: entryFor(row.id)?.revoked === true,
+      bundled: entryFor(row.id)?.bundled === true,
     })),
   });
+});
+
+/**
+ * Record the addons that ship inside the app as installed, once.
+ *
+ * The bundle is already on the machine - its build wrote it into the app's
+ * static directory - so there is nothing to fetch and nothing to verify, and
+ * asking somebody to press Install on a file already sitting on their disk is
+ * a button describing the implementation rather than a choice. What the
+ * install row *is* still needed for is everything else: the grant the host
+ * checks against, the enabled flag, the version. So it is written here, and
+ * the user only ever sees a switch.
+ *
+ * Runs on the read rather than at signup, and that is the point: an addon
+ * added in a later release reaches an account created before it. Every write
+ * is an upsert that preserves `isEnabled`, so this cannot switch back on
+ * something the user switched off, and it costs one query on a list that is
+ * read when the Addons page opens and when the app starts.
+ *
+ * `removeAddon` is refused for these - see the DELETE route - because a remove
+ * that re-appeared on the next read would be a button that does nothing.
+ */
+async function ensureBundled(c: Ctx): Promise<void> {
+  const installed = await listAddons(c.get("db"));
+  const known = new Map(installed.map((row) => [row.id, row.version]));
+
+  for (const entry of bundledEntries()) {
+    // Present and current: nothing to do. An upsert would be harmless and this
+    // is the common case, run on every read of the list.
+    if (known.get(entry.id) === entry.version) continue;
+
+    // The same `isGrantable` gate the install route applies. A bundled addon
+    // is ours and is still not trusted to name its own permissions - the day
+    // one of these asks for something policy refuses, it must fail here rather
+    // than be waved through for being ours.
+    if (entry.manifest.capabilities.some((cap) => !isGrantable(cap).ok)) {
+      continue;
+    }
+
+    await installAddon(
+      c.get("db"),
+      {
+        id: entry.id,
+        version: entry.version,
+        manifestJson: JSON.stringify(entry.manifest),
+        grantedJson: JSON.stringify(entry.manifest.capabilities),
+        bundleHash: entry.bundleHash,
+      },
+      c.get("now"),
+    );
+  }
+}
+
+/**
+ * What switching this addon off would cost.
+ *
+ * Asked before the switch is thrown, so the confirmation can name the
+ * activities rather than a number. This is the piece that makes the Addons
+ * page and the Activities page one system instead of two: an activity whose
+ * session comes from an addon stops working when that addon does, and the only
+ * honest moment to say so is before it happens.
+ */
+app.get("/addons/:id/impact", async (c) => {
+  const existing = await getAddon(c.get("db"), c.req.param("id"));
+  if (!existing) throw new HTTPException(404, { message: "Not installed" });
+
+  return c.json(await addonImpact(c.get("db"), existing.id, c.get("now")));
 });
 
 /**
@@ -292,7 +365,25 @@ app.post("/addons/:id/install", async (c) => {
   return c.json({ id: row.id, version: row.version }, 201);
 });
 
-/** Switched off, still installed. Its settings and its activities stay. */
+/**
+ * Switched off, or back on.
+ *
+ * Off is not merely a flag. An activity whose guided session comes from this
+ * addon stops working the moment the addon does - the slot would still be
+ * placed on the day, and pressing Start on it would open nothing - so
+ * switching off takes those activities off the day too, by the same rule
+ * removing does: **take the future, leave the past.** The client asks
+ * `/impact` first and confirms, so this is never a surprise.
+ *
+ * On restores exactly what off took, and only that. `pausedByAddonAt` is what
+ * separates an activity this switch paused from one the user paused
+ * themselves; without it, "off" would be a one-way door wearing a toggle's
+ * clothes, and re-enabling would switch on things the user had deliberately
+ * switched off.
+ *
+ * The counts come back so the client can say what happened rather than
+ * silently changing the user's day.
+ */
 app.patch("/addons/:id", async (c) => {
   const body = await c.req
     .json<{ isEnabled?: boolean }>()
@@ -304,14 +395,46 @@ app.patch("/addons/:id", async (c) => {
   const existing = await getAddon(c.get("db"), c.req.param("id"));
   if (!existing) throw new HTTPException(404, { message: "Not installed" });
 
+  // The flag first. If the pausing below fails halfway, the addon is off and
+  // some of its activities are still on - which is visible and fixable by
+  // switching it off again. The other order leaves activities paused by an
+  // addon that is still switched on, which nothing would ever undo.
   await setAddonEnabled(c.get("db"), existing.id, body.isEnabled);
-  return c.body(null, 204);
+
+  if (body.isEnabled) {
+    const { resumed } = await resumeDependents(c.get("db"), existing.id);
+    return c.json({ paused: 0, cancelled: 0, resumed });
+  }
+
+  const result = await pauseDependents(
+    c.get("db"),
+    existing.id,
+    c.get("now"),
+    newId,
+  );
+  return c.json({ ...result, resumed: 0 });
 });
 
-/** Take the future it claimed, leave the past. See `removeAddon`. */
+/**
+ * Take the future it claimed, leave the past. See `removeAddon`.
+ *
+ * Refused for an addon that ships inside the app. Its bundle is part of the
+ * app and cannot be deleted from it, so `ensureBundled` would record it again
+ * on the very next read of the list - a Remove button whose effect lasts until
+ * the page reloads is worse than no Remove button. Those are switched off
+ * instead, which does everything a user wants from removing one: the
+ * activities come off the day, the sessions stop running, and nothing of
+ * theirs is on the screen.
+ */
 app.delete("/addons/:id", async (c) => {
   const existing = await getAddon(c.get("db"), c.req.param("id"));
   if (!existing) throw new HTTPException(404, { message: "Not installed" });
+
+  if (entryFor(existing.id)?.bundled) {
+    throw new HTTPException(400, {
+      message: "This addon ships with the app. Switch it off instead.",
+    });
+  }
 
   const result = await removeAddon(
     c.get("db"),

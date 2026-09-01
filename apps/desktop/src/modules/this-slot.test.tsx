@@ -1,6 +1,8 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { testAddon } from "../addons/fixtures";
+import { seedAddons } from "../addons/installed";
 import type { TodayResponse, TodaySlot } from "../lib/api";
 import { pick } from "../lib/picked";
 import { publishMove, publishPlan, publishStart } from "../lib/plan-store";
@@ -39,6 +41,9 @@ const AT = Date.UTC(2026, 7, 11, 9, 0);
  */
 beforeEach(() => {
   vi.useFakeTimers({ now: AT + 60_000, shouldAdvanceTime: true });
+  // Guided sessions are addons, so the rail has nothing to say about one
+  // unless it is installed. The fixture stands in for all four of ours.
+  seedAddons([testAddon()]);
 });
 
 vi.mock("../lib/api", async (importOriginal) => ({
@@ -56,14 +61,14 @@ vi.mock("../lib/notify", async (importOriginal) => ({
 
 const slot = (over: Partial<TodaySlot> = {}): TodaySlot => ({
   id: "s1",
-  title: "Eye rest",
+  title: "Workout",
   kind: "recovery",
   startsAt: AT,
   endsAt: AT + 5 * 60_000,
   status: "planned",
   isLocked: false,
   conflictEventId: null,
-  presetKey: "eye_rest",
+  presetKey: "acme.fitness/workout",
   ...over,
 });
 
@@ -104,7 +109,7 @@ test("nothing is picked, so there is nothing to say", () => {
 
 test("names the block, when it is, and how long it runs", () => {
   show(day());
-  expect(screen.getByText("Eye rest")).toBeTruthy();
+  expect(screen.getByText("Workout")).toBeTruthy();
   expect(screen.getByText(/09:00–09:05/)).toBeTruthy();
   expect(screen.getByText(/· 5 min$/)).toBeTruthy();
 });
@@ -189,8 +194,26 @@ test("nothing is offered for a block that is already over", () => {
 });
 
 test("says what a session is going to do before it is started", () => {
+  // The blurb comes from the addon's manifest, so this is also the check that
+  // the rail reads an addon's own words rather than a table of its own.
   show(day());
-  expect(screen.getByText(/the screen dims/)).toBeTruthy();
+  expect(screen.getByText(/counts you through the set/)).toBeTruthy();
+});
+
+/**
+ * An addon switched off leaves a plain timed block, not a broken one.
+ *
+ * The activity keeps its `presetKey`, so the row still names an addon - the
+ * addon is simply not there to answer. The rail must then offer exactly what
+ * it offers any block with no session: Start, and Mark it done. This is the
+ * user-visible half of the rule the whole boundary rests on.
+ */
+test("a block whose addon is switched off is still a block", () => {
+  seedAddons([]);
+  show(day());
+  expect(screen.queryByText(/counts you through the set/)).toBeNull();
+  expect(screen.getByRole("button", { name: "Start" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Mark it done" })).toBeTruthy();
 });
 
 // Someone else's block. We never write back to the calendar it came from, so
@@ -352,7 +375,7 @@ test("collapses when the selection is cleared from outside", () => {
     pick(null);
   });
   // Still mounted, and on its way out.
-  expect(screen.getByText("Eye rest")).toBeTruthy();
+  expect(screen.getByText("Workout")).toBeTruthy();
 
   act(() => {
     vi.advanceTimersByTime(400);

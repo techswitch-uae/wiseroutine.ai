@@ -88,7 +88,7 @@ export async function provisionUserDatabase(
   // first thing anyone saw was a set-up step already impossible to satisfy.
   // The library is a palette now: it lives in the design kit as
   // `ACTIVITY_LIBRARY` and creates nothing until the user picks from it.
-  await markDatabaseReady(directory, params.userId);
+  await markDatabaseReady(directory, params.userId, USER_MIGRATIONS.length);
 
   return { credentials, applied };
 }

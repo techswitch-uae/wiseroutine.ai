@@ -1,36 +1,36 @@
-import { addonModuleFor } from "../../addons/activity-type";
+import { addonModuleFor, addonModules } from "../../addons/activity-type";
 import type { TodaySlot } from "../../lib/api";
-import { deepWork } from "./deep-work";
-import { eyeRest } from "./eye-rest";
-import { stretch } from "./stretch";
 
 /**
  * What an activity does when its slot is running.
  *
- * A plain object keyed by string for the app's own, and a lookup into the
- * installed addons for everything else. That second half is the marketplace
- * this comment used to say there was room for, and it turned out to need
- * exactly one seam: `moduleFor`.
+ * Every one of them is an addon now, including the four Wise Routine ships.
+ * There is no built-in table left and no first-party shortcut into this
+ * lookup - `moduleFor` asks the installed addons and nothing else.
  *
- * The record stays because it is right for code that ships with the app - no
- * loader, no manifest, no version negotiation, nothing to secure, and a new
- * one is a file and a line. What changed is that it is no longer the only
- * source. An addon's activity type arrives as data, is parsed without being
- * executed, and is handed back here wearing this same interface, so nothing
- * that consults a module had to learn the difference.
+ * That is the whole point, and it cost four files to get: an extension point
+ * the app itself does not use is an extension point nobody maintains. The
+ * breathing pacer, the eye rest, the guided stretch and the deep work block
+ * are loaded from a registry, sandboxed in a frame with an opaque origin,
+ * hold exactly the capabilities their manifests declare, and are switched off
+ * by the same toggle a stranger's addon will be. When somebody outside this
+ * repo writes their first one, the path it takes has been in production for
+ * months.
  *
- * The app's own breathing pacer is now one of those addons. Deliberately: a
- * path only strangers' code takes is a path nobody maintains.
+ * `ActivityModule` survives as the *internal* shape a running session wears,
+ * which is why the rename left it alone: everything that consults a module -
+ * the session overlay, the activity sheet, the Start button's explanation, the
+ * library - goes on calling `moduleFor` and gets back this, so none of them
+ * ever learned that addons exist.
  *
  * Kept deliberately small. `Config` renders inside the existing activity form;
  * `Session` is the full-window takeover a running slot puts on screen. Both
  * are optional, because an activity with a module but no session - a walk,
  * say - is a real thing and should not have to supply an empty component.
  *
- * `config` is `unknown` on the way in and parsed by the module itself. The
- * server stores it as opaque JSON text and never looks inside, so the module
- * that wrote it is the only thing that knows its shape, and the only thing
- * that should.
+ * `config` is `unknown` on the way in and parsed against the addon's declared
+ * settings schema. The server stores it as opaque JSON text and never looks
+ * inside; the host reads it without executing a line of the addon.
  */
 
 export type StartPolicy = "manual" | "auto" | "prompt";
@@ -68,44 +68,43 @@ export interface ActivityModule<C = unknown> {
     config: C;
   };
   /** Turn whatever was stored into something this module can render. Must
-   *  never throw: a config written by an older version of the module is a
+   *  never throw: a config written by an older version of the addon is a
    *  thing that happens, and a crash in a session is worse than a default. */
   parse: (raw: unknown) => C;
   Config?: React.FC<ConfigProps<C>>;
   Session?: React.FC<SessionProps<C>>;
 }
 
-// Each module is typed against its own config; the registry is the one place
-// those types are erased, and the alternative is a generic parameter threaded
-// through every lookup site for no reader's benefit.
-// biome-ignore lint/suspicious/noExplicitAny: erased on purpose, see above
-export const MODULES: Record<string, ActivityModule<any>> = {
-  [eyeRest.key]: eyeRest,
-  [stretch.key]: stretch,
-  [deepWork.key]: deepWork,
-};
+/**
+ * Every activity type every enabled addon defines.
+ *
+ * Named `MODULES` no longer, because it is not a table anyone edits - it is a
+ * view over what is installed, and it changes when an addon is switched on or
+ * off. Callers that want one key should use `moduleFor`; this is for the two
+ * places that genuinely need the whole set, both of them galleries.
+ */
+export const allModules = (): Record<string, ActivityModule> => addonModules();
 
 /**
  * The module a slot runs under, or undefined for a plain timed slot.
  *
- * The app's own first, then the installed addons. Undefined for a key nobody
- * claims, which is a real and permanent state: an addon can be uninstalled
- * while the activities it created are still on the day, and those have to keep
- * running as plain timed slots rather than crashing.
+ * Undefined for a key nobody claims, which is a real and permanent state
+ * rather than an error: an addon can be switched off or removed while the
+ * activities it ran are still on the day, and those have to keep running as
+ * plain timed blocks. Everything downstream already draws nothing for a key it
+ * does not recognise, which is what makes an uninstall safe.
  */
 export const moduleFor = (
   presetKey: string | null | undefined,
-): ActivityModule | undefined => {
-  if (!presetKey) return undefined;
-  return MODULES[presetKey] ?? addonModuleFor(presetKey);
-};
+): ActivityModule | undefined =>
+  presetKey ? addonModuleFor(presetKey) : undefined;
 
 /**
  * The stored settings, as the module wants them.
  *
- * Parsing failures are settings, not errors: an activity configured by a
- * newer version of the app, or by hand, still has to run. Every module's
- * `parse` falls back to its own defaults rather than throwing.
+ * Parsing failures are settings, not errors: an activity configured by a newer
+ * version of an addon, or by hand, still has to run. Every `parse` falls back
+ * to the schema's own defaults rather than throwing.
  */
 export function configFor(
   /**

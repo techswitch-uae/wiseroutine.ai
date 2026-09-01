@@ -1,0 +1,21 @@
+-- How far through the user-database migrations this user's database is.
+--
+-- `provisionUserDatabase` was the only caller of `applyMigrations`, which
+-- meant migrations ran exactly once per account: at signup. Every migration
+-- written afterwards reached new users and nobody else. That was survivable
+-- while the migrations only added columns nothing read yet, and stopped being
+-- survivable the moment one of them *renamed* something - 0010 and 0012 move
+-- activities onto their addons' keys, and a user who never receives them is a
+-- user whose sessions quietly stop opening.
+--
+-- Kept here rather than in the user database on purpose: it has to be readable
+-- on the request path *before* deciding whether to open that database and
+-- migrate it, and the row is already in hand from the session lookup. The user
+-- database keeps its own `_migrations` table and remains the truth - this is a
+-- cheap "is there anything to do", not a second record of what was done.
+--
+-- Zero for every existing row, so the first request each of them makes catches
+-- up. New databases are stamped at provisioning.
+
+-- ALTER
+ALTER TABLE "users" ADD COLUMN "schema_version" INTEGER NOT NULL DEFAULT 0;

@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { addonModules } from "../addons/activity-type";
 import { loadAddons, useInstalledAddons } from "../addons/installed";
 import type { TodaySlot } from "../lib/api";
-import { MODULES } from "../modules/activities";
 import {
   ActivityModuleFields,
   type ModuleDraft,
@@ -74,7 +73,7 @@ const Sessions: React.FC = () => {
     void loadAddons();
   }, []);
 
-  const all = { ...MODULES, ...addonModules() };
+  const all = addonModules();
   const module = open ? all[open] : undefined;
   const Session = module?.Session;
 

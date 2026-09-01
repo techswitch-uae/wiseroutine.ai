@@ -185,7 +185,20 @@ export async function loadAddons(): Promise<void> {
   publish(next);
 }
 
-/** Test seam. Nothing in the app calls this. */
-export function resetAddons(): void {
-  publish(new Map());
+/**
+ * Test seam. Nothing in the app calls this.
+ *
+ * Loading an addon for real means a fetch, a Rust command and a frame; none of
+ * those belong in a unit test of the code that *consults* the registry. This
+ * puts a manifest and a bundle straight into the store so the lookup, the
+ * settings form and the session proxy can be tested against a real
+ * `AddonManifest` rather than a mock of one.
+ *
+ * Called with nothing, it empties the store - which is the state the app is in
+ * before anything is loaded, and the one every test should start from.
+ */
+export function seedAddons(next: Iterable<InstalledAddon> = []): void {
+  const map = new Map<string, InstalledAddon>();
+  for (const addon of next) map.set(addon.manifest.id, addon);
+  publish(map);
 }

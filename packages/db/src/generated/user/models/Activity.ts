@@ -62,6 +62,7 @@ export type ActivityMinAggregateOutputType = {
   writeToCalendar: boolean | null
   writeTargetConnectionId: string | null
   ownerAddonId: string | null
+  pausedByAddonAt: Date | null
   createdAt: Date | null
   archivedAt: Date | null
 }
@@ -86,6 +87,7 @@ export type ActivityMaxAggregateOutputType = {
   writeToCalendar: boolean | null
   writeTargetConnectionId: string | null
   ownerAddonId: string | null
+  pausedByAddonAt: Date | null
   createdAt: Date | null
   archivedAt: Date | null
 }
@@ -110,6 +112,7 @@ export type ActivityCountAggregateOutputType = {
   writeToCalendar: number
   writeTargetConnectionId: number
   ownerAddonId: number
+  pausedByAddonAt: number
   createdAt: number
   archivedAt: number
   _all: number
@@ -152,6 +155,7 @@ export type ActivityMinAggregateInputType = {
   writeToCalendar?: true
   writeTargetConnectionId?: true
   ownerAddonId?: true
+  pausedByAddonAt?: true
   createdAt?: true
   archivedAt?: true
 }
@@ -176,6 +180,7 @@ export type ActivityMaxAggregateInputType = {
   writeToCalendar?: true
   writeTargetConnectionId?: true
   ownerAddonId?: true
+  pausedByAddonAt?: true
   createdAt?: true
   archivedAt?: true
 }
@@ -200,6 +205,7 @@ export type ActivityCountAggregateInputType = {
   writeToCalendar?: true
   writeTargetConnectionId?: true
   ownerAddonId?: true
+  pausedByAddonAt?: true
   createdAt?: true
   archivedAt?: true
   _all?: true
@@ -311,6 +317,7 @@ export type ActivityGroupByOutputType = {
   writeToCalendar: boolean
   writeTargetConnectionId: string | null
   ownerAddonId: string | null
+  pausedByAddonAt: Date | null
   createdAt: Date
   archivedAt: Date | null
   _count: ActivityCountAggregateOutputType | null
@@ -358,6 +365,7 @@ export type ActivityWhereInput = {
   writeToCalendar?: Prisma.BoolFilter<"Activity"> | boolean
   writeTargetConnectionId?: Prisma.StringNullableFilter<"Activity"> | string | null
   ownerAddonId?: Prisma.StringNullableFilter<"Activity"> | string | null
+  pausedByAddonAt?: Prisma.DateTimeNullableFilter<"Activity"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"Activity"> | Date | string
   archivedAt?: Prisma.DateTimeNullableFilter<"Activity"> | Date | string | null
   windows?: Prisma.ActivityWindowListRelationFilter
@@ -384,6 +392,7 @@ export type ActivityOrderByWithRelationInput = {
   writeToCalendar?: Prisma.SortOrder
   writeTargetConnectionId?: Prisma.SortOrderInput | Prisma.SortOrder
   ownerAddonId?: Prisma.SortOrderInput | Prisma.SortOrder
+  pausedByAddonAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   archivedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   windows?: Prisma.ActivityWindowOrderByRelationAggregateInput
@@ -413,6 +422,7 @@ export type ActivityWhereUniqueInput = Prisma.AtLeast<{
   writeToCalendar?: Prisma.BoolFilter<"Activity"> | boolean
   writeTargetConnectionId?: Prisma.StringNullableFilter<"Activity"> | string | null
   ownerAddonId?: Prisma.StringNullableFilter<"Activity"> | string | null
+  pausedByAddonAt?: Prisma.DateTimeNullableFilter<"Activity"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"Activity"> | Date | string
   archivedAt?: Prisma.DateTimeNullableFilter<"Activity"> | Date | string | null
   windows?: Prisma.ActivityWindowListRelationFilter
@@ -439,6 +449,7 @@ export type ActivityOrderByWithAggregationInput = {
   writeToCalendar?: Prisma.SortOrder
   writeTargetConnectionId?: Prisma.SortOrderInput | Prisma.SortOrder
   ownerAddonId?: Prisma.SortOrderInput | Prisma.SortOrder
+  pausedByAddonAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   archivedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   _count?: Prisma.ActivityCountOrderByAggregateInput
@@ -471,6 +482,7 @@ export type ActivityScalarWhereWithAggregatesInput = {
   writeToCalendar?: Prisma.BoolWithAggregatesFilter<"Activity"> | boolean
   writeTargetConnectionId?: Prisma.StringNullableWithAggregatesFilter<"Activity"> | string | null
   ownerAddonId?: Prisma.StringNullableWithAggregatesFilter<"Activity"> | string | null
+  pausedByAddonAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Activity"> | Date | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Activity"> | Date | string
   archivedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Activity"> | Date | string | null
 }
@@ -495,6 +507,7 @@ export type ActivityCreateInput = {
   writeToCalendar?: boolean
   writeTargetConnectionId?: string | null
   ownerAddonId?: string | null
+  pausedByAddonAt?: Date | string | null
   createdAt: Date | string
   archivedAt?: Date | string | null
   windows?: Prisma.ActivityWindowCreateNestedManyWithoutActivityInput
@@ -521,6 +534,7 @@ export type ActivityUncheckedCreateInput = {
   writeToCalendar?: boolean
   writeTargetConnectionId?: string | null
   ownerAddonId?: string | null
+  pausedByAddonAt?: Date | string | null
   createdAt: Date | string
   archivedAt?: Date | string | null
   windows?: Prisma.ActivityWindowUncheckedCreateNestedManyWithoutActivityInput
@@ -547,6 +561,7 @@ export type ActivityUpdateInput = {
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
   writeTargetConnectionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pausedByAddonAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   windows?: Prisma.ActivityWindowUpdateManyWithoutActivityNestedInput
@@ -573,6 +588,7 @@ export type ActivityUncheckedUpdateInput = {
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
   writeTargetConnectionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pausedByAddonAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   windows?: Prisma.ActivityWindowUncheckedUpdateManyWithoutActivityNestedInput
@@ -599,6 +615,7 @@ export type ActivityCreateManyInput = {
   writeToCalendar?: boolean
   writeTargetConnectionId?: string | null
   ownerAddonId?: string | null
+  pausedByAddonAt?: Date | string | null
   createdAt: Date | string
   archivedAt?: Date | string | null
 }
@@ -623,6 +640,7 @@ export type ActivityUpdateManyMutationInput = {
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
   writeTargetConnectionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pausedByAddonAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
@@ -647,6 +665,7 @@ export type ActivityUncheckedUpdateManyInput = {
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
   writeTargetConnectionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pausedByAddonAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
@@ -671,6 +690,7 @@ export type ActivityCountOrderByAggregateInput = {
   writeToCalendar?: Prisma.SortOrder
   writeTargetConnectionId?: Prisma.SortOrder
   ownerAddonId?: Prisma.SortOrder
+  pausedByAddonAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   archivedAt?: Prisma.SortOrder
 }
@@ -703,6 +723,7 @@ export type ActivityMaxOrderByAggregateInput = {
   writeToCalendar?: Prisma.SortOrder
   writeTargetConnectionId?: Prisma.SortOrder
   ownerAddonId?: Prisma.SortOrder
+  pausedByAddonAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   archivedAt?: Prisma.SortOrder
 }
@@ -727,6 +748,7 @@ export type ActivityMinOrderByAggregateInput = {
   writeToCalendar?: Prisma.SortOrder
   writeTargetConnectionId?: Prisma.SortOrder
   ownerAddonId?: Prisma.SortOrder
+  pausedByAddonAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   archivedAt?: Prisma.SortOrder
 }
@@ -799,6 +821,7 @@ export type ActivityCreateWithoutWindowsInput = {
   writeToCalendar?: boolean
   writeTargetConnectionId?: string | null
   ownerAddonId?: string | null
+  pausedByAddonAt?: Date | string | null
   createdAt: Date | string
   archivedAt?: Date | string | null
   slots?: Prisma.SlotCreateNestedManyWithoutActivityInput
@@ -824,6 +847,7 @@ export type ActivityUncheckedCreateWithoutWindowsInput = {
   writeToCalendar?: boolean
   writeTargetConnectionId?: string | null
   ownerAddonId?: string | null
+  pausedByAddonAt?: Date | string | null
   createdAt: Date | string
   archivedAt?: Date | string | null
   slots?: Prisma.SlotUncheckedCreateNestedManyWithoutActivityInput
@@ -865,6 +889,7 @@ export type ActivityUpdateWithoutWindowsInput = {
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
   writeTargetConnectionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pausedByAddonAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   slots?: Prisma.SlotUpdateManyWithoutActivityNestedInput
@@ -890,6 +915,7 @@ export type ActivityUncheckedUpdateWithoutWindowsInput = {
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
   writeTargetConnectionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pausedByAddonAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   slots?: Prisma.SlotUncheckedUpdateManyWithoutActivityNestedInput
@@ -915,6 +941,7 @@ export type ActivityCreateWithoutSlotsInput = {
   writeToCalendar?: boolean
   writeTargetConnectionId?: string | null
   ownerAddonId?: string | null
+  pausedByAddonAt?: Date | string | null
   createdAt: Date | string
   archivedAt?: Date | string | null
   windows?: Prisma.ActivityWindowCreateNestedManyWithoutActivityInput
@@ -940,6 +967,7 @@ export type ActivityUncheckedCreateWithoutSlotsInput = {
   writeToCalendar?: boolean
   writeTargetConnectionId?: string | null
   ownerAddonId?: string | null
+  pausedByAddonAt?: Date | string | null
   createdAt: Date | string
   archivedAt?: Date | string | null
   windows?: Prisma.ActivityWindowUncheckedCreateNestedManyWithoutActivityInput
@@ -981,6 +1009,7 @@ export type ActivityUpdateWithoutSlotsInput = {
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
   writeTargetConnectionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pausedByAddonAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   windows?: Prisma.ActivityWindowUpdateManyWithoutActivityNestedInput
@@ -1006,6 +1035,7 @@ export type ActivityUncheckedUpdateWithoutSlotsInput = {
   writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
   writeTargetConnectionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pausedByAddonAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   windows?: Prisma.ActivityWindowUncheckedUpdateManyWithoutActivityNestedInput
@@ -1071,6 +1101,7 @@ export type ActivitySelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   writeToCalendar?: boolean
   writeTargetConnectionId?: boolean
   ownerAddonId?: boolean
+  pausedByAddonAt?: boolean
   createdAt?: boolean
   archivedAt?: boolean
   windows?: boolean | Prisma.Activity$windowsArgs<ExtArgs>
@@ -1098,6 +1129,7 @@ export type ActivitySelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exte
   writeToCalendar?: boolean
   writeTargetConnectionId?: boolean
   ownerAddonId?: boolean
+  pausedByAddonAt?: boolean
   createdAt?: boolean
   archivedAt?: boolean
 }, ExtArgs["result"]["activity"]>
@@ -1122,6 +1154,7 @@ export type ActivitySelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exte
   writeToCalendar?: boolean
   writeTargetConnectionId?: boolean
   ownerAddonId?: boolean
+  pausedByAddonAt?: boolean
   createdAt?: boolean
   archivedAt?: boolean
 }, ExtArgs["result"]["activity"]>
@@ -1146,11 +1179,12 @@ export type ActivitySelectScalar = {
   writeToCalendar?: boolean
   writeTargetConnectionId?: boolean
   ownerAddonId?: boolean
+  pausedByAddonAt?: boolean
   createdAt?: boolean
   archivedAt?: boolean
 }
 
-export type ActivityOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "kind" | "icon" | "isActive" | "minimumType" | "minimumValue" | "sessionMinutes" | "daysOfWeek" | "importance" | "presetKey" | "sessionEnabled" | "startPolicy" | "configJson" | "graceMinutes" | "bufferBeforeMeetingMinutes" | "writeToCalendar" | "writeTargetConnectionId" | "ownerAddonId" | "createdAt" | "archivedAt", ExtArgs["result"]["activity"]>
+export type ActivityOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "name" | "kind" | "icon" | "isActive" | "minimumType" | "minimumValue" | "sessionMinutes" | "daysOfWeek" | "importance" | "presetKey" | "sessionEnabled" | "startPolicy" | "configJson" | "graceMinutes" | "bufferBeforeMeetingMinutes" | "writeToCalendar" | "writeTargetConnectionId" | "ownerAddonId" | "pausedByAddonAt" | "createdAt" | "archivedAt", ExtArgs["result"]["activity"]>
 export type ActivityInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   windows?: boolean | Prisma.Activity$windowsArgs<ExtArgs>
   slots?: boolean | Prisma.Activity$slotsArgs<ExtArgs>
@@ -1191,9 +1225,19 @@ export type $ActivityPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
      */
     importance: string
     /**
-     * Which module runs this activity - "eye_rest", "breathing", "stretch",
-     * "deep_work". Null is a plain timed slot with no session of its own, which
-     * is what every activity was before modules existed.
+     * Which activity type runs this activity, as `addonId/typeKey` -
+     * "wiseroutine.breathing/pacer", "wiseroutine.deep-work/focus". Null is a
+     * plain timed slot with no session of its own, which is what every activity
+     * was before guided sessions existed.
+     * 
+     * The keys used to be bare - "eye_rest", "stretch" - because the sessions
+     * were compiled into the app. Every one of them is an addon now, including
+     * the app's own, and the half before the slash is how the app finds which.
+     * Migrations 0010 and 0012 moved the existing rows.
+     * 
+     * Deliberately unvalidated: a key naming an addon that is not installed is
+     * a real and permanent state, and it degrades to a plain timed slot rather
+     * than failing. An addon removed must leave a day that still works.
      */
     presetKey: string | null
     /**
@@ -1239,6 +1283,20 @@ export type $ActivityPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
      * not take the user's history with it.
      */
     ownerAddonId: string | null
+    /**
+     * When an addon's switch took this activity off the day, or null.
+     * 
+     * Distinguishes "the user paused this" from "the addon that runs it was
+     * switched off", which `isActive` alone cannot - and the difference decides
+     * what happens when the addon comes back. An activity the user paused stays
+     * paused; one this column names is switched back on and this is cleared.
+     * 
+     * Set for activities that *depend on* an addon, which is a wider set than
+     * the ones an addon created: an activity the user made from an addon's
+     * activity type has `ownerAddonId` null and a `presetKey` naming the addon,
+     * and it stops working just as completely when that addon goes away.
+     */
+    pausedByAddonAt: Date | null
     createdAt: Date
     archivedAt: Date | null
   }, ExtArgs["result"]["activity"]>
@@ -1685,6 +1743,7 @@ export interface ActivityFieldRefs {
   readonly writeToCalendar: Prisma.FieldRef<"Activity", 'Boolean'>
   readonly writeTargetConnectionId: Prisma.FieldRef<"Activity", 'String'>
   readonly ownerAddonId: Prisma.FieldRef<"Activity", 'String'>
+  readonly pausedByAddonAt: Prisma.FieldRef<"Activity", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"Activity", 'DateTime'>
   readonly archivedAt: Prisma.FieldRef<"Activity", 'DateTime'>
 }

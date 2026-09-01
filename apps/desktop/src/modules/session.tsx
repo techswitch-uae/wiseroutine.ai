@@ -1,34 +1,9 @@
 import { useEffect, useState } from "react";
-import { api, type TodaySlot } from "../lib/api";
+import { api } from "../lib/api";
 import { notify } from "../lib/notify";
 import { reloadPlan, usePlan } from "../lib/plan-store";
-import { runningSlot, startedAtOf } from "../lib/running-slot";
+import { runningSlot, sessionEndOf } from "../lib/running-slot";
 import { configFor, moduleFor } from "./activities";
-
-/**
- * How long the session actually runs for.
- *
- * Not simply `slot.endsAt`, which is where the block is *parked* on the day.
- * A three-minute breathing block you press six minutes early was counting down
- * to its parking space, so it opened saying "9 min left" and would have paced
- * you for nine. What was asked for is three minutes of breathing, and the
- * press is the only thing that knows when they began.
- *
- * Still capped at the block's own end, because `runningSlot` closes the
- * overlay there: a session allowed to run past it would be taken off screen
- * mid-breath. So a late start gets the rest of its window rather than a fresh
- * full length.
- *
- * ponytail: derived at render from the press instant `markStarted` already
- * keeps. The alternative - the server re-anchoring the slot on start - moves
- * a block on the timeline out from under the user, and needs a migration to
- * store what the press already knows.
- */
-const sessionEndOf = (slot: TodaySlot): number => {
-  const startedAt = startedAtOf(slot.id);
-  if (startedAt === undefined) return slot.endsAt;
-  return Math.min(startedAt + (slot.endsAt - slot.startsAt), slot.endsAt);
-};
 
 /**
  * The running slot, taking over the window.

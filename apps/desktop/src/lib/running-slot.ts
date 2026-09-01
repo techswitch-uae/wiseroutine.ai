@@ -66,3 +66,39 @@ export function runningSlot(
     )
     .sort((a, b) => a.startsAt - b.startsAt)[0];
 }
+
+/**
+ * How long the session actually runs for.
+ *
+ * Not simply `slot.endsAt`, which is where the block is *parked* on the day.
+ * A three-minute breathing block you press six minutes early was counting down
+ * to its parking space, so it opened saying "9 min left" and would have paced
+ * you for nine. What was asked for is three minutes of breathing, and the
+ * press is the only thing that knows when they began.
+ *
+ * Still capped at the block's own end, because `runningSlot` closes the
+ * overlay there: a session allowed to run past it would be taken off screen
+ * mid-breath. So a late start gets the rest of its window rather than a fresh
+ * full length.
+ *
+ * ponytail: derived at render from the press instant `markStarted` already
+ * keeps. The alternative - the server re-anchoring the slot on start - moves
+ * a block on the timeline out from under the user, and needs a migration to
+ * store what the press already knows.
+ *
+ * Here rather than beside the overlay for two reasons. It reads
+ * `startedAtOf`, which lives here, and it is the only other thing that knows
+ * what the press instant is *for*. And exporting it from a module that also
+ * exports a component costs that component fast refresh.
+ *
+ * Exported because it needs its own test: the countdown it decides is drawn
+ * inside the addon's frame now - an iframe with an opaque origin, which jsdom
+ * will not run - so the only way left to assert this rule is to ask it
+ * directly. That is the better test anyway. It is a rule about instants, and
+ * it was being checked by reading two digits off a screen.
+ */
+export const sessionEndOf = (slot: TodaySlot): number => {
+  const startedAt = startedAtOf(slot.id);
+  if (startedAt === undefined) return slot.endsAt;
+  return Math.min(startedAt + (slot.endsAt - slot.startsAt), slot.endsAt);
+};

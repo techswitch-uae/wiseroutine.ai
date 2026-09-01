@@ -80,6 +80,44 @@ export interface SessionSlot {
 export interface Session<Config = unknown> {
   slot: SessionSlot;
   config: Config;
+  /** The app's own colours and fonts, resolved. See `AddonTheme`. */
+  theme: AddonTheme;
+}
+
+/**
+ * The host's look, as values rather than as variables.
+ *
+ * Your frame is a separate document with an opaque origin, so it inherits
+ * nothing: not the app's stylesheet, not its CSS custom properties, not its
+ * `prefers-color-scheme` handling. Hard-coding a colour means an addon that is
+ * legible in one theme and unreadable in the other, and the user picked the
+ * theme.
+ *
+ * So the host resolves its own tokens and sends them. They are already
+ * computed - `#1a1a19`, not `var(--color-text)` - because a variable would
+ * only be a name for something your document has no definition of.
+ *
+ * Whether you should use them depends on the `ground` your activity type
+ * declared. On `page` you are drawing inside the app's own surface and should
+ * use these. On `dim` the host paints a near-black ground of its own, and
+ * light text on it is the right answer whatever the theme is - which is why
+ * the breathing pacer hard-codes its two colours and is right to.
+ */
+export interface AddonTheme {
+  /** Body text on the current ground. */
+  text: string;
+  /** Secondary text - captions, hints, the quieter half of a pair. */
+  muted: string;
+  /** The surface behind your frame. Yours should stay transparent; this is
+   *  for anything you need to draw *over* it opaquely. */
+  background: string;
+  /** The one-pixel rule the app draws between things. */
+  hairline: string;
+  /** The app's own accent. Use sparingly - it is the colour the user's eye
+   *  has learned means "this is the app talking". */
+  accent: string;
+  fontBody: string;
+  fontHeading: string;
 }
 
 /**
@@ -198,6 +236,24 @@ export interface AddonClient {
    * through the app never has that token handed to your code.
    */
   fetch(input: string, init?: RequestInit): Promise<Response>;
+
+  /**
+   * Open a link outside the app, in whatever the machine uses for it.
+   *
+   * Requires `open:external`, and the URL's origin must be one your manifest
+   * declared - the host re-checks it rather than trusting the grant alone, so
+   * a redirect you did not write cannot be laundered through this.
+   *
+   * Resolves `true` if the machine took it. `false` means it refused - an
+   * unregistered scheme, a browser that is not there - and is worth telling
+   * the user about, because a link that silently does nothing reads as a
+   * broken addon.
+   *
+   * Use it sparingly. Sending someone out of the app in the middle of a
+   * session is the most disruptive thing an addon can do, and it is exactly
+   * what a session is meant to prevent.
+   */
+  openExternal(url: string): Promise<boolean>;
 
   /**
    * Store something small, private to your addon and this user.
@@ -331,6 +387,7 @@ function clientOver(port: MessagePort): AddonClient {
         headers: reply.headers,
       });
     },
+    openExternal: (url) => call<boolean>("openExternal", { url }),
     store: {
       get: (key) => call<unknown>("store.get", { key }),
       set: (key, value) => call<void>("store.set", { key, value }),

@@ -1,18 +1,33 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { testAddon } from "../../addons/fixtures";
+import { seedAddons } from "../../addons/installed";
 import type { TodaySlot } from "../../lib/api";
-import { spotifyEmbed } from "../../lib/music";
 import {
   forgetStarted,
   markStarted,
   runningSlot,
 } from "../../lib/running-slot";
-import { deepWork } from "./deep-work";
-import { eyeRest } from "./eye-rest";
-import { configFor, MODULES, moduleFor } from "./index";
+import { allModules, configFor, moduleFor } from "./index";
 import { clock } from "./session-clock";
-import { stretch } from "./stretch";
+
+/**
+ * The registry, now that there is nothing in it but addons.
+ *
+ * There is no built-in table any more: every guided session Wise Routine
+ * ships - breathing, eye rest, the guided stretch, deep work - is an addon
+ * loaded from the registry and sandboxed like anyone else's. So the questions
+ * this file used to ask about four hard-coded modules ("does eye rest refuse a
+ * nonsense distance") now belong to the addon packages, where they are tested
+ * against the code that actually implements them.
+ *
+ * What is left here is the seam itself, and it matters more than what it
+ * replaced: does a key resolve to the addon that owns it, does an *unknown*
+ * key leave a gap rather than throw, and does an addon that is switched off
+ * stop claiming its keys.
+ */
 
 const AT = Date.UTC(2026, 7, 11, 9, 0);
+const WORKOUT = "acme.fitness/workout";
 
 const slot = (over: Partial<TodaySlot> & { id: string }): TodaySlot => ({
   title: "Eye rest",
@@ -26,173 +41,105 @@ const slot = (over: Partial<TodaySlot> & { id: string }): TodaySlot => ({
 });
 
 describe("the registry", () => {
-  it("finds a module by the key stored on the activity", () => {
-    expect(moduleFor("stretch")).toBe(stretch);
+  beforeEach(() => seedAddons([testAddon()]));
+
+  it("finds an installed addon's activity type by the key stored on the activity", () => {
+    expect(moduleFor(WORKOUT)?.name).toBe("Workout");
   });
 
-  it("has nothing for an activity with no module", () => {
+  it("has nothing for an activity with no session", () => {
     expect(moduleFor(null)).toBeUndefined();
     expect(moduleFor(undefined)).toBeUndefined();
   });
 
-  // A module removed in a later version leaves rows behind that still name it.
-  // Those activities must keep working as plain timed slots, not crash.
-  it("has nothing for a key it has never heard of", () => {
+  /**
+   * The behaviour the whole boundary rests on.
+   *
+   * An addon can be switched off, removed, or withdrawn from the registry
+   * while activities naming it are still on the day. Those slots have to keep
+   * running as plain timed blocks - the alternative is a user whose calendar
+   * throws because somebody else's package went away.
+   */
+  it("has nothing for a key whose addon is not installed", () => {
+    seedAddons([]);
+    expect(moduleFor(WORKOUT)).toBeUndefined();
+  });
+
+  it("has nothing for a key that belongs to no addon at all", () => {
     expect(moduleFor("astrology")).toBeUndefined();
+    // A bare key, which is what every session used before they were addons.
+    // Rows carrying one were migrated; anything left is a plain timed slot.
+    expect(moduleFor("eye_rest")).toBeUndefined();
+  });
+
+  it("refuses a key whose addon half is malformed", () => {
+    expect(moduleFor("Acme.Fitness/workout")).toBeUndefined();
+    expect(moduleFor("acme.fitness/")).toBeUndefined();
+    expect(moduleFor("/workout")).toBeUndefined();
   });
 
   it("is keyed by each module's own key, so a lookup cannot miss", () => {
-    for (const [key, module] of Object.entries(MODULES)) {
+    for (const [key, module] of Object.entries(allModules())) {
       expect(module.key).toBe(key);
     }
+  });
+
+  it("carries the manifest's defaults through to the form", () => {
+    const module = moduleFor(WORKOUT);
+    expect(module?.defaults.sessionMinutes).toBe(20);
+    expect(module?.defaults.startPolicy).toBe("manual");
+    // Built from the settings schema, so a new field appears in the stored
+    // config without the host being taught about it.
+    expect(module?.defaults.config).toEqual({
+      level: "steady",
+      reps: 10,
+      noteUrl: "",
+    });
   });
 });
 
 describe("configFor", () => {
-  it("falls back to the module's defaults when nothing was stored", () => {
-    expect(configFor(eyeRest, null)).toEqual(eyeRest.defaults.config);
+  beforeEach(() => seedAddons([testAddon()]));
+
+  const module = () => {
+    const found = moduleFor(WORKOUT);
+    if (!found) throw new Error("fixture addon is not installed");
+    return found;
+  };
+
+  it("falls back to the schema's defaults when nothing was stored", () => {
+    expect(configFor(module(), null)).toEqual(module().defaults.config);
   });
 
   // The column is opaque text. Something hand-edited, truncated, or written by
   // a version that stored a different shape must not take the session down.
   it("falls back rather than throwing on unparseable text", () => {
-    expect(configFor(eyeRest, "{not json")).toEqual(eyeRest.defaults.config);
+    expect(configFor(module(), "{not json")).toEqual(module().defaults.config);
   });
 
-  it("falls back on JSON of the wrong shape", () => {
-    expect(configFor(stretch, '{"steps":"soon"}')).toEqual(
-      stretch.defaults.config,
-    );
+  it("keeps only the fields the schema names, at the values it allows", () => {
+    const stored = JSON.stringify({
+      level: "hard",
+      reps: 9_000,
+      unknown: "smuggled",
+    });
+    // `reps` is out of range and falls back; `unknown` is not in the schema
+    // and is dropped rather than carried around. Both matter: the host writes
+    // this column back, and a field nobody declared would survive for ever.
+    expect(configFor(module(), stored)).toEqual({
+      level: "hard",
+      reps: 10,
+      noteUrl: "",
+    });
   });
 
   it("returns what was stored when it is good", () => {
-    expect(configFor(eyeRest, JSON.stringify({ metres: 12 }))).toEqual({
-      metres: 12,
+    const stored = JSON.stringify({ level: "easy", reps: 3, noteUrl: "" });
+    expect(configFor(module(), stored)).toEqual({
+      level: "easy",
+      reps: 3,
+      noteUrl: "",
     });
-  });
-});
-
-describe("eye rest", () => {
-  // The point of the policy. An eye rest you have to press a button for is an
-  // eye rest you skip.
-  it("starts itself by default", () => {
-    expect(eyeRest.defaults.startPolicy).toBe("auto");
-  });
-
-  it("refuses a nonsense distance", () => {
-    expect(eyeRest.parse({ metres: -3 }).metres).toBe(6);
-    expect(eyeRest.parse({ metres: "far" }).metres).toBe(6);
-  });
-});
-
-/**
- * Breathing is an addon now, so its pacer, its patterns and its settings are
- * tested in `addons/breathing`. What is still this file's business is that a
- * key belonging to an addon is looked up rather than ignored, and that a key
- * belonging to an addon which is not installed leaves a gap.
- */
-describe("an addon's activity type", () => {
-  it("is not in the app's own registry", () => {
-    expect(MODULES["wiseroutine.breathing/pacer"]).toBeUndefined();
-  });
-
-  // Nothing is installed in a unit test, so this is the uninstalled case -
-  // which is the one that has to be safe. An activity created by an addon the
-  // user has since removed still has rows naming it, and those slots keep
-  // running as plain timed ones.
-  it("is undefined when its addon is not installed", () => {
-    expect(moduleFor("wiseroutine.breathing/pacer")).toBeUndefined();
-  });
-});
-
-describe("stretch", () => {
-  it("ships the four steps from the design", () => {
-    expect(stretch.defaults.config.steps).toHaveLength(4);
-  });
-
-  it("refuses an empty routine, which would render nothing", () => {
-    expect(stretch.parse({ steps: [] })).toEqual(stretch.defaults.config);
-  });
-
-  it("refuses a step with no time on it", () => {
-    expect(stretch.parse({ steps: [{ text: "Stand", seconds: 0 }] })).toEqual(
-      stretch.defaults.config,
-    );
-  });
-});
-
-describe("deep work", () => {
-  it("keeps a playlist link", () => {
-    const url = "https://open.spotify.com/playlist/37i9dQZF1DX";
-    expect(deepWork.parse({ musicUrl: url }).musicUrl).toBe(url);
-  });
-
-  it("keeps a native app link", () => {
-    expect(deepWork.parse({ musicUrl: "spotify:playlist:abc" }).musicUrl).toBe(
-      "spotify:playlist:abc",
-    );
-  });
-
-  // A settings field that will be opened is a place to put something dangerous.
-  // Dropped when stored, so a bad value can never reach `openExternal`.
-  it("drops a scheme that is not a link to music", () => {
-    expect(deepWork.parse({ musicUrl: "javascript:alert(1)" }).musicUrl).toBe(
-      "",
-    );
-    expect(deepWork.parse({ musicUrl: "file:///etc/passwd" }).musicUrl).toBe(
-      "",
-    );
-  });
-});
-
-/**
- * The one function here that decides the `src` of an iframe.
- *
- * It is handed a string the user typed, so what matters is what it refuses.
- * It takes the kind and the id out of a shape it recognises and builds a
- * fresh URL from them - nothing typed can reach the frame except a Spotify
- * id.
- */
-describe("spotifyEmbed", () => {
-  it("embeds the link the web player copies", () => {
-    expect(spotifyEmbed("https://open.spotify.com/playlist/37i9dQZF1DX")).toBe(
-      "https://open.spotify.com/embed/playlist/37i9dQZF1DX",
-    );
-  });
-
-  it("embeds the URI the desktop app copies", () => {
-    expect(spotifyEmbed("spotify:album:1DFixLWuPkv3KT3TnV35m3")).toBe(
-      "https://open.spotify.com/embed/album/1DFixLWuPkv3KT3TnV35m3",
-    );
-  });
-
-  // The web player puts a locale in front of the kind for most of the world.
-  it("looks past a locale segment", () => {
-    expect(spotifyEmbed("https://open.spotify.com/intl-it/track/abc123")).toBe(
-      "https://open.spotify.com/embed/track/abc123",
-    );
-  });
-
-  it("drops the query Spotify's share button adds", () => {
-    expect(
-      spotifyEmbed("https://open.spotify.com/track/abc123?si=deadbeef"),
-    ).toBe("https://open.spotify.com/embed/track/abc123");
-  });
-
-  it("refuses a host that only looks like Spotify", () => {
-    expect(
-      spotifyEmbed("https://open.spotify.com.evil.test/track/a"),
-    ).toBeNull();
-    expect(spotifyEmbed("https://notspotify.com/track/a")).toBeNull();
-  });
-
-  it("refuses anything that is not one of Spotify's own kinds", () => {
-    expect(spotifyEmbed("https://open.spotify.com/user/someone")).toBeNull();
-  });
-
-  it("has nothing to embed for another service", () => {
-    expect(spotifyEmbed("https://music.apple.com/playlist/x")).toBeNull();
-    expect(spotifyEmbed("")).toBeNull();
   });
 });
 
@@ -208,16 +155,16 @@ describe("runningSlot", () => {
 
   it("finds the started slot that has a session to show", () => {
     const day = [
-      slot({ id: "planned", presetKey: "eye_rest" }),
-      slot({ id: "live", status: "started", presetKey: "breathing" }),
+      slot({ id: "planned", presetKey: WORKOUT }),
+      slot({ id: "live", status: "started", presetKey: WORKOUT }),
     ];
     opened("live");
     expect(runningSlot(day, AT)?.id).toBe("live");
   });
 
-  // A slot with no module runs the way slots always did: live on the timeline,
-  // finished by a press on its card. Nothing takes over the screen.
-  it("ignores a started slot with no module behind it", () => {
+  // A slot with no session runs the way slots always did: live on the
+  // timeline, finished by a press on its card. Nothing takes over the screen.
+  it("ignores a started slot with no session behind it", () => {
     expect(
       runningSlot([slot({ id: "a", status: "started" })], AT),
     ).toBeUndefined();
@@ -228,10 +175,10 @@ describe("runningSlot", () => {
       slot({
         id: "later",
         status: "started",
-        presetKey: "breathing",
+        presetKey: WORKOUT,
         startsAt: AT + 60_000,
       }),
-      slot({ id: "earlier", status: "started", presetKey: "eye_rest" }),
+      slot({ id: "earlier", status: "started", presetKey: WORKOUT }),
     ];
     opened("later", "earlier");
     expect(runningSlot(day, AT)?.id).toBe("earlier");
@@ -249,14 +196,14 @@ describe("runningSlot", () => {
     const stale = slot({
       id: "this morning",
       status: "started",
-      presetKey: "eye_rest",
+      presetKey: WORKOUT,
       startsAt: AT - 4 * 3_600_000,
       endsAt: AT - 4 * 3_600_000 + 5 * 60_000,
     });
     const pressed = slot({
       id: "just now",
       status: "started",
-      presetKey: "breathing",
+      presetKey: WORKOUT,
     });
     opened("this morning", "just now");
     expect(runningSlot([stale, pressed], AT)?.id).toBe("just now");
@@ -274,7 +221,7 @@ describe("runningSlot", () => {
    */
   it("shows nothing for a slot this run of the app did not start", () => {
     const day = [
-      slot({ id: "yesterday's", status: "started", presetKey: "eye_rest" }),
+      slot({ id: "yesterday's", status: "started", presetKey: WORKOUT }),
     ];
     expect(runningSlot(day, AT)).toBeUndefined();
     opened("yesterday's");
@@ -283,7 +230,7 @@ describe("runningSlot", () => {
 
   it("has nothing to show on a day where nothing is running", () => {
     expect(
-      runningSlot([slot({ id: "a", presetKey: "eye_rest" })], AT),
+      runningSlot([slot({ id: "a", presetKey: WORKOUT })], AT),
     ).toBeUndefined();
   });
 });

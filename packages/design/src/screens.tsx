@@ -984,6 +984,36 @@ export interface ActivityTemplate extends ActivityDraft {
 }
 
 /**
+ * What the app knows about a template that this package does not.
+ *
+ * Every guided session in Wise Routine comes from an addon, and an addon can
+ * be switched off - at which point its template is still a perfectly good
+ * plain timed block, but the session behind it is gone and the chip should say
+ * so rather than quietly offering less than it did yesterday.
+ *
+ * Passed in as a lookup rather than folded into `ActivityTemplate`, because
+ * this package draws forms and has no business knowing what an addon is. It
+ * is handed a label and a callback; what they mean is the app's affair.
+ */
+export interface TemplateNote {
+  /** Opens whatever configures this template - the Addons page, for one from
+   *  an addon. Drawn as a cog beside the name. */
+  onConfigure?: () => void;
+  /** The cog's accessible name. Required if `onConfigure` is given, because a
+   *  button whose only content is an icon has no name without it. */
+  configureLabel?: string;
+  /**
+   * Set when the template is still pickable but will do less than it says.
+   *
+   * Shown on the chip rather than discovered afterwards. Not `disabled`: a
+   * stretch with its addon switched off is still a ten-minute block somebody
+   * may legitimately want, and refusing the whole chip would take away more
+   * than the addon did.
+   */
+  caveat?: string;
+}
+
+/**
  * The library, and the way out of it.
  *
  * Chips rather than a list of cards: these are starting points, not things
@@ -1000,7 +1030,9 @@ export const ActivityLibrary: React.FC<{
   /** Greys the whole library out at the plan's limit, so the choice is made
    *  in one place rather than refused after the fact. */
   disabled?: boolean;
-}> = ({ templates, used, onPick, disabled }) => (
+  /** Per-template extras the app supplies. See `TemplateNote`. */
+  noteFor?: (template: ActivityTemplate) => TemplateNote | undefined;
+}> = ({ templates, used, onPick, disabled, noteFor }) => (
   <Card
     title="Add an activity"
     note="Start from one of these and adjust it, or describe your own. Everything is editable afterwards."
@@ -1009,25 +1041,67 @@ export const ActivityLibrary: React.FC<{
       : {})}
   >
     <div className="wr-library">
-      {templates.map((template) => (
+      {templates.map((template) => {
+        const note = noteFor?.(template);
+
+        // A chip with a cog is two controls, so it cannot be one button - a
+        // button inside a button is invalid and the inner one is unreachable
+        // by keyboard. The wrapper carries the chip's own styling and the two
+        // buttons sit inside it.
+        return (
+          <span
+            key={template.key}
+            className="wr-chip wr-chip-dashed wr-library-chip"
+            data-disabled={disabled ? "" : undefined}
+          >
+            <button
+              type="button"
+              className="wr-library-pick"
+              disabled={disabled}
+              onClick={() => onPick(template)}
+            >
+              <b>{template.name}</b> {template.sessionMinutes} min
+              {note?.caveat ? (
+                <em className="wr-library-caveat">{note.caveat}</em>
+              ) : null}
+            </button>
+            {note?.onConfigure ? (
+              <button
+                type="button"
+                className="wr-library-cog"
+                aria-label={note.configureLabel ?? "Configure"}
+                title={note.configureLabel ?? "Configure"}
+                onClick={note.onConfigure}
+              >
+                {/* Inline rather than an icon set: one glyph, and a
+                    dependency for it would be forty kilobytes to draw a
+                    circle with six teeth. */}
+                <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden>
+                  <title>Settings</title>
+                  <path
+                    fill="currentColor"
+                    d="M8 5.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6Zm0 4.3a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z"
+                  />
+                  <path
+                    fill="currentColor"
+                    d="m14 9.1-.1-1.1.1-1.1-1.4-.5-.4-1 .6-1.3-1.5-1.5-1.3.6-1-.4L8.6 1H7.4l-.4 1.4-1 .4-1.3-.6-1.5 1.5.6 1.3-.4 1-1.4.4.1 1.1-.1 1.1 1.4.5.4 1-.6 1.3 1.5 1.5 1.3-.6 1 .4.4 1.4h1.2l.4-1.4 1-.4 1.3.6 1.5-1.5-.6-1.3.4-1 1.4-.5Zm-2.5.6-.6 1.5.4.9-.3.3-.9-.4-1.5.6-.3 1h-.5l-.3-1-1.5-.6-.9.4-.3-.3.4-.9-.6-1.5-1-.3v-.5l1-.3.6-1.5-.4-.9.3-.3.9.4 1.5-.6.3-1h.5l.3 1 1.5.6.9-.4.3.3-.4.9.6 1.5 1 .3v.5l-1 .3Z"
+                  />
+                </svg>
+              </button>
+            ) : null}
+          </span>
+        );
+      })}
+      <span className="wr-chip wr-chip-dashed wr-library-chip">
         <button
-          key={template.key}
           type="button"
-          className="wr-chip wr-chip-dashed wr-library-chip"
+          className="wr-library-pick"
           disabled={disabled}
-          onClick={() => onPick(template)}
+          onClick={() => onPick(null)}
         >
-          <b>{template.name}</b> {template.sessionMinutes} min
+          <b>Something else</b>
         </button>
-      ))}
-      <button
-        type="button"
-        className="wr-chip wr-chip-dashed wr-library-chip"
-        disabled={disabled}
-        onClick={() => onPick(null)}
-      >
-        <b>Something else</b>
-      </button>
+      </span>
     </div>
   </Card>
 );

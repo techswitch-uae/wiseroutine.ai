@@ -113,6 +113,20 @@ const userFields = {
     input: false,
     defaultValue: () => USER_DEFAULTS.databaseReady,
   },
+  /**
+   * Declared here so `requireUser` can read it off the session user.
+   *
+   * Zero, always, whatever the running Worker's migration count is.
+   * `provisionUserDatabase` stamps the real number the moment it has applied
+   * them, and stamping it optimistically here would tell the request path
+   * there is nothing to do for a database that does not exist yet.
+   */
+  schemaVersion: {
+    type: "number",
+    required: true,
+    input: false,
+    defaultValue: () => USER_DEFAULTS.schemaVersion,
+  },
   timeZone: {
     type: "string",
     required: true,

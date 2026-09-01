@@ -35,6 +35,23 @@ const ADDON_ID = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
 /** A key inside an addon: same rules, and the half after the slash. */
 const ADDON_KEY = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
 
+/**
+ * A key inside a settings schema. A different thing, and a looser rule.
+ *
+ * `ADDON_KEY` is lowercase-and-hyphens because it ends up in a URL and in
+ * `preset_key`, where case-folding and escaping are somebody's problem. A
+ * setting key ends up as a property name in the addon's own opaque config
+ * blob and nowhere else - it is never routed on, never served, never compared
+ * case-insensitively. Holding it to the stricter rule refused `musicUrl` and
+ * would have pushed every addon author into renaming their own config fields
+ * to satisfy a constraint that does not apply to them.
+ *
+ * Still bounded rather than free: letters, digits, hyphen and underscore, so
+ * a key cannot be `__proto__`-adjacent nonsense or carry a dot that would read
+ * as a path.
+ */
+const SETTING_KEY = /^[A-Za-z0-9_-]+$/;
+
 export const isAddonId = (value: string): boolean =>
   value.length <= 64 && ADDON_ID.test(value);
 
@@ -132,6 +149,31 @@ export type AddonCapability =
    * a check. Wildcards are refused: an integration knows its own API's host.
    */
   | { kind: "net:fetch"; origins: readonly string[] }
+  /**
+   * Put someone else's page inside its own frame - a player, a map, a video.
+   *
+   * Separate from `net:fetch` because it is a different risk with a different
+   * enforcement point. `net:fetch` is data the addon reads and decides what to
+   * do with; this is a document from another origin drawing pixels the user
+   * will read as part of the app. It becomes the `frame-src` of the addon's
+   * own frame, so the browser refuses an origin that is not on this list and
+   * there is no check for the addon to route around.
+   */
+  | { kind: "ui:embed"; origins: readonly string[] }
+  /**
+   * Hand a link to the operating system.
+   *
+   * Origin-scoped like the other two, and scoped for a sharper reason: opening
+   * a URL leaves the sandbox entirely. Whatever is on the other side runs in
+   * the user's browser as the user, with their cookies and their sessions, and
+   * nothing in this app is between them any more. An addon that may open
+   * `https://open.spotify.com` may open that and nothing else.
+   *
+   * The host also refuses any scheme but https, whatever is granted - see
+   * `isPlainHttpsOrigin`. A `file:` or an `x-apple.systempreferences:` URL is
+   * not a link, it is an instruction to the machine.
+   */
+  | { kind: "open:external"; origins: readonly string[] }
   /** Be woken when it is not on screen. */
   | { kind: "background:wake" }
   /** Put a notification in front of the user. */
@@ -178,9 +220,15 @@ export function canAddon(
         : refuse(`This addon may only read ${READ_SCOPES[widest]}.`);
     }
 
-    case "net:fetch": {
+    // All three carry a list of origins, and the question is the same for
+    // each: is every origin being asked for on the list that was granted.
+    // Written once rather than three times - the day this check gains a
+    // subtlety is the day three copies of it start to disagree.
+    case "net:fetch":
+    case "ui:embed":
+    case "open:external": {
       const allowed = new Set(
-        held.flatMap((c) => (c.kind === "net:fetch" ? c.origins : [])),
+        held.flatMap((c) => ("origins" in c ? c.origins : [])),
       );
       const denied = request.origins.filter((o) => !allowed.has(o));
       return denied.length === 0
@@ -214,7 +262,9 @@ export function isGrantable(capability: AddonCapability): Decision {
             `Addons may only read ${GRANTABLE_READ_SCOPES.join(", ")} for now.`,
           );
 
-    case "net:fetch": {
+    case "net:fetch":
+    case "ui:embed":
+    case "open:external": {
       // A wildcard host is a request for the whole web wearing a specific
       // coat, and it would also make the frame's `connect-src` meaningless.
       const bad = capability.origins.filter((o) => !isPlainHttpsOrigin(o));
@@ -302,6 +352,9 @@ export type SettingField =
       type: "text";
       default: string;
       maxLength?: number;
+      /** Greyed example text in the empty field. Not a value, and never
+       *  stored - an empty setting stays empty. */
+      placeholder?: string;
     };
 
 /**
@@ -329,8 +382,47 @@ export interface AddonActivityType extends AddonContribution {
    * against; it does not get to paint its own.
    */
   ground?: "page" | "dim";
+  /**
+   * How much room the addon needs inside the session, in CSS pixels.
+   *
+   * Declared rather than negotiated, and clamped by `CANVAS_BOUNDS` on the way
+   * in. An iframe has no intrinsic height, so *something* has to say - and the
+   * two obvious alternatives are both worse. A single fixed size for every
+   * addon means a breathing circle and a four-line stretch instruction get the
+   * same square. Letting the frame resize itself means an addon can grow until
+   * it covers the Done button, which is the one control a session must never
+   * be able to take away.
+   *
+   * So: the addon asks, the host decides, and the ceiling is low enough that
+   * the frame's chrome is always on screen.
+   */
+  canvas?: { width: number; height: number };
   settings: readonly SettingField[];
 }
+
+/**
+ * What a session canvas may be.
+ *
+ * The upper bounds are the point. 560 is narrower than the narrowest window
+ * the app supports, and 520 leaves room for the title above and the two
+ * buttons below at that window's height - so an addon cannot push either off
+ * the screen by asking for a bigger canvas.
+ */
+export const CANVAS_BOUNDS = {
+  width: { min: 200, max: 560 },
+  height: { min: 120, max: 520 },
+} as const;
+
+/** The canvas an activity type gets, clamped. */
+export const canvasFor = (
+  type: AddonActivityType,
+): { width: number; height: number } => ({
+  width: clamp(type.canvas?.width ?? 360, CANVAS_BOUNDS.width),
+  height: clamp(type.canvas?.height ?? 400, CANVAS_BOUNDS.height),
+});
+
+const clamp = (value: number, to: { min: number; max: number }): number =>
+  Math.min(to.max, Math.max(to.min, Math.round(value)));
 
 const START_POLICIES = ["manual", "auto", "prompt"] as const;
 
@@ -466,11 +558,16 @@ function parseCapabilities(raw: unknown): AddonCapability[] | null {
         out.push({ kind: "read:schedule", scope: scope as ReadScope });
         break;
       }
-      case "net:fetch": {
+      case "net:fetch":
+      case "ui:embed":
+      case "open:external": {
         const origins = c.origins;
         if (!Array.isArray(origins)) return null;
         if (!origins.every((o) => typeof o === "string")) return null;
-        out.push({ kind: "net:fetch", origins: origins as string[] });
+        // Not a limit anyone honest meets. It stops a manifest handing the
+        // host a thousand-origin `frame-src` to build a header out of.
+        if (origins.length > 20) return null;
+        out.push({ kind: c.kind, origins: origins as string[] });
         break;
       }
       case "write:own":
@@ -547,6 +644,19 @@ function parseActivityTypes(raw: unknown): AddonActivityType[] | null {
       return null;
     }
 
+    // Malformed is refused; out of range is clamped by `canvasFor`. The two
+    // are different mistakes: a canvas of `"big"` is a manifest nobody
+    // checked, and a canvas of 900 is an addon that wants more room than it
+    // may have. The first should fail loudly at the boundary, the second
+    // should simply not get it.
+    const canvas = c.canvas;
+    if (canvas !== undefined) {
+      if (typeof canvas !== "object" || canvas === null) return null;
+      const { width, height } = canvas as Record<string, unknown>;
+      if (typeof width !== "number" || !Number.isFinite(width)) return null;
+      if (typeof height !== "number" || !Number.isFinite(height)) return null;
+    }
+
     out.push({
       key: base[0].key,
       name: base[0].name,
@@ -556,6 +666,9 @@ function parseActivityTypes(raw: unknown): AddonActivityType[] | null {
         startPolicy: policy as (typeof START_POLICIES)[number],
       },
       ...(ground !== undefined ? { ground } : {}),
+      ...(canvas !== undefined
+        ? { canvas: canvas as { width: number; height: number } }
+        : {}),
       settings,
     });
   }
@@ -583,7 +696,7 @@ function parseSettings(raw: unknown): SettingField[] | null {
     if (typeof entry !== "object" || entry === null) return null;
     const f = entry as Record<string, unknown>;
 
-    if (typeof f.key !== "string" || !ADDON_KEY.test(f.key)) return null;
+    if (typeof f.key !== "string" || !SETTING_KEY.test(f.key)) return null;
     if (f.key.length > 64 || seen.has(f.key)) return null;
     seen.add(f.key);
 
@@ -636,12 +749,20 @@ function parseSettings(raw: unknown): SettingField[] | null {
           return null;
         }
         if (f.default.length > (maxLength ?? 500)) return null;
+        const placeholder = f.placeholder;
+        if (placeholder !== undefined && typeof placeholder !== "string") {
+          return null;
+        }
+        if (typeof placeholder === "string" && placeholder.length > 100) {
+          return null;
+        }
         out.push({
           key: f.key,
           label: f.label,
           type: "text",
           default: f.default,
           ...(typeof maxLength === "number" ? { maxLength } : {}),
+          ...(typeof placeholder === "string" ? { placeholder } : {}),
         });
         break;
       }

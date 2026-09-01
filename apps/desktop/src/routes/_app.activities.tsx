@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { ownerOf } from "@wiseroutine/addons";
 import {
   ACTIVITY_LIBRARY,
   type ActivityDraft,
@@ -13,9 +14,11 @@ import {
   Loading,
   Modal,
   PlanNote,
+  type TemplateNote,
 } from "@wiseroutine/design";
 import { PLANS } from "@wiseroutine/plans";
 import { useCallback, useEffect, useState } from "react";
+import { useInstalledAddons } from "../addons/installed";
 import { useAccount } from "../lib/account";
 import { type ActivityResponse, ApiError, api } from "../lib/api";
 import { notify } from "../lib/notify";
@@ -101,21 +104,24 @@ const NO_MODULE: ModuleDraft = {
 };
 
 /**
- * The module a library pick starts with.
+ * The activity type a library pick starts with.
  *
  * By template key rather than by name, because a template can be renamed the
  * moment it is picked and matching on the new name would silently drop the
- * module. Anything not listed starts as a plain timed slot, which is the
- * honest default for something the app has no session for.
+ * session.
+ *
+ * Every value is namespaced, because every guided session is an addon now -
+ * the app's own four included. An addon that is switched off or not installed
+ * makes `moduleFor` return undefined and the template falls through to
+ * `NO_MODULE`, which is the same answer "walk" and "water" already get: a
+ * plain timed slot. That is the graceful degradation the whole boundary rests
+ * on, and it is now exercised by the app's own activities rather than only by
+ * hypothetical strangers'.
  */
 const LIBRARY_MODULES: Record<string, string> = {
-  "shoulder-stretch": "stretch",
-  "eye-rest": "eye_rest",
-  "deep-work": "deep_work",
-  // Namespaced, because breathing is an addon now - the app's own, installed
-  // the way any other would be. If it is not installed, `moduleFor` returns
-  // undefined and the template falls through to `NO_MODULE`, which is the same
-  // answer "walk" and "water" already get: a plain timed slot.
+  "shoulder-stretch": "wiseroutine.stretch/guided",
+  "eye-rest": "wiseroutine.eye-rest/look-away",
+  "deep-work": "wiseroutine.deep-work/focus",
   breathing: "wiseroutine.breathing/pacer",
 };
 
@@ -143,6 +149,17 @@ interface Editing {
   id?: string;
 }
 
+/**
+ * The addon behind a preset key, if the key names one at all.
+ *
+ * Both halves matter. A key with no slash is not an addon's - there are none
+ * left in this app, but a row written before the migration would look like
+ * that and must not be reported as a missing addon. A key that does name one
+ * which is not installed is the case this whole function exists for.
+ */
+const addonBehind = (presetKey: string | null | undefined): string | null =>
+  presetKey ? ownerOf(presetKey) : null;
+
 const howOften = (row: ActivityResponse): string => {
   const { type, value } = row.minimum;
   if (type === "durationPerDay") return `${value} min a day`;
@@ -158,6 +175,16 @@ const LANDING_WORD: Record<ActivityDraft["land"], string> = {
 
 const Activities: React.FC = () => {
   const account = useAccount();
+  const navigate = useNavigate();
+  /**
+   * Subscribed to, not read once.
+   *
+   * The whole point of this page being in sync with the Addons page is that it
+   * reacts: switch an addon off in another tab of the same window and the
+   * caveats appear here without a reload. `useInstalledAddons` is the store
+   * `loadAddons` publishes into, so this re-renders the moment that happens.
+   */
+  const addons = useInstalledAddons();
   const plan = account?.plan === "pro" ? "pro" : "free";
   const limit = PLANS[plan].maxActiveActivities;
 
@@ -180,6 +207,14 @@ const Activities: React.FC = () => {
   }, []);
 
   useEffect(load, [load]);
+
+  /** Configured for a session whose addon is not there to run it. */
+  const needsAddon = (row: ActivityResponse): boolean => {
+    const addonId = addonBehind(row.presetKey);
+    return (
+      addonId !== null && row.sessionEnabled !== false && !addons.has(addonId)
+    );
+  };
 
   const active = rows?.filter((row) => row.isActive).length ?? 0;
   const atLimit = active >= limit;
@@ -245,6 +280,35 @@ const Activities: React.FC = () => {
       .finally(() => setWorking(null));
   };
 
+  /**
+   * What to say on a library chip, and where its cog goes.
+   *
+   * Every template here whose session is real belongs to an addon, so almost
+   * all of them get a cog - and the cog goes to the Addons page rather than to
+   * a per-addon screen, because that is where the switch and the permissions
+   * are, and there is nothing else to configure about an addon that is not
+   * already in the activity form below.
+   *
+   * The caveat is the honest half. A template whose addon is switched off is
+   * still a perfectly good timed block and stays pickable; it just will not do
+   * what its name suggests, and saying so on the chip beats letting somebody
+   * add it and find out.
+   */
+  const noteFor = (template: ActivityTemplate): TemplateNote | undefined => {
+    const presetKey = LIBRARY_MODULES[template.key];
+    const addonId = addonBehind(presetKey);
+    if (!addonId) return undefined;
+
+    const installed = addons.has(addonId);
+    return {
+      onConfigure: () => void navigate({ to: "/addons" }),
+      configureLabel: installed
+        ? `Manage the addon behind ${template.name}`
+        : `${template.name} needs an addon that is switched off`,
+      ...(installed ? {} : { caveat: "· session off" }),
+    };
+  };
+
   const pick = (template: ActivityTemplate | null) => {
     setProblem(null);
     setEditing(
@@ -288,9 +352,21 @@ const Activities: React.FC = () => {
               <ActivityRow
                 key={row.id}
                 name={row.name}
+                /**
+                 * The last clause appears only when something is wrong.
+                 *
+                 * An activity whose addon is switched off still runs - it is a
+                 * timed block on the day like any other - but the guided
+                 * session it was configured with does not, and the row is the
+                 * only place a user would ever find that out. Without it the
+                 * two pages disagree silently: the Addons page says off, and
+                 * this one goes on describing a session that will not open.
+                 */
                 meta={`${row.sessionMinutes} min · ${howOften(row)} · ${daysLabel(
                   row.daysOfWeek,
-                )} · ${LANDING_WORD[landingOf(row.preferredWindows)]}`}
+                )} · ${LANDING_WORD[landingOf(row.preferredWindows)]}${
+                  needsAddon(row) ? " · session off, addon disabled" : ""
+                }`}
                 isActive={row.isActive}
                 busy={working === row.id}
                 onEdit={() =>
@@ -318,6 +394,7 @@ const Activities: React.FC = () => {
           // them, so it belongs on the group.
           disabled={atLimit}
           onPick={pick}
+          noteFor={noteFor}
         />
 
         {/* Only free ever reaches a limit, so there is only one note. Pro's

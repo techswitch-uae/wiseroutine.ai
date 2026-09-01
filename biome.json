@@ -23,6 +23,7 @@
       "!**/.tanstack",
       "!**/.turbo",
       "!**/routeTree.gen.ts",
+      "!**/public/addons",
       "!**/src/generated",
       "!**/.wrangler",
       "!**/.turso-local",

@@ -1,9 +1,11 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { testAddon } from "../addons/fixtures";
+import { seedAddons } from "../addons/installed";
 import type { TodayResponse, TodaySlot } from "../lib/api";
 import { publishPlan, publishReload } from "../lib/plan-store";
-import { forgetStarted, markStarted } from "../lib/running-slot";
+import { forgetStarted, markStarted, sessionEndOf } from "../lib/running-slot";
 import { SessionOverlay } from "./session";
 
 /**
@@ -24,6 +26,12 @@ import { SessionOverlay } from "./session";
 
 const AT = Date.UTC(2026, 7, 11, 9, 0);
 
+// Every guided session is an addon, so the overlay has nothing to draw unless
+// one is installed. The fixture stands in for all of them: what is under test
+// here is the overlay's own behaviour, which is identical whoever wrote the
+// session inside it.
+beforeEach(() => seedAddons([testAddon()]));
+
 vi.mock("../lib/api", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   api: {
@@ -41,7 +49,7 @@ const slot = (status: TodaySlot["status"]): TodaySlot => ({
   status,
   isLocked: false,
   conflictEventId: null,
-  presetKey: "eye_rest",
+  presetKey: "acme.fitness/workout",
 });
 
 const day = (status: TodaySlot["status"]): TodayResponse =>
@@ -117,21 +125,37 @@ test("a finished session does not reopen on the same plan", async () => {
 /**
  * A block pressed before its window opens.
  *
- * The countdown used to run to where the block is parked on the day, so a
- * five-minute rest started four minutes early opened saying nine. What was
- * asked for is five minutes of rest, and the press is the only thing that
- * knows when they began.
+ * The end used to be where the block is *parked* on the day, so a five-minute
+ * rest started four minutes early opened saying nine and would have paced you
+ * for nine. What was asked for is five minutes of rest, and the press is the
+ * only thing that knows when they began.
+ *
+ * Asked of the rule rather than read off the screen. The countdown is drawn
+ * inside the addon's frame now, and jsdom does not run a sandboxed iframe -
+ * which is a better place for this test to end up: it is a rule about
+ * instants, and it was being checked by looking at two digits.
  */
 test("runs for as long as the block was planned, not until it was parked", () => {
   const early = AT - 4 * 60_000;
-  vi.setSystemTime(early);
   forgetStarted();
   markStarted("s1", early);
 
-  publishPlan(day("started"));
-  render(<SessionOverlay />);
+  // Five minutes from the press, not the nine between the press and where the
+  // block sits on the day.
+  expect(sessionEndOf(slot("started"))).toBe(early + 5 * 60_000);
+});
 
-  // 5:00 of rest, not the 9:00 between the press and the block's own end.
-  expect(screen.getByText("5:00")).toBeTruthy();
-  expect(screen.queryByText("9:00")).toBeNull();
+test("a late start gets the rest of its window, not a fresh full length", () => {
+  // `runningSlot` takes the overlay off screen at the block's own end, so a
+  // session allowed to run past it would be closed mid-breath.
+  const late = AT + 3 * 60_000;
+  forgetStarted();
+  markStarted("s1", late);
+
+  expect(sessionEndOf(slot("started"))).toBe(AT + 5 * 60_000);
+});
+
+test("a slot this run of the app did not start ends where it is parked", () => {
+  forgetStarted();
+  expect(sessionEndOf(slot("started"))).toBe(AT + 5 * 60_000);
 });

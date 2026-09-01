@@ -1730,10 +1730,38 @@ img.wr-avatar { object-fit: cover; }
    The library is a palette of starting points, so its chips are dashed - the
    kit's word for "not a real object on the page yet". */
 .wr-library { display: flex; flex-wrap: wrap; gap: 9px; }
-.wr-library-chip { text-align: left; }
+/* The chip is a wrapper now, not the button: one whose session comes from an
+   addon carries a cog beside its name, and a button inside a button is invalid
+   markup with an inner control no keyboard can reach. The wrapper keeps the
+   chip's own padding and dashed edge; the two buttons inside it are bare. */
+.wr-library-chip { text-align: left; padding: 0; gap: 0; }
 .wr-library-chip b { font-weight: 600; color: var(--color-text); }
-.wr-library-chip:hover:not(:disabled) { border-color: var(--color-accent); }
-.wr-library-chip:disabled { opacity: 0.45; cursor: default; }
+.wr-library-chip:hover:not([data-disabled]) { border-color: var(--color-accent); }
+.wr-library-chip[data-disabled] { opacity: 0.45; }
+
+.wr-library-pick {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 7px 13px; border: 0; background: none; cursor: pointer;
+  font: inherit; color: inherit; text-align: left;
+}
+.wr-library-pick:disabled { cursor: default; }
+/* The chip already has the cog's padding, so the cog only needs the right
+   half of it - otherwise the two controls sit a full gap apart. */
+.wr-library-cog {
+  display: inline-flex; align-items: center;
+  padding: 7px 11px 7px 0; margin-left: -5px;
+  border: 0; background: none; cursor: pointer;
+  color: var(--wr-text-soft);
+}
+.wr-library-cog:hover { color: var(--color-text); }
+
+/* Said on the chip rather than found out afterwards: this template's addon is
+   switched off, so picking it gives a plain timed block. Italic and quiet,
+   because it is a caveat and not a second name. */
+.wr-library-caveat {
+  font: 400 11px var(--font-body); font-style: italic;
+  color: var(--wr-text-soft); margin-left: 2px;
+}
 
 /* Two decisions of equal weight, so two equal columns - until the rail leaves
    no room for them, at which point stacking beats squeezing. */

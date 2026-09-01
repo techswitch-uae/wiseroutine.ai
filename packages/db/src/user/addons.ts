@@ -121,11 +121,84 @@ export async function setAddonEnabled(
   await db.addon.update({ where: { id }, data: { isEnabled } });
 }
 
+/**
+ * The activities that stop working if this addon does.
+ *
+ * A wider set than the ones the addon *created*, and the difference was a real
+ * bug: removing the breathing addon reported "0 activities, 0 slots" while the
+ * user's Breathing activity sat there on their day, because that activity was
+ * created by the user from the library and its `owner_addon_id` is null.
+ *
+ * Two ways an activity can depend on an addon, and both count:
+ *
+ * 1. **The addon created it.** `owner_addon_id` names it. Nothing does this
+ *    yet - `write:own` has no route - but the column is the provenance the
+ *    server enforces writes against, and it must be honoured here too.
+ * 2. **It runs the addon's activity type.** `preset_key` is `addonId/typeKey`,
+ *    so the prefix names the addon. This is every guided session in the app,
+ *    including the four Wise Routine ships.
+ *
+ * The prefix match is on `id/` rather than `id`, so `wiseroutine.stretch` does
+ * not claim `wiseroutine.stretching/guided`. Addon ids may not contain a
+ * slash - `isAddonId` refuses one - which is what makes the separator
+ * unambiguous.
+ */
+export const dependentsOf = (id: string) => ({
+  OR: [{ ownerAddonId: id }, { presetKey: { startsWith: `${id}/` } }],
+});
+
 export interface RemovalResult {
-  /** Activities the addon owned, now paused. */
+  /** Activities that depended on the addon, now paused. */
   paused: number;
   /** Slots ahead of the clock that were cancelled. */
   cancelled: number;
+}
+
+/** What switching an addon off would cost, before switching it off. */
+export interface AddonImpact {
+  /** The activities that would be paused, named so the user can recognise
+   *  them. A count alone asks somebody to confirm a number. */
+  activities: { id: string; name: string }[];
+  /** Slots still ahead of the clock that would come off the day. */
+  futureSlots: number;
+}
+
+/**
+ * What would happen, asked before it happens.
+ *
+ * Read-only and deliberately separate from the doing: a confirmation that
+ * names three activities and two slots is one a person can actually decide
+ * about, and computing it inside the mutation would mean either confirming
+ * afterwards or guessing beforehand.
+ *
+ * Counted against the same `dependentsOf` the mutation uses, so what the
+ * dialog promises and what happens cannot drift apart.
+ */
+export async function addonImpact(
+  db: UserDatabase,
+  id: string,
+  now: number,
+): Promise<AddonImpact> {
+  const activities = await db.activity.findMany({
+    where: { ...dependentsOf(id), isActive: true },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+
+  if (activities.length === 0) return { activities: [], futureSlots: 0 };
+
+  const futureSlots = await db.slot.count({
+    where: {
+      activityId: { in: activities.map((activity) => activity.id) },
+      startsAt: { gt: at(now) },
+      // The same set `cancelUnstartedSlots` will actually take. A slot already
+      // started, completed or skipped is the past and stays; counting it here
+      // would promise to remove something that is not going to be removed.
+      status: { in: ["planned", "live"] },
+    },
+  });
+
+  return { activities, futureSlots };
 }
 
 /**
@@ -157,14 +230,42 @@ export async function removeAddon(
   now: number,
   newId: () => string,
 ): Promise<RemovalResult> {
-  const owned = await db.activity.findMany({
-    where: { ownerAddonId: id },
+  const result = await pauseDependents(db, id, now, newId);
+  await db.addon.deleteMany({ where: { id } });
+  return result;
+}
+
+/**
+ * Take the future the addon claimed, leave the past.
+ *
+ * Shared by removing and by switching off, because they owe the user the same
+ * thing. The difference between the two is only what happens to the `Addon`
+ * row - one deletes it, the other clears a flag - and an activity whose
+ * session no longer runs is a slot that opens into nothing either way.
+ *
+ * `pausedByAddonAt` is stamped as it goes, so `resumeDependents` knows which
+ * of the paused activities were paused *by this* rather than by the user. An
+ * activity somebody switched off themselves must not switch itself back on
+ * because an addon was re-enabled.
+ */
+export async function pauseDependents(
+  db: UserDatabase,
+  id: string,
+  now: number,
+  newId: () => string,
+): Promise<RemovalResult> {
+  const affected = await db.activity.findMany({
+    where: { ...dependentsOf(id), isActive: true },
     select: { id: true },
   });
 
   let cancelled = 0;
-  for (const activity of owned) {
+  for (const activity of affected) {
     await setActivityActive(db, activity.id, false);
+    await db.activity.update({
+      where: { id: activity.id },
+      data: { pausedByAddonAt: at(now) },
+    });
     cancelled += await cancelUnstartedSlots(
       db,
       { activityId: activity.id, from: now, reasonCode: "addon_removed" },
@@ -173,7 +274,38 @@ export async function removeAddon(
     );
   }
 
-  await db.addon.deleteMany({ where: { id } });
+  return { paused: affected.length, cancelled };
+}
 
-  return { paused: owned.length, cancelled };
+/**
+ * Switch back on exactly what this addon's switch switched off.
+ *
+ * Only activities carrying `pausedByAddonAt`, which is what makes the toggle a
+ * toggle rather than a one-way door: switch an addon off, agree to lose its
+ * activities, change your mind, and they are back as they were - same minutes,
+ * same days, same settings.
+ *
+ * Slots are not restored. They were cancelled, and the day has moved on; the
+ * planner places new ones for an active activity on its next run, which is the
+ * same path any newly added activity takes. Resurrecting a cancelled slot
+ * would put a block back at a time that may now be a meeting.
+ */
+export async function resumeDependents(
+  db: UserDatabase,
+  id: string,
+): Promise<{ resumed: number }> {
+  const paused = await db.activity.findMany({
+    where: { ...dependentsOf(id), pausedByAddonAt: { not: null } },
+    select: { id: true },
+  });
+
+  for (const activity of paused) {
+    await setActivityActive(db, activity.id, true);
+    await db.activity.update({
+      where: { id: activity.id },
+      data: { pausedByAddonAt: null },
+    });
+  }
+
+  return { resumed: paused.length };
 }

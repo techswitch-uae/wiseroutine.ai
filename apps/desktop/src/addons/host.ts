@@ -2,9 +2,12 @@ import {
   type AddonCapability,
   type AddonManifest,
   canAddon,
+  isPlainHttpsOrigin,
 } from "@wiseroutine/addons";
 import { api } from "../lib/api";
+import { openExternal } from "../lib/open-external";
 import { todaySnapshot } from "../lib/plan-store";
+import { addonTheme } from "./theme";
 
 /**
  * The one place an addon's requests are answered.
@@ -77,7 +80,15 @@ export function serve(
       if (context.kind !== "session") {
         throw new Denied("This addon was not loaded as a session.");
       }
-      return { slot: context.slot, config: context.config };
+      // The theme travels with the session rather than being asked for
+      // separately: an addon that had to fetch its colours would draw once in
+      // the wrong ones first, and a flash of unreadable text at the start of
+      // a session is worse than no theming at all.
+      return {
+        slot: context.slot,
+        config: context.config,
+        theme: addonTheme(),
+      };
     },
 
     /**
@@ -150,6 +161,39 @@ export function serve(
       throw new Denied(
         "Host-side fetch is not available yet. Use fetch() for your declared origins.",
       );
+    },
+
+    /**
+     * Hand a link to the machine.
+     *
+     * Three checks, and none of them is redundant:
+     *
+     * 1. The capability is granted at all.
+     * 2. The URL parses and is a plain `https://` - so no `file:`, no
+     *    `x-apple.systempreferences:`, nothing that is an instruction to the
+     *    operating system wearing a link's clothes. The app opens such URLs
+     *    itself and is entitled to; an addon is not.
+     * 3. The *origin* is one the manifest declared. This is the one that
+     *    matters and the reason the grant alone is not enough: an addon may
+     *    compute the URL it opens, so what was approved has to be re-checked
+     *    against what is actually being opened, every time.
+     */
+    openExternal: async (params) => {
+      const { url } = (params ?? {}) as { url?: unknown };
+      if (typeof url !== "string") throw new Denied("No link given.");
+
+      let origin: string;
+      try {
+        origin = new URL(url).origin;
+      } catch {
+        throw new Denied("That is not a link.");
+      }
+      if (!isPlainHttpsOrigin(origin)) {
+        throw new Denied("Only https links can be opened.");
+      }
+
+      require({ kind: "open:external", origins: [origin] });
+      return openExternal(url);
     },
 
     "store.get": async () => {

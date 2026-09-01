@@ -1,0 +1,25 @@
+{
+  "id": "wiseroutine.stretch",
+  "name": "Guided stretch",
+  "version": "1.0.0",
+  "description": "Walks you through a stretch one step at a time, hands-free.",
+  "capabilities": [{ "kind": "ui:session" }],
+  "activityTypes": [
+    {
+      "key": "guided",
+      "name": "Guided stretch",
+      "blurb": "it walks you through the stretch one step at a time, hands-free",
+      "defaults": { "sessionMinutes": 10, "startPolicy": "manual" },
+      "canvas": { "width": 460, "height": 300 },
+      "settings": [
+        {
+          "key": "routine",
+          "label": "Routine",
+          "type": "select",
+          "default": "Shoulders & neck",
+          "options": ["Shoulders & neck", "Back & hips", "Wrists & eyes"]
+        }
+      ]
+    }
+  ]
+}

@@ -395,14 +395,37 @@ export interface InstalledAddonRow {
   /** What was granted, which is not always what the manifest now asks for. */
   granted: unknown;
   manifest: unknown;
+  /**
+   * Ships inside the app, so it is switched rather than installed or removed.
+   *
+   * The user-facing difference and the only one: bundled addons get a toggle,
+   * community ones get Install and Remove. Everything else - the permissions,
+   * the sandbox, the capability checks, the uninstall rule - is identical.
+   */
+  bundled: boolean;
   /** Withdrawn from the registry after it was installed. Still on disk. */
   revoked: boolean;
 }
 
-/** What removing an addon took with it. See `removeAddon` on the server. */
+/** What removing or switching off an addon took with it. */
 export interface AddonRemoval {
+  /** Activities that depended on it, now paused. */
   paused: number;
+  /** Slots ahead of the clock that came off the day. */
   cancelled: number;
+  /** Activities switched back on. Only ever non-zero for switching *on*. */
+  resumed?: number;
+}
+
+/**
+ * What switching an addon off would cost, asked before switching it off.
+ *
+ * The activities are named rather than counted, because a dialog that says
+ * "2 activities" is asking somebody to confirm a number they cannot check.
+ */
+export interface AddonImpact {
+  activities: { id: string; name: string }[];
+  futureSlots: number;
 }
 
 export interface CalendarsResponse {
@@ -854,11 +877,13 @@ export const api = {
       `/addons/${encodeURIComponent(id)}/install`,
       { method: "POST" },
     ),
+  addonImpact: (id: string) =>
+    request<AddonImpact>(`/addons/${encodeURIComponent(id)}/impact`),
   setAddonEnabled: (id: string, isEnabled: boolean) =>
-    send(`/addons/${encodeURIComponent(id)}`, {
+    request<AddonRemoval>(`/addons/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: JSON.stringify({ isEnabled }),
-    }).then(() => undefined),
+    }),
   removeAddon: (id: string) =>
     request<AddonRemoval>(`/addons/${encodeURIComponent(id)}`, {
       method: "DELETE",

@@ -70,6 +70,29 @@ describe("health", () => {
  */
 describe("addons", () => {
   const BREATHING = "wiseroutine.breathing";
+  const PACER = "wiseroutine.breathing/pacer";
+  const hour = 3_600_000;
+
+  const list = async (user: TestUser) => {
+    const response = await worker.default.fetch("http://api/addons", {
+      headers: user.headers,
+    });
+    return (await response.json()) as {
+      addons: {
+        id: string;
+        isEnabled: boolean;
+        bundled: boolean;
+        granted: { kind: string }[];
+      }[];
+    };
+  };
+
+  const setEnabled = (user: TestUser, id: string, isEnabled: boolean) =>
+    worker.default.fetch(`http://api/addons/${id}`, {
+      method: "PATCH",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ isEnabled }),
+    });
 
   test("lists what may be installed", async () => {
     const user = await seedUser({ plan: "free" });
@@ -82,6 +105,47 @@ describe("addons", () => {
     const breathing = body.addons.find((addon) => addon.id === BREATHING);
     expect(breathing).toBeDefined();
     expect(breathing?.manifest.capabilities).toEqual([{ kind: "ui:session" }]);
+
+    // All four of the app's own guided sessions, listed like anything else.
+    expect(body.addons.length).toBeGreaterThanOrEqual(4);
+  });
+
+  /**
+   * The four that ship inside the app install themselves.
+   *
+   * Their bundles are already on the machine, so asking somebody to press
+   * Install on a file already sitting on their disk would be a button
+   * describing the implementation rather than a choice. The install *row* is
+   * still needed - it holds the grant the host checks against - so it is
+   * written the first time the list is read.
+   */
+  test("records the addons that ship with the app, without being asked", async () => {
+    const user = await seedUser({ plan: "free" });
+    const body = await list(user);
+
+    expect(body.addons.map((addon) => addon.id).sort()).toEqual([
+      "wiseroutine.breathing",
+      "wiseroutine.deep-work",
+      "wiseroutine.eye-rest",
+      "wiseroutine.stretch",
+    ]);
+    expect(body.addons.every((addon) => addon.bundled)).toBe(true);
+    expect(body.addons.every((addon) => addon.isEnabled)).toBe(true);
+  });
+
+  // The seeding runs on every read of the list. It must be an upsert that
+  // leaves the switch alone, or reading the page would turn back on whatever
+  // the user had just turned off.
+  test("seeding again does not switch back on what the user switched off", async () => {
+    const user = await seedUser({ plan: "free" });
+    await list(user);
+    await setEnabled(user, BREATHING, false);
+
+    const body = await list(user);
+    expect(body.addons.find((addon) => addon.id === BREATHING)?.isEnabled).toBe(
+      false,
+    );
+    expect(body.addons).toHaveLength(4);
   });
 
   /**
@@ -108,13 +172,10 @@ describe("addons", () => {
     );
     expect(installed.status).toBe(201);
 
-    const list = await worker.default.fetch("http://api/addons", {
-      headers: user.headers,
-    });
-    const body = (await list.json()) as {
-      addons: { id: string; granted: { kind: string }[] }[];
-    };
-    expect(body.addons[0]?.granted).toEqual([{ kind: "ui:session" }]);
+    const body = await list(user);
+    expect(
+      body.addons.find((addon) => addon.id === BREATHING)?.granted,
+    ).toEqual([{ kind: "ui:session" }]);
   });
 
   test("refuses an addon that is not on the registry", async () => {
@@ -126,50 +187,48 @@ describe("addons", () => {
     expect(response.status).toBe(404);
   });
 
-  test("installing again is how something removed comes back", async () => {
+  /**
+   * A bundled addon cannot be removed, only switched off.
+   *
+   * Its bundle is part of the app and cannot be deleted from it, so the next
+   * read of the list would record it again - a Remove button whose effect
+   * lasts until the page reloads is worse than no Remove button. Switching off
+   * does everything a user wants from removing one.
+   */
+  test("refuses to remove an addon that ships with the app", async () => {
     const user = await seedUser({ plan: "pro" });
-    const install = () =>
-      worker.default.fetch(`http://api/addons/${BREATHING}/install`, {
-        method: "POST",
-        headers: user.headers,
-      });
+    await list(user);
 
-    expect((await install()).status).toBe(201);
-    await worker.default.fetch(`http://api/addons/${BREATHING}`, {
-      method: "DELETE",
-      headers: user.headers,
-    });
-    expect((await install()).status).toBe(201);
-
-    const list = await worker.default.fetch("http://api/addons", {
-      headers: user.headers,
-    });
-    const body = (await list.json()) as { addons: unknown[] };
-    expect(body.addons).toHaveLength(1);
+    const response = await worker.default.fetch(
+      `http://api/addons/${BREATHING}`,
+      { method: "DELETE", headers: user.headers },
+    );
+    expect(response.status).toBe(400);
+    expect(await list(user)).toMatchObject({ addons: expect.anything() });
   });
 
   /**
    * The rule, and the reason this has a test rather than a comment.
    *
-   * Removing an addon takes the future it had claimed and leaves the past
-   * alone. A completed slot is a fact about someone\'s week that the progress
+   * Switching an addon off takes the future it had claimed and leaves the past
+   * alone. A completed slot is a fact about someone's week that the progress
    * numbers were computed from; deleting it would make last Tuesday change
    * retroactively. A slot still ahead of the clock is only a plan.
    */
-  test("removing takes the future and leaves the past", async () => {
+  test("switching off takes the future and leaves the past", async () => {
     const user = await seedUser({ plan: "pro" });
-    await worker.default.fetch(`http://api/addons/${BREATHING}/install`, {
-      method: "POST",
-      headers: user.headers,
-    });
+    await list(user);
 
+    // Created by the *user* from the addon's activity type, which is how
+    // almost every one of these exists: nothing owns it, and `preset_key` is
+    // the only link back to the addon. Matching on `owner_addon_id` alone
+    // reported "0 activities, 0 slots" while the activity sat on the day.
     const activityId = await seedActivity({
       name: "Breathing",
-      ownerAddonId: BREATHING,
+      presetKey: PACER,
     });
 
     const db = userDb();
-    const hour = 3_600_000;
     await db.slot.createMany({
       data: [
         {
@@ -197,12 +256,9 @@ describe("addons", () => {
       ],
     });
 
-    const removed = await worker.default.fetch(
-      `http://api/addons/${BREATHING}`,
-      { method: "DELETE", headers: user.headers },
-    );
-    expect(removed.status).toBe(200);
-    expect(await removed.json()).toEqual({ paused: 1, cancelled: 1 });
+    const off = await setEnabled(user, BREATHING, false);
+    expect(off.status).toBe(200);
+    expect(await off.json()).toEqual({ paused: 1, cancelled: 1, resumed: 0 });
 
     expect((await db.slot.findUnique({ where: { id: "done" } }))?.status).toBe(
       "completed",
@@ -220,8 +276,148 @@ describe("addons", () => {
       where: { id: activityId },
     });
     expect(activity?.isActive).toBe(false);
-    // Paused, not deleted: installing it again should find it waiting.
-    expect(activity).not.toBeNull();
+    // Paused, not deleted: switching it back on should find it waiting.
+    expect(activity?.pausedByAddonAt).not.toBeNull();
+  });
+
+  /** Switching back on is what makes switching off a toggle and not a door. */
+  test("switching back on restores exactly what it took", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await list(user);
+    const activityId = await seedActivity({ presetKey: PACER });
+
+    await setEnabled(user, BREATHING, false);
+    const on = await setEnabled(user, BREATHING, true);
+    expect(await on.json()).toEqual({ paused: 0, cancelled: 0, resumed: 1 });
+
+    const activity = await userDb().activity.findUnique({
+      where: { id: activityId },
+    });
+    expect(activity?.isActive).toBe(true);
+    expect(activity?.pausedByAddonAt).toBeNull();
+  });
+
+  /**
+   * And only what it took.
+   *
+   * An activity the user switched off themselves must stay off. Without
+   * `pausedByAddonAt` the two kinds of paused are indistinguishable, and
+   * re-enabling an addon would silently switch on activities somebody had
+   * deliberately retired.
+   */
+  test("switching back on leaves alone what the user had paused", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await list(user);
+    const mine = await seedActivity({
+      name: "Retired breathing",
+      presetKey: PACER,
+      isActive: false,
+    });
+
+    await setEnabled(user, BREATHING, false);
+    await setEnabled(user, BREATHING, true);
+
+    const activity = await userDb().activity.findUnique({
+      where: { id: mine },
+    });
+    expect(activity?.isActive).toBe(false);
+  });
+
+  /** Nothing to lose means nothing to confirm - see the Addons page. */
+  test("reports what switching off would cost, before it costs it", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await list(user);
+
+    const empty = await worker.default.fetch(
+      `http://api/addons/${BREATHING}/impact`,
+      { headers: user.headers },
+    );
+    expect(await empty.json()).toEqual({ activities: [], futureSlots: 0 });
+
+    const activityId = await seedActivity({
+      name: "Breathing",
+      presetKey: PACER,
+    });
+    await userDb().slot.create({
+      data: {
+        id: "ahead",
+        activityId,
+        title: "Breathing",
+        kind: "recovery",
+        startsAt: new Date(Date.now() + hour),
+        endsAt: new Date(Date.now() + hour + 600_000),
+        timeZone: "UTC",
+        status: "planned",
+        createdAt: new Date(),
+      },
+    });
+
+    const response = await worker.default.fetch(
+      `http://api/addons/${BREATHING}/impact`,
+      { headers: user.headers },
+    );
+    // Named, not counted: the dialog asks somebody to confirm losing these,
+    // and a number is not something they can check.
+    expect(await response.json()).toEqual({
+      activities: [{ id: activityId, name: "Breathing" }],
+      futureSlots: 1,
+    });
+  });
+
+  /**
+   * An addon's own id must not claim another addon's activities.
+   *
+   * The prefix match is on `id/` rather than `id`, so `wiseroutine.stretch`
+   * cannot take `wiseroutine.stretching/guided` with it. Ids may not contain a
+   * slash, which is what makes the separator unambiguous.
+   */
+  test("switching one off leaves another addon's activities alone", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await list(user);
+
+    const breathing = await seedActivity({
+      name: "Breathing",
+      presetKey: PACER,
+    });
+    const stretch = await seedActivity({
+      name: "Stretch",
+      presetKey: "wiseroutine.stretch/guided",
+    });
+
+    await setEnabled(user, BREATHING, false);
+
+    const db = userDb();
+    expect(
+      (await db.activity.findUnique({ where: { id: breathing } }))?.isActive,
+    ).toBe(false);
+    expect(
+      (await db.activity.findUnique({ where: { id: stretch } }))?.isActive,
+    ).toBe(true);
+  });
+});
+
+/**
+ * Migrations used to run exactly once per account: at signup.
+ *
+ * Everything written afterwards reached new users and nobody else, which was
+ * survivable while migrations only added columns nothing read yet and stopped
+ * being survivable when they started renaming things. A user left behind is
+ * one whose guided sessions quietly stop opening.
+ */
+describe("schema catch-up", () => {
+  test("brings a database behind the Worker up to date on the next request", async () => {
+    const user = await seedUser({ schemaVersion: 0 });
+
+    const response = await worker.default.fetch("http://api/addons", {
+      headers: user.headers,
+    });
+    expect(response.status).toBe(200);
+
+    const row = await directory().user.findUnique({
+      where: { id: user.userId },
+      select: { schemaVersion: true },
+    });
+    expect(row?.schemaVersion).toBeGreaterThan(0);
   });
 });
 
