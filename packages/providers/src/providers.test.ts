@@ -207,6 +207,9 @@ describe("microsoft recurring series", () => {
     id: "series-1",
     type: "seriesMaster",
     subject: "BB Standup",
+    // Stated once, on the series - which is where a recurring Teams meeting
+    // keeps its link.
+    onlineMeeting: { joinUrl: "https://teams.microsoft.com/l/meetup-join/bb" },
     start: { dateTime: "2026-08-27T08:30:00.0000000", timeZone: "UTC" },
     end: { dateTime: "2026-08-27T08:45:00.0000000", timeZone: "UTC" },
   };
@@ -230,6 +233,38 @@ describe("microsoft recurring series", () => {
   // The master's start is its first instance, which the occurrences already
   // cover. Storing it too double-books that slot against a meeting that is not
   // separately in the diary.
+  /**
+   * The bug this was found by: every one-off Teams meeting came through with
+   * its link and every recurring one - which is most of them - came through
+   * with none, because the occurrence Graph sends has no `onlineMeeting` on
+   * it. Exactly the shape of the subject problem above, one field along.
+   */
+  test("an occurrence inherits the series join link", async () => {
+    const fetched = await withFetch(page([master, occurrence]), () =>
+      microsoftSyncPage({ accessToken: "t", calendarId: "cal" }),
+    );
+    const found = fetched.events.find((e) => e.providerEventId === "occ-1");
+    expect(found?.joinUrl).toBe("https://teams.microsoft.com/l/meetup-join/bb");
+  });
+
+  // An instance moved out of the series can be a meeting of its own.
+  test("an occurrence with its own link keeps it", async () => {
+    const moved = {
+      ...occurrence,
+      id: "occ-2",
+      onlineMeeting: {
+        joinUrl: "https://teams.microsoft.com/l/meetup-join/own",
+      },
+    };
+    const fetched = await withFetch(page([master, moved]), () =>
+      microsoftSyncPage({ accessToken: "t", calendarId: "cal" }),
+    );
+    const found = fetched.events.find((e) => e.providerEventId === "occ-2");
+    expect(found?.joinUrl).toBe(
+      "https://teams.microsoft.com/l/meetup-join/own",
+    );
+  });
+
   test("the series master is not stored as a booking", async () => {
     const fetched = await withFetch(page([master, occurrence]), () =>
       microsoftSyncPage({ accessToken: "t", calendarId: "cal" }),
@@ -331,5 +366,100 @@ describe("the join link", () => {
       });
       expect(event.joinUrl).toBeNull();
     }
+  });
+});
+
+/**
+ * The link that is only in the description.
+ *
+ * `conferenceData` is filled in by Google's own conferencing and by nothing
+ * else, so a diary booked through Calendly, HubSpot or a Zoom scheduler has
+ * none of it at all - the join link arrives as a line of text in the body,
+ * which is where a real "Meeting with ArMa Global" was found hiding.
+ */
+describe("a link in the description", () => {
+  const event = (description: string) =>
+    normaliseGoogleEvent({
+      id: "d1",
+      summary: "Meeting with ArMa Global",
+      start: { dateTime: "2026-09-02T09:00:00Z" },
+      end: { dateTime: "2026-09-02T10:00:00Z" },
+      description,
+    });
+
+  test("finds a zoom link in the body text", () => {
+    expect(
+      event(
+        "Join Zoom Meeting\nhttps://us02web.zoom.us/j/8412345678\n\nID: 841",
+      ).joinUrl,
+    ).toBe("https://us02web.zoom.us/j/8412345678");
+  });
+
+  test("finds one that exists only as a link's href", () => {
+    expect(
+      event(
+        'Click <a href="https://meet.google.com/xyz-abcd-efg">here</a> to join',
+      ).joinUrl,
+    ).toBe("https://meet.google.com/xyz-abcd-efg");
+  });
+
+  /**
+   * A description is full of URLs - map links, unsubscribe footers, the
+   * organiser's own website - so "the first link in the text" is the wrong
+   * answer far more often than it is the right one.
+   */
+  test("ignores the links that are not meetings", () => {
+    expect(
+      event(
+        "Directions: https://maps.example.com/x\nUnsubscribe: https://mail.example.com/u",
+      ).joinUrl,
+    ).toBeNull();
+  });
+
+  /**
+   * The body keeps its shape without keeping its markup: emphasis and links
+   * survive as a notation the reader turns into elements, and nothing is ever
+   * handed to a DOM as HTML.
+   */
+  test("carries the formatting across as a notation, not as markup", () => {
+    const { description } = event(
+      "<p>Agenda:</p><ul><li><b>Deck</b> &amp; <i>numbers</i></li></ul>",
+    );
+    expect(description).toBe("Agenda:\n\n• **Deck** & _numbers_");
+  });
+
+  test("a link keeps both its words and its address", () => {
+    const { description } = event(
+      'Read the <a href="https://example.com/brief">brief</a> first',
+    );
+    expect(description).toBe(
+      "Read the [brief](https://example.com/brief) first",
+    );
+  });
+
+  // A link whose words are the address itself would otherwise be written out
+  // twice, once as the label and once in the brackets.
+  test("a bare link is written once", () => {
+    const { description } = event(
+      '<a href="https://example.com/x">https://example.com/x</a>',
+    );
+    expect(description).toBe("https://example.com/x");
+  });
+
+  // The structured field is the provider's own answer and beats a guess at
+  // one, so a Meet link on the event wins over anything written in the body.
+  test("prefers the event's own conference data over the body", () => {
+    const found = normaliseGoogleEvent({
+      id: "d2",
+      start: { dateTime: "2026-09-02T09:00:00Z" },
+      end: { dateTime: "2026-09-02T10:00:00Z" },
+      conferenceData: {
+        entryPoints: [
+          { entryPointType: "video", uri: "https://meet.google.com/real-link" },
+        ],
+      },
+      description: "Old link: https://us02web.zoom.us/j/000",
+    });
+    expect(found.joinUrl).toBe("https://meet.google.com/real-link");
   });
 });

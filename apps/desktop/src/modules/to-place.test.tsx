@@ -1,4 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { TodayResponse } from "../lib/api";
 import { setPlacing } from "../lib/placing";
@@ -21,10 +22,14 @@ const DAY_START = Date.UTC(2026, 8, 1, 8, 0);
 const DAY_END = Date.UTC(2026, 8, 1, 18, 0);
 
 const placeSlot = vi.fn(async () => undefined);
+const plan = vi.fn(async () => ({ placed: 1, unplaced: [] }));
 
 vi.mock("../lib/api", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  api: { placeSlot: (...args: unknown[]) => placeSlot(...(args as [])) },
+  api: {
+    placeSlot: (...args: unknown[]) => placeSlot(...(args as [])),
+    plan: (...args: unknown[]) => plan(...(args as [])),
+  },
 }));
 
 const day = (): TodayResponse =>
@@ -77,6 +82,7 @@ const at = (type: string, x: number, y: number): MouseEvent =>
 beforeEach(() => {
   vi.useFakeTimers({ now: AT, shouldAdvanceTime: true });
   placeSlot.mockClear();
+  plan.mockClear();
   publishReload(() => undefined);
 });
 
@@ -92,8 +98,11 @@ afterEach(() => {
 test("says how much of the day's minimum is still unplaced", () => {
   publishPlan(day());
   render(<ToPlace />);
-  // One of the three is already on the day, so two are owed.
-  expect(screen.getByText("10 min · 2 of 3 today")).toBeTruthy();
+  // One of the three is already on the day, so two are owed. Nothing here
+  // says "today": the card describes the day on screen, which the day view
+  // can page away from.
+  expect(screen.getByText("10 min · 2 of 3")).toBeTruthy();
+  expect(screen.queryByText(/today/i)).toBeNull();
 });
 
 test("places a session where it was dropped", () => {
@@ -174,4 +183,23 @@ test("places one session per drop, however often the release fires", () => {
   });
 
   expect(placeSlot).toHaveBeenCalledTimes(1);
+});
+
+/**
+ * "Place them for me", on the day being looked at.
+ *
+ * The server plans the day it is currently in unless it is told otherwise, so
+ * pressing this while paged forward to Thursday quietly filled today instead -
+ * a card describing one day and a button acting on another.
+ */
+test("auto-placing fills the day on screen, not the day it is", async () => {
+  const user = userEvent.setup();
+  publishPlan(day());
+  render(<ToPlace />);
+
+  await user.click(screen.getByRole("button", { name: "Place them for me" }));
+
+  const [, at] = plan.mock.calls[0] as unknown as [string, number];
+  expect(at).toBeGreaterThanOrEqual(DAY_START);
+  expect(at).toBeLessThanOrEqual(DAY_END);
 });

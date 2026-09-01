@@ -44,6 +44,139 @@ export interface NormalisedEvent {
    * does not, and an undefined would make that two states to write for.
    */
   joinUrl: string | null;
+  /**
+   * What the organiser wrote, as plain text.
+   *
+   * Kept because it is where half the useful detail about a meeting lives -
+   * the agenda, the dial-in, the "bring the deck" - and because a great many
+   * meetings put their join link in here and nowhere else: anything booked
+   * through Calendly, HubSpot or a Zoom scheduler arrives with an empty
+   * `conferenceData` and a body full of instructions.
+   *
+   * Plain text, not the provider's HTML. It is rendered inside the app's own
+   * webview, so markup from a stranger's calendar invitation is not something
+   * to hand to a DOM - and stripping it at the edge means every reader is safe
+   * rather than each one having to remember.
+   */
+  description: string | null;
+}
+
+/**
+ * The hosts a meeting link is allowed to be on.
+ *
+ * A description is full of URLs - map links, unsubscribe footers, the
+ * organiser's website - so "the first link in the text" is the wrong answer
+ * far more often than it is the right one. Naming the handful of things that
+ * actually hold a meeting is duller and correct.
+ */
+const MEETING_HOSTS = [
+  "meet.google.com",
+  "teams.microsoft.com",
+  "teams.live.com",
+  "zoom.us",
+  "webex.com",
+  "whereby.com",
+  "meet.jit.si",
+  "gotomeeting.com",
+];
+
+/** Every http(s) run in a blob of text or markup, cut at the delimiters a URL
+ *  cannot contain: quotes, angle brackets and whitespace. */
+const URLS = /https?:\/\/[^\s"'<>)\]]+/g;
+
+/**
+ * A meeting link hiding in an event's description.
+ *
+ * Read from the raw description rather than the stripped text, so a link that
+ * only exists as an anchor's `href` - "click **here** to join" - is found too.
+ */
+export function meetingLinkIn(description: unknown): string | null {
+  if (typeof description !== "string") return null;
+  for (const match of description.match(URLS) ?? []) {
+    // Trailing punctuation belongs to the sentence, not to the address.
+    const candidate = joinableUrl(match.replace(/[.,;:]+$/, ""));
+    if (!candidate) continue;
+    const host = new URL(candidate).hostname;
+    if (
+      MEETING_HOSTS.some(
+        (known) => host === known || host.endsWith(`.${known}`),
+      )
+    )
+      return candidate;
+  }
+  return null;
+}
+
+/** How much of a description is worth keeping. Long enough for an agenda and
+ *  a dial-in, short enough that a mail-thread-in-an-invite does not become the
+ *  biggest thing in the database. */
+const DESCRIPTION_MAX = 2_000;
+
+/**
+ * Provider HTML as text that keeps the shape of what was written.
+ *
+ * Not HTML, and not a plain flattening either. An invitation body is markup
+ * written by someone outside this app, so handing it to a DOM is out of the
+ * question - but flattening it loses the two things that make a long
+ * description readable: which words are emphasised, and which ones are links.
+ *
+ * So it becomes a tiny known notation - `**bold**`, `_italic_`,
+ * `[label](url)` - that the reader turns into React elements. Nothing is ever
+ * parsed as markup again: the worst a hostile invitation can do here is show
+ * its own asterisks.
+ *
+ * ponytail: a handful of replacements, not a parser. Anchors and emphasis are
+ * converted before the remaining tags are dropped, because that is the only
+ * ordering in which an `href` survives. A body that already contains `**` or
+ * `[x](y)` will be read as formatting - which shows the wrong emphasis on a
+ * line, and is the whole cost.
+ */
+export function toRichText(value: unknown): string | null {
+  if (typeof value !== "string" || value === "") return null;
+
+  const inner = (html: string): string => html.replace(/<[^>]*>/g, "").trim();
+
+  const text = value
+    // Anchors first. The address lives inside the tag, so stripping tags is
+    // what loses it - and a link is the most useful thing in a description.
+    .replace(
+      /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+      (_match, href: string, label: string) => {
+        const shown = inner(label);
+        return shown && shown !== href ? `[${shown}](${href})` : href;
+      },
+    )
+    .replace(
+      /<(b|strong)\b[^>]*>([\s\S]*?)<\/\1>/gi,
+      (_match, _tag: string, body: string) => {
+        const shown = inner(body);
+        return shown ? `**${shown}**` : "";
+      },
+    )
+    .replace(
+      /<(i|em)\b[^>]*>([\s\S]*?)<\/\1>/gi,
+      (_match, _tag: string, body: string) => {
+        const shown = inner(body);
+        return shown ? `_${shown}_` : "";
+      },
+    )
+    // A list item is a line with a mark on it, which is all a list is once
+    // there is nothing to indent it with.
+    .replace(/<li\b[^>]*>/gi, "\n• ")
+    .replace(/<(br|\/p|\/div|\/li|\/tr|\/h[1-6])[^>]*>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    // Three blank lines in a row is the invitation's formatting, not content.
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+
+  return text === "" ? null : text.slice(0, DESCRIPTION_MAX);
 }
 
 /**

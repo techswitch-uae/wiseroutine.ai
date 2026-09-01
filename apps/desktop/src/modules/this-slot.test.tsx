@@ -413,3 +413,96 @@ test("says nothing about joining a meeting that is not online", () => {
   );
   expect(screen.queryByRole("button", { name: /^Join/ })).toBeNull();
 });
+
+/**
+ * Everything else the organiser wrote.
+ *
+ * A press away rather than in the rail: the agenda for an hour-long meeting
+ * would push the day itself off the screen. Plain text, because an invitation
+ * body is markup written outside this app and the one safe thing to do with it
+ * is not to render it.
+ */
+test("keeps the meeting's own detail behind a press", async () => {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  show(
+    day({
+      slots: [],
+      meetings: [
+        {
+          id: "m1",
+          title: "Meeting with ArMa Global",
+          startsAt: AT,
+          endsAt: AT + 3_600_000,
+          isAllDay: false,
+          joinUrl: null,
+          description: "Agenda:\n- the deck\n- the numbers",
+        },
+      ],
+    }),
+    "m1",
+  );
+
+  expect(screen.queryByText(/Agenda/)).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Show details" }));
+  expect(screen.getByText(/the numbers/)).toBeTruthy();
+});
+
+// Most meetings say nothing beyond their name. A button that opens an empty
+// sheet is worse than no button.
+test("offers no details for a meeting that has none", () => {
+  show(
+    day({
+      slots: [],
+      meetings: [
+        {
+          id: "m1",
+          title: "Standup",
+          startsAt: AT,
+          endsAt: AT + 900_000,
+          isAllDay: false,
+          joinUrl: null,
+          description: null,
+        },
+      ],
+    }),
+    "m1",
+  );
+  expect(screen.queryByRole("button", { name: "Show details" })).toBeNull();
+});
+
+/**
+ * The organiser's own emphasis and links, as elements.
+ *
+ * The description is stored as a small notation - see `toRichText` - precisely
+ * so that showing it never means parsing markup: a link is a button that hands
+ * the URL to the operating system, exactly like the Join button above it.
+ */
+test("renders the description's links and emphasis", async () => {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  show(
+    day({
+      slots: [],
+      meetings: [
+        {
+          id: "m1",
+          title: "Meeting with ArMa Global",
+          startsAt: AT,
+          endsAt: AT + 3_600_000,
+          isAllDay: false,
+          joinUrl: null,
+          description:
+            "Bring the **deck**.\nNotes: [the brief](https://example.com/brief)",
+        },
+      ],
+    }),
+    "m1",
+  );
+
+  await user.click(screen.getByRole("button", { name: "Show details" }));
+  // The markers are formatting, not text: nobody should read an asterisk.
+  expect(screen.queryByText(/\*\*/)).toBeNull();
+  expect(screen.getByText("deck").tagName).toBe("STRONG");
+
+  await user.click(screen.getByRole("button", { name: "the brief" }));
+  expect(opened).toEqual(["https://example.com/brief"]);
+});

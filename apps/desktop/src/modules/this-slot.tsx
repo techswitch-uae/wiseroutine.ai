@@ -1,4 +1,10 @@
-import { Button, TimeStepper, Widget } from "@wiseroutine/design";
+import {
+  Button,
+  Modal,
+  RichText,
+  TimeStepper,
+  Widget,
+} from "@wiseroutine/design";
 import { useEffect, useState } from "react";
 import { api, type TodayResponse } from "../lib/api";
 import { notify } from "../lib/notify";
@@ -64,38 +70,76 @@ const Meeting: React.FC<{
   timeZone: string;
   leaving: boolean;
   onClose: () => void;
-}> = ({ meeting, timeZone, leaving, onClose }) => (
-  <Widget eyebrow="This block" leaving={leaving} onClose={onClose}>
-    <h3 className="wr-widget-title">{meeting.title ?? "Busy"}</h3>
-    <div className="wr-widget-time">
-      {clock(meeting.startsAt, timeZone)}–{clock(meeting.endsAt, timeZone)}
-    </div>
-    {/* The one thing that can be *done* to someone else's block. It is not a
+}> = ({ meeting, timeZone, leaving, onClose }) => {
+  const [details, setDetails] = useState(false);
+  const when = `${clock(meeting.startsAt, timeZone)}–${clock(meeting.endsAt, timeZone)}`;
+
+  return (
+    <Widget eyebrow="This block" leaving={leaving} onClose={onClose}>
+      <h3 className="wr-widget-title">{meeting.title ?? "Busy"}</h3>
+      <div className="wr-widget-time">
+        {clock(meeting.startsAt, timeZone)}–{clock(meeting.endsAt, timeZone)}
+      </div>
+      {/* The one thing that can be *done* to someone else's block. It is not a
         link: the app's own webview must not navigate away from the app, and a
         meeting opens in the browser that is already signed in to it - see
         `lib/open-external`. */}
-    {meeting.joinUrl ? (
-      <Button
-        variant="primary"
-        block
-        style={{ marginTop: 12 }}
-        onClick={() => {
-          const url = meeting.joinUrl;
-          if (!url) return;
-          void openExternal(url).then((opened) => {
-            if (!opened) notify("Couldn't open that meeting link.");
-          });
-        }}
-      >
-        {joinLabel(meeting.joinUrl)}
-      </Button>
-    ) : null}
-    <Note>
-      From your calendar. Wise Routine plans around this one and never writes
-      back to it, so it can only be moved where it came from.
-    </Note>
-  </Widget>
-);
+      {meeting.joinUrl ? (
+        <Button
+          variant="primary"
+          block
+          style={{ marginTop: 12 }}
+          onClick={() => {
+            const url = meeting.joinUrl;
+            if (!url) return;
+            void openExternal(url).then((opened) => {
+              if (!opened) notify("Couldn't open that meeting link.");
+            });
+          }}
+        >
+          {joinLabel(meeting.joinUrl)}
+        </Button>
+      ) : null}
+      {/* Quiet, and next to the loud one. The card says the four things worth
+        knowing at a glance; everything else the organiser wrote is a press
+        away rather than in the rail, where it would push the day off screen. */}
+      {meeting.description ? (
+        <Button
+          variant="secondary"
+          block
+          style={{ marginTop: 8 }}
+          onClick={() => setDetails(true)}
+        >
+          Show details
+        </Button>
+      ) : null}
+      <Note>
+        From your calendar. Wise Routine plans around this one and never writes
+        back to it, so it can only be moved where it came from.
+      </Note>
+
+      {details ? (
+        <Modal
+          title={meeting.title ?? "Busy"}
+          subtitle={when}
+          onClose={() => setDetails(false)}
+        >
+          {/* The organiser's own emphasis and links, rendered as elements
+            from the notation `toRichText` stored - never as markup. A link
+            opens in the real browser, like the Join button above. */}
+          <RichText
+            text={meeting.description ?? ""}
+            onLink={(url) => {
+              void openExternal(url).then((opened) => {
+                if (!opened) notify("Couldn't open that link.");
+              });
+            }}
+          />
+        </Modal>
+      ) : null}
+    </Widget>
+  );
+};
 
 /**
  * What to call the button.

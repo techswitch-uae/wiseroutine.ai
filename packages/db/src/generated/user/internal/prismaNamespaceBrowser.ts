@@ -155,6 +155,7 @@ export const ExternalEventScalarFieldEnum = {
   responseStatus: 'responseStatus',
   isCancelled: 'isCancelled',
   joinUrl: 'joinUrl',
+  description: 'description',
   changeTag: 'changeTag',
   providerUpdatedAt: 'providerUpdatedAt',
   deletedAt: 'deletedAt',

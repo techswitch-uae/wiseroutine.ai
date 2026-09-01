@@ -16,7 +16,7 @@ import { type Placement, setPlacing, usePlacing } from "../lib/placing";
 import { reloadPlan, usePlan } from "../lib/plan-store";
 
 /**
- * What today still owes, and two ways to put it on the day.
+ * What a day still owes, and two ways to put it there.
  *
  * The free plan's placement, and deliberately not a row hidden between two
  * meetings. Offering "31 min free at 23:29 - place here" beside every gap made
@@ -149,6 +149,14 @@ export const ToPlace: React.FC = () => {
     };
   }, [dragging]);
 
+  /**
+   * Owed by the day on screen, not by today.
+   *
+   * `progress` comes from `/today?at=`, so it already counts the viewed day's
+   * sessions and the ones already placed on it - which is why this card is
+   * worth keeping while paging forward, and why nothing it says may call that
+   * day "today".
+   */
   const owed = owedToday(plan?.progress ?? []);
   if (!plan || owed.length === 0) return null;
 
@@ -157,7 +165,10 @@ export const ToPlace: React.FC = () => {
   const fill = () => {
     setPlacingState(true);
     api
-      .plan()
+      // The day on screen, not the day it is. Its midpoint, because the
+      // server only needs some instant inside it and the bounds it was given
+      // are the visible range rather than midnight to midnight.
+      .plan("user_request", Math.round((plan.dayStart + plan.dayEnd) / 2))
       .then(({ placed, unplaced }) => {
         // Said out loud when the day could not take everything. Silence here
         // reads as "done", and the tray still standing there afterwards with
@@ -178,13 +189,13 @@ export const ToPlace: React.FC = () => {
   };
 
   return (
-    <Widget eyebrow="To place today" count={total}>
+    <Widget eyebrow="To place" count={total}>
       {owed.map((row) => (
         <div key={row.id} style={{ marginTop: 8 }}>
           <StateRow
             recessed
             name={row.name}
-            meta={`${row.minutes} min · ${row.left} of ${row.of} today`}
+            meta={`${row.minutes} min · ${row.left} of ${row.of}`}
             // The grip is the whole affordance: rows in this card are the one
             // place in the app where something is picked up rather than
             // pressed, and a row that only reveals that on being dragged is a
@@ -230,7 +241,7 @@ export const ToPlace: React.FC = () => {
           font: "400 12.5px/1.45 var(--font-body)",
         }}
       >
-        Drag one onto a free stretch, or have them placed for you.
+        Drag one onto a free stretch on this day, or have them placed for you.
       </p>
 
       {account?.plan === "free" ? (

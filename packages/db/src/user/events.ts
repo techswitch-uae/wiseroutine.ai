@@ -17,6 +17,7 @@ export interface NormalisedEvent {
   changeTag?: string | null;
   providerUpdatedAt?: number | null;
   joinUrl?: string | null;
+  description?: string | null;
 }
 
 /**
@@ -26,7 +27,10 @@ export interface NormalisedEvent {
  * link - so rather than push a screen's field into a type that exists to be
  * free of them, the extra travels alongside.
  */
-export type StoredEvent = CalendarEvent & { joinUrl: string | null };
+export type StoredEvent = CalendarEvent & {
+  joinUrl: string | null;
+  description: string | null;
+};
 
 export interface UpsertResult {
   written: number;
@@ -83,6 +87,7 @@ export async function upsertEvents(
       // host and its room, which is the thing someone turning titles off is
       // asking us not to keep.
       joinUrl: params.storeTitles ? (event.joinUrl ?? null) : null,
+      description: params.storeTitles ? (event.description ?? null) : null,
       startsAt: at(event.startsAt),
       endsAt: at(event.endsAt),
       timeZone: event.timeZone ?? null,
@@ -167,6 +172,7 @@ export async function listEventsInRange(
     responseStatus: row.responseStatus as CalendarEvent["responseStatus"],
     isCancelled: row.isCancelled,
     joinUrl: row.joinUrl ?? null,
+    description: row.description ?? null,
   }));
 }
 

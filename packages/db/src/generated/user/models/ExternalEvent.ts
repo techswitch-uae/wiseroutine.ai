@@ -40,6 +40,7 @@ export type ExternalEventMinAggregateOutputType = {
   responseStatus: string | null
   isCancelled: boolean | null
   joinUrl: string | null
+  description: string | null
   changeTag: string | null
   providerUpdatedAt: Date | null
   deletedAt: Date | null
@@ -62,6 +63,7 @@ export type ExternalEventMaxAggregateOutputType = {
   responseStatus: string | null
   isCancelled: boolean | null
   joinUrl: string | null
+  description: string | null
   changeTag: string | null
   providerUpdatedAt: Date | null
   deletedAt: Date | null
@@ -84,6 +86,7 @@ export type ExternalEventCountAggregateOutputType = {
   responseStatus: number
   isCancelled: number
   joinUrl: number
+  description: number
   changeTag: number
   providerUpdatedAt: number
   deletedAt: number
@@ -108,6 +111,7 @@ export type ExternalEventMinAggregateInputType = {
   responseStatus?: true
   isCancelled?: true
   joinUrl?: true
+  description?: true
   changeTag?: true
   providerUpdatedAt?: true
   deletedAt?: true
@@ -130,6 +134,7 @@ export type ExternalEventMaxAggregateInputType = {
   responseStatus?: true
   isCancelled?: true
   joinUrl?: true
+  description?: true
   changeTag?: true
   providerUpdatedAt?: true
   deletedAt?: true
@@ -152,6 +157,7 @@ export type ExternalEventCountAggregateInputType = {
   responseStatus?: true
   isCancelled?: true
   joinUrl?: true
+  description?: true
   changeTag?: true
   providerUpdatedAt?: true
   deletedAt?: true
@@ -247,6 +253,7 @@ export type ExternalEventGroupByOutputType = {
   responseStatus: string
   isCancelled: boolean
   joinUrl: string | null
+  description: string | null
   changeTag: string | null
   providerUpdatedAt: Date | null
   deletedAt: Date | null
@@ -290,6 +297,7 @@ export type ExternalEventWhereInput = {
   responseStatus?: Prisma.StringFilter<"ExternalEvent"> | string
   isCancelled?: Prisma.BoolFilter<"ExternalEvent"> | boolean
   joinUrl?: Prisma.StringNullableFilter<"ExternalEvent"> | string | null
+  description?: Prisma.StringNullableFilter<"ExternalEvent"> | string | null
   changeTag?: Prisma.StringNullableFilter<"ExternalEvent"> | string | null
   providerUpdatedAt?: Prisma.DateTimeNullableFilter<"ExternalEvent"> | Date | string | null
   deletedAt?: Prisma.DateTimeNullableFilter<"ExternalEvent"> | Date | string | null
@@ -313,6 +321,7 @@ export type ExternalEventOrderByWithRelationInput = {
   responseStatus?: Prisma.SortOrder
   isCancelled?: Prisma.SortOrder
   joinUrl?: Prisma.SortOrderInput | Prisma.SortOrder
+  description?: Prisma.SortOrderInput | Prisma.SortOrder
   changeTag?: Prisma.SortOrderInput | Prisma.SortOrder
   providerUpdatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   deletedAt?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -340,6 +349,7 @@ export type ExternalEventWhereUniqueInput = Prisma.AtLeast<{
   responseStatus?: Prisma.StringFilter<"ExternalEvent"> | string
   isCancelled?: Prisma.BoolFilter<"ExternalEvent"> | boolean
   joinUrl?: Prisma.StringNullableFilter<"ExternalEvent"> | string | null
+  description?: Prisma.StringNullableFilter<"ExternalEvent"> | string | null
   changeTag?: Prisma.StringNullableFilter<"ExternalEvent"> | string | null
   providerUpdatedAt?: Prisma.DateTimeNullableFilter<"ExternalEvent"> | Date | string | null
   deletedAt?: Prisma.DateTimeNullableFilter<"ExternalEvent"> | Date | string | null
@@ -363,6 +373,7 @@ export type ExternalEventOrderByWithAggregationInput = {
   responseStatus?: Prisma.SortOrder
   isCancelled?: Prisma.SortOrder
   joinUrl?: Prisma.SortOrderInput | Prisma.SortOrder
+  description?: Prisma.SortOrderInput | Prisma.SortOrder
   changeTag?: Prisma.SortOrderInput | Prisma.SortOrder
   providerUpdatedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   deletedAt?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -391,6 +402,7 @@ export type ExternalEventScalarWhereWithAggregatesInput = {
   responseStatus?: Prisma.StringWithAggregatesFilter<"ExternalEvent"> | string
   isCancelled?: Prisma.BoolWithAggregatesFilter<"ExternalEvent"> | boolean
   joinUrl?: Prisma.StringNullableWithAggregatesFilter<"ExternalEvent"> | string | null
+  description?: Prisma.StringNullableWithAggregatesFilter<"ExternalEvent"> | string | null
   changeTag?: Prisma.StringNullableWithAggregatesFilter<"ExternalEvent"> | string | null
   providerUpdatedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ExternalEvent"> | Date | string | null
   deletedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"ExternalEvent"> | Date | string | null
@@ -412,6 +424,7 @@ export type ExternalEventCreateInput = {
   responseStatus?: string
   isCancelled?: boolean
   joinUrl?: string | null
+  description?: string | null
   changeTag?: string | null
   providerUpdatedAt?: Date | string | null
   deletedAt?: Date | string | null
@@ -435,6 +448,7 @@ export type ExternalEventUncheckedCreateInput = {
   responseStatus?: string
   isCancelled?: boolean
   joinUrl?: string | null
+  description?: string | null
   changeTag?: string | null
   providerUpdatedAt?: Date | string | null
   deletedAt?: Date | string | null
@@ -456,6 +470,7 @@ export type ExternalEventUpdateInput = {
   responseStatus?: Prisma.StringFieldUpdateOperationsInput | string
   isCancelled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   joinUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   changeTag?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   providerUpdatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -479,6 +494,7 @@ export type ExternalEventUncheckedUpdateInput = {
   responseStatus?: Prisma.StringFieldUpdateOperationsInput | string
   isCancelled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   joinUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   changeTag?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   providerUpdatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -501,6 +517,7 @@ export type ExternalEventCreateManyInput = {
   responseStatus?: string
   isCancelled?: boolean
   joinUrl?: string | null
+  description?: string | null
   changeTag?: string | null
   providerUpdatedAt?: Date | string | null
   deletedAt?: Date | string | null
@@ -522,6 +539,7 @@ export type ExternalEventUpdateManyMutationInput = {
   responseStatus?: Prisma.StringFieldUpdateOperationsInput | string
   isCancelled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   joinUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   changeTag?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   providerUpdatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -544,6 +562,7 @@ export type ExternalEventUncheckedUpdateManyInput = {
   responseStatus?: Prisma.StringFieldUpdateOperationsInput | string
   isCancelled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   joinUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   changeTag?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   providerUpdatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -581,6 +600,7 @@ export type ExternalEventCountOrderByAggregateInput = {
   responseStatus?: Prisma.SortOrder
   isCancelled?: Prisma.SortOrder
   joinUrl?: Prisma.SortOrder
+  description?: Prisma.SortOrder
   changeTag?: Prisma.SortOrder
   providerUpdatedAt?: Prisma.SortOrder
   deletedAt?: Prisma.SortOrder
@@ -603,6 +623,7 @@ export type ExternalEventMaxOrderByAggregateInput = {
   responseStatus?: Prisma.SortOrder
   isCancelled?: Prisma.SortOrder
   joinUrl?: Prisma.SortOrder
+  description?: Prisma.SortOrder
   changeTag?: Prisma.SortOrder
   providerUpdatedAt?: Prisma.SortOrder
   deletedAt?: Prisma.SortOrder
@@ -625,6 +646,7 @@ export type ExternalEventMinOrderByAggregateInput = {
   responseStatus?: Prisma.SortOrder
   isCancelled?: Prisma.SortOrder
   joinUrl?: Prisma.SortOrder
+  description?: Prisma.SortOrder
   changeTag?: Prisma.SortOrder
   providerUpdatedAt?: Prisma.SortOrder
   deletedAt?: Prisma.SortOrder
@@ -688,6 +710,7 @@ export type ExternalEventCreateWithoutCalendarInput = {
   responseStatus?: string
   isCancelled?: boolean
   joinUrl?: string | null
+  description?: string | null
   changeTag?: string | null
   providerUpdatedAt?: Date | string | null
   deletedAt?: Date | string | null
@@ -709,6 +732,7 @@ export type ExternalEventUncheckedCreateWithoutCalendarInput = {
   responseStatus?: string
   isCancelled?: boolean
   joinUrl?: string | null
+  description?: string | null
   changeTag?: string | null
   providerUpdatedAt?: Date | string | null
   deletedAt?: Date | string | null
@@ -759,6 +783,7 @@ export type ExternalEventScalarWhereInput = {
   responseStatus?: Prisma.StringFilter<"ExternalEvent"> | string
   isCancelled?: Prisma.BoolFilter<"ExternalEvent"> | boolean
   joinUrl?: Prisma.StringNullableFilter<"ExternalEvent"> | string | null
+  description?: Prisma.StringNullableFilter<"ExternalEvent"> | string | null
   changeTag?: Prisma.StringNullableFilter<"ExternalEvent"> | string | null
   providerUpdatedAt?: Prisma.DateTimeNullableFilter<"ExternalEvent"> | Date | string | null
   deletedAt?: Prisma.DateTimeNullableFilter<"ExternalEvent"> | Date | string | null
@@ -780,6 +805,7 @@ export type ExternalEventCreateManyCalendarInput = {
   responseStatus?: string
   isCancelled?: boolean
   joinUrl?: string | null
+  description?: string | null
   changeTag?: string | null
   providerUpdatedAt?: Date | string | null
   deletedAt?: Date | string | null
@@ -801,6 +827,7 @@ export type ExternalEventUpdateWithoutCalendarInput = {
   responseStatus?: Prisma.StringFieldUpdateOperationsInput | string
   isCancelled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   joinUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   changeTag?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   providerUpdatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -822,6 +849,7 @@ export type ExternalEventUncheckedUpdateWithoutCalendarInput = {
   responseStatus?: Prisma.StringFieldUpdateOperationsInput | string
   isCancelled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   joinUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   changeTag?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   providerUpdatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -843,6 +871,7 @@ export type ExternalEventUncheckedUpdateManyWithoutCalendarInput = {
   responseStatus?: Prisma.StringFieldUpdateOperationsInput | string
   isCancelled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   joinUrl?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   changeTag?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   providerUpdatedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -867,6 +896,7 @@ export type ExternalEventSelect<ExtArgs extends runtime.Types.Extensions.Interna
   responseStatus?: boolean
   isCancelled?: boolean
   joinUrl?: boolean
+  description?: boolean
   changeTag?: boolean
   providerUpdatedAt?: boolean
   deletedAt?: boolean
@@ -890,6 +920,7 @@ export type ExternalEventSelectCreateManyAndReturn<ExtArgs extends runtime.Types
   responseStatus?: boolean
   isCancelled?: boolean
   joinUrl?: boolean
+  description?: boolean
   changeTag?: boolean
   providerUpdatedAt?: boolean
   deletedAt?: boolean
@@ -913,6 +944,7 @@ export type ExternalEventSelectUpdateManyAndReturn<ExtArgs extends runtime.Types
   responseStatus?: boolean
   isCancelled?: boolean
   joinUrl?: boolean
+  description?: boolean
   changeTag?: boolean
   providerUpdatedAt?: boolean
   deletedAt?: boolean
@@ -936,13 +968,14 @@ export type ExternalEventSelectScalar = {
   responseStatus?: boolean
   isCancelled?: boolean
   joinUrl?: boolean
+  description?: boolean
   changeTag?: boolean
   providerUpdatedAt?: boolean
   deletedAt?: boolean
   updatedAt?: boolean
 }
 
-export type ExternalEventOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "calendarId" | "providerEventId" | "icalUid" | "seriesMasterId" | "title" | "startsAt" | "endsAt" | "timeZone" | "isAllDay" | "kind" | "busyStatus" | "responseStatus" | "isCancelled" | "joinUrl" | "changeTag" | "providerUpdatedAt" | "deletedAt" | "updatedAt", ExtArgs["result"]["externalEvent"]>
+export type ExternalEventOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "calendarId" | "providerEventId" | "icalUid" | "seriesMasterId" | "title" | "startsAt" | "endsAt" | "timeZone" | "isAllDay" | "kind" | "busyStatus" | "responseStatus" | "isCancelled" | "joinUrl" | "description" | "changeTag" | "providerUpdatedAt" | "deletedAt" | "updatedAt", ExtArgs["result"]["externalEvent"]>
 export type ExternalEventInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   calendar?: boolean | Prisma.CalendarDefaultArgs<ExtArgs>
 }
@@ -993,6 +1026,12 @@ export type $ExternalEventPayload<ExtArgs extends runtime.Types.Extensions.Inter
      * not to keep titles for is not one to keep join links for either.
      */
     joinUrl: string | null
+    /**
+     * What the organiser wrote, as plain text and capped - see `toPlainText`.
+     * Under the same opt-out as the title, and for a stronger reason: this is
+     * the most personal thing a calendar holds.
+     */
+    description: string | null
     /**
      * Google etag / Graph changeKey. Compared to skip no-op writes, because a
      * row written costs far more than a row read.
@@ -1440,6 +1479,7 @@ export interface ExternalEventFieldRefs {
   readonly responseStatus: Prisma.FieldRef<"ExternalEvent", 'String'>
   readonly isCancelled: Prisma.FieldRef<"ExternalEvent", 'Boolean'>
   readonly joinUrl: Prisma.FieldRef<"ExternalEvent", 'String'>
+  readonly description: Prisma.FieldRef<"ExternalEvent", 'String'>
   readonly changeTag: Prisma.FieldRef<"ExternalEvent", 'String'>
   readonly providerUpdatedAt: Prisma.FieldRef<"ExternalEvent", 'DateTime'>
   readonly deletedAt: Prisma.FieldRef<"ExternalEvent", 'DateTime'>

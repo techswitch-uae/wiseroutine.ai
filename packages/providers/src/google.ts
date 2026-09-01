@@ -4,7 +4,13 @@ import type {
   ProviderCalendar,
   SyncPage,
 } from "./types";
-import { joinableUrl, ProviderError, SyncTokenExpired } from "./types";
+import {
+  joinableUrl,
+  meetingLinkIn,
+  ProviderError,
+  SyncTokenExpired,
+  toRichText,
+} from "./types";
 
 /**
  * Google Calendar, over plain `fetch`.
@@ -215,7 +221,15 @@ function joinLinkOf(raw: Record<string, unknown>): string | null {
   const conference = (raw.conferenceData ?? {}) as Record<string, unknown>;
   const entries = (conference.entryPoints ?? []) as Record<string, unknown>[];
   const video = entries.find((entry) => entry.entryPointType === "video");
-  return joinableUrl(video?.uri) ?? joinableUrl(raw.hangoutLink);
+  return (
+    joinableUrl(video?.uri) ??
+    joinableUrl(raw.hangoutLink) ??
+    // And then the description, which is where a meeting booked by anything
+    // other than Google itself puts its link - Calendly, HubSpot, a Zoom
+    // scheduler. `conferenceData` is only filled in by Google's own
+    // conferencing, so a diary full of Zoom calls has none of it at all.
+    meetingLinkIn(raw.description)
+  );
 }
 
 export function normaliseGoogleEvent(
@@ -240,6 +254,7 @@ export function normaliseGoogleEvent(
     changeTag: raw.etag ? String(raw.etag) : null,
     providerUpdatedAt: raw.updated ? Date.parse(String(raw.updated)) : null,
     joinUrl: joinLinkOf(raw),
+    description: toRichText(raw.description),
   };
 }
 

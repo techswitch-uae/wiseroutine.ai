@@ -910,6 +910,7 @@ app.get("/today", async (c) => {
       // The one thing a block on the day could not answer: where the call is.
       // Null for the many meetings that are in a room.
       joinUrl: e.joinUrl,
+      description: e.description,
     }));
 
   // Half-open against the visible window: a meeting that ends exactly as the

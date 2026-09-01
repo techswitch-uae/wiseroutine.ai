@@ -4,7 +4,13 @@ import type {
   ProviderCalendar,
   SyncPage,
 } from "./types";
-import { joinableUrl, ProviderError, SyncTokenExpired } from "./types";
+import {
+  joinableUrl,
+  meetingLinkIn,
+  ProviderError,
+  SyncTokenExpired,
+  toRichText,
+} from "./types";
 
 /**
  * Microsoft Graph, over plain `fetch`.
@@ -219,16 +225,35 @@ function parseGraphTime(value: unknown): number {
   return naive - (asUtc - naive);
 }
 
+/**
+ * What an occurrence takes from its series master.
+ *
+ * Graph sends an occurrence with the fields that vary - the times - and leaves
+ * the ones that do not on the master. The subject was the first of those we
+ * had to hand down; the join link is the second, and for the same reason: a
+ * recurring Teams meeting has one link, held once, on the series.
+ */
+export interface SeriesDefaults {
+  title?: string | null;
+  joinUrl?: string | null;
+  description?: string | null;
+}
+
+/** Graph's body, which is an object with the markup inside it. */
+const bodyOf = (raw: Record<string, unknown>): string | null => {
+  const body = raw.body as Record<string, unknown> | null | undefined;
+  return typeof body?.content === "string" ? body.content : null;
+};
+
 export function normaliseMicrosoftEvent(
   raw: Record<string, unknown>,
-  /** Subject of this event's series master, when the occurrence lacks one. */
-  inheritedTitle?: string | null,
+  inherited?: SeriesDefaults,
 ): NormalisedEvent {
   return {
     providerEventId: String(raw.id),
     icalUid: raw.iCalUId ? String(raw.iCalUId) : null,
     seriesMasterId: raw.seriesMasterId ? String(raw.seriesMasterId) : null,
-    title: raw.subject ? String(raw.subject) : (inheritedTitle ?? null),
+    title: raw.subject ? String(raw.subject) : (inherited?.title ?? null),
     startsAt: parseGraphTime(raw.start),
     endsAt: parseGraphTime(raw.end),
     timeZone: raw.originalStartTimeZone
@@ -246,10 +271,18 @@ export function normaliseMicrosoftEvent(
       : null,
     // Teams, or whatever else the tenant books with - Graph reports a Zoom
     // link through the same field.
+    // The occurrence first, then the series it belongs to: an instance that
+    // was rescheduled into its own meeting carries its own link, and every
+    // other instance has none of its own to carry.
     joinUrl:
       joinableUrl(
         (raw.onlineMeeting as Record<string, unknown> | null)?.joinUrl,
-      ) ?? joinableUrl(raw.onlineMeetingUrl),
+      ) ??
+      joinableUrl(raw.onlineMeetingUrl) ??
+      joinableUrl(inherited?.joinUrl) ??
+      meetingLinkIn(bodyOf(raw)) ??
+      meetingLinkIn(inherited?.description),
+    description: toRichText(bodyOf(raw)) ?? inherited?.description ?? null,
   };
 }
 
@@ -285,6 +318,8 @@ const EVENT_FIELDS = [
   // the only one on events created by Skype-era clients.
   "onlineMeeting",
   "onlineMeetingUrl",
+  // What the organiser wrote. Graph sends it as HTML; it is stored as text.
+  "body",
   // Load-bearing: without `type` a seriesMaster is indistinguishable from a
   // real booking, and the two must be treated in opposite ways below.
   "type",
@@ -347,14 +382,25 @@ export async function microsoftSyncPage(
    * master is stored as a booking of its own, putting a phantom busy block on
    * the free/busy map at the first instance's time.
    *
-   * So: read the subjects off the masters, hand them down, and keep only the
+   * So: read what the masters carry, hand it down, and keep only the
    * occurrences. A master is a template - nobody is ever busy because of one.
+   *
+   * The join link is on the master for the same reason the subject is: it does
+   * not vary between instances, so Graph states it once. Reading only the
+   * occurrence is why every recurring Teams meeting arrived with no way into
+   * it while the one-off ones came through fine.
    */
-  const seriesTitles = new Map<string, string>();
+  const masters = new Map<string, SeriesDefaults>();
   for (const item of items) {
-    if (item.type === "seriesMaster" && item.subject) {
-      seriesTitles.set(String(item.id), String(item.subject));
-    }
+    if (item.type !== "seriesMaster") continue;
+    masters.set(String(item.id), {
+      title: item.subject ? String(item.subject) : null,
+      joinUrl:
+        joinableUrl(
+          (item.onlineMeeting as Record<string, unknown> | null)?.joinUrl,
+        ) ?? joinableUrl(item.onlineMeetingUrl),
+      description: toRichText(bodyOf(item)),
+    });
   }
 
   for (const item of items) {
@@ -372,7 +418,7 @@ export async function microsoftSyncPage(
     events.push(
       normaliseMicrosoftEvent(
         item,
-        seriesId ? seriesTitles.get(seriesId) : undefined,
+        seriesId ? masters.get(seriesId) : undefined,
       ),
     );
   }

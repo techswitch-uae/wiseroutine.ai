@@ -198,6 +198,9 @@ export interface TodayMeeting {
    * should offer nothing rather than crash on it.
    */
   joinUrl?: string | null;
+  /** What the organiser wrote, as plain text. Optional for the same reason as
+   *  `joinUrl`: a day out of the offline cache may predate it. */
+  description?: string | null;
 }
 
 /** One of the day view's ranges, as the server derives them. */
@@ -763,12 +766,20 @@ export const api = {
   restoreSlot: (id: string) => request<void>(`/slots/${id}/restore`, post({})),
 
   missed: () => request<MissedItem[]>("/missed"),
-  plan: (trigger = "user_request") =>
+  /**
+   * Fill a day.
+   *
+   * `at` is any instant inside the day to plan, and is what makes this usable
+   * from a day view that has paged forward - without it the server plans the
+   * day it is currently in, so pressing "Place them for me" while looking at
+   * Thursday quietly filled today instead.
+   */
+  plan: (trigger = "user_request", at?: number) =>
     request<{ planRunId: string; placed: number; unplaced: unknown[] }>(
       "/plan",
       {
         method: "POST",
-        body: JSON.stringify({ trigger }),
+        body: JSON.stringify({ trigger, ...(at !== undefined ? { at } : {}) }),
       },
     ),
   /**

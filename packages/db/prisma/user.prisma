@@ -153,6 +153,11 @@ model ExternalEvent {
   /// not to keep titles for is not one to keep join links for either.
   joinUrl String? @map("join_url")
 
+  /// What the organiser wrote, as plain text and capped - see `toPlainText`.
+  /// Under the same opt-out as the title, and for a stronger reason: this is
+  /// the most personal thing a calendar holds.
+  description String? @map("description")
+
   /// Google etag / Graph changeKey. Compared to skip no-op writes, because a
   /// row written costs far more than a row read.
   changeTag         String?   @map("change_tag")

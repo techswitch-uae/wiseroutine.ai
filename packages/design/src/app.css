@@ -1271,7 +1271,11 @@ img.wr-avatar { object-fit: cover; }
      cannot go missing again, which is what happened when each part carried its
      own hardcoded padding. */
   --wr-sheet-pad: 22px;
-  position: relative; width: 100%; max-width: 460px; max-height: 100%;
+  /* Four fifths of the window, and never more than the window has. Long
+     enough for an invitation with an agenda in it, short enough that the day
+     behind it is still visible - and the body is the only part that scrolls,
+     so the title stays put however long the content is. */
+  position: relative; width: 100%; max-width: 560px; max-height: min(80vh, 100%);
   background: var(--wr-page); border-radius: 18px; box-shadow: var(--wr-lift-3);
   display: flex; flex-direction: column; overflow: hidden;
 }
@@ -1826,6 +1830,14 @@ img.wr-avatar { object-fit: cover; }
 @media (prefers-reduced-motion: reduce) {
   .wr-loading-spin { animation-duration: 2.4s; }
 }
+
+/* An invitation's own words: line breaks kept, links and emphasis rendered as
+   elements by `RichText` - never as markup. */
+.wr-rich {
+  font: 400 13px/1.55 var(--font-body); color: var(--color-text);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.wr-rich .wr-linklike { color: var(--color-accent-900); }
 
 /* A button that reads as a link, for a sentence that has to carry an action
    inside it - "Needs notifications turned on, open Notification settings". A

@@ -1552,6 +1552,61 @@ const floatBox = (
   };
 };
 
+/**
+ * The little notation a calendar description is stored in, as elements.
+ *
+ * `**bold**`, `_italic_`, `[label](url)` and bare links - see `toRichText` in
+ * the providers package, which is the only thing that writes it. Deliberately
+ * not markdown: it is three shapes, matched in one pass, and anything it does
+ * not recognise stays the characters it already was.
+ *
+ * The point of the notation is that this function exists. An invitation body
+ * is markup written by a stranger, and the safe way to show it is to never
+ * parse it as markup again - so nothing here touches `innerHTML`, and a
+ * hostile description can do no more than show its own asterisks.
+ *
+ * A link is a button, not an anchor, for the reason `.wr-linklike` exists:
+ * nothing in this app navigates, and the URL is handed to the operating
+ * system by whoever passed `onLink`.
+ */
+const RICH =
+  /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*\n]+)\*\*|_([^_\n]+)_|(https?:\/\/[^\s)]+)/g;
+
+export const RichText: React.FC<{
+  text: string;
+  onLink?: (url: string) => void;
+}> = ({ text, onLink }) => {
+  const nodes: React.ReactNode[] = [];
+  let at = 0;
+
+  const link = (url: string, label: string, key: number) => (
+    <button
+      key={key}
+      type="button"
+      className="wr-linklike"
+      onClick={() => onLink?.(url)}
+    >
+      {label}
+    </button>
+  );
+
+  for (const match of text.matchAll(RICH)) {
+    const index = match.index ?? 0;
+    if (index > at) nodes.push(text.slice(at, index));
+    const [whole, label, href, bold, italic, bare] = match;
+    if (href && label) nodes.push(link(href, label, index));
+    else if (bare) nodes.push(link(bare, bare, index));
+    else if (bold) nodes.push(<strong key={index}>{bold}</strong>);
+    else if (italic) nodes.push(<em key={index}>{italic}</em>);
+    at = index + whole.length;
+  }
+  nodes.push(text.slice(at));
+
+  // `pre-wrap`: the line breaks are the organiser's own, and a description
+  // reflowed into one paragraph loses the agenda it was written as.
+  return <div className="wr-rich">{nodes}</div>;
+};
+
 export const DashedRow: React.FC<{
   children: React.ReactNode;
   gutter?: boolean;
