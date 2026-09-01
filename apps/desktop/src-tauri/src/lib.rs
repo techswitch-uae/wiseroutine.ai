@@ -1,6 +1,8 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 // Desktop only, like the updater below: there is no menu bar to put an icon
 // in on a phone.
+mod addons;
+
 #[cfg(desktop)]
 mod tray;
 
@@ -17,7 +19,12 @@ fn greet() -> String {
 pub fn run() {
   let builder = tauri::Builder::default()
     .plugin(tauri_plugin_opener::init())
-    .plugin(tauri_plugin_notification::init());
+    .plugin(tauri_plugin_notification::init())
+    // An addon frame is served over its own scheme so that it is a *fetched*
+    // document rather than a local one - which is what stops it inheriting
+    // this app's Content-Security-Policy and lets it carry its own. See
+    // `addons.rs`; the reason is subtle and only shows up in a release build.
+    .register_uri_scheme_protocol(addons::SCHEME, addons::serve);
 
   // ponytail: debug builds only, so it never ships.
   #[cfg(debug_assertions)]
@@ -36,10 +43,15 @@ pub fn run() {
       tray::install(app)?;
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![greet, tray::set_schedule]);
+    .invoke_handler(tauri::generate_handler![
+      greet,
+      tray::set_schedule,
+      addons::install_addon
+    ]);
 
   #[cfg(not(desktop))]
-  let builder = builder.invoke_handler(tauri::generate_handler![greet]);
+  let builder =
+    builder.invoke_handler(tauri::generate_handler![greet, addons::install_addon]);
 
   builder
     .on_window_event(|window, event| {

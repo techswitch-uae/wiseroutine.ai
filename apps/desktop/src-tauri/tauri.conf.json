@@ -28,7 +28,7 @@
         "img-src": "'self' data: blob: https:",
         "style-src": "'self' 'unsafe-inline'",
         "font-src": "'self' data:",
-        "frame-src": "https://open.spotify.com",
+        "frame-src": "https://open.spotify.com addon: http://addon.localhost",
         "media-src": "'self' data:",
         "object-src": "'none'",
         "base-uri": "'self'",

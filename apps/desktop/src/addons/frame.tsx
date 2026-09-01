@@ -1,6 +1,7 @@
 import type { AddonManifest } from "@wiseroutine/addons";
 import { useEffect, useRef, useState } from "react";
 import { serve } from "./host";
+import { frameUrlFor } from "./installed";
 
 /**
  * An addon, running.
@@ -110,6 +111,24 @@ export const AddonFrame: React.FC<AddonFrameProps> = ({
   title,
 }) => {
   const ref = useRef<HTMLIFrameElement>(null);
+
+  /**
+   * Served, or written here.
+   *
+   * The served one is the real answer and the one the packaged app uses: a
+   * document *fetched* over the `addon:` scheme carries its own
+   * Content-Security-Policy, built from the addon's manifest by
+   * `src-tauri/src/addons.rs`.
+   *
+   * `srcdoc` is the fallback for the web build, which has no Tauri and so no
+   * custom scheme. It is a genuine fallback and not merely a different route:
+   * a `srcdoc` document *inherits* its parent's CSP, so this path only works
+   * while the page framing it has no restrictive policy of its own. The web
+   * build has none today. It must not gain one without gaining a way to serve
+   * addon frames from somewhere else first - there is no fixing this from
+   * inside the frame.
+   */
+  const served = frameUrlFor(manifest.id);
   const [html] = useState(() => documentFor(manifest, bundle));
 
   /**
@@ -151,7 +170,7 @@ export const AddonFrame: React.FC<AddonFrameProps> = ({
     <iframe
       ref={ref}
       title={title}
-      srcDoc={html}
+      {...(served ? { src: served } : { srcDoc: html })}
       // Scripts, and nothing else. Not `allow-same-origin` - see the note at
       // the top of this file. Not `allow-popups`, `allow-modals`,
       // `allow-top-navigation` or `allow-forms`: an addon drawing inside a

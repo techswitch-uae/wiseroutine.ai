@@ -167,6 +167,65 @@ describe("the frame an addon runs in", () => {
   });
 });
 
+/**
+ * The packaged app serves the frame instead of writing it inline.
+ *
+ * A `srcdoc` document inherits its parent's Content-Security-Policy, so in a
+ * release build - where the app ships `default-src 'self'` - the addon's own
+ * script is refused and the session opens empty. A fetched document does not
+ * inherit; it carries the policy `src-tauri/src/addons.rs` builds for it.
+ *
+ * This is the test that notices if the served path is ever quietly dropped.
+ * It cannot be caught by running the app in development: there, Vite serves
+ * the page and Tauri attaches no policy at all, so both routes work.
+ */
+describe("where the frame comes from", () => {
+  const withTauri = (fn: () => void) => {
+    const host = globalThis as unknown as { __TAURI_INTERNALS__?: unknown };
+    host.__TAURI_INTERNALS__ = {
+      convertFileSrc: (path: string, protocol: string) =>
+        `${protocol}://localhost/${path}`,
+    };
+    try {
+      fn();
+    } finally {
+      delete host.__TAURI_INTERNALS__;
+    }
+  };
+
+  const frameOf = (addon: AddonManifest) => {
+    const { container } = render(
+      <AddonFrame
+        title="Session"
+        manifest={addon}
+        bundle="/* addon */"
+        context={SESSION}
+      />,
+    );
+    const frame = container.querySelector("iframe");
+    if (!frame) throw new Error("no frame rendered");
+    return frame;
+  };
+
+  test("is served over its own scheme when there is a host to serve it", () => {
+    withTauri(() => {
+      const frame = frameOf(manifest());
+      expect(frame.getAttribute("src")).toBe("addon://localhost/acme.fitness");
+      // Both would be a document that still inherits.
+      expect(frame.getAttribute("srcdoc")).toBeNull();
+      // The origin is opaque either way: the scheme buys the policy, the
+      // sandbox buys the isolation, and neither replaces the other.
+      expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+    });
+  });
+
+  test("falls back to srcdoc in the web build, which has no host", () => {
+    const frame = frameOf(manifest());
+    expect(frame.getAttribute("src")).toBeNull();
+    expect(frame.getAttribute("srcdoc")).toContain("default-src 'none'");
+  });
+});
+
 describe("what the host refuses", () => {
   test("a method that does not exist is refused, not ignored", async () => {
     const { call, stop } = connectTo(manifest());
