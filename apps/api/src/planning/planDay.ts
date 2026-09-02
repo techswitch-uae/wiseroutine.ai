@@ -266,7 +266,14 @@ export async function detectConflicts(
   const conflicts: DetectedConflict[] = [];
 
   for (const slot of slots) {
-    if (slot.status === "cancelled" || slot.status === "completed") continue;
+    // Nothing that is not going to happen, and nothing already handed back:
+    // a bucketed session holds no time, so it cannot clash with anything.
+    if (
+      slot.status === "cancelled" ||
+      slot.status === "completed" ||
+      slot.status === "bucketed"
+    )
+      continue;
 
     const block = findOverlap({ start: slot.startsAt, end: slot.endsAt }, busy);
     if (!block) continue;

@@ -243,6 +243,71 @@ simulator flags all three as stale, with the old outcome shown.
    constraint can meet at an odd time. Real slots probably want snapping to
    five minutes. Not added — it is a new rule, not a bug.
 
+## Wired up
+
+`realignAfterSync` ([realign.ts](../apps/api/src/sync/realign.ts)) calls it now,
+instead of `planDay`. The pure half — rows in, writes out — is
+[repair.ts](../apps/api/src/planning/repair.ts), so the translation can be
+tested away from a database; the placement rules stay tested here.
+
+Three outcomes, two things a database can hold:
+
+| Outcome | What happens |
+|---|---|
+| `moved` | `moveSlot`, actor `system`, reason `calendar_change`. |
+| `suggested` | Bucketed, carrying the position on the log's `to_starts_at`. |
+| `blocked` | Bucketed, with the reason and nothing else. |
+| `frozenConflicts` | Left where it is; the conflict badge already says so. |
+
+### The bucket is a status, not a table
+
+`slots.status = 'bucketed'`. A session that lost its place is the same row it
+always was — same activity, same length, same lifecycle log — and the log
+already had the two columns the bucket needs: `reason_code` for why, and
+`to_starts_at` for where we would have put it. No migration; the column has no
+`CHECK`.
+
+It holds no time, so `/today` and `/scope` leave it off the ruler and nothing
+that counts what is scheduled counts it. `GET /bucket` reads it the way
+`/missed` reads its list. There are no mutations of its own: `moveSlot` lifts a
+slot out of the bucket, because giving it a time is what the status means, and
+`cancelSlot` drops it. Accepting a suggestion is therefore one existing call
+with the position the bucket handed over.
+
+### Tested in three places, not one
+
+[rearrange.test.ts](../packages/scheduler/src/rearrange.test.ts) is the rules,
+against all 60 scenarios.
+[repair.test.ts](../apps/api/src/planning/repair.test.ts) is the translation,
+away from a database - the two ways it can go wrong are both silent, a
+`suggested` applied as though the user agreed and a `blocked` dropped.
+[realign.test.ts](../apps/api/src/sync/realign.test.ts) is the chain: the row
+really moves, the bucket really fills, `/today` stops drawing it, and the
+position `GET /bucket` hands back really lands when it is accepted.
+
+The corpus itself cannot run through the last of those. 27 of the 60 scenarios
+use a window (13), a `spread` (11), a configured breather (3) or the literal
+busy reading (g1, g7, g8), and the schema can express none of them - so an
+end-to-end run would be measuring the gap below rather than the integration.
+Worth doing once `activity_windows` and `activities` can carry a policy; then
+all 60 go through the real path and the two suites cannot drift.
+
+### What the integration does not carry yet
+
+- **No windows, no spread.** `ANYWHERE` for every activity — see the note in
+  `repair.ts`. The schema change below is what unblocks it, and until then
+  drift is the only rule that fires, which makes `outside_window` unreachable.
+- **The breather is the default.** No settings column, so nothing to read.
+- **The inferring busy reading**, matching `planDay`. Two solvers disagreeing
+  about what counts as busy is worse than either answer, so `literal` stays a
+  decision for both at once.
+- **A bucket entry never becomes `missed`.** It sits until the user answers it
+  and then falls out of the day-ranged read. Sweeping the leftovers at day end
+  needs a day-end trigger, which does not exist.
+- **The edge tolerance is gone.** `realignAfterSync` used to skip an overlap
+  under five minutes. Any overlap is now handed to the engine, which usually
+  answers a small one with a small move.
+
 ## Follow-ups
 
 - **`planDay` and `busy.ts`.** The literal busy reading and the removal of

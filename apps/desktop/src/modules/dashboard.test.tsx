@@ -17,7 +17,7 @@ const AT = Date.UTC(2026, 7, 11, 9, 0);
 
 vi.mock("../lib/api", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  api: { missed: vi.fn(async () => []) },
+  api: { missed: vi.fn(async () => []), bucket: vi.fn(async () => []) },
 }));
 
 const slot = (over: Partial<TodaySlot> = {}): TodaySlot => ({

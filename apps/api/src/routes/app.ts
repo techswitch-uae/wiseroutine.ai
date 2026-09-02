@@ -14,6 +14,7 @@ import {
   lastSyncedAt,
   listActivities,
   listAddons,
+  listBucket,
   listCalendars,
   listConnections,
   listEventsInRange,
@@ -1180,34 +1181,39 @@ app.get("/today", async (c) => {
     dayEnd: bounds.end,
     range: range.key,
     ranges: dayRanges(user),
-    slots: slots.map((s) => {
-      // The module a slot runs under, carried on the slot rather than looked
-      // up by the client. A session opens the moment a slot starts, and a
-      // second request to find out *what* to open would put a round trip in
-      // the middle of pressing Start.
-      const activity = s.activityId
-        ? activities.find((a) => a.row.id === s.activityId)
-        : undefined;
-      return {
-        id: s.id,
-        title: s.title,
-        kind: s.kind,
-        startsAt: s.startsAt,
-        endsAt: s.endsAt,
-        status: s.status,
-        isLocked: s.isLocked,
-        conflictEventId: s.conflictEventId,
-        // Null when the activity has no module, and also when its session is
-        // switched off - the slot then behaves like any other timed slot, and
-        // the client needs no second field to work that out.
-        presetKey:
-          activity?.row.sessionEnabled === false
-            ? null
-            : (activity?.row.presetKey ?? null),
-        startPolicy: activity?.row.startPolicy ?? "manual",
-        configJson: activity?.row.configJson ?? null,
-      };
-    }),
+    // A bucketed session holds no time - it is in the rail, not on the ruler.
+    // Drawing it at the hour it *was* due would put it back under the meeting
+    // that displaced it, which is the one thing bucketing it decided not to do.
+    slots: slots
+      .filter((s) => s.status !== "bucketed")
+      .map((s) => {
+        // The module a slot runs under, carried on the slot rather than looked
+        // up by the client. A session opens the moment a slot starts, and a
+        // second request to find out *what* to open would put a round trip in
+        // the middle of pressing Start.
+        const activity = s.activityId
+          ? activities.find((a) => a.row.id === s.activityId)
+          : undefined;
+        return {
+          id: s.id,
+          title: s.title,
+          kind: s.kind,
+          startsAt: s.startsAt,
+          endsAt: s.endsAt,
+          status: s.status,
+          isLocked: s.isLocked,
+          conflictEventId: s.conflictEventId,
+          // Null when the activity has no module, and also when its session is
+          // switched off - the slot then behaves like any other timed slot, and
+          // the client needs no second field to work that out.
+          presetKey:
+            activity?.row.sessionEnabled === false
+              ? null
+              : (activity?.row.presetKey ?? null),
+          startPolicy: activity?.row.startPolicy ?? "manual",
+          configJson: activity?.row.configJson ?? null,
+        };
+      }),
     meetings: inside,
     // The one thing the refresh button could never say for itself: whether
     // what is on screen is current. Null until a calendar has been read once.
@@ -1418,6 +1424,8 @@ app.get("/scope", async (c) => {
         .filter(
           (slot) =>
             slot.status !== "cancelled" &&
+            // In the rail, not on the ruler - see `/today`.
+            slot.status !== "bucketed" &&
             slot.startsAt < day.end &&
             slot.endsAt > day.start,
         )
@@ -1756,6 +1764,63 @@ app.get("/missed", async (c) => {
         moveCount: moves.length,
         reasonCode: final?.reasonCode ?? null,
         reasonText: final?.reasonText ?? null,
+      };
+    }),
+  );
+});
+
+/**
+ * The bucket: sessions the day no longer has room for.
+ *
+ * Filled by `realignAfterSync` when a synced meeting lands on a slot and
+ * `rearrange` will not place it silently - either because the only position
+ * left is a different plan rather than a nudge (a suggestion, which arrives
+ * with the position attached) or because there is no position at all.
+ *
+ * Read the same way `/missed` is: the status says a session is here, the
+ * lifecycle log says why and where. Nothing empties it - a session stays until
+ * the user gives it a time (`POST /slots/:id/move`, which lifts it straight
+ * back out) or drops it (`POST /slots/:id/cancel`). Freed time is never
+ * quietly claimed on their behalf.
+ */
+app.get("/bucket", async (c) => {
+  const db = c.get("db");
+  const user = c.get("user");
+  const at = Number(c.req.query("at") ?? c.get("now"));
+  const date = localDateOf(at, user.timeZone);
+  const bounds = dayBounds(date, user.timeZone, 0, 24 * 60);
+
+  const slots = await listBucket(db, bounds.start, bounds.end);
+  const events = await listSlotEvents(
+    db,
+    slots.map((s) => s.id),
+  );
+
+  return c.json(
+    slots.map((slot) => {
+      const last = events
+        .filter((e) => e.slotId === slot.id && e.type === "bucketed")
+        .at(-1);
+      const length = slot.endsAt - slot.startsAt;
+      return {
+        id: slot.id,
+        title: slot.title,
+        kind: slot.kind,
+        /** The hour it was due at before the day moved under it. */
+        wasAt: slot.startsAt,
+        reasonCode: last?.reasonCode ?? null,
+        /**
+         * Where we would have put it, ready to hand straight to
+         * `/slots/:id/move` - or null when there was nowhere at all.
+         *
+         * The length is the slot's own: `rearrange` never shortens a session
+         * to make it fit, because a twenty-minute stretch squeezed into ten is
+         * a different session wearing the same name.
+         */
+        suggested:
+          last?.toStartsAt != null
+            ? { startsAt: last.toStartsAt, endsAt: last.toStartsAt + length }
+            : null,
       };
     }),
   );

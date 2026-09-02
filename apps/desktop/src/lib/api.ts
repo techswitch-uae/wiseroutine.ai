@@ -163,7 +163,10 @@ export type SlotStatus =
   | "completed"
   | "skipped"
   | "missed"
-  | "cancelled";
+  | "cancelled"
+  /** In the bucket, so off the ruler entirely - `/today` and `/scope` filter
+   *  these out. Listed because a cached day may still carry one. */
+  | "bucketed";
 
 export interface TodaySlot {
   id: string;
@@ -483,6 +486,25 @@ export interface ActivityInput {
   sessionEnabled?: boolean;
   startPolicy?: "manual" | "auto" | "prompt";
   configJson?: string | null;
+}
+
+/**
+ * One session the day no longer has room for.
+ *
+ * Two kinds in one list. With `suggested` it is a question with the answer
+ * attached - accept it by moving the slot there. Without, there was nowhere at
+ * all, and the only answers are a time the user picks or dropping it.
+ */
+export interface BucketItem {
+  id: string;
+  title: string;
+  kind: "recovery" | "focus" | "task";
+  /** The hour it was due at before the day moved under it. */
+  wasAt: number;
+  /** The engine's reason - `no_gap`, `too_close`, `large_drift`,
+   *  `outside_window`, `day_over`. Comma-joined when there was more than one. */
+  reasonCode: string | null;
+  suggested: { startsAt: number; endsAt: number } | null;
 }
 
 export interface MissedItem {
@@ -833,6 +855,9 @@ export const api = {
   restoreSlot: (id: string) => request<void>(`/slots/${id}/restore`, post({})),
 
   missed: () => request<MissedItem[]>("/missed"),
+  /** The bucket. Emptied by `moveSlot` (accept) or `cancelSlot` (drop) - it
+   *  has no mutations of its own, because both already exist. */
+  bucket: () => request<BucketItem[]>("/bucket"),
   /**
    * Fill a day.
    *

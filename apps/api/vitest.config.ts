@@ -31,5 +31,18 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     globalSetup: ["./vitest.globalSetup.ts"],
+    /**
+     * One file at a time.
+     *
+     * `turso dev` serves one database per instance, so every test file shares
+     * the same pair - and each one that touches them empties them first (see
+     * `resetDatabases`). Two running at once delete each other's users, which
+     * surfaces as "Failed to get session" in whichever lost the race.
+     *
+     * This was true all along and cost nothing while `api.test.ts` was the
+     * only file to open a database; the second one to do it is what made the
+     * constraint show. The suite runs in seconds either way.
+     */
+    fileParallelism: false,
   },
 });

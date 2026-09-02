@@ -9,8 +9,14 @@ import {
 import { useEffect, useState } from "react";
 import { AddonWidgets } from "../addons/widget";
 import { upNextOf } from "../lib/alerts";
-import { type ActivityProgress, api, type MissedItem } from "../lib/api";
-import { startSlot, usePlan } from "../lib/plan-store";
+import {
+  type ActivityProgress,
+  api,
+  type BucketItem,
+  type MissedItem,
+} from "../lib/api";
+import { notify } from "../lib/notify";
+import { reloadPlan, startSlot, usePlan } from "../lib/plan-store";
 
 /**
  * The rail's modules, and which of them a plan is allowed.
@@ -178,6 +184,111 @@ function reasonOf(item: MissedItem): string {
   return "No gap it would fit in";
 }
 
+/**
+ * What a moved meeting left with nowhere to go.
+ *
+ * Two kinds of row, and the difference is the whole card. One carries the
+ * position `rearrange` would have used but would not apply on its own -
+ * because it leaves the activity's window, or moves far enough to be a
+ * different plan rather than a nudge - and that row is a question with its
+ * answer already in it: one press and it lands there. The other had no
+ * position at all, so the only honest offer is to drop it; putting it back
+ * needs a time, and the timeline is where a time is chosen.
+ *
+ * Never a count of what "failed". A session here is one the day genuinely has
+ * no room for, and the app saying so is the alternative to it quietly sitting
+ * underneath a meeting.
+ *
+ * Not in `plan.widgets`, on purpose. That list is the four keys the server
+ * grants by plan and the user may reorder - and this is not a card anyone
+ * chooses to see. A session that has lost its place must be said out loud or
+ * it has been lost, so it is appended like an addon's card and draws nothing
+ * on a day with an empty bucket, which is most days.
+ */
+const Bucket: React.FC = () => {
+  const plan = usePlan();
+  const [items, setItems] = useState<BucketItem[] | null>(null);
+
+  useEffect(() => {
+    if (!plan) return;
+    api
+      .bucket()
+      .then(setItems)
+      // A read that failed is not an empty bucket. Saying nothing is the
+      // honest answer to a question we could not ask.
+      .catch(() => setItems(null));
+  }, [plan]);
+
+  if (!items || items.length === 0) return null;
+
+  // The day is re-read either way: the server decides whether that stretch is
+  // still free, and its answer is the plan - not ours.
+  const act = (run: Promise<unknown>, failed: string): void => {
+    run.catch(() => notify(failed)).finally(() => reloadPlan());
+  };
+
+  return (
+    <Widget eyebrow="Nowhere to go" count={items.length}>
+      {items.map((item) => (
+        <div key={item.id} style={{ marginTop: 8 }}>
+          <StateRow
+            recessed
+            name={item.title}
+            meta={`was ${dueClock(item.wasAt)} · ${bucketReason(item)}`}
+            leading={<Chip variant="static">{dueClock(item.wasAt)}</Chip>}
+            trailing={
+              <span style={{ display: "flex", gap: 6 }}>
+                {item.suggested ? (
+                  <Button
+                    variant="primary"
+                    onClick={() =>
+                      item.suggested &&
+                      act(
+                        api.moveSlot(
+                          item.id,
+                          item.suggested.startsAt,
+                          item.suggested.endsAt,
+                        ),
+                        `Couldn't move ${item.title} there.`,
+                      )
+                    }
+                  >
+                    {dueClock(item.suggested.startsAt)}
+                  </Button>
+                ) : null}
+                <Button
+                  variant="quiet"
+                  onClick={() =>
+                    act(api.cancelSlot(item.id), `Couldn't drop ${item.title}.`)
+                  }
+                >
+                  Drop
+                </Button>
+              </span>
+            }
+          />
+        </div>
+      ))}
+    </Widget>
+  );
+};
+
+/** Why it is here, in one phrase. The codes are the engine's own; an
+ *  unrecognised one still reads as a sentence rather than as a token. */
+function bucketReason(item: BucketItem): string {
+  if (item.suggested) return "only fits here";
+  switch (item.reasonCode) {
+    case "no_gap":
+      return "no gap it would fit in";
+    case "too_close":
+      return "too close to another one";
+    case "day_over":
+      return "the day was over";
+    default:
+      return "no room left";
+  }
+}
+
 /** 3a: progress against your minimums. Never a streak, never a goal. */
 const TodaySoFar: React.FC = () => {
   const plan = usePlan();
@@ -240,6 +351,10 @@ export const DashboardWidgets: React.FC = () => {
 
           See the note on `AddonWidgets` for why they are appended rather than
           ordered with the rest. */}
+      {/* Before the addons and outside `plan.widgets` - see the note on
+          `Bucket`. A session with nowhere to go outranks anything optional in
+          the rail, and nothing chooses whether to see it. */}
+      <Bucket />
       <AddonWidgets />
     </>
   );

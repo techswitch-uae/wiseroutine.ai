@@ -11,7 +11,22 @@ export type SlotStatus =
   | "completed"
   | "skipped"
   | "missed"
-  | "cancelled";
+  | "cancelled"
+  /**
+   * In the bucket: the day moved under it and there is nowhere we would stand
+   * behind putting it.
+   *
+   * A status rather than a table of its own. A bucketed session is the same
+   * row it always was - same activity, same length, same lifecycle log - it
+   * has simply lost its place on the day, and the log already carries the two
+   * things the bucket has to say: why, and where we would have put it. See
+   * `listBucket`.
+   *
+   * It holds no time, so nothing that draws the day draws it, and nothing that
+   * counts what is scheduled counts it. Giving it a time takes it back out -
+   * see `moveSlot`.
+   */
+  | "bucketed";
 
 export type SlotEventType =
   | "planned"
@@ -21,7 +36,8 @@ export type SlotEventType =
   | "completed"
   | "skipped"
   | "missed"
-  | "cancelled";
+  | "cancelled"
+  | "bucketed";
 
 /**
  * Slots as the application sees them: instants are epoch-ms numbers, which is
@@ -284,7 +300,9 @@ export async function cancelUnstartedSlots(
   const rows = await db.slot.findMany({
     where: {
       activityId: params.activityId,
-      status: { in: ["planned", "live"] },
+      // Including the bucket: an entry there is a session still waiting for an
+      // answer, and archiving the activity is one.
+      status: { in: ["planned", "live", "bucketed"] },
       startsAt: { gte: at(params.from) },
     },
     select: { id: true },
@@ -335,6 +353,16 @@ export async function moveSlot(
         params.actor === "system"
           ? current.autoMoveCount + 1
           : current.autoMoveCount,
+      // Giving a bucketed slot a time is what takes it out of the bucket -
+      // that is the whole meaning of the status, so accepting a suggestion is
+      // this call and nothing else. Every other status is left alone.
+      status: current.status === "bucketed" ? "planned" : current.status,
+      // Wherever it has gone, it is not under the meeting it was under. The
+      // marker is a cache of an overlap, and this call just invalidated it -
+      // which was true of a slot dragged clear by hand long before the bucket
+      // existed, and left a stale clash badge on the timeline.
+      conflictEventId: null,
+      conflictSeverity: null,
     },
   });
 
@@ -366,6 +394,11 @@ export async function setSlotStatus(
     actor: "system" | "user";
     reasonCode?: string;
     reasonText?: string;
+    /** Where it was, and where we would have put it. Only the bucket fills
+     *  these in: a suggestion the user has not answered yet is a position, and
+     *  the log is where a position with no slot to sit on lives. */
+    fromStartsAt?: number;
+    toStartsAt?: number;
   },
   now: number,
   newId: () => string,
@@ -381,6 +414,7 @@ export async function setSlotStatus(
     skipped: "skipped",
     missed: "missed",
     cancelled: "cancelled",
+    bucketed: "bucketed",
   };
   const type = typeByStatus[params.status];
   if (!type) return;
@@ -397,10 +431,39 @@ export async function setSlotStatus(
       ...(params.reasonText !== undefined
         ? { reasonText: params.reasonText }
         : {}),
+      ...(params.fromStartsAt !== undefined
+        ? { fromStartsAt: params.fromStartsAt }
+        : {}),
+      ...(params.toStartsAt !== undefined
+        ? { toStartsAt: params.toStartsAt }
+        : {}),
     },
     now,
     newId,
   );
+}
+
+/**
+ * The bucket: sessions the day no longer has room for.
+ *
+ * Ranged like `listMissed`, and for the same reason - the bucket is a thing
+ * about today, and yesterday's is history rather than a backlog. Nothing here
+ * empties it: a session stays until the user gives it a time or drops it, and
+ * freed time is never quietly claimed.
+ *
+ * Filed by the time it *was* due, which is what makes it sortable and is also
+ * the only honest thing to call a session with no place left.
+ */
+export async function listBucket(
+  db: UserDatabase,
+  from: number,
+  to: number,
+): Promise<SlotRow[]> {
+  const rows = await db.slot.findMany({
+    where: { startsAt: { gte: at(from), lt: at(to) }, status: "bucketed" },
+    orderBy: { startsAt: "asc" },
+  });
+  return rows.map(toSlot);
 }
 
 /**
