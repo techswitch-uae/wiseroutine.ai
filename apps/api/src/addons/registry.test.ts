@@ -11,6 +11,8 @@ const IDS = [
   "wiseroutine.deep-work",
   "wiseroutine.eye-rest",
   "wiseroutine.stretch",
+  // The first card that writes back - todos - and the first `quickAdd` row.
+  "wiseroutine.todos",
 ];
 
 describe("registry", () => {

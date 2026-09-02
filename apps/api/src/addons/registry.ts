@@ -3,6 +3,7 @@ import daySoFar from "@wiseroutine/addon-day-so-far/manifest";
 import deepWork from "@wiseroutine/addon-deep-work/manifest";
 import eyeRest from "@wiseroutine/addon-eye-rest/manifest";
 import stretch from "@wiseroutine/addon-stretch/manifest";
+import todos from "@wiseroutine/addon-todos/manifest";
 import { type AddonManifest, parseManifest } from "@wiseroutine/addons";
 
 /**
@@ -107,6 +108,10 @@ const BUNDLED: readonly unknown[] = [
   stretch,
   deepWork,
   daySoFar,
+  // A card that writes, and a row in Quick add. The first addon to use
+  // `todos` and `quickAdd`, for the same reason day-so-far was the first
+  // widget: a path only strangers take is a path nobody maintains.
+  todos,
 ];
 
 /**

@@ -248,3 +248,35 @@ describe("the manifest", () => {
     }
   });
 });
+
+describe("todos and quick add", () => {
+  const base = {
+    id: "acme.todos",
+    name: "Todos",
+    version: "1.0.0",
+    description: "x",
+    capabilities: [{ kind: "read:todos" }, { kind: "write:todos" }],
+  };
+
+  test("a manifest may contribute rows to Quick add, parsed like widgets", () => {
+    const manifest = parseManifest({
+      ...base,
+      quickAdd: [{ key: "todo", name: "Keep it as a todo" }],
+    });
+    expect(manifest?.quickAdd).toEqual([
+      { key: "todo", name: "Keep it as a todo" },
+    ]);
+    expect(parseManifest(base)?.quickAdd).toEqual([]);
+    expect(parseManifest({ ...base, quickAdd: [{ key: "todo" }] })).toBeNull();
+  });
+
+  test("todos are grants of their own, not part of the schedule", () => {
+    const read: AddonCapability = { kind: "read:todos" };
+    const write: AddonCapability = { kind: "write:todos" };
+    expect(canAddon([{ kind: "read:schedule", scope: "today" }], read).ok).toBe(
+      false,
+    );
+    expect(canAddon([read], write).ok).toBe(false);
+    expect(canAddon([write], write).ok).toBe(true);
+  });
+});

@@ -6,9 +6,42 @@ import {
   cardHeightFor,
   isPlainHttpsOrigin,
 } from "@wiseroutine/addons";
-import { api } from "../lib/api";
+import { api, type Todo } from "../lib/api";
 import { openExternal } from "../lib/open-external";
-import { subscribePlan, todaySnapshot } from "../lib/plan-store";
+import { reloadPlan, subscribePlan, todaySnapshot } from "../lib/plan-store";
+import {
+  DEFAULT_TODO_MINUTES,
+  fitsAt,
+  reloadTodos,
+  subscribeTodos,
+  todosSnapshot,
+} from "../lib/todos";
+
+/**
+ * Every port being served, by addon id - so the host can speak first.
+ *
+ * `serve` answers; this is for the one thing the host *initiates* with a
+ * payload: handing over what the user typed into Quick add. One frame per
+ * addon hears it, the first that was served, which is the widget in every
+ * addon that has one - and an addon with no running frame hears nothing,
+ * which is why the dialog only offers rows for addons that are on screen.
+ */
+const served = new Map<string, MessagePort[]>();
+
+/** Hand Quick add's text to an addon. False when none of its frames is up. */
+export function dispatchQuickAdd(
+  addonId: string,
+  request: { key: string; title: string; minutes: number | null },
+): boolean {
+  const port = served.get(addonId)?.[0];
+  if (!port) return false;
+  port.postMessage({ event: "quickAdd", request });
+  return true;
+}
+
+/** Whether an addon has a frame up to hear `dispatchQuickAdd`. */
+export const isServing = (addonId: string): boolean =>
+  (served.get(addonId)?.length ?? 0) > 0;
 
 /**
  * The one place an addon's requests are answered.
@@ -256,6 +289,91 @@ export function serve(
       return openExternal(url);
     },
 
+    /**
+     * The user's todos, with where each would land - see `Todo.fitsAt`.
+     *
+     * Read from the store rather than fetched: the Quick add dialog and every
+     * todo card read the same list, so a write from any of them reaches all
+     * of them through one reload.
+     */
+    "todos.list": async () => {
+      require({ kind: "read:todos" });
+      if (todosSnapshot() === null) await reloadTodos();
+      const known = todosSnapshot();
+      const plan = todaySnapshot();
+      const now = Date.now();
+      return (known ?? []).map((todo: Todo) => ({
+        id: todo.id,
+        title: todo.title,
+        minutes: todo.minutes,
+        needsFocus: todo.needsFocus,
+        fitsAt: fitsAt(todo.minutes ?? DEFAULT_TODO_MINUTES, plan, now),
+      }));
+    },
+
+    "todos.add": async (params) => {
+      require({ kind: "write:todos" });
+      const { title, minutes } = (params ?? {}) as {
+        title?: unknown;
+        minutes?: unknown;
+      };
+      if (typeof title !== "string" || title.trim().length === 0) {
+        throw new Denied("A todo needs a title.");
+      }
+      const todo = await api.createTodo({
+        title: title.trim().slice(0, 200),
+        minutes: typeof minutes === "number" ? minutes : null,
+      });
+      await reloadTodos();
+      return { ...todo, fitsAt: null };
+    },
+
+    "todos.set": async (params) => {
+      require({ kind: "write:todos" });
+      const { id, status } = (params ?? {}) as {
+        id?: unknown;
+        status?: unknown;
+      };
+      if (typeof id !== "string") throw new Denied("No todo named.");
+      if (status !== "done" && status !== "dropped") {
+        throw new Denied("A todo may be done or dropped, nothing else.");
+      }
+      await api.setTodo(id, status);
+      await reloadTodos();
+      return undefined;
+    },
+
+    /** The todo becomes a slot. The server re-checks the gap, as it does for
+     *  the user's own placements - see `POST /slots`. */
+    "todos.place": async (params) => {
+      require({ kind: "write:todos" });
+      const { id, startsAt } = (params ?? {}) as {
+        id?: unknown;
+        startsAt?: unknown;
+      };
+      if (typeof id !== "string") throw new Denied("No todo named.");
+      const todo = todosSnapshot()?.find((t) => t.id === id);
+      if (!todo) throw new Denied("That todo is not on the list.");
+      const minutes = todo.minutes ?? DEFAULT_TODO_MINUTES;
+      const at =
+        typeof startsAt === "number"
+          ? startsAt
+          : fitsAt(minutes, todaySnapshot(), Date.now());
+      if (at === null) throw new Denied("Nothing on today fits it.");
+      const slot = await api.placeTodo(id, at, at + minutes * 60_000);
+      reloadPlan();
+      await reloadTodos();
+      return {
+        id: slot.id,
+        title: slot.title,
+        kind: slot.kind,
+        startsAt: slot.startsAt,
+        endsAt: slot.endsAt,
+        status: slot.status,
+        ownedByYou: false,
+      };
+    },
+
     "store.get": async () => {
       throw new Denied("Addon storage is not available yet.");
     },
@@ -326,7 +444,23 @@ export function serve(
     }
   });
 
+  // The same push for the todos, for the same reason - and on the day as
+  // well, because `fitsAt` is a reading of the day.
+  const stopWatchingTodos = subscribeTodos(() => {
+    try {
+      port.postMessage({ event: "todos" });
+    } catch {
+      // As above.
+    }
+  });
+
+  served.set(manifest.id, [...(served.get(manifest.id) ?? []), port]);
+
   return () => {
+    const rest = (served.get(manifest.id) ?? []).filter((p) => p !== port);
+    if (rest.length > 0) served.set(manifest.id, rest);
+    else served.delete(manifest.id);
+    stopWatchingTodos();
     stopWatching();
     port.removeEventListener("message", onMessage);
   };

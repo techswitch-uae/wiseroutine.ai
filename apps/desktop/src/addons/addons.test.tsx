@@ -4,7 +4,7 @@ import { parseManifest } from "@wiseroutine/addons";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { publishPlan, resetPlans } from "../lib/plan-store";
 import { AddonFrame } from "./frame";
-import { type AddonContext, serve } from "./host";
+import { type AddonContext, dispatchQuickAdd, serve } from "./host";
 
 /**
  * The boundary, tested adversarially.
@@ -626,5 +626,40 @@ describe("being told the day changed", () => {
     publishPlan(null);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(heard).toEqual([]);
+  });
+});
+
+describe("todos and quick add", () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  test("the list is a grant of its own, refused to an addon without it", async () => {
+    const { call, stop } = connectTo(manifest());
+    expect(denied(await call("todos.list"))).toBe(true);
+    expect(denied(await call("todos.add", { title: "x" }))).toBe(true);
+    stop();
+  });
+
+  test("what Quick add typed reaches the addon's first frame, and nobody else", async () => {
+    const channel = new MessageChannel();
+    const heard: unknown[] = [];
+    channel.port2.addEventListener("message", (event: MessageEvent) => {
+      if (event.data?.event === "quickAdd") heard.push(event.data.request);
+    });
+    channel.port2.start();
+    const stop = serve(
+      channel.port1,
+      manifest({ id: "acme.todos" }),
+      () => SESSION,
+    );
+
+    const request = { key: "todo", title: "Reply to Anders", minutes: 15 };
+    expect(dispatchQuickAdd("acme.todos", request)).toBe(true);
+    expect(dispatchQuickAdd("acme.other", request)).toBe(false);
+    await settle();
+    expect(heard).toEqual([request]);
+
+    // Torn down, so nothing is listening - and the dialog is told so.
+    stop();
+    expect(dispatchQuickAdd("acme.todos", request)).toBe(false);
   });
 });

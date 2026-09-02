@@ -177,7 +177,11 @@ export type AddonCapability =
   /** Be woken when it is not on screen. */
   | { kind: "background:wake" }
   /** Put a notification in front of the user. */
-  | { kind: "notify" };
+  | { kind: "notify" }
+  /** See the user's todos - the things with no time yet. */
+  | { kind: "read:todos" }
+  /** Add, finish, drop, and put a todo on the day. */
+  | { kind: "write:todos" };
 
 export type CapabilityKind = AddonCapability["kind"];
 
@@ -242,6 +246,8 @@ export function canAddon(
     case "ui:session":
     case "background:wake":
     case "notify":
+    case "read:todos":
+    case "write:todos":
       return { ok: true };
   }
 }
@@ -517,6 +523,15 @@ export interface AddonManifest {
   capabilities: readonly AddonCapability[];
   widgets: readonly AddonContribution[];
   activityTypes: readonly AddonActivityType[];
+  /**
+   * Rows this addon adds to the Quick add dialog's "when" list.
+   *
+   * The host draws each as "not now" - a way of keeping what was typed
+   * without putting it on the day - and on the press sends the addon a
+   * `quickAdd` event carrying the text and the key. The addon decides what
+   * that means; the host never learns. A todo list is the obvious one.
+   */
+  quickAdd: readonly AddonContribution[];
 }
 
 /**
@@ -551,7 +566,9 @@ export function parseManifest(raw: unknown): AddonManifest | null {
 
   const widgets = parseContributions(m.widgets);
   const activityTypes = parseActivityTypes(m.activityTypes);
-  if (widgets === null || activityTypes === null) return null;
+  const quickAdd = parseContributions(m.quickAdd);
+  if (widgets === null || activityTypes === null || quickAdd === null)
+    return null;
 
   return {
     id,
@@ -561,6 +578,7 @@ export function parseManifest(raw: unknown): AddonManifest | null {
     capabilities,
     widgets,
     activityTypes,
+    quickAdd,
   };
 }
 
@@ -597,6 +615,8 @@ function parseCapabilities(raw: unknown): AddonCapability[] | null {
       case "ui:session":
       case "background:wake":
       case "notify":
+      case "read:todos":
+      case "write:todos":
         out.push({ kind: c.kind });
         break;
       // An addon built against a newer app asking for something this version

@@ -262,3 +262,42 @@ describe("being told the day changed", () => {
     await expect(calling).resolves.toBe("ok");
   });
 });
+
+describe("todos and quick add", () => {
+  const WIDGET: AddonRole = { kind: "widget", widgetKey: "list" };
+
+  test("what Quick add typed reaches the listener, request and all", async () => {
+    const h = host(WIDGET);
+    const connecting = connect();
+    h.handshake();
+    const wr = await connecting;
+
+    const heard: unknown[] = [];
+    wr.onQuickAdd((request) => heard.push(request));
+    h.announce({
+      event: "quickAdd",
+      request: { key: "todo", title: "Reply to Anders", minutes: 15 },
+    });
+    await delivered();
+
+    expect(heard).toEqual([
+      { key: "todo", title: "Reply to Anders", minutes: 15 },
+    ]);
+  });
+
+  test("placing a todo sends the time only when one was given", async () => {
+    const h = host(WIDGET);
+    const seen: unknown[] = [];
+    h.answer((request) => {
+      seen.push((request as { params?: unknown }).params);
+      return { id: request.id, result: {} };
+    });
+    const connecting = connect();
+    h.handshake();
+    const wr = await connecting;
+
+    await wr.todos.place("t1");
+    await wr.todos.place("t1", 5);
+    expect(seen).toEqual([{ id: "t1" }, { id: "t1", startsAt: 5 }]);
+  });
+});

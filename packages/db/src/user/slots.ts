@@ -229,7 +229,9 @@ export async function replacePlannedSlots(
 export async function placeSlot(
   db: UserDatabase,
   params: {
-    activityId: string;
+    /** Null for a todo put on the day: it has a reminder and no activity. */
+    activityId: string | null;
+    reminderId?: string | null;
     title: string;
     kind: string;
     startsAt: number;
@@ -244,6 +246,7 @@ export async function placeSlot(
     data: {
       id,
       activityId: params.activityId,
+      reminderId: params.reminderId ?? null,
       title: params.title,
       kind: params.kind,
       startsAt: at(params.startsAt),

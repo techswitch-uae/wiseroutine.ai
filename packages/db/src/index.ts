@@ -15,4 +15,5 @@ export * from "./user/activities";
 export * from "./user/addons";
 export * from "./user/calendars";
 export * from "./user/events";
+export * from "./user/reminders";
 export * from "./user/slots";

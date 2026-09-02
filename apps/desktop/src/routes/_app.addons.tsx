@@ -83,6 +83,10 @@ function describe(capability: AddonCapability): string {
       return "Do a little work when you are not looking at it";
     case "notify":
       return "Send you a notification";
+    case "read:todos":
+      return "See your todos";
+    case "write:todos":
+      return "Add, finish and drop todos, and put them on your day";
   }
 }
 

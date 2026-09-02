@@ -130,6 +130,7 @@ describe("addons", () => {
       "wiseroutine.deep-work",
       "wiseroutine.eye-rest",
       "wiseroutine.stretch",
+      "wiseroutine.todos",
     ]);
     expect(body.addons.every((addon) => addon.bundled)).toBe(true);
     expect(body.addons.every((addon) => addon.isEnabled)).toBe(true);
@@ -2428,5 +2429,101 @@ describe("sync window", () => {
     expect(syncWindowStart(connected, connected, "America/Los_Angeles")).toBe(
       Date.UTC(2026, 7, 11, 7),
     );
+  });
+});
+
+/**
+ * Todos: a title with no time, until it is put on the day and becomes a slot.
+ */
+describe("todos", () => {
+  const json = (user: TestUser, body: unknown) => ({
+    method: "POST",
+    headers: { ...user.headers, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  test("a todo placed on the day is a slot, and leaves the open list", async () => {
+    const user = await seedUser({ plan: "free" });
+    const at = tomorrowNoon();
+
+    const created = await worker.default.fetch(
+      "http://api/todos",
+      json(user, { title: "Reply to Anders", minutes: 20 }),
+    );
+    expect(created.status).toBe(201);
+    const todo = (await created.json()) as { id: string; minutes: number };
+    expect(todo.minutes).toBe(20);
+
+    const listed = (await (
+      await worker.default.fetch("http://api/todos", { headers: user.headers })
+    ).json()) as { id: string }[];
+    expect(listed.map((t) => t.id)).toEqual([todo.id]);
+
+    const placed = await worker.default.fetch(
+      "http://api/slots",
+      json(user, { todoId: todo.id, startsAt: at }),
+    );
+    expect(placed.status).toBe(201);
+    const slot = (await placed.json()) as {
+      id: string;
+      title: string;
+      kind: string;
+      endsAt: number;
+    };
+    expect(slot.title).toBe("Reply to Anders");
+    expect(slot.kind).toBe("task");
+    expect(slot.endsAt).toBe(at + 20 * 60_000);
+
+    // Slotted, pointing at the slot it became - and no longer open.
+    const row = await userDb().reminder.findUnique({ where: { id: todo.id } });
+    expect(row?.status).toBe("slotted");
+    expect(row?.slotId).toBe(slot.id);
+    const after = (await (
+      await worker.default.fetch("http://api/todos", { headers: user.headers })
+    ).json()) as unknown[];
+    expect(after).toEqual([]);
+
+    // And placing it twice is refused: it is on the day already.
+    const again = await worker.default.fetch(
+      "http://api/slots",
+      json(user, { todoId: todo.id, startsAt: at + 60 * 60_000 }),
+    );
+    expect(again.status).toBe(409);
+  });
+
+  test("done and dropped both take it off the list; nothing else is accepted", async () => {
+    const user = await seedUser({ plan: "free" });
+    const todo = (await (
+      await worker.default.fetch(
+        "http://api/todos",
+        json(user, { title: "Physio exercises" }),
+      )
+    ).json()) as { id: string; minutes: number | null };
+    expect(todo.minutes).toBeNull();
+
+    const bad = await worker.default.fetch(`http://api/todos/${todo.id}`, {
+      ...json(user, { status: "open" }),
+      method: "PATCH",
+    });
+    expect(bad.status).toBe(400);
+
+    const done = await worker.default.fetch(`http://api/todos/${todo.id}`, {
+      ...json(user, { status: "done" }),
+      method: "PATCH",
+    });
+    expect(done.status).toBe(204);
+    const listed = (await (
+      await worker.default.fetch("http://api/todos", { headers: user.headers })
+    ).json()) as unknown[];
+    expect(listed).toEqual([]);
+  });
+
+  test("a blank title is refused", async () => {
+    const user = await seedUser({ plan: "free" });
+    const response = await worker.default.fetch(
+      "http://api/todos",
+      json(user, { title: "   " }),
+    );
+    expect(response.status).toBe(400);
   });
 });

@@ -507,6 +507,21 @@ export interface BucketItem {
   suggested: { startsAt: number; endsAt: number } | null;
 }
 
+/**
+ * A todo: something with no time yet.
+ *
+ * No `startsAt`, on purpose. The moment it gets one it becomes a slot and
+ * leaves this list - see `POST /slots` with `todoId`.
+ */
+export interface Todo {
+  id: string;
+  title: string;
+  /** How long it needs, or null for "no idea yet". */
+  minutes: number | null;
+  needsFocus: boolean;
+  createdAt: number;
+}
+
 export interface MissedItem {
   id: string;
   title: string;
@@ -892,6 +907,27 @@ export const api = {
         ...(endsAt !== undefined ? { endsAt } : {}),
       }),
     }),
+  /* ── Todos ───────────────────────────────────────────────────────────── */
+
+  todos: () => request<Todo[]>("/todos"),
+  createTodo: (input: { title: string; minutes?: number | null }) =>
+    request<Todo>("/todos", post(input)),
+  setTodo: (id: string, status: "done" | "dropped") =>
+    request<void>(`/todos/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
+  /** The todo becomes a slot. Same route as `placeSlot`, same refusals. */
+  placeTodo: (todoId: string, startsAt: number, endsAt?: number) =>
+    request<TodaySlot>("/slots", {
+      method: "POST",
+      body: JSON.stringify({
+        todoId,
+        startsAt,
+        ...(endsAt !== undefined ? { endsAt } : {}),
+      }),
+    }),
+
   /* ── Addons ──────────────────────────────────────────────────────────── */
 
   availableAddons: () =>
@@ -975,7 +1011,18 @@ export const MIN_GAP_MINUTES = 5;
  * from being two different answers.
  */
 export function openGaps(
-  data: TodayResponse,
+  // Only what the sum needs, so a `ScopeDay` - tomorrow, as the week view
+  // reads it - can be asked the same question as today.
+  data: {
+    dayStart: number;
+    dayEnd: number;
+    slots: readonly { startsAt: number; endsAt: number; status: string }[];
+    meetings: readonly {
+      startsAt: number;
+      endsAt: number;
+      isAllDay: boolean;
+    }[];
+  },
   now: number,
   minMinutes = MIN_GAP_MINUTES,
 ): OpenGap[] {

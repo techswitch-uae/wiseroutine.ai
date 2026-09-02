@@ -1,0 +1,14 @@
+{
+  "id": "wiseroutine.todos",
+  "name": "Todos",
+  "version": "1.0.0",
+  "description": "The things with no time yet. Tick them, drop them, or put one on the day - and keep what Quick add typed.",
+  "capabilities": [
+    { "kind": "ui:widget" },
+    { "kind": "read:schedule", "scope": "today" },
+    { "kind": "read:todos" },
+    { "kind": "write:todos" }
+  ],
+  "widgets": [{ "key": "list", "name": "Todos" }],
+  "quickAdd": [{ "key": "todo", "name": "Keep it as a todo" }]
+}

@@ -2162,3 +2162,82 @@ button.wr-month-cell:hover { box-shadow: var(--wr-lift-2); }
 }
 .wr-month-dot-done { background: var(--color-accent); box-shadow: none; }
 
+
+/* ── Quick add ─────────────────────────────────────────────────────────── */
+/* A palette over the day, not a sheet in the middle of it: it sits above the
+   day it is about to change. Two bands - the field on the card ground, the
+   choices on the recessed one - and every row is a button. */
+.wr-palette-overlay { align-items: flex-start; padding-top: 64px; }
+.wr-palette {
+  position: relative; width: 100%; max-width: 600px; border-radius: 22px; overflow: hidden;
+  background: var(--color-neutral-100); outline: none;
+  box-shadow: 0 6px 14px rgba(46, 43, 37, 0.16), 0 28px 60px rgba(46, 43, 37, 0.3);
+}
+.wr-palette-head { display: flex; align-items: center; gap: 13px; padding: 20px 24px 17px; }
+.wr-palette-dot { width: 26px; height: 26px; border-radius: 999px; background: var(--color-accent); flex: none; }
+.wr-palette-input {
+  flex: 1; min-width: 0; border: 0; padding: 0; background: transparent; outline: none;
+  font: 400 22px var(--font-heading); color: var(--color-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wr-palette-input::placeholder { color: color-mix(in srgb, var(--color-text) 52%, transparent); }
+.wr-palette-body {
+  display: flex; flex-direction: column; gap: 8px; padding: 16px 24px 20px;
+  background: var(--wr-page); box-shadow: inset 0 1px 2px rgba(46, 43, 37, 0.06);
+}
+.wr-palette-kicker {
+  display: flex; justify-content: space-between; align-items: baseline; margin: 4px 0 2px;
+  font: 700 10px var(--font-body); letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--wr-text-muted);
+}
+.wr-palette-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.wr-palette-chip {
+  display: flex; align-items: center; gap: 8px; padding: 10px 15px 10px 13px; border-radius: 999px;
+  border: 0; cursor: pointer; background: var(--color-neutral-100); color: var(--color-text);
+  font: 600 13px var(--font-body);
+  box-shadow: 0 1px 2px rgba(46, 43, 37, 0.06), 0 4px 12px rgba(46, 43, 37, 0.07);
+}
+.wr-palette-chip:hover { box-shadow: 0 2px 5px rgba(46, 43, 37, 0.1), 0 10px 22px rgba(46, 43, 37, 0.14); }
+.wr-palette-chip-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--color-accent-2-600); }
+.wr-palette-chip-dot-focus { background: var(--color-accent); }
+.wr-palette-chip-meta { font: 400 11.5px var(--font-body); color: var(--wr-text-muted); }
+.wr-palette-chip .wr-keycap { padding: 2px 6px; }
+.wr-palette-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  padding: 11px 14px; border-radius: 15px; border: 0; cursor: pointer;
+  background: var(--color-neutral-100); color: var(--color-text);
+  box-shadow: 0 1px 2px rgba(46, 43, 37, 0.06), 0 4px 12px rgba(46, 43, 37, 0.07);
+}
+.wr-palette-row-on { box-shadow: 0 3px 6px rgba(46, 43, 37, 0.1), 0 18px 40px rgba(46, 43, 37, 0.2); }
+/* Dashed is "not a thing yet" - the row that keeps it as a todo. */
+.wr-palette-row-dashed { background: transparent; box-shadow: none; border: 1px dashed #cdbe9f; }
+.wr-palette-row-dashed.wr-palette-row-on { background: var(--color-neutral-100); }
+.wr-palette-when {
+  width: 56px; flex: none; font: 400 17px var(--font-heading); color: var(--wr-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.wr-palette-row-on .wr-palette-when { color: var(--color-accent-900); }
+.wr-palette-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.wr-palette-title { font: 600 13px var(--font-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wr-palette-note { font: 400 11.5px var(--font-body); color: var(--wr-text-muted); }
+.wr-palette-pills { display: flex; align-items: center; gap: 7px; margin: 2px 0 6px; }
+.wr-palette-pill {
+  padding: 6px 13px; border-radius: 999px; border: 0; cursor: pointer;
+  font: 600 12px var(--font-body); background: var(--color-neutral-200);
+  color: color-mix(in srgb, var(--color-text) 74%, transparent);
+  box-shadow: inset 0 0 0 1px rgba(46, 43, 37, 0.08);
+}
+.wr-palette-pill-on { background: var(--color-accent-700); color: #fff; box-shadow: none; }
+.wr-palette-hint { margin-left: auto; font: 400 11px var(--font-body); color: var(--wr-text-muted); }
+.wr-palette-time { display: flex; gap: 10px; align-items: center; }
+.wr-palette-time input {
+  font: 600 14px var(--font-body); padding: 8px 12px; border-radius: 999px; border: 0;
+  background: var(--color-neutral-100); color: var(--color-text);
+}
+.wr-palette-foot {
+  display: flex; align-items: center; gap: 14px; padding: 11px 24px;
+  font: 400 11px var(--font-body); color: var(--wr-text-muted);
+}
+.wr-palette-foot span { display: inline-flex; align-items: center; gap: 5px; }
+.wr-palette-foot .wr-palette-hint { margin-left: auto; }
+.wr-palette-empty { font: 400 12.5px var(--font-body); color: var(--wr-text-muted); margin: 2px 0; }

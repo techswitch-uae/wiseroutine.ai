@@ -24,6 +24,7 @@
     "@wiseroutine/addon-deep-work": "workspace:*",
     "@wiseroutine/addon-eye-rest": "workspace:*",
     "@wiseroutine/addon-stretch": "workspace:*",
+    "@wiseroutine/addon-todos": "workspace:*",
     "@wiseroutine/addons": "workspace:*",
     "@wiseroutine/db": "workspace:*",
     "@wiseroutine/env": "workspace:*",

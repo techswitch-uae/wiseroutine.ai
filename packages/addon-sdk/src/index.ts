@@ -156,6 +156,37 @@ export interface DayView {
   slots: DaySlot[];
 }
 
+/**
+ * A todo: something the user means to do, with no time yet.
+ *
+ * Deliberately no instant on it. The moment a todo is put on the day it
+ * becomes a slot - it leaves this list and appears in `day()` - so a time
+ * here would be a second copy of one the slot already carries.
+ */
+export interface Todo {
+  id: string;
+  title: string;
+  /** How long it needs, or null for "no idea yet". */
+  minutes: number | null;
+  needsFocus: boolean;
+  /** Where it would go if placed right now: the first gap on today that
+   *  fits it, or null when today has none. Computed by the host. */
+  fitsAt: number | null;
+}
+
+/**
+ * What the user typed into Quick add and then chose to hand to you.
+ *
+ * `key` is the bare key from your manifest's `quickAdd`, so an addon that
+ * contributes two rows can tell them apart. `minutes` is the duration they
+ * had picked, or null if they never touched it.
+ */
+export interface QuickAddRequest {
+  key: string;
+  title: string;
+  minutes: number | null;
+}
+
 /* ── Why you were loaded ─────────────────────────────────────────────────── */
 
 /**
@@ -366,6 +397,36 @@ export interface AddonClient {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<void>;
   };
+
+  /**
+   * The user's todos - the app's own list, not a private one.
+   *
+   * `list` needs `read:todos`; the rest need `write:todos`. `place` turns a
+   * todo into a slot on the day: at `startsAt` if given, otherwise at
+   * `fitsAt`, the first gap on today that fits it. Refused when there is no
+   * such gap, so check `fitsAt` before offering it.
+   */
+  todos: {
+    list(): Promise<Todo[]>;
+    add(input: { title: string; minutes?: number | null }): Promise<Todo>;
+    set(id: string, status: "done" | "dropped"): Promise<void>;
+    place(id: string, startsAt?: number): Promise<DaySlot>;
+  };
+
+  /**
+   * Be told when the todos changed, the same way `onDayChange` tells you the
+   * day did. Carries nothing: call `todos.list()` for the new one.
+   */
+  onTodosChange(listener: () => void): () => void;
+
+  /**
+   * What Quick add handed you - see `quickAdd` in the manifest.
+   *
+   * Delivered to one of your running frames; a widget is the usual one. The
+   * host has already closed the dialog and told the user it is with you, so
+   * do the thing without asking again.
+   */
+  onQuickAdd(listener: (request: QuickAddRequest) => void): () => void;
 }
 
 /* ── The wire ────────────────────────────────────────────────────────────── */
@@ -405,9 +466,10 @@ interface RpcReply {
  * than a second channel - a second port would be a second thing to transfer,
  * tear down, and get wrong.
  */
-interface HostEvent {
-  event: "day";
-}
+type HostEvent =
+  | { event: "day" }
+  | { event: "todos" }
+  | { event: "quickAdd"; request: QuickAddRequest };
 
 const HANDSHAKE = "wiseroutine:addon:port";
 
@@ -471,6 +533,8 @@ function clientOver(port: MessagePort, hello: Handshake): AddonClient {
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
   const onDay = new Set<() => void>();
+  const onTodos = new Set<() => void>();
+  const onQuick = new Set<(request: QuickAddRequest) => void>();
 
   port.addEventListener(
     "message",
@@ -483,6 +547,9 @@ function clientOver(port: MessagePort, hello: Handshake): AddonClient {
         // Copied before iterating: a listener that unsubscribes itself would
         // otherwise mutate the set mid-loop.
         if (data.event === "day") for (const listen of [...onDay]) listen();
+        if (data.event === "todos") for (const listen of [...onTodos]) listen();
+        if (data.event === "quickAdd")
+          for (const listen of [...onQuick]) listen(data.request);
         return;
       }
 
@@ -545,6 +612,28 @@ function clientOver(port: MessagePort, hello: Handshake): AddonClient {
     store: {
       get: (key) => call<unknown>("store.get", { key }),
       set: (key, value) => call<void>("store.set", { key, value }),
+    },
+    todos: {
+      list: () => call<Todo[]>("todos.list"),
+      add: (input) => call<Todo>("todos.add", input),
+      set: (id, status) => call<void>("todos.set", { id, status }),
+      place: (id, startsAt) =>
+        call<DaySlot>("todos.place", {
+          id,
+          ...(startsAt !== undefined ? { startsAt } : {}),
+        }),
+    },
+    onTodosChange: (listener) => {
+      onTodos.add(listener);
+      return () => {
+        onTodos.delete(listener);
+      };
+    },
+    onQuickAdd: (listener) => {
+      onQuick.add(listener);
+      return () => {
+        onQuick.delete(listener);
+      };
     },
   };
 }

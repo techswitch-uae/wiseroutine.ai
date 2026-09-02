@@ -22,7 +22,9 @@ import { useTodayPlan } from "../lib/plan-store";
 import { dayLabel, periodLabel, scopeOf, todayOf } from "../lib/scope";
 import "../lib/rail";
 import { loadAddons } from "../addons/installed";
+import { reloadTodos } from "../lib/todos";
 import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
+import { QuickAdd } from "../modules/quick-add";
 import { SessionOverlay } from "../modules/session";
 import { TrialPill } from "../modules/trial-pill";
 
@@ -164,8 +166,34 @@ const useMenuBar = (): void => {
   // was open. Idempotent, and a failure leaves the app running without it.
   useEffect(() => {
     void loadAddons();
+    // The todos the rail's card and Quick add both read - see `lib/todos`.
+    void reloadTodos();
   }, []);
 };
+
+/**
+ * ⌘K, anywhere in the app.
+ *
+ * The one global key. On the document rather than on a page, because the
+ * dialog is about the day and not about the page that happens to be open -
+ * and the sidebar's button says ⌘K on it, so it had better be true wherever
+ * the sidebar is.
+ */
+function useQuickAdd(): [boolean, (open: boolean) => void] {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (event.altKey || event.shiftKey) return;
+      if (event.key.toLowerCase() !== "k") return;
+      event.preventDefault();
+      setOpen((was) => !was);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+  return [open, setOpen];
+}
 
 const AppLayout: React.FC = () => {
   const navigate = useNavigate();
@@ -177,6 +205,7 @@ const AppLayout: React.FC = () => {
   const search = useRouterState({ select: (s) => s.location.search });
   // Shared with the account page, which can change the name - see lib/account.
   const user = useAccount();
+  const [quickAdd, setQuickAdd] = useQuickAdd();
 
   // The macOS title bar is a transparent overlay, so the traffic lights land on
   // the sidebar. Tell the stylesheet to leave them room - see `.wr-tauri`.
@@ -295,6 +324,7 @@ const AppLayout: React.FC = () => {
                 onSelect={(key) => void navigate({ to: SCOPE_ROUTES[key] })}
               />
             }
+            onQuickAdd={() => setQuickAdd(true)}
             onNavigate={(key) => {
               const item = NAV.find((entry) => entry.key === key);
               // Destinations without a route yet do nothing rather than
@@ -335,6 +365,7 @@ const AppLayout: React.FC = () => {
         <Outlet />
       </AppFrame>
       <SessionOverlay />
+      {quickAdd ? <QuickAdd onClose={() => setQuickAdd(false)} /> : null}
       <Toasts items={toasts} onDismiss={dismiss} />
     </>
   );

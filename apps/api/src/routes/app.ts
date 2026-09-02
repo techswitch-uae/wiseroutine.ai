@@ -6,10 +6,12 @@ import {
   connectedSince,
   countActiveActivities,
   createActivity,
+  createReminder,
   deleteConnection,
   forgetStoredTitles,
   getAddon,
   getCalendarForSync,
+  getReminder,
   installAddon,
   lastSyncedAt,
   listActivities,
@@ -19,6 +21,7 @@ import {
   listConnections,
   listEventsInRange,
   listMissed,
+  listOpenReminders,
   listSlotEvents,
   listSlotsForRange,
   moveSlot,
@@ -33,6 +36,7 @@ import {
   setActivityWindows,
   setAddonEnabled,
   setCalendarSelected,
+  setReminderStatus,
   setSlotStatus,
   toSchedulerActivity,
   touchLastSeen,
@@ -1585,32 +1589,70 @@ app.post("/slots", async (c) => {
   const now = c.get("now");
 
   const body = await c.req.json<{
-    activityId: string;
+    activityId?: string;
+    /** A todo instead of an activity: the slot takes its title, and the todo
+     *  is marked slotted. One or the other, never both. */
+    todoId?: string;
     startsAt: number;
     endsAt?: number;
   }>();
 
-  if (!body.activityId || !Number.isFinite(body.startsAt)) {
+  if ((!body.activityId && !body.todoId) || !Number.isFinite(body.startsAt)) {
     throw new HTTPException(400, {
-      message: "activityId and startsAt are required",
+      message: "activityId or todoId, and startsAt, are required",
     });
   }
 
-  const activities = await listActivities(db);
-  const activity = activities.find((a) => a.row.id === body.activityId);
-  if (!activity) {
-    throw new HTTPException(404, { message: "No such activity" });
-  }
-  if (!activity.row.isActive) {
-    throw new HTTPException(409, {
-      message: `${activity.row.name} is paused. Turn it back on to place it.`,
-    });
+  /** What the slot is made from - an activity or a todo, resolved to the
+   *  three things `placeSlot` needs to know. */
+  let subject: {
+    activityId: string | null;
+    reminderId: string | null;
+    title: string;
+    kind: "recovery" | "focus" | "task";
+    minutes: number;
+  };
+
+  if (body.todoId) {
+    const todo = await getReminder(db, body.todoId);
+    if (!todo) throw new HTTPException(404, { message: "No such todo" });
+    if (todo.status !== "open") {
+      throw new HTTPException(409, {
+        message: "That todo is already on the day, or done.",
+      });
+    }
+    subject = {
+      activityId: null,
+      reminderId: todo.id,
+      title: todo.title,
+      kind: todo.needsFocus ? "focus" : "task",
+      // ponytail: a todo with no length gets a quarter hour. Refusing would
+      // leave it stuck in the list; a length is one keypress to fix.
+      minutes: todo.estimatedMinutes ?? 15,
+    };
+  } else {
+    const activities = await listActivities(db);
+    const activity = activities.find((a) => a.row.id === body.activityId);
+    if (!activity) {
+      throw new HTTPException(404, { message: "No such activity" });
+    }
+    if (!activity.row.isActive) {
+      throw new HTTPException(409, {
+        message: `${activity.row.name} is paused. Turn it back on to place it.`,
+      });
+    }
+    subject = {
+      activityId: activity.row.id,
+      reminderId: null,
+      title: activity.row.name,
+      kind: activity.row.kind as "recovery" | "focus" | "task",
+      minutes: activity.row.sessionMinutes,
+    };
   }
 
   // The activity's own session length unless the caller says otherwise, so a
   // plain "put this here" needs one number rather than two.
-  const endsAt =
-    body.endsAt ?? body.startsAt + activity.row.sessionMinutes * 60_000;
+  const endsAt = body.endsAt ?? body.startsAt + subject.minutes * 60_000;
   if (endsAt <= body.startsAt) {
     throw new HTTPException(400, { message: "endsAt must be after startsAt" });
   }
@@ -1630,9 +1672,10 @@ app.post("/slots", async (c) => {
   const slot = await placeSlot(
     db,
     {
-      activityId: activity.row.id,
-      title: activity.row.name,
-      kind: activity.row.kind,
+      activityId: subject.activityId,
+      reminderId: subject.reminderId,
+      title: subject.title,
+      kind: subject.kind,
       startsAt: body.startsAt,
       endsAt,
       timeZone: user.timeZone,
@@ -1640,6 +1683,12 @@ app.post("/slots", async (c) => {
     now,
     newId,
   );
+
+  // A todo on the day is a slot now. The todo stays, pointing at it, so a
+  // later view can list what was placed beside what was not.
+  if (subject.reminderId) {
+    await setReminderStatus(db, subject.reminderId, "slotted", slot.id);
+  }
 
   // A placed slot has a grace period like any other, and the sweep is driven
   // from the directory - without this marker nothing would ever move it on.
@@ -1663,6 +1712,76 @@ app.post("/slots", async (c) => {
     },
     201,
   );
+});
+
+/* ── Todos ─────────────────────────────────────────────────────────────── */
+
+/**
+ * The list of things with no time yet.
+ *
+ * Open ones only. A todo that was put on the day is a slot now and is drawn
+ * there; one that is done or dropped is history. Both keep their row, so a
+ * view of "placed beside unplaced" costs a query and nothing else.
+ */
+app.get("/todos", async (c) => {
+  const rows = await listOpenReminders(c.get("db"));
+  return c.json(
+    rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      minutes: row.estimatedMinutes,
+      needsFocus: row.needsFocus,
+      createdAt: row.createdAt,
+    })),
+  );
+});
+
+app.post("/todos", async (c) => {
+  const body = await c.req.json<{
+    title?: unknown;
+    minutes?: unknown;
+    needsFocus?: unknown;
+  }>();
+  const title = typeof body.title === "string" ? body.title.trim() : "";
+  if (title.length === 0 || title.length > 200) {
+    throw new HTTPException(400, { message: "A todo needs a title" });
+  }
+  const minutes =
+    typeof body.minutes === "number" && Number.isFinite(body.minutes)
+      ? Math.max(5, Math.min(480, Math.round(body.minutes)))
+      : null;
+
+  const row = await createReminder(
+    c.get("db"),
+    { title, estimatedMinutes: minutes, needsFocus: body.needsFocus === true },
+    c.get("now"),
+    newId,
+  );
+  return c.json(
+    {
+      id: row.id,
+      title: row.title,
+      minutes: row.estimatedMinutes,
+      needsFocus: row.needsFocus,
+      createdAt: row.createdAt,
+    },
+    201,
+  );
+});
+
+/** Done, or dropped. Placing one on the day is `POST /slots` with `todoId`. */
+app.patch("/todos/:id", async (c) => {
+  const db = c.get("db");
+  const body = await c.req.json<{ status?: unknown }>();
+  if (body.status !== "done" && body.status !== "dropped") {
+    throw new HTTPException(400, {
+      message: "A todo may be done or dropped, nothing else",
+    });
+  }
+  const todo = await getReminder(db, c.req.param("id"));
+  if (!todo) throw new HTTPException(404, { message: "No such todo" });
+  await setReminderStatus(db, todo.id, body.status, todo.slotId);
+  return c.body(null, 204);
 });
 
 /**
