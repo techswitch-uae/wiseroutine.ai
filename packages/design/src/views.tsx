@@ -134,7 +134,7 @@ export const ScopeNav: React.FC<{
       disabled={atToday}
       onClick={onToday}
     >
-      Today
+      {unit === "day" ? "Today" : `This ${unit}`}
     </button>
     <IconButton label={`Next ${unit}`} onClick={onForward}>
       <ChevronRight />
