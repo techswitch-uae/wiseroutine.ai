@@ -6,7 +6,8 @@ import {
   cardHeightFor,
   isPlainHttpsOrigin,
 } from "@wiseroutine/addons";
-import { api, type Todo } from "../lib/api";
+import { api, openGaps, type Todo } from "../lib/api";
+import { notify as toast } from "../lib/notify";
 import { openExternal } from "../lib/open-external";
 import { reloadPlan, subscribePlan, todaySnapshot } from "../lib/plan-store";
 import {
@@ -18,77 +19,42 @@ import {
 } from "../lib/todos";
 
 /**
- * Every port being served, by addon id - so the host can speak first.
- *
- * `serve` answers; this is for the one thing the host *initiates* with a
- * payload: handing over what the user typed into Quick add. One frame per
- * addon hears it, the first that was served, which is the widget in every
- * addon that has one - and an addon with no running frame hears nothing,
- * which is why the dialog only offers rows for addons that are on screen.
- */
-const served = new Map<string, MessagePort[]>();
-
-/** Hand Quick add's text to an addon. False when none of its frames is up. */
-export function dispatchQuickAdd(
-  addonId: string,
-  request: { key: string; title: string; minutes: number | null },
-): boolean {
-  const port = served.get(addonId)?.[0];
-  if (!port) return false;
-  port.postMessage({ event: "quickAdd", request });
-  return true;
-}
-
-/** Whether an addon has a frame up to hear `dispatchQuickAdd`. */
-export const isServing = (addonId: string): boolean =>
-  (served.get(addonId)?.length ?? 0) > 0;
-
-/**
  * The one place an addon's requests are answered.
  *
- * Every call an addon can make arrives here, on a port nobody else holds, and
- * leaves through one of the handlers below. That is deliberate and it is the
- * property worth protecting: a second way in would be a second place to get
- * the capability check right, and the value of a chokepoint is that there is
- * only one of it.
+ * Every call arrives here on a port nobody else holds. Three rules, in
+ * order: the method must exist; the capability must be in the user's grant
+ * (`canAddon`, the same function the Worker uses); and writes go to the
+ * server with the addon's id, where the grant and ownership are checked
+ * again. That server check is the gate. This one gives a better error.
  *
- * Three rules, applied in this order to every request:
- *
- * 1. **The method must exist.** An unknown name is refused rather than
- *    ignored, so an addon written against a newer host gets a sentence rather
- *    than a promise that never settles.
- * 2. **The capability must be granted.** Checked against the manifest with
- *    `canAddon`, the same function the Worker uses. Not the request's word for
- *    what it needs - the handler names it.
- * 3. **Ownership, for anything that writes.** Checked here, and *again* by the
- *    server. This one is a courtesy that gives a better error; the server's is
- *    the gate.
- *
- * The addon never holds a token, a URL or a database handle. It holds a port.
+ * The addon never holds a token, a URL or a secret. It holds a port.
  */
 
-/**
- * What the host loaded this addon to do.
- *
- * A union rather than a single shape, because an addon is loaded for a reason
- * and the reason decides what it may ask for. `session` and `card` are each
- * refused outright in the other's context - not because the capability is
- * missing, but because the question is meaningless: a rail card has no slot,
- * and a session has no eyebrow to set.
- */
+/** What the host needs to serve an addon. `InstalledAddon` satisfies it. */
+export interface ServedAddon {
+  manifest: AddonManifest;
+  /** The user's grant. Checked here; never the manifest. */
+  granted: readonly AddonCapability[];
+  /** Addon-level settings, parsed. Never secrets. */
+  settings?: Record<string, unknown>;
+}
+
+/** Why this frame exists. Decides what it may ask for. */
 export type AddonContext =
-  | { kind: "session"; slot: unknown; config: unknown }
+  | {
+      kind: "session";
+      slot: unknown;
+      config: unknown;
+      /** Ends the session as done. The host completes the slot. */
+      finish: () => void;
+    }
   | {
       kind: "widget";
-      /** Bare, as the manifest wrote it. See `AddonRole`. */
       widgetKey: string;
-      /**
-       * How the card around this frame should be drawn, or null to take it
-       * down. The host's own state setter, handed in - so `serve` decides
-       * nothing about the rail and the component that owns the card owns it.
-       */
+      /** How to draw the card, or null to take it down. */
       present: (card: { eyebrow?: string; height: number } | null) => void;
-    };
+    }
+  | { kind: "background" };
 
 interface Request {
   id: number;
@@ -98,44 +64,128 @@ interface Request {
 
 class Denied extends Error {}
 
+/** Every port being served, so the host can speak first. */
+const served = new Map<
+  string,
+  { port: MessagePort; kind: AddonContext["kind"] }[]
+>();
+
+const QUICK_ADD_TIMEOUT = 8_000;
+let nextQuickAddId = 1;
+
 /**
- * Answer requests on this port until it is stopped.
+ * Hand Quick add's text to an addon and wait for its answer.
  *
- * Returns the teardown. Not optional: a port left listening after its frame is
- * gone is an addon that can still act after the user closed it.
+ * Goes to the addon's background frame if it has one, else its first frame.
+ * Resolves with what the addon said, or a failure if it threw, went away, or
+ * took too long.
+ */
+export function dispatchQuickAdd(
+  addonId: string,
+  request: { key: string; title: string; minutes: number | null },
+): Promise<{ ok: boolean; message?: string }> {
+  const frames = served.get(addonId) ?? [];
+  const target =
+    frames.find((f) => f.kind === "background") ?? frames[0] ?? null;
+  if (!target) {
+    return Promise.resolve({ ok: false, message: "That addon isn't running." });
+  }
+
+  const requestId = nextQuickAddId++;
+  return new Promise((resolve) => {
+    const done = (answer: { ok: boolean; message?: string }) => {
+      clearTimeout(timer);
+      target.port.removeEventListener("message", onMessage);
+      resolve(answer);
+    };
+    const timer = setTimeout(
+      () => done({ ok: false, message: "That addon did not answer." }),
+      QUICK_ADD_TIMEOUT,
+    );
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as {
+        event?: string;
+        requestId?: number;
+        message?: string;
+        error?: string;
+      };
+      if (data?.event !== "quickAdd:done" || data.requestId !== requestId)
+        return;
+      if (typeof data.error === "string") {
+        done({ ok: false, message: data.error.slice(0, 80) });
+      } else {
+        done({
+          ok: true,
+          ...(typeof data.message === "string"
+            ? { message: data.message.slice(0, 80) }
+            : {}),
+        });
+      }
+    };
+    target.port.addEventListener("message", onMessage);
+    target.port.postMessage({ event: "quickAdd", requestId, request });
+  });
+}
+
+/** Whether an addon has a frame up to hear `dispatchQuickAdd`. */
+export const isServing = (addonId: string): boolean =>
+  (served.get(addonId)?.length ?? 0) > 0;
+
+const inTauri = (): boolean => "__TAURI_INTERNALS__" in globalThis;
+
+const STORE_VALUE_LIMIT = 16 * 1024;
+const NOTIFY_INTERVAL = 10_000;
+const lastNotified = new Map<string, number>();
+
+/** Is `[startsAt, endsAt]` inside one open gap on today? */
+function isFree(startsAt: number, endsAt: number, now: number): boolean {
+  const plan = todaySnapshot();
+  if (!plan) return false;
+  const minutes = Math.ceil((endsAt - startsAt) / 60_000);
+  return openGaps(plan, now, minutes).some(
+    (gap) => gap.startsAt <= startsAt && endsAt <= gap.endsAt,
+  );
+}
+
+/**
+ * Answer requests on this port until it is stopped. Returns the teardown,
+ * which must be called: a port left open is an addon still able to act
+ * after its frame is gone.
  */
 export function serve(
   port: MessagePort,
-  manifest: AddonManifest,
-  /**
-   * Read per request, not captured.
-   *
-   * A function rather than a value so that the port survives its owner
-   * re-rendering. The context is rebuilt on every render of the component
-   * drawing the frame - it is an object literal - so a `serve` that closed
-   * over it would have to be torn down and rebuilt each time to stay current,
-   * and rebuilding it after the frame has loaded hands the addon a port it
-   * never receives. A widget in the rail re-renders for the rest of the app's
-   * life; a session that had gone quiet was the same bug arriving slower.
-   */
+  addon: ServedAddon,
+  /** Read per request, not captured, so the port survives re-renders. */
   contextOf: () => AddonContext,
 ): () => void {
-  const granted = manifest.capabilities;
+  const { manifest, granted } = addon;
+  const id = manifest.id;
 
   const require = (capability: AddonCapability): void => {
     const decision = canAddon(granted, capability);
     if (!decision.ok) throw new Denied(decision.reason);
   };
 
+  const toDaySlot = (slot: {
+    id: string;
+    title: string;
+    kind: "recovery" | "focus" | "task";
+    startsAt: number;
+    endsAt: number;
+    status: string;
+    ownerAddonId?: string | null;
+  }) => ({
+    id: slot.id,
+    title: slot.title,
+    kind: slot.kind,
+    startsAt: slot.startsAt,
+    endsAt: slot.endsAt,
+    status: slot.status,
+    ownedByYou: slot.ownerAddonId === id,
+  });
+
   const handlers: Record<string, (params: unknown) => Promise<unknown>> = {
-    /**
-     * The session this frame was loaded for.
-     *
-     * Given rather than asked for: the addon does not name a slot, so it
-     * cannot name a different one. `ui:session` is the capability, not
-     * `read:schedule` - the running slot is not a window onto the day, it is
-     * the thing the user is looking at while this addon draws it.
-     */
+    /** Given, not asked for: the addon cannot name a different slot. */
     session: async () => {
       require({ kind: "ui:session" });
       const context = contextOf();
@@ -145,21 +195,18 @@ export function serve(
       return { slot: context.slot, config: context.config };
     },
 
-    /**
-     * How the card around this frame is drawn - or whether it is drawn at all.
-     *
-     * The one thing an addon may say about the outside of its own frame, and
-     * everything about it is bounded here rather than trusted:
-     *
-     * - The height is clamped by `cardHeightFor`. A card that could name its
-     *   own height could push every other card in the rail off the screen.
-     * - The eyebrow is truncated, and it is the only text the host draws on
-     *   the addon's behalf. Long enough for "Day so far", short enough that it
-     *   cannot become a paragraph wearing a label's clothes.
-     * - `null` takes the card down. The addon can hide itself and nothing
-     *   else: it has no way to hide another card, or to say anything about
-     *   where in the rail it sits.
-     */
+    finishSession: async () => {
+      require({ kind: "ui:session" });
+      const context = contextOf();
+      if (context.kind !== "session") {
+        throw new Denied("This addon was not loaded as a session.");
+      }
+      context.finish();
+      return undefined;
+    },
+
+    /** The one thing an addon says about the outside of its frame. Height
+     *  clamped, eyebrow truncated, null takes the card down. */
     card: async (params) => {
       require({ kind: "ui:widget" });
       const context = contextOf();
@@ -184,18 +231,9 @@ export function serve(
       return undefined;
     },
 
-    /**
-     * The day, narrowed to what an addon may see.
-     *
-     * `today` is the only grantable scope, so this reads the day already in
-     * hand rather than making a request: a wider window would need a wider
-     * grant, and there is no way to ask for one yet.
-     *
-     * Rebuilt field by field rather than passed through. The app's own slot
-     * carries conflict ids, lock state and a module key; an addon is shown
-     * what it needs and `ownedByYou`, which is the only field that decides
-     * anything for it.
-     */
+    settings: async () => addon.settings ?? {},
+
+    /** The day, narrowed to what an addon may see. */
     day: async () => {
       require({ kind: "read:schedule", scope: "today" });
       const plan = todaySnapshot();
@@ -205,29 +243,62 @@ export function serve(
         dayStart: plan.dayStart,
         dayEnd: plan.dayEnd,
         timeZone: plan.timeZone,
-        slots: plan.slots.map((slot) => ({
-          id: slot.id,
-          title: slot.title,
-          kind: slot.kind,
-          startsAt: slot.startsAt,
-          endsAt: slot.endsAt,
-          status: slot.status,
-          // Until the server returns an owner per slot there is nothing an
-          // addon owns, and saying so is the honest answer: a write against
-          // any of these is refused, so claiming otherwise would only produce
-          // a request that fails later and further away.
-          ownedByYou: false,
-        })),
+        slots: plan.slots.map(toDaySlot),
       };
     },
 
-    placeSlot: async () => {
+    /**
+     * A slot of the addon's own. Pinned at `startsAt`, or the first
+     * `preferredAt` that is free, or the first free gap today. The server
+     * re-checks the gap and records the owner.
+     */
+    placeSlot: async (params) => {
       require({ kind: "write:own" });
-      throw new Denied(
-        "Placing slots is not available yet. The capability exists; the route does not.",
-      );
+      const p = (params ?? {}) as Record<string, unknown>;
+      const title = typeof p.title === "string" ? p.title.trim() : "";
+      if (title.length === 0) throw new Denied("A slot needs a title.");
+      const kind = p.kind;
+      if (kind !== "recovery" && kind !== "focus" && kind !== "task") {
+        throw new Denied("kind must be recovery, focus or task.");
+      }
+      const minutes = p.minutes;
+      if (
+        typeof minutes !== "number" ||
+        !Number.isInteger(minutes) ||
+        minutes < 1 ||
+        minutes > 240
+      ) {
+        throw new Denied("minutes must be a whole number from 1 to 240.");
+      }
+      const length = minutes * 60_000;
+      const now = Date.now();
+
+      let at: number | null = null;
+      if (typeof p.startsAt === "number" && Number.isFinite(p.startsAt)) {
+        at = p.startsAt;
+      } else {
+        const preferred = Array.isArray(p.preferredAt)
+          ? p.preferredAt.filter(
+              (t): t is number => typeof t === "number" && Number.isFinite(t),
+            )
+          : [];
+        at =
+          preferred.slice(0, 10).find((t) => isFree(t, t + length, now)) ??
+          fitsAt(minutes, todaySnapshot(), now);
+      }
+      if (at === null) throw new Denied("Nothing on today fits it.");
+
+      const slot = await api.placeOwnSlot(id, {
+        title: title.slice(0, 200),
+        kind,
+        startsAt: at,
+        endsAt: at + length,
+      });
+      reloadPlan();
+      return toDaySlot(slot);
     },
 
+    /** The server refuses a slot this addon did not place. */
     setSlotStatus: async (params) => {
       require({ kind: "write:own" });
       const { slotId, status } = (params ?? {}) as {
@@ -238,39 +309,60 @@ export function serve(
       if (status !== "completed" && status !== "skipped") {
         throw new Denied("A slot may be completed or skipped, nothing else.");
       }
-      // The server checks `owner_addon_id` and refuses a slot this addon does
-      // not own. Reached through the app's own client, so an addon's write
-      // takes the same offline queue and the same retries as the user's.
-      const act = status === "completed" ? api.completeSlot : api.skipSlot;
-      await act(slotId);
+      if (status === "completed") await api.completeSlot(slotId, id);
+      else await api.skipSlot(slotId, undefined, id);
+      reloadPlan();
       return undefined;
     },
 
-    fetch: async () => {
-      // Refused rather than unimplemented: an addon granted `net:fetch` may
-      // already call `fetch` itself, and the frame's CSP is what bounds it.
-      // This method exists for the case the host holds a credential the addon
-      // does not, and there are no connected integrations yet to hold one for.
-      throw new Denied(
-        "Host-side fetch is not available yet. Use fetch() for your declared origins.",
-      );
+    /**
+     * Fetch through Rust, which checks the origin against the grant, adds
+     * the auth header from the user's secret if the grant declares one, and
+     * caps the response. The web build has no Rust, so it refuses.
+     */
+    fetch: async (params) => {
+      const p = (params ?? {}) as {
+        input?: unknown;
+        method?: unknown;
+        headers?: unknown;
+        body?: unknown;
+      };
+      if (typeof p.input !== "string") throw new Denied("No URL given.");
+      let origin: string;
+      try {
+        origin = new URL(p.input).origin;
+      } catch {
+        throw new Denied("That is not a URL.");
+      }
+      require({ kind: "net:fetch", origins: [origin] });
+      if (!inTauri()) {
+        throw new Denied("Host fetch is only available in the desktop app.");
+      }
+      const headers: Record<string, string> = {};
+      if (typeof p.headers === "object" && p.headers !== null) {
+        for (const [k, v] of Object.entries(p.headers)) {
+          if (typeof v === "string") headers[k] = v;
+        }
+      }
+      const { invoke } = await import("@tauri-apps/api/core");
+      const reply = await invoke<{
+        status: number;
+        headers: [string, string][];
+        body: string;
+      }>("addon_fetch", {
+        id,
+        url: p.input,
+        method: typeof p.method === "string" ? p.method : "GET",
+        headers,
+        body: typeof p.body === "string" ? p.body : null,
+      }).catch((cause: unknown) => {
+        throw new Denied(typeof cause === "string" ? cause : "Fetch failed.");
+      });
+      return reply;
     },
 
-    /**
-     * Hand a link to the machine.
-     *
-     * Three checks, and none of them is redundant:
-     *
-     * 1. The capability is granted at all.
-     * 2. The URL parses and is a plain `https://` - so no `file:`, no
-     *    `x-apple.systempreferences:`, nothing that is an instruction to the
-     *    operating system wearing a link's clothes. The app opens such URLs
-     *    itself and is entitled to; an addon is not.
-     * 3. The *origin* is one the manifest declared. This is the one that
-     *    matters and the reason the grant alone is not enough: an addon may
-     *    compute the URL it opens, so what was approved has to be re-checked
-     *    against what is actually being opened, every time.
-     */
+    /** https only, and the origin must be in the grant. Re-checked per URL,
+     *  because an addon may compute the one it opens. */
     openExternal: async (params) => {
       const { url } = (params ?? {}) as { url?: unknown };
       if (typeof url !== "string") throw new Denied("No link given.");
@@ -289,13 +381,71 @@ export function serve(
       return openExternal(url);
     },
 
-    /**
-     * The user's todos, with where each would land - see `Todo.fitsAt`.
-     *
-     * Read from the store rather than fetched: the Quick add dialog and every
-     * todo card read the same list, so a write from any of them reaches all
-     * of them through one reload.
-     */
+    /** Labelled with the addon's name so it cannot pass as the app. At most
+     *  one every ten seconds per addon. */
+    notify: async (params) => {
+      require({ kind: "notify" });
+      const { title, body } = (params ?? {}) as {
+        title?: unknown;
+        body?: unknown;
+      };
+      if (typeof title !== "string" || title.trim().length === 0) {
+        throw new Denied("A notification needs a title.");
+      }
+      const now = Date.now();
+      if (now - (lastNotified.get(id) ?? 0) < NOTIFY_INTERVAL) {
+        throw new Denied("Too many notifications. Wait a moment.");
+      }
+      lastNotified.set(id, now);
+
+      const heading = `${manifest.name}: ${title.trim().slice(0, 80)}`;
+      const text = typeof body === "string" ? body.slice(0, 200) : undefined;
+      if (inTauri()) {
+        const { sendNotification } = await import(
+          "@tauri-apps/plugin-notification"
+        );
+        sendNotification({ title: heading, ...(text ? { body: text } : {}) });
+      } else {
+        toast(text ? `${heading} — ${text}` : heading);
+      }
+      return undefined;
+    },
+
+    /** On this device, in the app's own storage, under the addon's id. */
+    "store.get": async (params) => {
+      const { key } = (params ?? {}) as { key?: unknown };
+      const raw = globalThis.localStorage?.getItem(storeKey(id, key));
+      if (raw === null || raw === undefined) return undefined;
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return undefined;
+      }
+    },
+
+    "store.set": async (params) => {
+      const { key, value } = (params ?? {}) as {
+        key?: unknown;
+        value?: unknown;
+      };
+      const name = storeKey(id, key);
+      if (value === undefined) {
+        globalThis.localStorage?.removeItem(name);
+        return undefined;
+      }
+      const text = JSON.stringify(value);
+      if (typeof text !== "string") throw new Denied("Not a JSON value.");
+      if (text.length > STORE_VALUE_LIMIT) {
+        throw new Denied("Too large. The store holds 16 KB per key.");
+      }
+      try {
+        globalThis.localStorage?.setItem(name, text);
+      } catch {
+        throw new Denied("The store is full.");
+      }
+      return undefined;
+    },
+
     "todos.list": async () => {
       require({ kind: "read:todos" });
       if (todosSnapshot() === null) await reloadTodos();
@@ -320,39 +470,40 @@ export function serve(
       if (typeof title !== "string" || title.trim().length === 0) {
         throw new Denied("A todo needs a title.");
       }
-      const todo = await api.createTodo({
-        title: title.trim().slice(0, 200),
-        minutes: typeof minutes === "number" ? minutes : null,
-      });
+      const todo = await api.createTodo(
+        {
+          title: title.trim().slice(0, 200),
+          minutes: typeof minutes === "number" ? minutes : null,
+        },
+        id,
+      );
       await reloadTodos();
       return { ...todo, fitsAt: null };
     },
 
     "todos.set": async (params) => {
       require({ kind: "write:todos" });
-      const { id, status } = (params ?? {}) as {
+      const { id: todoId, status } = (params ?? {}) as {
         id?: unknown;
         status?: unknown;
       };
-      if (typeof id !== "string") throw new Denied("No todo named.");
+      if (typeof todoId !== "string") throw new Denied("No todo named.");
       if (status !== "done" && status !== "dropped") {
         throw new Denied("A todo may be done or dropped, nothing else.");
       }
-      await api.setTodo(id, status);
+      await api.setTodo(todoId, status, id);
       await reloadTodos();
       return undefined;
     },
 
-    /** The todo becomes a slot. The server re-checks the gap, as it does for
-     *  the user's own placements - see `POST /slots`. */
     "todos.place": async (params) => {
       require({ kind: "write:todos" });
-      const { id, startsAt } = (params ?? {}) as {
+      const { id: todoId, startsAt } = (params ?? {}) as {
         id?: unknown;
         startsAt?: unknown;
       };
-      if (typeof id !== "string") throw new Denied("No todo named.");
-      const todo = todosSnapshot()?.find((t) => t.id === id);
+      if (typeof todoId !== "string") throw new Denied("No todo named.");
+      const todo = todosSnapshot()?.find((t) => t.id === todoId);
       if (!todo) throw new Denied("That todo is not on the list.");
       const minutes = todo.minutes ?? DEFAULT_TODO_MINUTES;
       const at =
@@ -360,52 +511,35 @@ export function serve(
           ? startsAt
           : fitsAt(minutes, todaySnapshot(), Date.now());
       if (at === null) throw new Denied("Nothing on today fits it.");
-      const slot = await api.placeTodo(id, at, at + minutes * 60_000);
+      const slot = await api.placeTodo(todoId, at, at + minutes * 60_000, id);
       reloadPlan();
       await reloadTodos();
-      return {
-        id: slot.id,
-        title: slot.title,
-        kind: slot.kind,
-        startsAt: slot.startsAt,
-        endsAt: slot.endsAt,
-        status: slot.status,
-        ownedByYou: false,
-      };
-    },
-
-    "store.get": async () => {
-      throw new Denied("Addon storage is not available yet.");
-    },
-
-    "store.set": async () => {
-      throw new Denied("Addon storage is not available yet.");
+      return toDaySlot(slot);
     },
   };
 
   const onMessage = (event: MessageEvent<Request>) => {
-    const { id, method, params } = event.data ?? {};
-    if (typeof id !== "number" || typeof method !== "string") return;
+    const { id: callId, method, params } = event.data ?? {};
+    if (typeof callId !== "number" || typeof method !== "string") return;
 
     const handler = handlers[method];
     if (!handler) {
       port.postMessage({
-        id,
+        id: callId,
         error: { message: `No such method: ${method}`, kind: "denied" },
       });
       return;
     }
 
     handler(params)
-      .then((result) => port.postMessage({ id, result }))
+      .then((result) => port.postMessage({ id: callId, result }))
       .catch((error: unknown) => {
         const denied = error instanceof Denied;
         port.postMessage({
-          id,
+          id: callId,
           error: {
-            // A denial's text is written to be read by the user. Anything else
-            // is ours, and an addon is told that it failed rather than how -
-            // an error string is a place internals leak out through.
+            // A denial is written to be read. Anything else is ours, and
+            // an error string is where internals leak out.
             message: denied
               ? (error as Error).message
               : "That did not work just now.",
@@ -418,34 +552,14 @@ export function serve(
   port.addEventListener("message", onMessage);
   port.start();
 
-  /**
-   * Tell the addon when the day it drew is no longer the day.
-   *
-   * The only message the host sends unprompted, and the reason a rail card is
-   * viable at all. `day()` is a pull, so without this every widget wanting to
-   * stay current would run a timer: a wakeup the machine pays for whether or
-   * not anything happened, and a card that goes on saying "3 of 7 done" for
-   * the rest of the interval after the user pressed Done.
-   *
-   * It carries nothing. A payload here would be a second copy of the narrowing
-   * in `day` - the same fields, filtered the same way, in a second place to get
-   * wrong - so the addon is told to ask again rather than told the answer.
-   *
-   * Sent whatever the addon was granted. It is not data: an addon without
-   * `read:schedule` learns that something happened, which it could equally
-   * learn from a clock, and its `day()` is refused exactly as before.
-   */
+  // Pushed rather than polled. Carries nothing: the addon asks again.
   const stopWatching = subscribePlan(() => {
     try {
       port.postMessage({ event: "day" });
     } catch {
-      // A closed port. The teardown below is the ordinary path; this is the
-      // race where the frame went away between the change and the post.
+      // A closed port, between the change and the post.
     }
   });
-
-  // The same push for the todos, for the same reason - and on the day as
-  // well, because `fitsAt` is a reading of the day.
   const stopWatchingTodos = subscribeTodos(() => {
     try {
       port.postMessage({ event: "todos" });
@@ -454,14 +568,26 @@ export function serve(
     }
   });
 
-  served.set(manifest.id, [...(served.get(manifest.id) ?? []), port]);
+  const entry = { port, kind: contextOf().kind };
+  served.set(id, [...(served.get(id) ?? []), entry]);
 
   return () => {
-    const rest = (served.get(manifest.id) ?? []).filter((p) => p !== port);
-    if (rest.length > 0) served.set(manifest.id, rest);
-    else served.delete(manifest.id);
+    const rest = (served.get(id) ?? []).filter((p) => p !== entry);
+    if (rest.length > 0) served.set(id, rest);
+    else served.delete(id);
     stopWatchingTodos();
     stopWatching();
     port.removeEventListener("message", onMessage);
   };
+}
+
+const STORE_KEY = /^[A-Za-z0-9_.-]{1,64}$/;
+
+function storeKey(addonId: string, key: unknown): string {
+  if (typeof key !== "string" || !STORE_KEY.test(key)) {
+    throw new Denied(
+      "A store key is letters, digits, dot, dash or underscore.",
+    );
+  }
+  return `wr.addon.${addonId}.${key}`;
 }

@@ -401,6 +401,222 @@ describe("addons", () => {
 });
 
 /**
+ * Requests the desktop host makes for an addon.
+ *
+ * The header names the addon; the server reads its grant and refuses what
+ * the grant does not cover. Ownership of slots is checked here too.
+ */
+describe("an addon's own requests", () => {
+  const TODOS = "wiseroutine.todos";
+  const BREATHING = "wiseroutine.breathing";
+
+  const asAddon = (user: TestUser, id: string) => ({
+    ...user.headers,
+    "x-wr-addon": id,
+    "content-type": "application/json",
+  });
+
+  /** Read the list once so the bundled addons are installed. */
+  const ready = async (user: TestUser) => {
+    await worker.default.fetch("http://api/addons", { headers: user.headers });
+  };
+
+  /** What the user approved, as data. There is no bundled addon with
+   *  `write:own`, so the grant is widened directly. */
+  const grant = (id: string, granted: unknown[]) =>
+    userDb().addon.update({
+      where: { id },
+      data: { grantedJson: JSON.stringify(granted) },
+    });
+
+  test("refuses an addon that is not installed or is switched off", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await ready(user);
+
+    const unknown = await worker.default.fetch("http://api/todos", {
+      headers: asAddon(user, "acme.nothing"),
+    });
+    expect(unknown.status).toBe(403);
+
+    await worker.default.fetch(`http://api/addons/${TODOS}`, {
+      method: "PATCH",
+      headers: asAddon(user, TODOS),
+      body: JSON.stringify({ isEnabled: false }),
+    });
+    const off = await worker.default.fetch("http://api/todos", {
+      headers: asAddon(user, TODOS),
+    });
+    expect(off.status).toBe(403);
+  });
+
+  test("checks the grant, not the manifest, on every write", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await ready(user);
+
+    const allowed = await worker.default.fetch("http://api/todos", {
+      method: "POST",
+      headers: asAddon(user, TODOS),
+      body: JSON.stringify({ title: "Reply to Anders" }),
+    });
+    expect(allowed.status).toBe(201);
+
+    // Breathing never asked for todos.
+    const refused = await worker.default.fetch("http://api/todos", {
+      method: "POST",
+      headers: asAddon(user, BREATHING),
+      body: JSON.stringify({ title: "x" }),
+    });
+    expect(refused.status).toBe(403);
+
+    // The same addon, with its grant narrowed by the user.
+    await grant(TODOS, [{ kind: "read:todos" }]);
+    const narrowed = await worker.default.fetch("http://api/todos", {
+      method: "POST",
+      headers: asAddon(user, TODOS),
+      body: JSON.stringify({ title: "x" }),
+    });
+    expect(narrowed.status).toBe(403);
+  });
+
+  test("an addon may change only the slots it placed", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await ready(user);
+    await grant(TODOS, [{ kind: "write:own" }]);
+    const at = tomorrowNoon();
+
+    const placed = await worker.default.fetch("http://api/slots", {
+      method: "POST",
+      headers: asAddon(user, TODOS),
+      body: JSON.stringify({
+        title: "Walk",
+        kind: "recovery",
+        startsAt: at,
+        endsAt: at + 600_000,
+      }),
+    });
+    expect(placed.status).toBe(201);
+    const own = (await placed.json()) as { id: string; ownerAddonId: string };
+    expect(own.ownerAddonId).toBe(TODOS);
+
+    // The user's own slot, placed from an activity.
+    const activityId = await seedActivity({ name: "Stretch" });
+    const users = await worker.default.fetch("http://api/slots", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ activityId, startsAt: at + 3_600_000 }),
+    });
+    expect(users.status).toBe(201);
+    const theirs = (await users.json()) as { id: string };
+
+    const mine = await worker.default.fetch(
+      `http://api/slots/${own.id}/complete`,
+      { method: "POST", headers: asAddon(user, TODOS) },
+    );
+    expect(mine.status).toBe(204);
+
+    const notMine = await worker.default.fetch(
+      `http://api/slots/${theirs.id}/complete`,
+      { method: "POST", headers: asAddon(user, TODOS) },
+    );
+    expect(notMine.status).toBe(403);
+
+    // And an addon cannot place the user's activities at all.
+    const activity = await worker.default.fetch("http://api/slots", {
+      method: "POST",
+      headers: asAddon(user, TODOS),
+      body: JSON.stringify({ activityId, startsAt: at + 7_200_000 }),
+    });
+    expect(activity.status).toBe(403);
+
+    // The log says who did it.
+    const events = await userDb().slotEvent.findMany({
+      where: { slotId: own.id },
+    });
+    expect(events.map((e) => e.actor).sort()).toEqual(["addon", "addon"]);
+  });
+});
+
+/**
+ * What the user approved is the grant, and it moves only when they say so.
+ */
+describe("grants", () => {
+  const TODOS = "wiseroutine.todos";
+
+  const granted = async (user: TestUser, id: string) => {
+    const response = await worker.default.fetch("http://api/addons", {
+      headers: user.headers,
+    });
+    const body = (await response.json()) as {
+      addons: {
+        id: string;
+        version: string;
+        granted: unknown;
+        settings: unknown;
+      }[];
+    };
+    return body.addons.find((addon) => addon.id === id);
+  };
+
+  test("a client may grant less than the manifest asks for, never more", async () => {
+    const user = await seedUser({ plan: "pro" });
+
+    const less = await worker.default.fetch(
+      `http://api/addons/${TODOS}/install`,
+      {
+        method: "POST",
+        headers: { ...user.headers, "content-type": "application/json" },
+        body: JSON.stringify({ granted: [{ kind: "ui:widget" }] }),
+      },
+    );
+    expect(less.status).toBe(201);
+    expect((await granted(user, TODOS))?.granted).toEqual([
+      { kind: "ui:widget" },
+    ]);
+
+    const more = await worker.default.fetch(
+      `http://api/addons/${TODOS}/install`,
+      {
+        method: "POST",
+        headers: { ...user.headers, "content-type": "application/json" },
+        body: JSON.stringify({
+          granted: [{ kind: "ui:widget" }, { kind: "write:own" }],
+        }),
+      },
+    );
+    expect(more.status).toBe(400);
+    expect((await granted(user, TODOS))?.granted).toEqual([
+      { kind: "ui:widget" },
+    ]);
+  });
+
+  test("an upgrade keeps the grant it had", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await granted(user, TODOS);
+    await userDb().addon.update({
+      where: { id: TODOS },
+      data: { version: "0.1.0", grantedJson: JSON.stringify([]) },
+    });
+
+    const row = await granted(user, TODOS);
+    expect(row?.version).not.toBe("0.1.0");
+    expect(row?.granted).toEqual([]);
+  });
+
+  test("settings are kept to what the manifest declares", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await granted(user, TODOS);
+
+    const response = await worker.default.fetch(`http://api/addons/${TODOS}`, {
+      method: "PATCH",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ settings: { apiKey: "leak", other: 1 } }),
+    });
+    expect(response.status).toBe(204);
+    expect((await granted(user, TODOS))?.settings).toEqual({});
+  });
+});
+
+/**
  * Migrations used to run exactly once per account: at signup.
  *
  * Everything written afterwards reached new users and nobody else, which was

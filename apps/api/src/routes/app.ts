@@ -1,4 +1,13 @@
-import { isGrantable } from "@wiseroutine/addons";
+import {
+  type AddonCapability,
+  canAddon,
+  coveredBy,
+  isAddonId,
+  isGrantable,
+  parseCapabilities,
+  parseConfig,
+  parseManifest,
+} from "@wiseroutine/addons";
 import {
   addonImpact,
   archiveActivity,
@@ -12,6 +21,7 @@ import {
   getAddon,
   getCalendarForSync,
   getReminder,
+  getSlot,
   installAddon,
   lastSyncedAt,
   listActivities,
@@ -35,6 +45,7 @@ import {
   setActivityActive,
   setActivityWindows,
   setAddonEnabled,
+  setAddonSettings,
   setCalendarSelected,
   setReminderStatus,
   setSlotStatus,
@@ -206,6 +217,56 @@ const foreground: MiddlewareHandler<App> = async (c, next) => {
 app.use("*", requireUser);
 app.use("*", foreground);
 
+/**
+ * Requests the desktop host makes for an addon carry `x-wr-addon`. The addon
+ * must be installed, on, and still listed. Its grant is read here once and
+ * checked by the routes it touches. Without the header the request is the
+ * user's own.
+ */
+const asAddon: MiddlewareHandler<App> = async (c, next) => {
+  const id = c.req.header("x-wr-addon");
+  if (id === undefined) {
+    c.set("addon", null);
+    await next();
+    return;
+  }
+  if (!isAddonId(id))
+    throw new HTTPException(400, { message: "Not an addon id" });
+  const row = await getAddon(c.get("db"), id);
+  if (!row?.isEnabled || entryFor(id)?.revoked) {
+    throw new HTTPException(403, { message: "That addon is not running" });
+  }
+  const granted = parseCapabilities(JSON.parse(row.grantedJson));
+  if (granted === null) {
+    throw new HTTPException(403, { message: "That addon has no valid grant" });
+  }
+  c.set("addon", { id, granted });
+  await next();
+};
+app.use("*", asAddon);
+
+/** Refuse unless the addon making this request holds the capability. A
+ *  request with no addon passes. */
+function requireAddon(c: Ctx, capability: AddonCapability): void {
+  const addon = c.get("addon");
+  if (!addon) return;
+  const decision = canAddon(addon.granted, capability);
+  if (!decision.ok) throw new HTTPException(403, { message: decision.reason });
+}
+
+/** The slot, and only if the addon making the request placed it. */
+async function ownSlot(c: Ctx, slotId: string) {
+  const addon = c.get("addon");
+  if (!addon) return;
+  requireAddon(c, { kind: "write:own" });
+  const slot = await getSlot(c.get("db"), slotId);
+  if (!slot || slot.ownerAddonId !== addon.id) {
+    throw new HTTPException(403, {
+      message: "This addon may only change slots it placed.",
+    });
+  }
+}
+
 /* ── Addons ──────────────────────────────────────────────────────────────── */
 
 /**
@@ -226,6 +287,7 @@ app.get("/addons/available", (c) =>
         version: entry.version,
         author: entry.author,
         bundleUrl: entry.bundleUrl,
+        bundleHash: entry.bundleHash,
         manifest: entry.manifest,
       })),
   }),
@@ -251,6 +313,7 @@ app.get("/addons", async (c) => {
       installedAt: row.installedAt,
       granted: JSON.parse(row.grantedJson) as unknown,
       manifest: JSON.parse(row.manifestJson) as unknown,
+      settings: JSON.parse(row.settingsJson) as unknown,
       revoked: entryFor(row.id)?.revoked === true,
       bundled: entryFor(row.id)?.bundled === true,
     })),
@@ -258,38 +321,24 @@ app.get("/addons", async (c) => {
 });
 
 /**
- * Record the addons that ship inside the app as installed, once.
+ * Record the addons that ship inside the app as installed.
  *
- * The bundle is already on the machine - its build wrote it into the app's
- * static directory - so there is nothing to fetch and nothing to verify, and
- * asking somebody to press Install on a file already sitting on their disk is
- * a button describing the implementation rather than a choice. What the
- * install row *is* still needed for is everything else: the grant the host
- * checks against, the enabled flag, the version. So it is written here, and
- * the user only ever sees a switch.
- *
- * Runs on the read rather than at signup, and that is the point: an addon
- * added in a later release reaches an account created before it. Every write
- * is an upsert that preserves `isEnabled`, so this cannot switch back on
- * something the user switched off, and it costs one query on a list that is
- * read when the Addons page opens and when the app starts.
- *
- * `removeAddon` is refused for these - see the DELETE route - because a remove
- * that re-appeared on the next read would be a button that does nothing.
+ * Their bundles are already on the machine, so the user sees a switch rather
+ * than an Install button. The row is still needed: it holds the grant, the
+ * enabled flag and the version. Runs on every read of the list so an addon
+ * added in a later release reaches older accounts. The upsert keeps
+ * `isEnabled`, and an upgrade keeps the previous grant: a new version that
+ * asks for more waits for the user to allow it on the Addons page.
  */
 async function ensureBundled(c: Ctx): Promise<void> {
   const installed = await listAddons(c.get("db"));
-  const known = new Map(installed.map((row) => [row.id, row.version]));
+  const known = new Map(installed.map((row) => [row.id, row]));
 
   for (const entry of bundledEntries()) {
-    // Present and current: nothing to do. An upsert would be harmless and this
-    // is the common case, run on every read of the list.
-    if (known.get(entry.id) === entry.version) continue;
+    const existing = known.get(entry.id);
+    if (existing?.version === entry.version) continue;
 
-    // The same `isGrantable` gate the install route applies. A bundled addon
-    // is ours and is still not trusted to name its own permissions - the day
-    // one of these asks for something policy refuses, it must fail here rather
-    // than be waved through for being ours.
+    // The same policy gate as the install route. Ours is not exempt.
     if (entry.manifest.capabilities.some((cap) => !isGrantable(cap).ok)) {
       continue;
     }
@@ -300,7 +349,8 @@ async function ensureBundled(c: Ctx): Promise<void> {
         id: entry.id,
         version: entry.version,
         manifestJson: JSON.stringify(entry.manifest),
-        grantedJson: JSON.stringify(entry.manifest.capabilities),
+        grantedJson:
+          existing?.grantedJson ?? JSON.stringify(entry.manifest.capabilities),
         bundleHash: entry.bundleHash,
       },
       c.get("now"),
@@ -325,17 +375,14 @@ app.get("/addons/:id/impact", async (c) => {
 });
 
 /**
- * Install, or re-install something removed earlier.
+ * Install, upgrade, or allow more of what an installed addon asks for.
  *
- * The manifest is taken from the registry and never from the request. A client
- * that could name its own capabilities would be a client that could grant
- * itself any of them - the body says which addon, and the server says what
- * that addon is.
- *
- * Every capability is checked against `isGrantable` before anything is
- * written. That is the policy gate rather than the user\'s: a scope nobody may
- * have yet - a read wider than today - is refused here whatever the install
- * screen offered.
+ * The manifest comes from the registry, never from the request. The body may
+ * carry `granted`: the subset of the manifest's capabilities the user
+ * approved. It can never be wider than the manifest. Without it, a fresh
+ * install grants everything the manifest asks for, and an upgrade keeps the
+ * grant it already had. Every capability also passes `isGrantable`, the
+ * policy gate.
  */
 app.post("/addons/:id/install", async (c) => {
   const entry = entryFor(c.req.param("id"));
@@ -343,7 +390,29 @@ app.post("/addons/:id/install", async (c) => {
     throw new HTTPException(404, { message: "No such addon" });
   }
 
-  for (const capability of entry.manifest.capabilities) {
+  const body = await c.req
+    .json<{ granted?: unknown }>()
+    .catch(() => ({}) as { granted?: unknown });
+
+  let granted: readonly AddonCapability[];
+  if (body.granted !== undefined) {
+    const parsed = parseCapabilities(body.granted);
+    if (parsed === null) {
+      throw new HTTPException(400, {
+        message: "granted is not a capability list",
+      });
+    }
+    const covered = coveredBy(parsed, entry.manifest.capabilities);
+    if (!covered.ok) throw new HTTPException(400, { message: covered.reason });
+    granted = parsed;
+  } else {
+    const existing = await getAddon(c.get("db"), entry.id);
+    granted = existing
+      ? (parseCapabilities(JSON.parse(existing.grantedJson)) ?? [])
+      : entry.manifest.capabilities;
+  }
+
+  for (const capability of granted) {
     const decision = isGrantable(capability);
     if (!decision.ok) {
       throw new HTTPException(400, { message: decision.reason });
@@ -356,12 +425,7 @@ app.post("/addons/:id/install", async (c) => {
       id: entry.id,
       version: entry.version,
       manifestJson: JSON.stringify(entry.manifest),
-      // Everything it asked for, because every one of them was grantable and
-      // the install screen showed them. A partial grant is a real thing to
-      // want and there is nowhere to express it yet; `canAddon` already reads
-      // this list rather than the manifest, so adding it later changes this
-      // line and nothing else.
-      grantedJson: JSON.stringify(entry.manifest.capabilities),
+      grantedJson: JSON.stringify(granted),
       bundleHash: entry.bundleHash,
     },
     c.get("now"),
@@ -390,15 +454,25 @@ app.post("/addons/:id/install", async (c) => {
  * silently changing the user's day.
  */
 app.patch("/addons/:id", async (c) => {
-  const body = await c.req
-    .json<{ isEnabled?: boolean }>()
-    .catch(() => ({}) as { isEnabled?: boolean });
-  if (typeof body.isEnabled !== "boolean") {
-    throw new HTTPException(400, { message: "isEnabled must be a boolean" });
-  }
+  type Body = { isEnabled?: boolean; settings?: unknown };
+  const body = await c.req.json<Body>().catch(() => ({}) as Body);
 
   const existing = await getAddon(c.get("db"), c.req.param("id"));
   if (!existing) throw new HTTPException(404, { message: "Not installed" });
+
+  // Settings, checked against the manifest's schema. Secrets never arrive
+  // here; the schema has no value for them, so `parseConfig` drops any.
+  if (body.settings !== undefined) {
+    const manifest = parseManifest(JSON.parse(existing.manifestJson));
+    if (!manifest) throw new HTTPException(500, { message: "Bad manifest" });
+    const settings = parseConfig(manifest, body.settings);
+    await setAddonSettings(c.get("db"), existing.id, JSON.stringify(settings));
+    if (typeof body.isEnabled !== "boolean") return c.body(null, 204);
+  }
+
+  if (typeof body.isEnabled !== "boolean") {
+    throw new HTTPException(400, { message: "isEnabled must be a boolean" });
+  }
 
   // The flag first. If the pausing below fails halfway, the addon is off and
   // some of its activities are still on - which is visible and fixable by
@@ -1207,6 +1281,7 @@ app.get("/today", async (c) => {
           status: s.status,
           isLocked: s.isLocked,
           conflictEventId: s.conflictEventId,
+          ownerAddonId: s.ownerAddonId,
           // Null when the activity has no module, and also when its session is
           // switched off - the slot then behaves like any other timed slot, and
           // the client needs no second field to work that out.
@@ -1540,9 +1615,14 @@ app.post("/slots/:id/start", async (c) => {
 });
 
 app.post("/slots/:id/complete", async (c) => {
+  await ownSlot(c, c.req.param("id"));
   await setSlotStatus(
     c.get("db"),
-    { slotId: c.req.param("id"), status: "completed", actor: "user" },
+    {
+      slotId: c.req.param("id"),
+      status: "completed",
+      actor: c.get("addon") ? "addon" : "user",
+    },
     await actionAt(c),
     newId,
   );
@@ -1554,12 +1634,13 @@ app.post("/slots/:id/skip", async (c) => {
   const body: SkipBody = await c.req
     .json<SkipBody>()
     .catch(() => ({}) as SkipBody);
+  await ownSlot(c, c.req.param("id"));
   await setSlotStatus(
     c.get("db"),
     {
       slotId: c.req.param("id"),
       status: "skipped",
-      actor: "user",
+      actor: c.get("addon") ? "addon" : "user",
       reasonCode: "dismissed",
       ...(body.reason !== undefined ? { reasonText: body.reason } : {}),
     },
@@ -1593,15 +1674,30 @@ app.post("/slots", async (c) => {
     /** A todo instead of an activity: the slot takes its title, and the todo
      *  is marked slotted. One or the other, never both. */
     todoId?: string;
+    /** An addon's own slot: a title and a kind, no activity. Addons only. */
+    title?: string;
+    kind?: string;
     startsAt: number;
     endsAt?: number;
   }>();
 
-  if ((!body.activityId && !body.todoId) || !Number.isFinite(body.startsAt)) {
+  const addon = c.get("addon");
+  const own = addon && typeof body.title === "string";
+  if (
+    (!body.activityId && !body.todoId && !own) ||
+    !Number.isFinite(body.startsAt)
+  ) {
     throw new HTTPException(400, {
       message: "activityId or todoId, and startsAt, are required",
     });
   }
+  if (addon && body.activityId) {
+    throw new HTTPException(403, {
+      message: "An addon may not place the user's activities.",
+    });
+  }
+  if (body.todoId) requireAddon(c, { kind: "write:todos" });
+  if (own) requireAddon(c, { kind: "write:own" });
 
   /** What the slot is made from - an activity or a todo, resolved to the
    *  three things `placeSlot` needs to know. */
@@ -1613,7 +1709,22 @@ app.post("/slots", async (c) => {
     minutes: number;
   };
 
-  if (body.todoId) {
+  if (own) {
+    const title = (body.title ?? "").trim().slice(0, 200);
+    const kind = body.kind;
+    if (title.length === 0) {
+      throw new HTTPException(400, { message: "A slot needs a title" });
+    }
+    if (kind !== "recovery" && kind !== "focus" && kind !== "task") {
+      throw new HTTPException(400, {
+        message: "kind must be recovery, focus or task",
+      });
+    }
+    if (body.endsAt === undefined) {
+      throw new HTTPException(400, { message: "endsAt is required" });
+    }
+    subject = { activityId: null, reminderId: null, title, kind, minutes: 0 };
+  } else if (body.todoId) {
     const todo = await getReminder(db, body.todoId);
     if (!todo) throw new HTTPException(404, { message: "No such todo" });
     if (todo.status !== "open") {
@@ -1679,6 +1790,7 @@ app.post("/slots", async (c) => {
       startsAt: body.startsAt,
       endsAt,
       timeZone: user.timeZone,
+      ownerAddonId: own && addon ? addon.id : null,
     },
     now,
     newId,
@@ -1709,6 +1821,7 @@ app.post("/slots", async (c) => {
       status: slot.status,
       isLocked: slot.isLocked,
       conflictEventId: slot.conflictEventId,
+      ownerAddonId: slot.ownerAddonId,
     },
     201,
   );
@@ -1724,6 +1837,7 @@ app.post("/slots", async (c) => {
  * view of "placed beside unplaced" costs a query and nothing else.
  */
 app.get("/todos", async (c) => {
+  requireAddon(c, { kind: "read:todos" });
   const rows = await listOpenReminders(c.get("db"));
   return c.json(
     rows.map((row) => ({
@@ -1737,6 +1851,7 @@ app.get("/todos", async (c) => {
 });
 
 app.post("/todos", async (c) => {
+  requireAddon(c, { kind: "write:todos" });
   const body = await c.req.json<{
     title?: unknown;
     minutes?: unknown;
@@ -1771,6 +1886,7 @@ app.post("/todos", async (c) => {
 
 /** Done, or dropped. Placing one on the day is `POST /slots` with `todoId`. */
 app.patch("/todos/:id", async (c) => {
+  requireAddon(c, { kind: "write:todos" });
   const db = c.get("db");
   const body = await c.req.json<{ status?: unknown }>();
   if (body.status !== "done" && body.status !== "dropped") {

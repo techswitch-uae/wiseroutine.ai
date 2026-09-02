@@ -128,9 +128,8 @@ export type Widget = Prisma.WidgetModel
  * An installed addon.
  * 
  * The package, not the card: an addon may contribute widgets, activity types
- * with their own guided sessions, or both. Nothing loads one yet - this table
- * exists now so that the thing which does needs no migration, and so that
- * `owner_addon_id` below has something to mean.
+ * with their own guided sessions, or both. The desktop app loads what is
+ * listed here and enabled.
  */
 export type Addon = Prisma.AddonModel
 /**

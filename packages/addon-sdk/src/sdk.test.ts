@@ -273,15 +273,56 @@ describe("todos and quick add", () => {
     const wr = await connecting;
 
     const heard: unknown[] = [];
-    wr.onQuickAdd((request) => heard.push(request));
+    const replies: unknown[] = [];
+    h.port.addEventListener("message", (event: MessageEvent) => {
+      if (event.data?.event === "quickAdd:done") replies.push(event.data);
+    });
+    h.port.start();
+    wr.onQuickAdd((request) => {
+      heard.push(request);
+      return "Kept it";
+    });
     h.announce({
       event: "quickAdd",
+      requestId: 7,
       request: { key: "todo", title: "Reply to Anders", minutes: 15 },
     });
+    await delivered();
     await delivered();
 
     expect(heard).toEqual([
       { key: "todo", title: "Reply to Anders", minutes: 15 },
+    ]);
+    // The host is told when the listener settled, and what to say.
+    expect(replies).toEqual([
+      { event: "quickAdd:done", requestId: 7, message: "Kept it" },
+    ]);
+  });
+
+  test("a listener that throws reports a failure rather than silence", async () => {
+    const h = host(WIDGET);
+    const connecting = connect();
+    h.handshake();
+    const wr = await connecting;
+
+    const replies: unknown[] = [];
+    h.port.addEventListener("message", (event: MessageEvent) => {
+      if (event.data?.event === "quickAdd:done") replies.push(event.data);
+    });
+    h.port.start();
+    wr.onQuickAdd(() => {
+      throw new Error("No room");
+    });
+    h.announce({
+      event: "quickAdd",
+      requestId: 8,
+      request: { key: "todo", title: "x", minutes: null },
+    });
+    await delivered();
+    await delivered();
+
+    expect(replies).toEqual([
+      { event: "quickAdd:done", requestId: 8, error: "No room" },
     ]);
   });
 

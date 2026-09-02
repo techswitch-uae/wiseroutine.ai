@@ -1,3 +1,4 @@
+import type { AddonCapability } from "@wiseroutine/addons";
 import {
   applyMigrations,
   createDirectory,
@@ -70,6 +71,18 @@ export interface SessionUser {
   lastSeenAt: number | null;
 }
 
+/**
+ * The addon a request is made for, from the `x-wr-addon` header.
+ *
+ * The desktop host sets it on every write it proxies for an addon. The route
+ * then checks the grant and, for slots, ownership. Null for the user's own
+ * requests.
+ */
+export interface AddonActor {
+  id: string;
+  granted: readonly AddonCapability[];
+}
+
 export interface Variables {
   env: ServerEnv;
   directory: Directory;
@@ -78,6 +91,7 @@ export interface Variables {
   /** The signed-in user's own database. */
   db: UserDatabase;
   now: number;
+  addon: AddonActor | null;
 }
 
 export type App = { Bindings: Bindings; Variables: Variables };

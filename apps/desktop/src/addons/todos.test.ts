@@ -2,7 +2,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import type { TodayResponse } from "../lib/api";
 import { publishPlan, resetPlans } from "../lib/plan-store";
 import { resetTodos } from "../lib/todos";
-import { testManifest } from "./fixtures";
+import { testAddon } from "./fixtures";
 import { serve } from "./host";
 
 /**
@@ -69,7 +69,7 @@ function connectTo() {
   const channel = new MessageChannel();
   const stop = serve(
     channel.port1,
-    testManifest({
+    testAddon({
       capabilities: [{ kind: "read:todos" }, { kind: "write:todos" }],
     }),
     () => ({ kind: "widget", widgetKey: "list", present: () => undefined }),

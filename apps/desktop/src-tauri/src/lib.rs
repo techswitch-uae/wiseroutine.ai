@@ -20,10 +20,9 @@ pub fn run() {
   let builder = tauri::Builder::default()
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_notification::init())
-    // An addon frame is served over its own scheme so that it is a *fetched*
-    // document rather than a local one - which is what stops it inheriting
-    // this app's Content-Security-Policy and lets it carry its own. See
-    // `addons.rs`; the reason is subtle and only shows up in a release build.
+    // An addon frame is a fetched document on its own scheme, so it carries
+    // its own Content-Security-Policy instead of inheriting the app's. See
+    // `addons.rs`.
     .register_uri_scheme_protocol(addons::SCHEME, addons::serve);
 
   // ponytail: debug builds only, so it never ships.
@@ -46,12 +45,23 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       greet,
       tray::set_schedule,
-      addons::install_addon
+      addons::install_addon,
+      addons::forget_addon,
+      addons::set_addon_secret,
+      addons::addon_secret_keys,
+      addons::addon_fetch
     ]);
 
   #[cfg(not(desktop))]
   let builder =
-    builder.invoke_handler(tauri::generate_handler![greet, addons::install_addon]);
+    builder.invoke_handler(tauri::generate_handler![
+      greet,
+      addons::install_addon,
+      addons::forget_addon,
+      addons::set_addon_secret,
+      addons::addon_secret_keys,
+      addons::addon_fetch
+    ]);
 
   builder
     .on_window_event(|window, event| {

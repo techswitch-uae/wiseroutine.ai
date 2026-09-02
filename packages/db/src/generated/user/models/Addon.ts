@@ -17,9 +17,8 @@ import type * as Prisma from "../internal/prismaNamespace"
  * An installed addon.
  * 
  * The package, not the card: an addon may contribute widgets, activity types
- * with their own guided sessions, or both. Nothing loads one yet - this table
- * exists now so that the thing which does needs no migration, and so that
- * `owner_addon_id` below has something to mean.
+ * with their own guided sessions, or both. The desktop app loads what is
+ * listed here and enabled.
  */
 export type AddonModel = runtime.Types.Result.DefaultSelection<Prisma.$AddonPayload>
 
@@ -35,6 +34,7 @@ export type AddonMinAggregateOutputType = {
   manifestJson: string | null
   grantedJson: string | null
   bundleHash: string | null
+  settingsJson: string | null
   isEnabled: boolean | null
   installedAt: Date | null
 }
@@ -45,6 +45,7 @@ export type AddonMaxAggregateOutputType = {
   manifestJson: string | null
   grantedJson: string | null
   bundleHash: string | null
+  settingsJson: string | null
   isEnabled: boolean | null
   installedAt: Date | null
 }
@@ -55,6 +56,7 @@ export type AddonCountAggregateOutputType = {
   manifestJson: number
   grantedJson: number
   bundleHash: number
+  settingsJson: number
   isEnabled: number
   installedAt: number
   _all: number
@@ -67,6 +69,7 @@ export type AddonMinAggregateInputType = {
   manifestJson?: true
   grantedJson?: true
   bundleHash?: true
+  settingsJson?: true
   isEnabled?: true
   installedAt?: true
 }
@@ -77,6 +80,7 @@ export type AddonMaxAggregateInputType = {
   manifestJson?: true
   grantedJson?: true
   bundleHash?: true
+  settingsJson?: true
   isEnabled?: true
   installedAt?: true
 }
@@ -87,6 +91,7 @@ export type AddonCountAggregateInputType = {
   manifestJson?: true
   grantedJson?: true
   bundleHash?: true
+  settingsJson?: true
   isEnabled?: true
   installedAt?: true
   _all?: true
@@ -170,6 +175,7 @@ export type AddonGroupByOutputType = {
   manifestJson: string
   grantedJson: string
   bundleHash: string
+  settingsJson: string
   isEnabled: boolean
   installedAt: Date
   _count: AddonCountAggregateOutputType | null
@@ -201,6 +207,7 @@ export type AddonWhereInput = {
   manifestJson?: Prisma.StringFilter<"Addon"> | string
   grantedJson?: Prisma.StringFilter<"Addon"> | string
   bundleHash?: Prisma.StringFilter<"Addon"> | string
+  settingsJson?: Prisma.StringFilter<"Addon"> | string
   isEnabled?: Prisma.BoolFilter<"Addon"> | boolean
   installedAt?: Prisma.DateTimeFilter<"Addon"> | Date | string
 }
@@ -211,6 +218,7 @@ export type AddonOrderByWithRelationInput = {
   manifestJson?: Prisma.SortOrder
   grantedJson?: Prisma.SortOrder
   bundleHash?: Prisma.SortOrder
+  settingsJson?: Prisma.SortOrder
   isEnabled?: Prisma.SortOrder
   installedAt?: Prisma.SortOrder
 }
@@ -224,6 +232,7 @@ export type AddonWhereUniqueInput = Prisma.AtLeast<{
   manifestJson?: Prisma.StringFilter<"Addon"> | string
   grantedJson?: Prisma.StringFilter<"Addon"> | string
   bundleHash?: Prisma.StringFilter<"Addon"> | string
+  settingsJson?: Prisma.StringFilter<"Addon"> | string
   isEnabled?: Prisma.BoolFilter<"Addon"> | boolean
   installedAt?: Prisma.DateTimeFilter<"Addon"> | Date | string
 }, "id">
@@ -234,6 +243,7 @@ export type AddonOrderByWithAggregationInput = {
   manifestJson?: Prisma.SortOrder
   grantedJson?: Prisma.SortOrder
   bundleHash?: Prisma.SortOrder
+  settingsJson?: Prisma.SortOrder
   isEnabled?: Prisma.SortOrder
   installedAt?: Prisma.SortOrder
   _count?: Prisma.AddonCountOrderByAggregateInput
@@ -250,6 +260,7 @@ export type AddonScalarWhereWithAggregatesInput = {
   manifestJson?: Prisma.StringWithAggregatesFilter<"Addon"> | string
   grantedJson?: Prisma.StringWithAggregatesFilter<"Addon"> | string
   bundleHash?: Prisma.StringWithAggregatesFilter<"Addon"> | string
+  settingsJson?: Prisma.StringWithAggregatesFilter<"Addon"> | string
   isEnabled?: Prisma.BoolWithAggregatesFilter<"Addon"> | boolean
   installedAt?: Prisma.DateTimeWithAggregatesFilter<"Addon"> | Date | string
 }
@@ -260,6 +271,7 @@ export type AddonCreateInput = {
   manifestJson: string
   grantedJson: string
   bundleHash: string
+  settingsJson?: string
   isEnabled?: boolean
   installedAt: Date | string
 }
@@ -270,6 +282,7 @@ export type AddonUncheckedCreateInput = {
   manifestJson: string
   grantedJson: string
   bundleHash: string
+  settingsJson?: string
   isEnabled?: boolean
   installedAt: Date | string
 }
@@ -280,6 +293,7 @@ export type AddonUpdateInput = {
   manifestJson?: Prisma.StringFieldUpdateOperationsInput | string
   grantedJson?: Prisma.StringFieldUpdateOperationsInput | string
   bundleHash?: Prisma.StringFieldUpdateOperationsInput | string
+  settingsJson?: Prisma.StringFieldUpdateOperationsInput | string
   isEnabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   installedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -290,6 +304,7 @@ export type AddonUncheckedUpdateInput = {
   manifestJson?: Prisma.StringFieldUpdateOperationsInput | string
   grantedJson?: Prisma.StringFieldUpdateOperationsInput | string
   bundleHash?: Prisma.StringFieldUpdateOperationsInput | string
+  settingsJson?: Prisma.StringFieldUpdateOperationsInput | string
   isEnabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   installedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -300,6 +315,7 @@ export type AddonCreateManyInput = {
   manifestJson: string
   grantedJson: string
   bundleHash: string
+  settingsJson?: string
   isEnabled?: boolean
   installedAt: Date | string
 }
@@ -310,6 +326,7 @@ export type AddonUpdateManyMutationInput = {
   manifestJson?: Prisma.StringFieldUpdateOperationsInput | string
   grantedJson?: Prisma.StringFieldUpdateOperationsInput | string
   bundleHash?: Prisma.StringFieldUpdateOperationsInput | string
+  settingsJson?: Prisma.StringFieldUpdateOperationsInput | string
   isEnabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   installedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -320,6 +337,7 @@ export type AddonUncheckedUpdateManyInput = {
   manifestJson?: Prisma.StringFieldUpdateOperationsInput | string
   grantedJson?: Prisma.StringFieldUpdateOperationsInput | string
   bundleHash?: Prisma.StringFieldUpdateOperationsInput | string
+  settingsJson?: Prisma.StringFieldUpdateOperationsInput | string
   isEnabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
   installedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -330,6 +348,7 @@ export type AddonCountOrderByAggregateInput = {
   manifestJson?: Prisma.SortOrder
   grantedJson?: Prisma.SortOrder
   bundleHash?: Prisma.SortOrder
+  settingsJson?: Prisma.SortOrder
   isEnabled?: Prisma.SortOrder
   installedAt?: Prisma.SortOrder
 }
@@ -340,6 +359,7 @@ export type AddonMaxOrderByAggregateInput = {
   manifestJson?: Prisma.SortOrder
   grantedJson?: Prisma.SortOrder
   bundleHash?: Prisma.SortOrder
+  settingsJson?: Prisma.SortOrder
   isEnabled?: Prisma.SortOrder
   installedAt?: Prisma.SortOrder
 }
@@ -350,6 +370,7 @@ export type AddonMinOrderByAggregateInput = {
   manifestJson?: Prisma.SortOrder
   grantedJson?: Prisma.SortOrder
   bundleHash?: Prisma.SortOrder
+  settingsJson?: Prisma.SortOrder
   isEnabled?: Prisma.SortOrder
   installedAt?: Prisma.SortOrder
 }
@@ -362,6 +383,7 @@ export type AddonSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   manifestJson?: boolean
   grantedJson?: boolean
   bundleHash?: boolean
+  settingsJson?: boolean
   isEnabled?: boolean
   installedAt?: boolean
 }, ExtArgs["result"]["addon"]>
@@ -372,6 +394,7 @@ export type AddonSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensi
   manifestJson?: boolean
   grantedJson?: boolean
   bundleHash?: boolean
+  settingsJson?: boolean
   isEnabled?: boolean
   installedAt?: boolean
 }, ExtArgs["result"]["addon"]>
@@ -382,6 +405,7 @@ export type AddonSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensi
   manifestJson?: boolean
   grantedJson?: boolean
   bundleHash?: boolean
+  settingsJson?: boolean
   isEnabled?: boolean
   installedAt?: boolean
 }, ExtArgs["result"]["addon"]>
@@ -392,11 +416,12 @@ export type AddonSelectScalar = {
   manifestJson?: boolean
   grantedJson?: boolean
   bundleHash?: boolean
+  settingsJson?: boolean
   isEnabled?: boolean
   installedAt?: boolean
 }
 
-export type AddonOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "version" | "manifestJson" | "grantedJson" | "bundleHash" | "isEnabled" | "installedAt", ExtArgs["result"]["addon"]>
+export type AddonOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "version" | "manifestJson" | "grantedJson" | "bundleHash" | "settingsJson" | "isEnabled" | "installedAt", ExtArgs["result"]["addon"]>
 
 export type $AddonPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "Addon"
@@ -419,10 +444,16 @@ export type $AddonPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs 
      */
     grantedJson: string
     /**
-     * sha256 of the bundle whose signature was verified before it was written
-     * to disk. What a later launch re-checks the files against.
+     * sha256 of the bundle as published by the registry. Empty for an addon
+     * that ships inside the app. The desktop app refuses a bundle that does
+     * not hash to this.
      */
     bundleHash: string
+    /**
+     * The addon's own settings, as the user set them, as JSON. Secret fields
+     * are never stored here; they stay on the device.
+     */
+    settingsJson: string
     /**
      * Off keeps it installed, its settings and its slots. Uninstalling is a
      * different act with different consequences.
@@ -857,6 +888,7 @@ export interface AddonFieldRefs {
   readonly manifestJson: Prisma.FieldRef<"Addon", 'String'>
   readonly grantedJson: Prisma.FieldRef<"Addon", 'String'>
   readonly bundleHash: Prisma.FieldRef<"Addon", 'String'>
+  readonly settingsJson: Prisma.FieldRef<"Addon", 'String'>
   readonly isEnabled: Prisma.FieldRef<"Addon", 'Boolean'>
   readonly installedAt: Prisma.FieldRef<"Addon", 'DateTime'>
 }

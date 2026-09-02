@@ -5,16 +5,13 @@ import { cancelUnstartedSlots } from "./slots";
 /**
  * The addons a user has installed.
  *
- * An addon is a package somebody outside this repo wrote. What is stored here
- * is not the package - the bundle lives on disk, put there by the app once its
- * signature has been checked - but the *decision*: which version, what the
- * user agreed to let it do, and whether it is switched on.
+ * Not the package: the bundle lives on the device. This is the decision:
+ * which version, what the user agreed to let it do, whether it is on, and its
+ * settings.
  *
- * `grantedJson` is the one that matters. It is what the host bridge and the
- * Worker both check against, and it is deliberately a separate column from the
- * manifest: what an addon *asks for* and what it *was given* are different
- * lists, and only one of them is a gate. An addon that gains a capability in a
- * new version does not gain it here until somebody says so.
+ * `grantedJson` is the gate. The desktop host and the Worker both check
+ * against it, never against the manifest. A new version that asks for more
+ * keeps the old grant until the user allows the rest on the Addons page.
  */
 
 export interface AddonRow {
@@ -24,8 +21,10 @@ export interface AddonRow {
   manifestJson: string;
   /** The capabilities actually granted, as JSON. Not what it asked for. */
   grantedJson: string;
-  /** sha256 of the bundle whose signature was checked before it was written. */
+  /** sha256 of the bundle as published. Empty for a bundled addon. */
   bundleHash: string;
+  /** Addon-level settings, as JSON. Never secrets. */
+  settingsJson: string;
   isEnabled: boolean;
   installedAt: number;
 }
@@ -36,6 +35,7 @@ const toRow = (row: {
   manifestJson: string;
   grantedJson: string;
   bundleHash: string;
+  settingsJson: string;
   isEnabled: boolean;
   installedAt: Date;
 }): AddonRow => ({
@@ -44,6 +44,7 @@ const toRow = (row: {
   manifestJson: row.manifestJson,
   grantedJson: row.grantedJson,
   bundleHash: row.bundleHash,
+  settingsJson: row.settingsJson,
   isEnabled: row.isEnabled,
   installedAt: ms(row.installedAt),
 });
@@ -72,13 +73,10 @@ export interface AddonInput {
 /**
  * Install, or move an existing install to a new version.
  *
- * An upsert rather than a create, because re-installing something the user
- * removed and then wanted back is the ordinary case, not the exception. The
- * grant is rewritten each time: a new version may ask for more, and the answer
- * to that question is the one just given rather than the one given last year.
- *
- * `isEnabled` is deliberately not carried over on an upgrade. An addon the
- * user had switched off does not switch itself on by publishing.
+ * An upsert: re-installing something removed earlier is the ordinary case.
+ * The grant written is whatever the caller decided; the route decides that,
+ * not this function. `isEnabled` is kept on an upgrade, so an addon the user
+ * switched off does not switch itself on by publishing.
  */
 export async function installAddon(
   db: UserDatabase,
@@ -113,6 +111,14 @@ export async function installAddon(
   return toRow(row);
 }
 
+export async function setAddonSettings(
+  db: UserDatabase,
+  id: string,
+  settingsJson: string,
+): Promise<void> {
+  await db.addon.update({ where: { id }, data: { settingsJson } });
+}
+
 export async function setAddonEnabled(
   db: UserDatabase,
   id: string,
@@ -131,9 +137,8 @@ export async function setAddonEnabled(
  *
  * Two ways an activity can depend on an addon, and both count:
  *
- * 1. **The addon created it.** `owner_addon_id` names it. Nothing does this
- *    yet - `write:own` has no route - but the column is the provenance the
- *    server enforces writes against, and it must be honoured here too.
+ * 1. **The addon created it.** `owner_addon_id` names it. Slots an addon
+ *    places carry it; activities may in a later version.
  * 2. **It runs the addon's activity type.** `preset_key` is `addonId/typeKey`,
  *    so the prefix names the addon. This is every guided session in the app,
  *    including the four Wise Routine ships.

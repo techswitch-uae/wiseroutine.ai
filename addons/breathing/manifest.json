@@ -1,5 +1,6 @@
 {
   "id": "wiseroutine.breathing",
+  "apiVersion": 1,
   "name": "Breathing",
   "version": "1.0.0",
   "description": "A circle paces your breathing for the whole slot - box, 4-7-8 or coherent.",

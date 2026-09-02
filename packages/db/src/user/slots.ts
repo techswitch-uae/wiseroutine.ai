@@ -44,6 +44,9 @@ export type SlotEventType =
  * what the scheduler and every route work in. The Date/number conversion stops
  * here, at the storage boundary.
  */
+/** Who did it. An addon's writes are logged apart from the user's. */
+export type SlotActor = "system" | "user" | "addon";
+
 export interface SlotRow {
   id: string;
   activityId: string | null;
@@ -58,6 +61,8 @@ export interface SlotRow {
   conflictEventId: string | null;
   conflictSeverity: string | null;
   autoMoveCount: number;
+  /** The addon that placed it, or null. Only that addon may change it. */
+  ownerAddonId: string | null;
   planRunId: string | null;
   createdAt: number;
 }
@@ -71,7 +76,7 @@ export interface SlotEventRow {
   reasonText: string | null;
   fromStartsAt: number | null;
   toStartsAt: number | null;
-  actor: "system" | "user";
+  actor: SlotActor;
 }
 
 const toSlot = (row: PrismaSlot): SlotRow => ({
@@ -86,7 +91,7 @@ const toSlot = (row: PrismaSlot): SlotRow => ({
 const toSlotEvent = (row: PrismaSlotEvent): SlotEventRow => ({
   ...row,
   type: row.type as SlotEventType,
-  actor: row.actor as "system" | "user",
+  actor: row.actor as SlotActor,
   at: ms(row.at),
   fromStartsAt: msOrNull(row.fromStartsAt),
   toStartsAt: msOrNull(row.toStartsAt),
@@ -125,7 +130,7 @@ export async function recordSlotEvent(
   input: {
     slotId: string;
     type: SlotEventType;
-    actor: "system" | "user";
+    actor: SlotActor;
     reasonCode?: string;
     reasonText?: string;
     fromStartsAt?: number;
@@ -237,6 +242,8 @@ export async function placeSlot(
     startsAt: number;
     endsAt: number;
     timeZone: string;
+    /** Set when an addon placed it. */
+    ownerAddonId?: string | null;
   },
   now: number,
   newId: () => string,
@@ -247,6 +254,7 @@ export async function placeSlot(
       id,
       activityId: params.activityId,
       reminderId: params.reminderId ?? null,
+      ownerAddonId: params.ownerAddonId ?? null,
       title: params.title,
       kind: params.kind,
       startsAt: at(params.startsAt),
@@ -263,7 +271,7 @@ export async function placeSlot(
     {
       slotId: id,
       type: "planned",
-      actor: "user",
+      actor: params.ownerAddonId ? "addon" : "user",
       reasonCode: "placed_by_hand",
     },
     now,
@@ -334,7 +342,7 @@ export async function moveSlot(
     slotId: string;
     startsAt: number;
     endsAt: number;
-    actor: "system" | "user";
+    actor: SlotActor;
     reasonCode?: string;
     reasonText?: string;
   },
@@ -394,7 +402,7 @@ export async function setSlotStatus(
   params: {
     slotId: string;
     status: SlotStatus;
-    actor: "system" | "user";
+    actor: SlotActor;
     reasonCode?: string;
     reasonText?: string;
     /** Where it was, and where we would have put it. Only the bucket fills

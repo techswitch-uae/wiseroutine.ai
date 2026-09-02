@@ -86,11 +86,18 @@ const AddonWidget: React.FC<{
           : { height: 0, overflow: "hidden", visibility: "hidden" }
       }
     >
-      <Widget eyebrow={card?.eyebrow || contribution.name}>
+      <Widget
+        // A card from outside the app names its author, so it cannot pass
+        // as the app talking.
+        eyebrow={
+          addon.bundled
+            ? card?.eyebrow || contribution.name
+            : `${card?.eyebrow || contribution.name} · ${addon.author}`
+        }
+      >
         <AddonFrame
           title={contribution.name}
-          manifest={addon.manifest}
-          bundle={addon.bundle}
+          addon={addon}
           context={{ kind: "widget", widgetKey: contribution.key, present }}
           style={{
             width: "100%",

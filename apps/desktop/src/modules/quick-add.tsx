@@ -253,15 +253,22 @@ export const QuickAdd: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     );
   };
 
+  /** Hand it to the addon, close, and say what the addon said. */
   const keep = (addonId: string, key: string) => {
     if (!subject) return;
-    const sent = dispatchQuickAdd(addonId, {
+    const name = addons.get(addonId)?.manifest.name ?? "the addon";
+    onClose();
+    void dispatchQuickAdd(addonId, {
       key,
       title: subject.title,
       minutes,
-    });
-    notify(sent ? "Kept as a todo" : "That addon isn't running.");
-    if (sent) onClose();
+    }).then((answer) =>
+      notify(
+        answer.ok
+          ? (answer.message ?? `Sent to ${name}`)
+          : (answer.message ?? `${name} couldn't keep it.`),
+      ),
+    );
   };
 
   const run = (row: Suggestion) => {

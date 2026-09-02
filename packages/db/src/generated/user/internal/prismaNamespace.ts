@@ -1707,6 +1707,7 @@ export const AddonScalarFieldEnum = {
   manifestJson: 'manifestJson',
   grantedJson: 'grantedJson',
   bundleHash: 'bundleHash',
+  settingsJson: 'settingsJson',
   isEnabled: 'isEnabled',
   installedAt: 'installedAt'
 } as const

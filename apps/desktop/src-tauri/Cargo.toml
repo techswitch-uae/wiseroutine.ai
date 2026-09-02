@@ -25,6 +25,11 @@ tauri-plugin-notification = "2"
 tauri-plugin-mcp-bridge = "0.13"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Addon bundles are checked against the hash the registry published.
+sha2 = "0.10"
+# The addon fetch proxy. The same features the updater already uses, so no
+# second TLS stack is built.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"] }
 
 # Desktop only, and deliberately so: there is no such thing as sideloading an
 # update on iOS or Android, where the store owns that job. Declaring them here

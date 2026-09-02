@@ -21,6 +21,7 @@ import { dismiss, useToasts } from "../lib/notify";
 import { useTodayPlan } from "../lib/plan-store";
 import { dayLabel, periodLabel, scopeOf, todayOf } from "../lib/scope";
 import "../lib/rail";
+import { AddonBackground } from "../addons/background";
 import { loadAddons } from "../addons/installed";
 import { reloadTodos } from "../lib/todos";
 import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
@@ -363,6 +364,7 @@ const AppLayout: React.FC = () => {
         }
       >
         <Outlet />
+        <AddonBackground />
       </AppFrame>
       <SessionOverlay />
       {quickAdd ? <QuickAdd onClose={() => setQuickAdd(false)} /> : null}

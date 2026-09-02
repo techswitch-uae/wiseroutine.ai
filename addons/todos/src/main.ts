@@ -1,15 +1,10 @@
 /**
  * The entry point.
  *
- * A widget, and the first addon that writes through the host: `todos.*` is
- * the app's own list, not a private store, so what this card adds is what
- * Quick add offers and what the day can take. The card never holds the list
- * - it asks for it on every change the host announces, and the host
- * announces every write, this addon's own included.
- *
- * Two ways in besides the rail: `onQuickAdd`, which is the dialog handing
- * over what was typed, and the field at the bottom of the card. Both end in
- * `todos.add`, so there is one place a todo is made.
+ * Two roles from one bundle. The `background` frame answers Quick add: the
+ * host keeps it running whenever the addon is on, so what was typed is kept
+ * even with the card off screen. The `widget` frame draws the card. The card
+ * never holds the list; it asks again on every change the host announces.
  */
 
 import { AddonError, connect } from "@wiseroutine/addon-sdk";
@@ -17,6 +12,14 @@ import { heightOf, markup, parseAdd, render } from "./card";
 
 async function main(): Promise<void> {
   const wr = await connect();
+
+  if (wr.role.kind === "background") {
+    wr.onQuickAdd(async (request) => {
+      await wr.todos.add({ title: request.title, minutes: request.minutes });
+      return "Kept as a todo";
+    });
+    return;
+  }
   if (wr.role.kind !== "widget") return;
 
   document.body.innerHTML = markup(wr.theme);
@@ -106,12 +109,6 @@ async function main(): Promise<void> {
     }
   });
 
-  wr.onQuickAdd((request) => {
-    void tried(
-      wr.todos.add({ title: request.title, minutes: request.minutes }),
-      "Couldn't keep it.",
-    );
-  });
   wr.onTodosChange(redraw);
   wr.onDayChange(redraw);
   new ResizeObserver(() => void sizeUp().catch(() => undefined)).observe(

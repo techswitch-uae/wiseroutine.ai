@@ -37,6 +37,12 @@ run **in workerd** via `@cloudflare/vitest-pool-workers`, against real D1 and KV
 bindings and the same migrations wrangler applies in production - not a jsdom
 approximation.
 
+## Addons
+
+Every guided session and rail card is an addon, written against
+`@wiseroutine/addon-sdk` and sandboxed in its own frame. What an addon can do,
+how the boundary works, and how to write one: [docs/addons.md](docs/addons.md).
+
 ## The parts worth knowing
 
 **[`packages/scheduler`](packages/scheduler/README.md)** decides where slots go.

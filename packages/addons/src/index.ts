@@ -1,81 +1,51 @@
 /**
  * What an addon may do, as data.
  *
- * The same shape as `@wiseroutine/plans` and for the same reason: one source
- * of truth both sides import, the Worker enforcing and the client calling the
- * identical function to decide what to show. The client call is a convenience.
- * The server call is the truth - a gate that only exists in the UI is not a
- * gate, and an addon is written by a stranger.
+ * Shared by the Worker and the desktop app so both decide with the same
+ * functions. The client check gives a good error early. The server check is
+ * the gate.
  *
- * Nothing here executes anything, loads anything or talks to a database. It is
- * vocabulary and rules, so that both the Worker and the desktop app can reason
- * about an addon without either one owning the definition.
- *
- * ## The words
- *
- * An **addon** is the package somebody outside this repo wrote. A **widget**
- * is one card it may put in the rail. An addon may also define **activity
- * types**, which are guided sessions of its own. "Module" is not used for any
- * of it: that word already means the guided session an activity runs
- * (`preset_key` on `activities`), and reusing it made every sentence about
- * either one ambiguous.
+ * Words: an **addon** is the package. A **widget** is a card it puts in the
+ * rail. An **activity type** is a guided session it defines. "Module" is the
+ * app's internal name for a running session and is not used here.
  */
 
-/* ── Identity ────────────────────────────────────────────────────────────── */
+/* ── Versions ───────────────────────────────────────────────────────────── */
 
 /**
- * An addon id: lowercase, dot-separated, no slash.
- *
- * The slash is reserved because it is the separator in every key the addon
- * owns - `acme.fitness/next-workout`. An id containing one would make
- * `ownerOf` ambiguous, so it is refused at the boundary rather than escaped.
+ * The SDK contract this host speaks. A manifest built against a newer one is
+ * refused by `parseManifest`, so an addon never half-runs.
  */
+export const API_VERSION = 1;
+
+/* ── Identity ───────────────────────────────────────────────────────────── */
+
+/** Lowercase, dot or hyphen separated, no slash. The slash joins keys. */
 const ADDON_ID = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
-
-/** A key inside an addon: same rules, and the half after the slash. */
-const ADDON_KEY = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
+const ADDON_KEY = ADDON_ID;
 
 /**
- * A key inside a settings schema. A different thing, and a looser rule.
- *
- * `ADDON_KEY` is lowercase-and-hyphens because it ends up in a URL and in
- * `preset_key`, where case-folding and escaping are somebody's problem. A
- * setting key ends up as a property name in the addon's own opaque config
- * blob and nowhere else - it is never routed on, never served, never compared
- * case-insensitively. Holding it to the stricter rule refused `musicUrl` and
- * would have pushed every addon author into renaming their own config fields
- * to satisfy a constraint that does not apply to them.
- *
- * Still bounded rather than free: letters, digits, hyphen and underscore, so
- * a key cannot be `__proto__`-adjacent nonsense or carry a dot that would read
- * as a path.
+ * A key inside a settings schema. Looser than `ADDON_KEY` because it only ever
+ * becomes a property in the addon's own config object. Still bounded so it
+ * cannot be `__proto__` or carry a dot.
  */
 const SETTING_KEY = /^[A-Za-z0-9_-]+$/;
 
 export const isAddonId = (value: string): boolean =>
   value.length <= 64 && ADDON_ID.test(value);
 
-/**
- * The fully qualified key for something an addon owns.
- *
- * Widgets and activity types share one namespace on purpose: they are both
- * "things this addon contributes", they are both stored as bare strings in
- * columns that predate addons (`widgets.widget_key`, `activities.preset_key`),
- * and a single rule for reading an owner out of a key is one rule to get right.
- */
+/** Ids under this prefix belong to the app. The registry refuses them from
+ *  anyone else. */
+export const RESERVED_ID_PREFIX = "wiseroutine.";
+
+export const isReservedId = (id: string): boolean =>
+  id.startsWith(RESERVED_ID_PREFIX);
+
+/** The full key for something an addon owns: `acme.fitness/next-workout`. */
 export const qualify = (addonId: string, key: string): string =>
   `${addonId}/${key}`;
 
-/**
- * The addon a key belongs to, or null for one of the app's own.
- *
- * `up_next` is the app's. `acme.fitness/next-workout` is not. Anything with a
- * malformed half is treated as the app's - which means it will not be found in
- * the first-party registry either, and draws nothing. An unrecognised key
- * leaving a gap rather than throwing is already how the rail and the guided
- * sessions behave, and this keeps that true for a key that merely looks like
- * an addon's.
- */
+/** The addon a key belongs to, or null for one of the app's own. */
 export function ownerOf(key: string): string | null {
   const slash = key.indexOf("/");
   if (slash === -1) return null;
@@ -88,97 +58,62 @@ export function ownerOf(key: string): string | null {
   return addonId;
 }
 
-/* ── Capabilities ────────────────────────────────────────────────────────── */
+/* ── Capabilities ───────────────────────────────────────────────────────── */
 
-/**
- * How much of the schedule an addon may read.
- *
- * Ordered narrowest first, and deliberately a scale rather than a set of
- * unrelated permissions: "may it see next week" is the same question as "may
- * it see today", asked about a wider window, and modelling it as one
- * capability with a scope is what stops the answer being enforced in two
- * places that can disagree.
- */
+/** How much of the schedule an addon may read. Narrowest first. */
 export type ReadScope = "today" | "week" | "range" | "history";
 
-/** Widest first, so an index comparison answers "does this cover that". */
 const READ_SCOPES: readonly ReadScope[] = ["today", "week", "range", "history"];
 
 /**
- * The scopes that may actually be granted right now.
- *
- * Today, and only today. The other three are named because the model has to
- * be able to express them the day one is opened up - widening then is adding a
- * value to this list and a sentence to the install screen, not inventing a new
- * capability and a new enforcement path for it.
- *
- * There is a test asserting that the wider scopes are refused. Opening one is
- * meant to be a deliberate act with a failing test to flip, not something that
- * happens because nobody noticed the gate was open.
+ * The scopes that may be granted right now. Only today. Widening is adding a
+ * value here and a sentence to the permission screen.
  */
 export const GRANTABLE_READ_SCOPES: readonly ReadScope[] = ["today"];
 
 /**
+ * How the host signs requests to a `net:fetch` origin on the addon's behalf.
+ *
+ * `secret` names a `secret` field in the manifest's `settings`. The host adds
+ * `header: prefix + value` to every proxied request. The value never reaches
+ * the addon.
+ */
+export interface FetchAuth {
+  secret: string;
+  header: string;
+  prefix?: string;
+}
+
+/**
  * Everything an addon can ask for.
  *
- * Note what has no capability at all: writing a slot the addon did not create.
- * It is not refused by a check, it is absent from the vocabulary - there is no
- * "write any slot" to grant, only `write:own`, and ownership is a column the
- * server reads. A permission that cannot be requested cannot be granted by
- * mistake.
+ * There is no "write any slot". Only `write:own`, and ownership is a column
+ * the server reads.
  */
 export type AddonCapability =
   /** Read the user's schedule, as far out as `scope` allows. */
   | { kind: "read:schedule"; scope: ReadScope }
-  /**
-   * Create slots and activities, and change the ones it created.
-   *
-   * Ownership-bounded by construction rather than by scope: the check is
-   * `owner_addon_id = this addon`, run by the server on every write.
-   */
+  /** Place slots of its own, and complete or skip them. Never the user's. */
   | { kind: "write:own" }
   /** Contribute a card to the rail. */
   | { kind: "ui:widget" }
   /** Contribute an activity type, and draw its guided session. */
   | { kind: "ui:session" }
   /**
-   * Talk to hosts outside this app.
-   *
-   * The origins are the addon's whole allowance and become the `connect-src`
-   * of the frame it runs in, so this is enforced by the browser as well as by
-   * a check. Wildcards are refused: an integration knows its own API's host.
+   * Talk to these origins. They become the frame's `connect-src`, and the
+   * host-side `fetch` proxy refuses anything else. No wildcards.
    */
-  | { kind: "net:fetch"; origins: readonly string[] }
-  /**
-   * Put someone else's page inside its own frame - a player, a map, a video.
-   *
-   * Separate from `net:fetch` because it is a different risk with a different
-   * enforcement point. `net:fetch` is data the addon reads and decides what to
-   * do with; this is a document from another origin drawing pixels the user
-   * will read as part of the app. It becomes the `frame-src` of the addon's
-   * own frame, so the browser refuses an origin that is not on this list and
-   * there is no check for the addon to route around.
-   */
+  | { kind: "net:fetch"; origins: readonly string[]; auth?: FetchAuth }
+  /** Put a page from these origins inside its own frame. The frame's
+   *  `frame-src`. */
   | { kind: "ui:embed"; origins: readonly string[] }
-  /**
-   * Hand a link to the operating system.
-   *
-   * Origin-scoped like the other two, and scoped for a sharper reason: opening
-   * a URL leaves the sandbox entirely. Whatever is on the other side runs in
-   * the user's browser as the user, with their cookies and their sessions, and
-   * nothing in this app is between them any more. An addon that may open
-   * `https://open.spotify.com` may open that and nothing else.
-   *
-   * The host also refuses any scheme but https, whatever is granted - see
-   * `isPlainHttpsOrigin`. A `file:` or an `x-apple.systempreferences:` URL is
-   * not a link, it is an instruction to the machine.
-   */
+  /** Open a link on these origins in the user's browser. https only. */
   | { kind: "open:external"; origins: readonly string[] }
-  /** Be woken when it is not on screen. */
+  /** Keep a hidden frame running while the app is open, with no card. */
   | { kind: "background:wake" }
-  /** Put a notification in front of the user. */
+  /** Show the user a notification, labelled with the addon's name. */
   | { kind: "notify" }
-  /** See the user's todos - the things with no time yet. */
+  /** See the user's todos. */
   | { kind: "read:todos" }
   /** Add, finish, drop, and put a todo on the day. */
   | { kind: "write:todos" };
@@ -192,13 +127,9 @@ const refuse = (reason: string): Decision => ({ ok: false, reason });
 /**
  * Does this grant cover this request?
  *
- * `granted` is what the user approved at install, read from `addons.granted_json`.
- * `request` is what the addon is trying to do right now. Both are the same
- * type, which is the point: an addon asks in the vocabulary it is granted in,
- * so there is no translation step to get wrong.
- *
- * Unlike `can()` in `@wiseroutine/plans` there is no upsell. A refusal here is
- * not an invitation to buy something, it is the boundary working.
+ * `granted` is what the user approved, from `addons.granted_json`. `request`
+ * is what the addon is doing now. Same type both sides, so nothing is
+ * translated.
  */
 export function canAddon(
   granted: readonly AddonCapability[],
@@ -211,8 +142,6 @@ export function canAddon(
 
   switch (request.kind) {
     case "read:schedule": {
-      // The widest scope granted, compared by position. A grant of `week`
-      // covers a request for `today`; the reverse is what this stops.
       const wanted = READ_SCOPES.indexOf(request.scope);
       const widest = Math.max(
         ...held.map((c) =>
@@ -224,10 +153,6 @@ export function canAddon(
         : refuse(`This addon may only read ${READ_SCOPES[widest]}.`);
     }
 
-    // All three carry a list of origins, and the question is the same for
-    // each: is every origin being asked for on the list that was granted.
-    // Written once rather than three times - the day this check gains a
-    // subtlety is the day three copies of it start to disagree.
     case "net:fetch":
     case "ui:embed":
     case "open:external": {
@@ -240,7 +165,6 @@ export function canAddon(
         : refuse(`This addon may not reach ${denied.join(", ")}.`);
     }
 
-    // Held at all is the whole question: these carry nothing to compare.
     case "write:own":
     case "ui:widget":
     case "ui:session":
@@ -253,11 +177,31 @@ export function canAddon(
 }
 
 /**
- * May this capability be granted at all, whatever the addon asked for?
+ * Is every capability in `grant` something `asked` covers?
  *
- * Separate from `canAddon`, and asked at install rather than at use. The two
- * answer different questions: this one is policy that applies to every addon
- * on the registry, `canAddon` is what one particular user approved.
+ * Used when a grant arrives from a client: the user may approve less than the
+ * manifest asks for, never more.
+ */
+export function coveredBy(
+  grant: readonly AddonCapability[],
+  asked: readonly AddonCapability[],
+): Decision {
+  for (const capability of grant) {
+    const decision = canAddon(asked, capability);
+    if (!decision.ok) return refuse(`Not in the manifest: ${capability.kind}.`);
+  }
+  return { ok: true };
+}
+
+/** The capabilities in `asked` that `granted` does not cover yet. */
+export const ungranted = (
+  asked: readonly AddonCapability[],
+  granted: readonly AddonCapability[],
+): AddonCapability[] => asked.filter((c) => !canAddon(granted, c).ok);
+
+/**
+ * May this capability be granted at all? Policy for every addon, asked at
+ * install. `canAddon` is what one user approved, asked at use.
  */
 export function isGrantable(capability: AddonCapability): Decision {
   switch (capability.kind) {
@@ -271,8 +215,6 @@ export function isGrantable(capability: AddonCapability): Decision {
     case "net:fetch":
     case "ui:embed":
     case "open:external": {
-      // A wildcard host is a request for the whole web wearing a specific
-      // coat, and it would also make the frame's `connect-src` meaningless.
       const bad = capability.origins.filter((o) => !isPlainHttpsOrigin(o));
       return bad.length === 0
         ? { ok: true }
@@ -284,13 +226,7 @@ export function isGrantable(capability: AddonCapability): Decision {
   }
 }
 
-/**
- * An `https://host` with no wildcard, no path, no query.
- *
- * Parse-and-rebuild rather than pattern-match, the same way `spotifyEmbed`
- * decides what may go in an iframe: whatever the addon wrote, what comes out
- * is an origin this file constructed.
- */
+/** An `https://host` with no wildcard, no path, no query, no credentials. */
 export function isPlainHttpsOrigin(value: string): boolean {
   let url: URL;
   try {
@@ -304,122 +240,82 @@ export function isPlainHttpsOrigin(value: string): boolean {
   return url.origin === value;
 }
 
-/* ── Manifest ────────────────────────────────────────────────────────────── */
+/* ── Manifest ───────────────────────────────────────────────────────────── */
 
 export interface AddonContribution {
-  /** Bare here, namespaced everywhere else - see `qualify`. */
+  /** Bare here, namespaced everywhere else. See `qualify`. */
   key: string;
   name: string;
 }
 
-/* ── Settings, declared rather than drawn ────────────────────────────────── */
+/* ── Settings, declared rather than drawn ───────────────────────────────── */
+
+/** Show a field only while another field has this value. */
+export interface ShowWhen {
+  key: string;
+  equals: string | number | boolean;
+}
+
+interface FieldBase {
+  key: string;
+  label: string;
+  /** A short line under the field. */
+  help?: string;
+  showWhen?: ShowWhen;
+}
 
 /**
- * One setting, as a description rather than a form.
+ * One setting, as a description. The host draws the field with its own
+ * components, so it can read and write an addon's settings without running
+ * the addon, and every addon's settings look like the rest of the app.
  *
- * The addon says what it needs; the *host* renders the field, with the app's
- * own components. Three reasons, in order of how much they matter:
- *
- * 1. **The host can read an addon's config without running the addon.**
- *    Guided sessions used to hand every module a `parse` function and call it,
- *    which is fine for four modules in this repo and not fine at all for code
- *    a stranger wrote. A schema is data: it can be validated at the boundary,
- *    stored, and re-read years later by a version of the app that has never
- *    loaded that addon.
- * 2. A settings form is a second sandboxed surface to build, secure and style,
- *    for what is nearly always three fields and a dropdown.
- * 3. Every addon's settings then look like the rest of the app, which is what
- *    the user is entitled to and what an addon author should not have to
- *    reimplement.
- *
- * The cost is honest and worth naming: an addon whose settings genuinely need
- * a custom interface cannot have one. That is a real limit, and it buys the
- * three things above.
+ * `secret` is only allowed in the manifest's top-level `settings`. Its value
+ * stays on the device, is never sent to the server, and is never given to the
+ * addon. The only thing that can use it is `net:fetch` `auth`.
  */
 export type SettingField =
-  | {
-      key: string;
-      label: string;
+  | (FieldBase & {
       type: "select";
       default: string;
       options: readonly string[];
-    }
-  | {
-      key: string;
-      label: string;
+    })
+  | (FieldBase & {
       type: "number";
       default: number;
       min?: number;
       max?: number;
-    }
-  | {
-      key: string;
-      label: string;
+    })
+  | (FieldBase & {
       type: "text";
       default: string;
       maxLength?: number;
-      /** Greyed example text in the empty field. Not a value, and never
-       *  stored - an empty setting stays empty. */
       placeholder?: string;
-    };
+    })
+  | (FieldBase & { type: "boolean"; default: boolean })
+  | (FieldBase & { type: "secret"; placeholder?: string });
 
-/**
- * An activity type an addon defines - a guided session of its own.
- *
- * The same four things the app's own sessions have carried since they existed
- * (`preset_key`, a blurb, a default length, a start policy), which is not a
- * coincidence: an addon's activity type is stored in exactly the columns a
- * first-party one is, with a namespaced key.
- */
+/** An activity type an addon defines: a guided session of its own. */
 export interface AddonActivityType extends AddonContribution {
-  /** Finishes "When this is on, ...". See the note on `ActivityModule`. */
+  /** Finishes "When this is on, ...". */
   blurb: string;
   defaults: {
     sessionMinutes: number;
     startPolicy: "manual" | "auto" | "prompt";
   };
-  /**
-   * The ground the host paints behind the session.
-   *
-   * `dim` is the near-black one, for a session about looking away from a
-   * screen. It is the host's to paint and not the addon's, because the frame
-   * around a session - and the contrast the Done button needs to stay
-   * legible - is the host's. An addon says which of the two it was drawn
-   * against; it does not get to paint its own.
-   */
+  /** `dim` is the near-black ground for looking away from the screen. The
+   *  host paints it; the addon only says which one it drew against. */
   ground?: "page" | "dim";
-  /**
-   * How much room the addon needs inside the session, in CSS pixels.
-   *
-   * Declared rather than negotiated, and clamped by `CANVAS_BOUNDS` on the way
-   * in. An iframe has no intrinsic height, so *something* has to say - and the
-   * two obvious alternatives are both worse. A single fixed size for every
-   * addon means a breathing circle and a four-line stretch instruction get the
-   * same square. Letting the frame resize itself means an addon can grow until
-   * it covers the Done button, which is the one control a session must never
-   * be able to take away.
-   *
-   * So: the addon asks, the host decides, and the ceiling is low enough that
-   * the frame's chrome is always on screen.
-   */
+  /** Room inside the session, in CSS pixels. Clamped by `CANVAS_BOUNDS`. */
   canvas?: { width: number; height: number };
   settings: readonly SettingField[];
 }
 
-/**
- * What a session canvas may be.
- *
- * The upper bounds are the point. 560 is narrower than the narrowest window
- * the app supports, and 520 leaves room for the title above and the two
- * buttons below at that window's height - so an addon cannot push either off
- * the screen by asking for a bigger canvas.
- */
+/** The upper bounds keep the title and the Done button on screen. */
 export const CANVAS_BOUNDS = {
   width: { min: 200, max: 560 },
   height: { min: 120, max: 520 },
 } as const;
 
-/** The canvas an activity type gets, clamped. */
 export const canvasFor = (
   type: AddonActivityType,
 ): { width: number; height: number } => ({
@@ -430,23 +326,9 @@ export const canvasFor = (
 const clamp = (value: number, to: { min: number; max: number }): number =>
   Math.min(to.max, Math.max(to.min, Math.round(value)));
 
-/**
- * How tall a rail card may be.
- *
- * The same argument as `CANVAS_BOUNDS` and a tighter ceiling, because the rail
- * is shared. A session's frame is the only thing on screen; a card sits above
- * and below other cards, and an addon that could name its own height could
- * push every one of them out of view by asking for four thousand pixels. 320
- * is taller than any first-party card and short enough that three of them
- * still fit.
- *
- * The floor is not politeness either: a card of zero height is a card that is
- * on screen, has an eyebrow, and appears to have failed. An addon with nothing
- * to say says it with `card(null)`.
- */
+/** How tall a rail card may be. Tighter than a session: the rail is shared. */
 export const CARD_BOUNDS = { min: 40, max: 320 } as const;
 
-/** The height a widget's frame gets, clamped. */
 export const cardHeightFor = (height: number | undefined): number =>
   clamp(typeof height === "number" && Number.isFinite(height) ? height : 120, {
     ...CARD_BOUNDS,
@@ -454,29 +336,34 @@ export const cardHeightFor = (height: number | undefined): number =>
 
 const START_POLICIES = ["manual", "auto", "prompt"] as const;
 
-/** The config an activity type starts with, built from its own schema. */
-export function defaultConfig(
-  type: AddonActivityType,
-): Record<string, unknown> {
+/** Whether a field is shown, given the current values. */
+export function isShown(
+  field: SettingField,
+  values: Record<string, unknown>,
+): boolean {
+  if (!field.showWhen) return true;
+  return values[field.showWhen.key] === field.showWhen.equals;
+}
+
+/** The values a schema starts with. Secrets have no value here. */
+export function defaultConfig(schema: {
+  settings: readonly SettingField[];
+}): Record<string, unknown> {
   const config: Record<string, unknown> = {};
-  for (const field of type.settings) config[field.key] = field.default;
+  for (const field of schema.settings) {
+    if (field.type !== "secret") config[field.key] = field.default;
+  }
   return config;
 }
 
 /**
- * Stored settings, checked against the schema that describes them.
+ * Stored values, checked against the schema.
  *
- * Never throws, and never returns a field the schema does not name. A value
- * that has gone bad - written by an older version, edited by hand, or simply
- * absent - falls back to that field's default rather than failing the whole
- * config: settings written by a newer version of an addon still have to run
- * under an older one, and a crash in a session is worse than a default.
- *
- * The same rule the app's own modules follow in `configFor`, moved to where it
- * can be applied to code nobody here wrote.
+ * Never throws, never returns a key the schema does not name. A bad value
+ * falls back to the field's default rather than failing the whole config.
  */
 export function parseConfig(
-  type: AddonActivityType,
+  schema: { settings: readonly SettingField[] },
   raw: unknown,
 ): Record<string, unknown> {
   const stored: Record<string, unknown> =
@@ -485,7 +372,7 @@ export function parseConfig(
       : {};
 
   const config: Record<string, unknown> = {};
-  for (const field of type.settings) {
+  for (const field of schema.settings) {
     const value = stored[field.key];
     switch (field.type) {
       case "select":
@@ -509,6 +396,11 @@ export function parseConfig(
             ? value
             : field.default;
         break;
+      case "boolean":
+        config[field.key] = typeof value === "boolean" ? value : field.default;
+        break;
+      case "secret":
+        break;
     }
   }
   return config;
@@ -519,17 +411,19 @@ export interface AddonManifest {
   name: string;
   version: string;
   description: string;
-  /** What it asks for. What it was *given* lives in `addons.granted_json`. */
+  /** The SDK contract it was built against. Defaults to 1. */
+  apiVersion: number;
+  /** What it asks for. What it was given lives in `addons.granted_json`. */
   capabilities: readonly AddonCapability[];
+  /** Settings for the addon as a whole. The user edits them on the Addons
+   *  page. The only place a `secret` field may appear. */
+  settings: readonly SettingField[];
   widgets: readonly AddonContribution[];
   activityTypes: readonly AddonActivityType[];
   /**
-   * Rows this addon adds to the Quick add dialog's "when" list.
-   *
-   * The host draws each as "not now" - a way of keeping what was typed
-   * without putting it on the day - and on the press sends the addon a
-   * `quickAdd` event carrying the text and the key. The addon decides what
-   * that means; the host never learns. A todo list is the obvious one.
+   * Rows this addon adds to Quick add's "when" list. On the press the host
+   * sends the addon a `quickAdd` request with the text and the key. The addon
+   * decides what that means.
    */
   quickAdd: readonly AddonContribution[];
 }
@@ -537,15 +431,9 @@ export interface AddonManifest {
 /**
  * Read a manifest, or decide it is not one.
  *
- * Never throws, and returns null rather than a partial object: a manifest is
- * the thing a permission screen is drawn from, and half of one would ask the
- * user to approve a sentence nobody wrote. The same rule the guided-session
- * modules follow for their own config, applied to a document that arrives from
- * further away.
- *
- * Deliberately not a schema library. This is one object with seven fields
- * checked at one boundary, and the errors it must survive are "a stranger sent
- * nonsense", not "a colleague mistyped a key".
+ * Never throws. Returns null rather than a partial object: a manifest is what
+ * a permission screen is drawn from, and half of one would ask the user to
+ * approve something nobody wrote.
  */
 export function parseManifest(raw: unknown): AddonManifest | null {
   if (typeof raw !== "object" || raw === null) return null;
@@ -561,28 +449,60 @@ export function parseManifest(raw: unknown): AddonManifest | null {
     if (value.length > 500) return null;
   }
 
+  const apiVersion = m.apiVersion === undefined ? 1 : m.apiVersion;
+  if (typeof apiVersion !== "number" || !Number.isInteger(apiVersion)) {
+    return null;
+  }
+  if (apiVersion < 1 || apiVersion > API_VERSION) return null;
+
   const capabilities = parseCapabilities(m.capabilities);
   if (capabilities === null) return null;
 
+  const settings = parseSettings(m.settings, { allowSecret: true });
   const widgets = parseContributions(m.widgets);
   const activityTypes = parseActivityTypes(m.activityTypes);
   const quickAdd = parseContributions(m.quickAdd);
-  if (widgets === null || activityTypes === null || quickAdd === null)
+  if (
+    settings === null ||
+    widgets === null ||
+    activityTypes === null ||
+    quickAdd === null
+  ) {
     return null;
+  }
+
+  // `auth` must name a secret the manifest declares, or it can never work.
+  const secrets = new Set(
+    settings.filter((f) => f.type === "secret").map((f) => f.key),
+  );
+  for (const capability of capabilities) {
+    if (capability.kind !== "net:fetch" || !capability.auth) continue;
+    if (!secrets.has(capability.auth.secret)) return null;
+  }
 
   return {
     id,
     name: m.name as string,
     version: m.version as string,
     description: m.description as string,
+    apiVersion,
     capabilities,
+    settings,
     widgets,
     activityTypes,
     quickAdd,
   };
 }
 
-function parseCapabilities(raw: unknown): AddonCapability[] | null {
+/**
+ * Read a capability list, or decide it is not one.
+ *
+ * Also used for `granted_json`. Origins must be plain https origins, so a
+ * manifest cannot smuggle text into a CSP header. An unknown kind refuses the
+ * whole list: silently dropping it would install an addon missing a
+ * permission it needs, with nothing telling the user.
+ */
+export function parseCapabilities(raw: unknown): AddonCapability[] | null {
   if (!Array.isArray(raw)) return null;
 
   const out: AddonCapability[] = [];
@@ -603,11 +523,16 @@ function parseCapabilities(raw: unknown): AddonCapability[] | null {
       case "open:external": {
         const origins = c.origins;
         if (!Array.isArray(origins)) return null;
-        if (!origins.every((o) => typeof o === "string")) return null;
-        // Not a limit anyone honest meets. It stops a manifest handing the
-        // host a thousand-origin `frame-src` to build a header out of.
         if (origins.length > 20) return null;
-        out.push({ kind: c.kind, origins: origins as string[] });
+        if (!origins.every((o) => typeof o === "string")) return null;
+        if (!origins.every((o) => isPlainHttpsOrigin(o as string))) return null;
+        if (c.kind === "net:fetch" && c.auth !== undefined) {
+          const auth = parseAuth(c.auth);
+          if (auth === null) return null;
+          out.push({ kind: "net:fetch", origins: origins as string[], auth });
+        } else {
+          out.push({ kind: c.kind, origins: origins as string[] });
+        }
         break;
       }
       case "write:own":
@@ -619,10 +544,6 @@ function parseCapabilities(raw: unknown): AddonCapability[] | null {
       case "write:todos":
         out.push({ kind: c.kind });
         break;
-      // An addon built against a newer app asking for something this version
-      // has never heard of. Refusing the whole manifest is the safe answer:
-      // silently dropping the capability would install it half-working, with
-      // no sign to the user that it is missing a permission it needs.
       default:
         return null;
     }
@@ -630,9 +551,30 @@ function parseCapabilities(raw: unknown): AddonCapability[] | null {
   return out;
 }
 
+const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/;
+
+function parseAuth(raw: unknown): FetchAuth | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const a = raw as Record<string, unknown>;
+  if (typeof a.secret !== "string" || !SETTING_KEY.test(a.secret)) return null;
+  if (typeof a.header !== "string" || !HEADER_NAME.test(a.header)) return null;
+  // The one header the host owns. An addon that could sign as the user's
+  // cookie jar would be a different capability.
+  if (a.header.toLowerCase() === "cookie") return null;
+  if (a.prefix !== undefined) {
+    if (typeof a.prefix !== "string" || a.prefix.length > 32) return null;
+    if (/[\r\n]/.test(a.prefix)) return null;
+  }
+  return {
+    secret: a.secret,
+    header: a.header,
+    ...(typeof a.prefix === "string" ? { prefix: a.prefix } : {}),
+  };
+}
+
 function parseContributions(raw: unknown): AddonContribution[] | null {
-  // Absent is empty: an addon that only contributes widgets should not have to
-  // write `"activityTypes": []` to say so.
+  // Absent is empty. An addon that only contributes widgets need not write
+  // `"activityTypes": []`.
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) return null;
 
@@ -666,9 +608,8 @@ function parseActivityTypes(raw: unknown): AddonActivityType[] | null {
     if (typeof defaults !== "object" || defaults === null) return null;
     const d = defaults as Record<string, unknown>;
 
+    // A session is a block on someone's day, not an afternoon.
     const minutes = d.sessionMinutes;
-    // A session is a block on someone's day, not a background job. The upper
-    // bound is what stops an addon claiming an afternoon by declaring one.
     if (typeof minutes !== "number" || !Number.isInteger(minutes)) return null;
     if (minutes < 1 || minutes > 240) return null;
 
@@ -678,7 +619,7 @@ function parseActivityTypes(raw: unknown): AddonActivityType[] | null {
       return null;
     }
 
-    const settings = parseSettings(c.settings);
+    const settings = parseSettings(c.settings, { allowSecret: false });
     if (settings === null) return null;
 
     const ground = c.ground;
@@ -686,11 +627,7 @@ function parseActivityTypes(raw: unknown): AddonActivityType[] | null {
       return null;
     }
 
-    // Malformed is refused; out of range is clamped by `canvasFor`. The two
-    // are different mistakes: a canvas of `"big"` is a manifest nobody
-    // checked, and a canvas of 900 is an addon that wants more room than it
-    // may have. The first should fail loudly at the boundary, the second
-    // should simply not get it.
+    // Malformed is refused here. Out of range is clamped by `canvasFor`.
     const canvas = c.canvas;
     if (canvas !== undefined) {
       if (typeof canvas !== "object" || canvas === null) return null;
@@ -717,18 +654,13 @@ function parseActivityTypes(raw: unknown): AddonActivityType[] | null {
   return out;
 }
 
-/**
- * The settings schema, which the host will render fields from.
- *
- * Strict, because the host draws whatever this says: a `default` outside its
- * own `options` would put a value in the form that the form cannot represent,
- * and the user would be looking at a setting they cannot restore.
- */
-function parseSettings(raw: unknown): SettingField[] | null {
+/** Strict, because the host draws whatever this says. */
+function parseSettings(
+  raw: unknown,
+  { allowSecret }: { allowSecret: boolean },
+): SettingField[] | null {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) return null;
-  // Not a limit anyone should meet. It is here so that a manifest cannot ask
-  // the host to draw ten thousand fields.
   if (raw.length > 20) return null;
 
   const out: SettingField[] = [];
@@ -745,6 +677,26 @@ function parseSettings(raw: unknown): SettingField[] | null {
     if (typeof f.label !== "string" || f.label.length === 0) return null;
     if (f.label.length > 100) return null;
 
+    const base: FieldBase = { key: f.key, label: f.label };
+    if (f.help !== undefined) {
+      if (typeof f.help !== "string" || f.help.length > 200) return null;
+      base.help = f.help;
+    }
+    if (f.showWhen !== undefined) {
+      const s = f.showWhen as Record<string, unknown> | null;
+      if (typeof s !== "object" || s === null) return null;
+      if (typeof s.key !== "string" || !SETTING_KEY.test(s.key)) return null;
+      const equals = s.equals;
+      if (
+        typeof equals !== "string" &&
+        typeof equals !== "number" &&
+        typeof equals !== "boolean"
+      ) {
+        return null;
+      }
+      base.showWhen = { key: s.key, equals };
+    }
+
     switch (f.type) {
       case "select": {
         const options = f.options;
@@ -756,8 +708,7 @@ function parseSettings(raw: unknown): SettingField[] | null {
         if (typeof f.default !== "string") return null;
         if (!options.includes(f.default)) return null;
         out.push({
-          key: f.key,
-          label: f.label,
+          ...base,
           type: "select",
           default: f.default,
           options: options as string[],
@@ -768,15 +719,13 @@ function parseSettings(raw: unknown): SettingField[] | null {
         if (typeof f.default !== "number" || !Number.isFinite(f.default)) {
           return null;
         }
-        const min = f.min === undefined ? undefined : f.min;
-        const max = f.max === undefined ? undefined : f.max;
+        const { min, max } = f;
         if (min !== undefined && typeof min !== "number") return null;
         if (max !== undefined && typeof max !== "number") return null;
         if (typeof min === "number" && f.default < min) return null;
         if (typeof max === "number" && f.default > max) return null;
         out.push({
-          key: f.key,
-          label: f.label,
+          ...base,
           type: "number",
           default: f.default,
           ...(typeof min === "number" ? { min } : {}),
@@ -791,20 +740,30 @@ function parseSettings(raw: unknown): SettingField[] | null {
           return null;
         }
         if (f.default.length > (maxLength ?? 500)) return null;
-        const placeholder = f.placeholder;
-        if (placeholder !== undefined && typeof placeholder !== "string") {
-          return null;
-        }
-        if (typeof placeholder === "string" && placeholder.length > 100) {
-          return null;
-        }
+        const placeholder = parsePlaceholder(f.placeholder);
+        if (placeholder === null) return null;
         out.push({
-          key: f.key,
-          label: f.label,
+          ...base,
           type: "text",
           default: f.default,
           ...(typeof maxLength === "number" ? { maxLength } : {}),
-          ...(typeof placeholder === "string" ? { placeholder } : {}),
+          ...(placeholder !== undefined ? { placeholder } : {}),
+        });
+        break;
+      }
+      case "boolean": {
+        if (typeof f.default !== "boolean") return null;
+        out.push({ ...base, type: "boolean", default: f.default });
+        break;
+      }
+      case "secret": {
+        if (!allowSecret) return null;
+        const placeholder = parsePlaceholder(f.placeholder);
+        if (placeholder === null) return null;
+        out.push({
+          ...base,
+          type: "secret",
+          ...(placeholder !== undefined ? { placeholder } : {}),
         });
         break;
       }
@@ -813,4 +772,11 @@ function parseSettings(raw: unknown): SettingField[] | null {
     }
   }
   return out;
+}
+
+/** Undefined when absent, null when wrong. */
+function parsePlaceholder(raw: unknown): string | undefined | null {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string" || raw.length > 100) return null;
+  return raw;
 }

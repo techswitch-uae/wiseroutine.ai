@@ -439,9 +439,8 @@ model Widget {
 /// An installed addon.
 ///
 /// The package, not the card: an addon may contribute widgets, activity types
-/// with their own guided sessions, or both. Nothing loads one yet - this table
-/// exists now so that the thing which does needs no migration, and so that
-/// `owner_addon_id` below has something to mean.
+/// with their own guided sessions, or both. The desktop app loads what is
+/// listed here and enabled.
 model Addon {
   /// Reverse-DNS-ish and globally unique, e.g. `acme.fitness`. The half before
   /// the `/` in every key this addon owns.
@@ -454,9 +453,14 @@ model Addon {
   /// Which of the capabilities it asked for were actually granted, as JSON.
   /// Asked-for and granted are different lists, and only this one is a gate.
   grantedJson String @map("granted_json")
-  /// sha256 of the bundle whose signature was verified before it was written
-  /// to disk. What a later launch re-checks the files against.
+  /// sha256 of the bundle as published by the registry. Empty for an addon
+  /// that ships inside the app. The desktop app refuses a bundle that does
+  /// not hash to this.
   bundleHash String @map("bundle_hash")
+
+  /// The addon's own settings, as the user set them, as JSON. Secret fields
+  /// are never stored here; they stay on the device.
+  settingsJson String @default("{}") @map("settings_json")
 
   /// Off keeps it installed, its settings and its slots. Uninstalling is a
   /// different act with different consequences.

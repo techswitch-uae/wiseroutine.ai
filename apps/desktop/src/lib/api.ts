@@ -185,6 +185,8 @@ export interface TodaySlot {
   startPolicy?: string;
   /** The module's own settings, as the JSON text it wrote. */
   configJson?: string | null;
+  /** The addon that placed it, or null. */
+  ownerAddonId?: string | null;
 }
 
 export interface TodayMeeting {
@@ -387,6 +389,8 @@ export interface AvailableAddon {
   author: string;
   /** Where to fetch the bundle. Relative for one bundled with the app. */
   bundleUrl: string;
+  /** sha256 hex of the bundle. Empty for a bundled addon. */
+  bundleHash: string;
   manifest: unknown;
 }
 
@@ -398,6 +402,8 @@ export interface InstalledAddonRow {
   /** What was granted, which is not always what the manifest now asks for. */
   granted: unknown;
   manifest: unknown;
+  /** Addon-level settings, as the user set them. */
+  settings: unknown;
   /**
    * Ships inside the app, so it is switched rather than installed or removed.
    *
@@ -540,19 +546,31 @@ export interface MissedItem {
  * a routine followed on a plane keeps its real shape instead of collapsing
  * into the minute the connection came back.
  */
+/** The header that names the addon a request is made for. The server reads
+ *  the addon's grant and checks ownership. */
+const forAddon = (addonId: string | undefined): Record<string, string> =>
+  addonId ? { "x-wr-addon": addonId } : {};
+
 async function slotAction(
   slotId: string,
   kind: PendingKind,
   reason?: string,
+  addonId?: string,
 ): Promise<{ queued: boolean }> {
   const at = Date.now();
   const body = { at, ...(reason !== undefined ? { reason } : {}) };
 
   try {
-    await send(`/slots/${slotId}/${kind}`, post(body));
+    await send(`/slots/${slotId}/${kind}`, {
+      ...post(body),
+      headers: forAddon(addonId),
+    });
     return { queued: false };
   } catch (error) {
     if (!(error instanceof OfflineError)) throw error;
+    // An addon's write is not queued: the queue replays as the user, and the
+    // server would then check the wrong grant.
+    if (addonId) throw error;
     enqueue({ slotId, kind, at, ...(reason !== undefined ? { reason } : {}) });
     return { queued: true };
   }
@@ -910,15 +928,24 @@ export const api = {
   /* ── Todos ───────────────────────────────────────────────────────────── */
 
   todos: () => request<Todo[]>("/todos"),
-  createTodo: (input: { title: string; minutes?: number | null }) =>
-    request<Todo>("/todos", post(input)),
-  setTodo: (id: string, status: "done" | "dropped") =>
+  /** `addonId` names the addon writing, so the server checks its grant. */
+  createTodo: (
+    input: { title: string; minutes?: number | null },
+    addonId?: string,
+  ) => request<Todo>("/todos", { ...post(input), headers: forAddon(addonId) }),
+  setTodo: (id: string, status: "done" | "dropped", addonId?: string) =>
     request<void>(`/todos/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ status }),
+      headers: forAddon(addonId),
     }),
   /** The todo becomes a slot. Same route as `placeSlot`, same refusals. */
-  placeTodo: (todoId: string, startsAt: number, endsAt?: number) =>
+  placeTodo: (
+    todoId: string,
+    startsAt: number,
+    endsAt?: number,
+    addonId?: string,
+  ) =>
     request<TodaySlot>("/slots", {
       method: "POST",
       body: JSON.stringify({
@@ -926,6 +953,22 @@ export const api = {
         startsAt,
         ...(endsAt !== undefined ? { endsAt } : {}),
       }),
+      headers: forAddon(addonId),
+    }),
+  /** A slot of the addon's own: a title and a kind, no activity. */
+  placeOwnSlot: (
+    addonId: string,
+    input: {
+      title: string;
+      kind: "recovery" | "focus" | "task";
+      startsAt: number;
+      endsAt: number;
+    },
+  ) =>
+    request<TodaySlot>("/slots", {
+      method: "POST",
+      body: JSON.stringify(input),
+      headers: forAddon(addonId),
     }),
 
   /* ── Addons ──────────────────────────────────────────────────────────── */
@@ -933,11 +976,22 @@ export const api = {
   availableAddons: () =>
     request<{ addons: AvailableAddon[] }>("/addons/available"),
   installedAddons: () => request<{ addons: InstalledAddonRow[] }>("/addons"),
-  installAddon: (id: string) =>
+  /** `granted` is the subset of the manifest's capabilities the user
+   *  approved. Omitted, a fresh install grants all and an upgrade keeps
+   *  what it had. */
+  installAddon: (id: string, granted?: unknown) =>
     request<{ id: string; version: string }>(
       `/addons/${encodeURIComponent(id)}/install`,
-      { method: "POST" },
+      {
+        method: "POST",
+        body: JSON.stringify(granted !== undefined ? { granted } : {}),
+      },
     ),
+  setAddonSettings: (id: string, settings: unknown) =>
+    request<void>(`/addons/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ settings }),
+    }),
   addonImpact: (id: string) =>
     request<AddonImpact>(`/addons/${encodeURIComponent(id)}/impact`),
   setAddonEnabled: (id: string, isEnabled: boolean) =>
@@ -951,8 +1005,10 @@ export const api = {
     }),
 
   startSlot: (id: string) => slotAction(id, "start"),
-  completeSlot: (id: string) => slotAction(id, "complete"),
-  skipSlot: (id: string, reason?: string) => slotAction(id, "skip", reason),
+  completeSlot: (id: string, addonId?: string) =>
+    slotAction(id, "complete", undefined, addonId),
+  skipSlot: (id: string, reason?: string, addonId?: string) =>
+    slotAction(id, "skip", reason, addonId),
   pendingCount: () => pending().length,
 };
 

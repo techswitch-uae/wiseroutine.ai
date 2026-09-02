@@ -1,14 +1,21 @@
 import { describe, expect, test } from "vitest";
 import {
   type AddonCapability,
+  API_VERSION,
   canAddon,
+  coveredBy,
+  defaultConfig,
   GRANTABLE_READ_SCOPES,
   isAddonId,
   isGrantable,
   isPlainHttpsOrigin,
+  isReservedId,
+  isShown,
   ownerOf,
+  parseConfig,
   parseManifest,
   qualify,
+  ungranted,
 } from "./index";
 
 /**
@@ -278,5 +285,127 @@ describe("todos and quick add", () => {
     );
     expect(canAddon([read], write).ok).toBe(false);
     expect(canAddon([write], write).ok).toBe(true);
+  });
+});
+
+describe("what changed for the SDK to be opened up", () => {
+  const base = {
+    id: "acme.fitness",
+    name: "Acme",
+    version: "1.0.0",
+    description: "x",
+    capabilities: [],
+  };
+
+  test("a manifest built against a newer contract is refused", () => {
+    expect(parseManifest({ ...base, apiVersion: API_VERSION + 1 })).toBeNull();
+    expect(parseManifest({ ...base, apiVersion: 1 })?.apiVersion).toBe(1);
+    expect(parseManifest(base)?.apiVersion).toBe(1);
+  });
+
+  test("origins are checked in the manifest, not only at install", () => {
+    expect(
+      parseManifest({
+        ...base,
+        capabilities: [{ kind: "net:fetch", origins: ["https://*.x.example"] }],
+      }),
+    ).toBeNull();
+  });
+
+  test("a secret may live only at the addon level", () => {
+    const secret = { key: "apiKey", label: "Key", type: "secret" };
+    expect(parseManifest({ ...base, settings: [secret] })?.settings).toEqual([
+      secret,
+    ]);
+    expect(
+      parseManifest({
+        ...base,
+        activityTypes: [
+          {
+            key: "w",
+            name: "W",
+            blurb: "b",
+            defaults: { sessionMinutes: 5, startPolicy: "manual" },
+            settings: [secret],
+          },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  test("fetch auth must name a declared secret", () => {
+    const fetch = {
+      kind: "net:fetch",
+      origins: ["https://api.example"],
+      auth: { secret: "apiKey", header: "Authorization", prefix: "Bearer " },
+    };
+    expect(parseManifest({ ...base, capabilities: [fetch] })).toBeNull();
+    expect(
+      parseManifest({
+        ...base,
+        capabilities: [fetch],
+        settings: [{ key: "apiKey", label: "Key", type: "secret" }],
+      })?.capabilities,
+    ).toEqual([fetch]);
+    // Never the cookie jar.
+    expect(
+      parseManifest({
+        ...base,
+        capabilities: [{ ...fetch, auth: { ...fetch.auth, header: "Cookie" } }],
+        settings: [{ key: "apiKey", label: "Key", type: "secret" }],
+      }),
+    ).toBeNull();
+  });
+
+  test("a grant may be narrower than the manifest, never wider", () => {
+    const asked = [
+      { kind: "ui:widget" },
+      {
+        kind: "net:fetch",
+        origins: ["https://a.example", "https://b.example"],
+      },
+    ] as const;
+    expect(coveredBy([{ kind: "ui:widget" }], asked).ok).toBe(true);
+    expect(
+      coveredBy([{ kind: "net:fetch", origins: ["https://a.example"] }], asked)
+        .ok,
+    ).toBe(true);
+    expect(coveredBy([{ kind: "write:own" }], asked).ok).toBe(false);
+    expect(
+      coveredBy([{ kind: "net:fetch", origins: ["https://c.example"] }], asked)
+        .ok,
+    ).toBe(false);
+    expect(ungranted(asked, [{ kind: "ui:widget" }])).toEqual([asked[1]]);
+  });
+
+  test("booleans parse and secrets never enter a config", () => {
+    const schema = {
+      settings: [
+        { key: "on", label: "On", type: "boolean", default: false },
+        { key: "apiKey", label: "Key", type: "secret" },
+      ] as const,
+    };
+    expect(parseConfig(schema, { on: true, apiKey: "leak" })).toEqual({
+      on: true,
+    });
+    expect(parseConfig(schema, { on: "yes" })).toEqual({ on: false });
+    expect(defaultConfig(schema)).toEqual({ on: false });
+  });
+
+  test("a field is hidden until the one it depends on says so", () => {
+    const field = {
+      key: "url",
+      label: "URL",
+      type: "text",
+      default: "",
+      showWhen: { key: "mode", equals: "custom" },
+    } as const;
+    expect(isShown(field, { mode: "custom" })).toBe(true);
+    expect(isShown(field, { mode: "default" })).toBe(false);
+  });
+
+  test("the app's own id prefix is reserved", () => {
+    expect(isReservedId("wiseroutine.todos")).toBe(true);
+    expect(isReservedId("acme.todos")).toBe(false);
   });
 });

@@ -1,66 +1,42 @@
 /**
  * The Wise Routine addon SDK.
  *
- * This is the whole surface an addon has. If something is not on this page,
- * an addon cannot do it - not because it is discouraged, but because the code
- * runs in a sandboxed frame with no same-origin access, no Tauri IPC and no
- * network beyond the origins its manifest declared. There is no back door to
- * find, which is the point: it means an addon can be installed by someone who
- * has not read it.
+ * This file is the whole surface an addon has. Your code runs in an iframe
+ * with `sandbox="allow-scripts"`: an opaque origin, no storage, no reach into
+ * the app, and a Content-Security-Policy built from what the user granted.
+ * The host hands you one `MessagePort` at load, and everything below travels
+ * over it.
  *
- * ## How an addon runs
+ * Inside the frame:
  *
- * The host loads your bundle into an `<iframe sandbox="allow-scripts">` and
- * hands it one `MessagePort`. Everything below travels over that port. The
- * frame has an opaque origin, so:
+ * - `localStorage`, `sessionStorage` and `indexedDB` throw. Use `store`.
+ * - `fetch` reaches only the `net:fetch` origins you were granted, and sends
+ *   `Origin: null`. For an API that needs a key, use `wr.fetch` instead: the
+ *   host signs the request and the key never reaches your code.
+ * - The host paints the ground behind your frame. Set `html, body {
+ *   background: transparent }` and use `wr.theme` for colours.
  *
- * - `localStorage`, `sessionStorage` and `indexedDB` throw. Ask the host.
- * - `window.parent` is unreachable except through the port you were given.
- * - `fetch` reaches only the origins in your manifest's `net:fetch`, and that
- *   is enforced by the frame's Content-Security-Policy as well as by a check.
- * - The host paints the ground behind your frame, so set `html, body {
- *   background: transparent }`. `color-scheme` alone is not enough: the
- *   browser paints its own canvas, and it will not be the same dark as the
- *   host's.
- *
- * Possession of the port *is* the capability. It is transferred once, at load,
- * and never broadcast - so nothing else on the page can talk to the host as
- * you, and you cannot talk to another addon.
- *
- * ## Everything is async
- *
- * Every call returns a promise, including the ones that look like they could
- * be synchronous. That is not incidental: the host may be in another frame,
- * and an API that was synchronous today could not move there tomorrow without
- * rewriting every addon that used it.
- *
- * ## Writing one
+ * Every call is async, even the ones that look like they need not be.
  *
  * ```ts
  * import { connect } from "@wiseroutine/addon-sdk";
  *
  * const wr = await connect();
- * const session = await wr.session();
- * document.body.append(render(session.config));
+ * if (wr.role.kind === "widget") drawCard(wr);
+ * else if (wr.role.kind === "session") runSession(wr);
  * ```
  *
- * See `addons/breathing` in the Wise Routine repository for a complete,
- * working example - it is the app's own breathing pacer, written against
- * exactly this SDK and with no privileges yours does not have.
+ * See `addons/` in the Wise Routine repository for complete examples. The
+ * app's own sessions and cards are written against exactly this SDK.
  */
 
-/* ── What the host sends ─────────────────────────────────────────────────── */
+/* ── What the host sends ────────────────────────────────────────────────── */
 
 /**
- * The slot your session is running in.
+ * The slot your session runs in. Instants are epoch milliseconds.
  *
- * Instants in epoch milliseconds, like everything else that crosses this
- * boundary. Deliberately not `Date`: an addon and the host may disagree about
- * a timezone, and they may not disagree about an instant.
- *
- * `endsAt` is when *this run* ends, which is not always where the block sits
- * on the day - a three-minute session begun six minutes early ends three
- * minutes later, not nine. Pace against this, not against the calendar.
+ * `endsAt` is when this run ends, which may differ from where the block sits
+ * on the day. Pace against it.
  */
 export interface SessionSlot {
   id: string;
@@ -69,67 +45,33 @@ export interface SessionSlot {
   endsAt: number;
 }
 
-/**
- * Your session, as the host is running it.
- *
- * `config` is whatever your settings schema produced, already parsed by the
- * host against the schema in your manifest. It is yours - the host stores it
- * as opaque JSON and does not look inside beyond validating it against the
- * schema you declared.
- */
+/** Your session. `config` is the activity's settings, parsed against the
+ *  schema in your manifest. */
 export interface Session<Config = unknown> {
   slot: SessionSlot;
   config: Config;
 }
 
 /**
- * The host's look, as values rather than as variables.
+ * The host's colours and fonts, resolved to values. Your frame inherits
+ * nothing, so hard-coding a colour means being unreadable in one theme.
  *
- * Your frame is a separate document with an opaque origin, so it inherits
- * nothing: not the app's stylesheet, not its CSS custom properties, not its
- * `prefers-color-scheme` handling. Hard-coding a colour means an addon that is
- * legible in one theme and unreadable in the other, and the user picked the
- * theme.
- *
- * So the host resolves its own tokens and sends them. They are already
- * computed - `#1a1a19`, not `var(--color-text)` - because a variable would
- * only be a name for something your document has no definition of.
- *
- * Whether you should use them depends on the `ground` your activity type
- * declared. On `page` you are drawing inside the app's own surface and should
- * use these. On `dim` the host paints a near-black ground of its own, and
- * light text on it is the right answer whatever the theme is - which is why
- * the breathing pacer hard-codes its two colours and is right to.
+ * On a `dim` ground the host paints near-black and light text is right in
+ * either theme, so a session drawn on it may ignore these.
  */
 export interface AddonTheme {
-  /** Body text on the current ground. */
   text: string;
-  /** Secondary text - captions, hints, the quieter half of a pair. */
   muted: string;
-  /** The surface behind your frame. Yours should stay transparent; this is
-   *  for anything you need to draw *over* it opaquely. */
   background: string;
-  /** The one-pixel rule the app draws between things. */
   hairline: string;
-  /** The empty half of a progress bar. Distinct from `hairline`, which is a
-   *  border: a track is a filled shape and needs to read as one. */
   track: string;
-  /** The app's own accent. Use sparingly - it is the colour the user's eye
-   *  has learned means "this is the app talking". */
   accent: string;
   fontBody: string;
   fontHeading: string;
 }
 
-/**
- * One slot on the user's day.
- *
- * A narrower view than the app's own: no conflict data, no lock state, no
- * calendar event ids. An addon is shown what it needs to draw and to reason
- * about its own work, and `ownedByYou` is the one that matters for writes -
- * a slot where that is false cannot be changed by you, and the server will
- * refuse it however the request is phrased.
- */
+/** One slot on the user's day. `ownedByYou` is true for slots you placed;
+ *  only those can be changed by you. */
 export interface DaySlot {
   id: string;
   title: string;
@@ -147,118 +89,72 @@ export interface DaySlot {
   ownedByYou: boolean;
 }
 
-/** The day, as far as your `read:schedule` scope reaches. */
 export interface DayView {
-  /** Local midnight and the end of the user's day, as instants. */
   dayStart: number;
   dayEnd: number;
   timeZone: string;
   slots: DaySlot[];
 }
 
-/**
- * A todo: something the user means to do, with no time yet.
- *
- * Deliberately no instant on it. The moment a todo is put on the day it
- * becomes a slot - it leaves this list and appears in `day()` - so a time
- * here would be a second copy of one the slot already carries.
- */
+/** A todo: something with no time yet. Once placed it becomes a slot. */
 export interface Todo {
   id: string;
   title: string;
-  /** How long it needs, or null for "no idea yet". */
   minutes: number | null;
   needsFocus: boolean;
-  /** Where it would go if placed right now: the first gap on today that
-   *  fits it, or null when today has none. Computed by the host. */
+  /** The first gap on today that fits it, or null. Computed by the host. */
   fitsAt: number | null;
 }
 
-/**
- * What the user typed into Quick add and then chose to hand to you.
- *
- * `key` is the bare key from your manifest's `quickAdd`, so an addon that
- * contributes two rows can tell them apart. `minutes` is the duration they
- * had picked, or null if they never touched it.
- */
+/** What the user typed into Quick add and handed to you. `key` is the bare
+ *  key from your manifest's `quickAdd`. */
 export interface QuickAddRequest {
   key: string;
   title: string;
   minutes: number | null;
 }
 
-/* ── Why you were loaded ─────────────────────────────────────────────────── */
+/** Answers a Quick add request. A returned string is shown to the user. */
+export type QuickAddListener = (request: QuickAddRequest) => unknown;
+
+/* ── Why you were loaded ────────────────────────────────────────────────── */
 
 /**
- * What the host loaded you to be.
+ * One bundle serves every role. The host tells you which one this frame is
+ * in the handshake, so branch on it first.
  *
- * An addon may contribute a guided session, a card in the rail, or both, and
- * the same bundle runs in every case - one addon is one bundle, served from
- * one `addon://` document. So the role has to arrive from outside, and it
- * arrives in the handshake rather than as a call: it is known before your
- * first line runs, and a round trip to ask "what am I?" would be a round trip
- * every addon pays before it can draw anything.
- *
- * Branch on it at the top of your entry point:
- *
- * ```ts
- * const wr = await connect();
- * if (wr.role.kind === "widget") return drawCard(wr);
- * return runSession(wr);
- * ```
+ * - `session`: a guided session is running. Call `session()`.
+ * - `widget`: a card in the rail. Call `card()` when you have something to show.
+ * - `background`: a hidden frame kept running while the app is open. Given to
+ *   addons with `quickAdd` rows or `background:wake`. Quick add requests are
+ *   delivered here when this frame exists.
  */
 export type AddonRole =
   | { kind: "session" }
-  /** `widgetKey` is the bare key from your manifest's `widgets`, not the
-   *  namespaced one - inside your own bundle there is nothing to namespace
-   *  against. It tells an addon contributing two cards which one this is. */
-  | { kind: "widget"; widgetKey: string };
+  | { kind: "widget"; widgetKey: string }
+  | { kind: "background" };
 
 /**
- * How the host should frame your card.
- *
- * The rail card around your frame is the host's - its ground, its corner
- * radius, its spacing, the same as every other card beside it. You draw the
- * inside. What you get to say about the outside is this, and it exists
- * because three things genuinely cannot be decided from a manifest:
- *
- * - **Whether there is anything to show at all.** A card that says nothing
- *   is worse than no card: an empty surface in the rail reads as something
- *   that failed to load. Pass `null` to `card()` and the host takes it down.
- * - **The eyebrow**, which is often a reading of the data rather than a name
- *   for the addon - "Day so far" against "Day done".
- * - **How tall you are.** An iframe has no intrinsic height, so something
- *   has to say, and only you know how many lines you drew.
- *
- * Your card starts hidden and appears when you first call `card()`. That way
- * round on purpose: a card that appeared and then vanished a tick later,
- * because the addon had nothing after all, is a flicker in the corner of the
- * user's eye every time the rail renders.
+ * How the host frames your card. The card is hidden until the first call.
+ * Pass `null` to take it down.
  */
 export interface WidgetCard {
-  /** The small upper-case label at the top of the card. Falls back to the
-   *  name your manifest gave this widget. */
+  /** The small label at the top of the card. Defaults to the widget's name. */
   eyebrow?: string;
-  /** CSS pixels, clamped by the host - see `CARD_BOUNDS` in
-   *  `@wiseroutine/addons`. You cannot grow until you have pushed the rest of
-   *  the rail off the screen. */
+  /** CSS pixels, clamped by the host to `CARD_BOUNDS`. */
   height?: number;
 }
 
-/* ── Errors ──────────────────────────────────────────────────────────────── */
+/* ── Errors ─────────────────────────────────────────────────────────────── */
 
 /**
- * The host refused.
- *
- * Always because of a rule, never because of a bug: a capability you were not
- * granted, a slot you do not own, a scope wider than your manifest asked for.
- * The message is the reason, written to be shown to the user if that helps
- * them - it is the same sentence the permission screen would use.
+ * The host refused. `denied` is a rule: a missing grant, a slot you do not
+ * own. `failed` is something that went wrong. The message is written to be
+ * shown to the user.
  */
 export class AddonError extends Error {
   constructor(
     message: string,
-    /** `denied` is a rule. `failed` is something that went wrong. */
     readonly kind: "denied" | "failed" = "denied",
   ) {
     super(message);
@@ -266,146 +162,81 @@ export class AddonError extends Error {
   }
 }
 
-/* ── The client ──────────────────────────────────────────────────────────── */
+/* ── The client ─────────────────────────────────────────────────────────── */
 
 export interface AddonClient {
-  /**
-   * Why the host loaded you. Known at connect, so it is a value, not a call.
-   */
   readonly role: AddonRole;
-
-  /**
-   * The app's own colours and fonts, resolved. See `AddonTheme`.
-   *
-   * Handed over with the port rather than fetched, so there is no first paint
-   * in the wrong colours - a flash of unreadable text at the start of a
-   * session is worse than no theming at all.
-   */
   readonly theme: AddonTheme;
+  /** The SDK contract the host speaks. Compare with your manifest's
+   *  `apiVersion`. */
+  readonly hostVersion: number;
 
-  /**
-   * The session you were loaded for.
-   *
-   * Rejects if `role.kind` is not `"session"`. Check the role rather than
-   * catching this: it is a programming mistake, not a condition.
-   */
+  /** The session you were loaded for. Rejects unless `role.kind` is
+   *  `"session"`. */
   session<Config = unknown>(): Promise<Session<Config>>;
 
-  /**
-   * Show your card in the rail, or take it down.
-   *
-   * Only for `role.kind === "widget"`; rejects otherwise. Call it as often as
-   * your reading changes - it is a plain state update on the host side, not a
-   * remount, so your frame keeps running and nothing reloads.
-   *
-   * `card(null)` hides you. Until the first call you are not on screen at all.
-   */
+  /** End the session early as done. The host completes the slot, the same
+   *  as the user pressing Done. Requires `ui:session`. */
+  finishSession(): Promise<void>;
+
+  /** Show or update your card, or `card(null)` to hide it. Widgets only. */
   card(card: WidgetCard | null): Promise<void>;
 
-  /**
-   * Be told when the user's day changes, instead of asking on a timer.
-   *
-   * Fires when a slot is completed, skipped, moved, or the day is re-read -
-   * whatever the reason, the answer `day()` would give is no longer the one
-   * you drew. It carries nothing: call `day()` for the new one.
-   *
-   * A rail card has to be current, and polling is the wrong shape for that.
-   * Every addon on a timer is a wakeup the machine pays for whether or not
-   * anything happened, and the lag between pressing Done and the card
-   * agreeing is the interval you picked.
-   *
-   * Returns the unsubscribe. You rarely need it - your frame is torn down
-   * with your card - but a listener you cannot remove is not a listener.
-   */
+  /** Your addon-level settings, as the user set them on the Addons page.
+   *  Secret fields are never included. */
+  settings<T = Record<string, unknown>>(): Promise<T>;
+
+  /** Fires when the day changed. Carries nothing: call `day()` again. */
   onDayChange(listener: () => void): () => void;
 
-  /**
-   * The user's day, as far as your granted scope reaches.
-   *
-   * Rejects with `AddonError` if you were not granted `read:schedule`, or
-   * asked for a wider window than you were granted.
-   */
+  /** The user's day. Requires `read:schedule`. */
   day(): Promise<DayView>;
 
   /**
-   * Ask for a slot of your own.
-   *
-   * Two ways, and the first is usually right. Give `preferredAt` and the app's
-   * scheduler places it in a real gap alongside everything else the user has,
-   * so it cannot land on a meeting or double-book another addon. Give
-   * `startsAt` and it goes exactly there, pinned, which is what you want only
-   * when the time is the point - a class that starts at six.
-   *
-   * The slot is yours: `ownedByYou` will be true, and you may change it.
-   * Requires `write:own`.
+   * Place a slot of your own. Give `startsAt` to pin it there, or
+   * `preferredAt` and the host picks the first that is free, falling back to
+   * the first free gap today. Requires `write:own`.
    */
   placeSlot(request: {
     title: string;
     kind: "recovery" | "focus" | "task";
     minutes: number;
-    /** Exact placement, pinned. Mutually exclusive with `preferredAt`. */
     startsAt?: number;
-    /** Instants you would prefer, best first. The scheduler decides. */
     preferredAt?: number[];
   }): Promise<DaySlot>;
 
-  /**
-   * Complete or skip a slot you own.
-   *
-   * Refused for a slot you do not own, by the server and not merely here.
-   * Requires `write:own`.
-   */
+  /** Complete or skip a slot you placed. The server refuses any other.
+   *  Requires `write:own`. */
   setSlotStatus(slotId: string, status: "completed" | "skipped"): Promise<void>;
 
   /**
-   * Fetch, restricted to the origins your manifest declared.
-   *
-   * The same signature as `fetch`, and for a declared origin you may simply
-   * use `fetch` instead - the frame's CSP already permits it and nothing here
-   * is doing you a favour. This exists for the case where the host has a
-   * credential you do not: an integration whose token the user connected
-   * through the app never has that token handed to your code.
+   * Fetch through the host. Same signature as `fetch`, restricted to your
+   * `net:fetch` origins. Use it when the origin needs a key: if the
+   * capability declares `auth`, the host adds the header from the secret the
+   * user entered. Also avoids `Origin: null`. Only string bodies. Desktop app
+   * only; in the web build it is refused.
    */
   fetch(input: string, init?: RequestInit): Promise<Response>;
 
-  /**
-   * Open a link outside the app, in whatever the machine uses for it.
-   *
-   * Requires `open:external`, and the URL's origin must be one your manifest
-   * declared - the host re-checks it rather than trusting the grant alone, so
-   * a redirect you did not write cannot be laundered through this.
-   *
-   * Resolves `true` if the machine took it. `false` means it refused - an
-   * unregistered scheme, a browser that is not there - and is worth telling
-   * the user about, because a link that silently does nothing reads as a
-   * broken addon.
-   *
-   * Use it sparingly. Sending someone out of the app in the middle of a
-   * session is the most disruptive thing an addon can do, and it is exactly
-   * what a session is meant to prevent.
-   */
+  /** Open an https link on one of your `open:external` origins in the
+   *  user's browser. Resolves false if the machine refused. */
   openExternal(url: string): Promise<boolean>;
 
+  /** Show the user a notification, labelled with your addon's name.
+   *  Requires `notify`. */
+  notify(notice: { title: string; body?: string }): Promise<void>;
+
   /**
-   * Store something small, private to your addon and this user.
-   *
-   * The sandboxed frame has no storage of its own by design. This is the
-   * replacement: a few kilobytes, yours alone, and gone when the user
-   * uninstalls you.
+   * A small key-value store, private to your addon, on this device. Values
+   * must be JSON, up to 16 KB each. Cleared when the addon is removed.
    */
   store: {
     get(key: string): Promise<unknown>;
     set(key: string, value: unknown): Promise<void>;
   };
 
-  /**
-   * The user's todos - the app's own list, not a private one.
-   *
-   * `list` needs `read:todos`; the rest need `write:todos`. `place` turns a
-   * todo into a slot on the day: at `startsAt` if given, otherwise at
-   * `fitsAt`, the first gap on today that fits it. Refused when there is no
-   * such gap, so check `fitsAt` before offering it.
-   */
+  /** The user's todos. `list` needs `read:todos`; the rest need
+   *  `write:todos`. `place` refuses when nothing today fits. */
   todos: {
     list(): Promise<Todo[]>;
     add(input: { title: string; minutes?: number | null }): Promise<Todo>;
@@ -413,77 +244,45 @@ export interface AddonClient {
     place(id: string, startsAt?: number): Promise<DaySlot>;
   };
 
-  /**
-   * Be told when the todos changed, the same way `onDayChange` tells you the
-   * day did. Carries nothing: call `todos.list()` for the new one.
-   */
   onTodosChange(listener: () => void): () => void;
 
   /**
-   * What Quick add handed you - see `quickAdd` in the manifest.
-   *
-   * Delivered to one of your running frames; a widget is the usual one. The
-   * host has already closed the dialog and told the user it is with you, so
-   * do the thing without asking again.
+   * Quick add handed you something. Do the work in the listener; when it
+   * settles the host tells the user. Return a short sentence to show, or
+   * throw to report a failure. Delivered to your `background` frame if you
+   * have one, otherwise to your first running frame.
    */
-  onQuickAdd(listener: (request: QuickAddRequest) => void): () => void;
+  onQuickAdd(listener: QuickAddListener): () => void;
 }
 
-/* ── The wire ────────────────────────────────────────────────────────────── */
+/* ── The wire ───────────────────────────────────────────────────────────── */
 
-/**
- * One call, and its answer.
- *
- * Deliberately boring: a monotonic id, a method name and a JSON payload.
- * Everything is structured-cloneable, so nothing needs a serialiser and
- * nothing can smuggle a function across.
- */
 interface RpcCall {
   id: number;
   method: string;
   params?: unknown;
 }
 
-/**
- * Named `RpcReply` rather than `Response`, which is not a style preference.
- * `Response` shadows the DOM class inside this module, and the first version
- * of this file did exactly that - so `fetch(): Promise<Response>` on the
- * public interface silently promised this envelope instead of an HTTP
- * response. Published types are a contract; one that compiles and means the
- * wrong thing is worse than one that does not compile.
- */
+/** Not named `Response`: that shadows the DOM class this module returns. */
 interface RpcReply {
   id: number;
   result?: unknown;
   error?: { message: string; kind: "denied" | "failed" };
 }
 
-/**
- * Something the host announces, rather than answers.
- *
- * On the same port and told apart by having no `id`: a reply is always to a
- * call, so anything without one is the host talking first. One shape rather
- * than a second channel - a second port would be a second thing to transfer,
- * tear down, and get wrong.
- */
+/** Something the host announces. Told apart from a reply by having no `id`. */
 type HostEvent =
   | { event: "day" }
   | { event: "todos" }
-  | { event: "quickAdd"; request: QuickAddRequest };
+  | { event: "quickAdd"; requestId: number; request: QuickAddRequest };
 
 const HANDSHAKE = "wiseroutine:addon:port";
 
-/**
- * The handshake, which carries more than a port.
- *
- * `role` and `theme` are both known to the host before your bundle runs and
- * neither can change for the life of the frame, so sending them with the port
- * costs nothing and saves every addon two round trips before its first paint.
- */
 interface Handshake {
   type: typeof HANDSHAKE;
   role: AddonRole;
   theme: AddonTheme;
+  hostVersion?: number;
 }
 
 const isHandshake = (data: unknown): data is Handshake =>
@@ -492,15 +291,10 @@ const isHandshake = (data: unknown): data is Handshake =>
   (data as { type?: unknown }).type === HANDSHAKE;
 
 /**
- * Connect to the host.
+ * Connect to the host. Call once at the top of your entry point.
  *
- * Waits for the port the host transfers at load. Call it once, at the top of
- * your entry point, and keep the client.
- *
- * The timeout is not a nicety: an addon left awaiting a port that is never
- * coming shows the user a blank session with no explanation. Ten seconds is
- * far longer than a transfer that happens in the same tick, and short enough
- * that the failure is visible while they are still looking.
+ * The timeout matters: an addon waiting for a port that never comes is a
+ * blank session with no explanation.
  */
 export function connect(timeoutMs = 10_000): Promise<AddonClient> {
   return new Promise((resolve, reject) => {
@@ -510,9 +304,8 @@ export function connect(timeoutMs = 10_000): Promise<AddonClient> {
     }, timeoutMs);
 
     function onMessage(event: MessageEvent) {
-      // The handshake is the only message accepted on the global listener, and
-      // everything afterwards travels on the port. A page that could keep
-      // talking to the frame's `window` would be a second way in.
+      // The handshake is the only message accepted on the window. Everything
+      // after travels on the port.
       if (!isHandshake(event.data)) return;
       const port = event.ports[0];
       if (!port) return;
@@ -534,7 +327,31 @@ function clientOver(port: MessagePort, hello: Handshake): AddonClient {
   >();
   const onDay = new Set<() => void>();
   const onTodos = new Set<() => void>();
-  const onQuick = new Set<(request: QuickAddRequest) => void>();
+  const onQuick = new Set<QuickAddListener>();
+
+  const answerQuickAdd = async (
+    requestId: number,
+    request: QuickAddRequest,
+  ) => {
+    try {
+      let message: string | undefined;
+      for (const listen of [...onQuick]) {
+        const said = await listen(request);
+        if (typeof said === "string") message = said;
+      }
+      port.postMessage({
+        event: "quickAdd:done",
+        requestId,
+        ...(message ? { message: message.slice(0, 80) } : {}),
+      });
+    } catch (cause) {
+      port.postMessage({
+        event: "quickAdd:done",
+        requestId,
+        error: cause instanceof Error ? cause.message : "It did not work.",
+      });
+    }
+  };
 
   port.addEventListener(
     "message",
@@ -542,14 +359,13 @@ function clientOver(port: MessagePort, hello: Handshake): AddonClient {
       const data = event.data;
       if (!data) return;
 
-      // No id means the host spoke first - see `HostEvent`.
       if (!("id" in data)) {
-        // Copied before iterating: a listener that unsubscribes itself would
-        // otherwise mutate the set mid-loop.
+        // Copied before iterating: a listener may unsubscribe itself.
         if (data.event === "day") for (const listen of [...onDay]) listen();
         if (data.event === "todos") for (const listen of [...onTodos]) listen();
-        if (data.event === "quickAdd")
-          for (const listen of [...onQuick]) listen(data.request);
+        if (data.event === "quickAdd") {
+          void answerQuickAdd(data.requestId, data.request);
+        }
         return;
       }
 
@@ -574,17 +390,24 @@ function clientOver(port: MessagePort, hello: Handshake): AddonClient {
       port.postMessage(call);
     });
 
+  const listen =
+    <L>(set: Set<L>) =>
+    (listener: L) => {
+      set.add(listener);
+      return () => {
+        set.delete(listener);
+      };
+    };
+
   return {
     role: hello.role,
     theme: hello.theme,
+    hostVersion: hello.hostVersion ?? 1,
     session: <Config>() => call<Session<Config>>("session"),
+    finishSession: () => call<void>("finishSession"),
     card: (card) => call<void>("card", { card }),
-    onDayChange: (listener) => {
-      onDay.add(listener);
-      return () => {
-        onDay.delete(listener);
-      };
-    },
+    settings: <T>() => call<T>("settings"),
+    onDayChange: listen(onDay),
     day: () => call<DayView>("day"),
     placeSlot: (request) => call<DaySlot>("placeSlot", request),
     setSlotStatus: (slotId, status) =>
@@ -597,10 +420,9 @@ function clientOver(port: MessagePort, hello: Handshake): AddonClient {
       }>("fetch", {
         input,
         method: init?.method ?? "GET",
-        // Only what survives a structured clone and only what an addon should
-        // be able to set. A `Headers` instance would not cross, and a body
-        // that is a stream cannot be replayed by the host.
-        headers: init?.headers,
+        // Only what survives a structured clone. A `Headers` instance would
+        // not cross, and a stream cannot be replayed by the host.
+        headers: plainHeaders(init?.headers),
         body: typeof init?.body === "string" ? init.body : undefined,
       });
       return new Response(reply.body, {
@@ -609,6 +431,7 @@ function clientOver(port: MessagePort, hello: Handshake): AddonClient {
       });
     },
     openExternal: (url) => call<boolean>("openExternal", { url }),
+    notify: (notice) => call<void>("notify", notice),
     store: {
       get: (key) => call<unknown>("store.get", { key }),
       set: (key, value) => call<void>("store.set", { key, value }),
@@ -623,17 +446,25 @@ function clientOver(port: MessagePort, hello: Handshake): AddonClient {
           ...(startsAt !== undefined ? { startsAt } : {}),
         }),
     },
-    onTodosChange: (listener) => {
-      onTodos.add(listener);
-      return () => {
-        onTodos.delete(listener);
-      };
-    },
-    onQuickAdd: (listener) => {
-      onQuick.add(listener);
-      return () => {
-        onQuick.delete(listener);
-      };
-    },
+    onTodosChange: listen(onTodos),
+    onQuickAdd: listen(onQuick),
   };
+}
+
+/** `HeadersInit` in any of its three shapes, as a plain record. */
+function plainHeaders(
+  headers: HeadersInit | undefined,
+): Record<string, string> | undefined {
+  if (!headers) return undefined;
+  const out: Record<string, string> = {};
+  if (headers instanceof Headers) {
+    headers.forEach((value, key) => {
+      out[key] = value;
+    });
+  } else if (Array.isArray(headers)) {
+    for (const [key, value] of headers) out[key] = value;
+  } else {
+    Object.assign(out, headers);
+  }
+  return out;
 }

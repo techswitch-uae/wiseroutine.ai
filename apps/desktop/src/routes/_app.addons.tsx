@@ -1,8 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { type AddonCapability, parseManifest } from "@wiseroutine/addons";
+import {
+  type AddonCapability,
+  type AddonManifest,
+  parseCapabilities,
+  parseConfig,
+  parseManifest,
+  ungranted,
+} from "@wiseroutine/addons";
 import { Button, Card, Modal, Toggle } from "@wiseroutine/design";
 import { useCallback, useEffect, useState } from "react";
-import { loadAddons } from "../addons/installed";
+import { forgetAddon, loadAddons } from "../addons/installed";
+import { SettingsFields } from "../addons/settings-fields";
 import {
   type AddonImpact,
   type AvailableAddon,
@@ -14,50 +22,17 @@ import { notify } from "../lib/notify";
 /**
  * Addons: the packages, not the cards.
  *
- * The distinction is the reason this is its own page rather than a section of
- * the dashboard editor. You do not reorder an *addon* - you reorder the
- * widgets it contributes, and one addon may contribute several, or none at all
- * and only an activity type. Permissions are granted to the package. Switching
- * off is done to the package. The dashboard editor arranges cards; this
- * manages what put them there.
+ * Permissions are granted to the package and written as sentences a person
+ * can decide about. A fresh install grants everything the addon asks for.
+ * When a new version asks for more, the extra capabilities are listed with
+ * an Allow button and stay off until pressed.
  *
- * ## What the user is actually agreeing to
+ * Bundled addons have a switch. Community addons have Install and Remove.
+ * Switching off pauses the activities that run on the addon, after showing
+ * which ones; switching on restores them.
  *
- * An addon is code somebody outside this repo wrote, running on a machine that
- * holds a calendar. The permission list is therefore the most important thing
- * on the screen, and it is written in sentences rather than in the identifiers
- * the manifest uses: "read today's schedule" is a thing a person can decide
- * about, and `read:schedule` is not.
- *
- * Everything an addon asked for is granted at install, because there is
- * nowhere yet to say "yes to this one, no to that one" - and a checklist that
- * lets you refuse a capability the addon cannot work without is a worse
- * experience than a clear yes or no. `canAddon` already reads the stored grant
- * rather than the manifest, so a partial grant is a change to this screen and
- * to one line on the server, not to the model.
- *
- * ## Switch, or Install
- *
- * The four addons Wise Routine ships are already on the machine - their
- * bundles are built into the app - so they carry a switch and no Install
- * button. Pressing Install on a file already sitting on disk would be a button
- * that describes the implementation rather than a choice.
- *
- * Community addons will keep Install and Remove, because for them the words
- * are true: bytes arrive, a signature is checked, and removing takes them off
- * the machine again. They will also arrive through a search field rather than
- * a list, once there are more of them than fit on a page. Nothing else about
- * the two differs - same permissions, same sandbox, same uninstall rule.
- *
- * ## Why switching off asks first
- *
- * An activity whose guided session comes from an addon stops working when that
- * addon does: the slot would still be placed, and pressing Start would open
- * nothing. So switching off takes those activities off the day, by the same
- * rule removing does - **take the future, leave the past** - and the user is
- * shown exactly which ones before it happens, by name. Switching back on
- * restores precisely what was taken and nothing the user had paused
- * themselves.
+ * An addon's own settings are edited here. Secret fields are stored on this
+ * device through Rust and never sent to the server.
  */
 
 /** A capability, as a sentence someone can decide about. */
@@ -68,21 +43,23 @@ function describe(capability: AddonCapability): string {
         ? "Read today's schedule"
         : `Read your schedule (${capability.scope})`;
     case "write:own":
-      return "Add and change its own activities and blocks - never yours";
+      return "Place blocks of its own on your day, and finish or skip them - never yours";
     case "ui:widget":
       return "Show a card in the rail";
     case "ui:session":
       return "Draw the screen while one of its sessions runs";
     case "net:fetch":
-      return `Talk to ${capability.origins.join(", ")}`;
+      return capability.auth
+        ? `Talk to ${capability.origins.join(", ")}, signed with a key you enter here`
+        : `Talk to ${capability.origins.join(", ")}`;
     case "ui:embed":
       return `Show a page from ${capability.origins.join(", ")} inside the app`;
     case "open:external":
       return `Open ${capability.origins.join(", ")} in your browser`;
     case "background:wake":
-      return "Do a little work when you are not looking at it";
+      return "Keep running in the background while the app is open";
     case "notify":
-      return "Send you a notification";
+      return "Send you notifications, labelled with its name";
     case "read:todos":
       return "See your todos";
     case "write:todos":
@@ -90,9 +67,10 @@ function describe(capability: AddonCapability): string {
   }
 }
 
-const Permissions: React.FC<{ capabilities: readonly AddonCapability[] }> = ({
-  capabilities,
-}) => {
+const Permissions: React.FC<{
+  title?: string;
+  capabilities: readonly AddonCapability[];
+}> = ({ title, capabilities }) => {
   if (capabilities.length === 0) {
     return (
       <p className="wr-body" style={{ margin: "8px 0 0" }}>
@@ -102,21 +80,125 @@ const Permissions: React.FC<{ capabilities: readonly AddonCapability[] }> = ({
   }
 
   return (
-    <ul
-      className="wr-body"
-      style={{ margin: "8px 0 0", paddingLeft: 18, display: "grid", gap: 2 }}
-    >
-      {capabilities.map((capability) => (
-        <li key={capability.kind + JSON.stringify(capability)}>
-          {describe(capability)}
-        </li>
-      ))}
-    </ul>
+    <>
+      {title ? (
+        <p className="wr-body" style={{ margin: "8px 0 0", fontWeight: 600 }}>
+          {title}
+        </p>
+      ) : null}
+      <ul
+        className="wr-body"
+        style={{ margin: "8px 0 0", paddingLeft: 18, display: "grid", gap: 2 }}
+      >
+        {capabilities.map((capability) => (
+          <li key={capability.kind + JSON.stringify(capability)}>
+            {describe(capability)}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+};
+
+const inTauri = (): boolean => "__TAURI_INTERNALS__" in globalThis;
+
+/** Which secret fields hold a value on this device, and a way to set one. */
+function useSecrets(id: string, fields: AddonManifest["settings"]) {
+  const wanted = fields.some((f) => f.type === "secret");
+  const [present, setPresent] = useState<string[]>([]);
+
+  const read = useCallback(async () => {
+    if (!wanted || !inTauri()) return;
+    const { invoke } = await import("@tauri-apps/api/core");
+    setPresent(await invoke<string[]>("addon_secret_keys", { id }));
+  }, [id, wanted]);
+
+  useEffect(() => {
+    void read().catch(() => undefined);
+  }, [read]);
+
+  const set = async (key: string, value: string) => {
+    if (!inTauri()) {
+      notify("Keys can only be saved in the desktop app.");
+      return;
+    }
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("set_addon_secret", { id, key, value });
+    await read();
+  };
+
+  return { present, set, available: wanted && inTauri() };
+}
+
+/** An installed addon's own settings, with a Save button. */
+const AddonSettings: React.FC<{
+  id: string;
+  manifest: AddonManifest;
+  stored: unknown;
+  onSaved: () => Promise<void>;
+}> = ({ id, manifest, stored, onSaved }) => {
+  const [value, setValue] = useState(() => parseConfig(manifest, stored));
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const secrets = useSecrets(id, manifest.settings);
+  const [pending, setPending] = useState<Record<string, string>>({});
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.setAddonSettings(id, value);
+      for (const [key, secret] of Object.entries(pending)) {
+        await secrets.set(key, secret);
+      }
+      setPending({});
+      setDirty(false);
+      await onSaved();
+    } catch {
+      notify("Couldn't save those settings just now.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+      <SettingsFields
+        fields={manifest.settings}
+        value={value}
+        onChange={(next) => {
+          setValue(next);
+          setDirty(true);
+        }}
+        secrets={{
+          present: secrets.present,
+          set: (key, secret) => {
+            setPending((p) => ({ ...p, [key]: secret }));
+            setDirty(true);
+          },
+        }}
+      />
+      {!secrets.available &&
+      manifest.settings.some((f) => f.type === "secret") ? (
+        <p className="wr-body" style={{ margin: 0, opacity: 0.7 }}>
+          Keys can only be entered in the desktop app.
+        </p>
+      ) : null}
+      <div>
+        <Button
+          variant="secondary"
+          disabled={!dirty || saving}
+          onClick={() => void save()}
+        >
+          Save settings
+        </Button>
+      </div>
+    </div>
   );
 };
 
 interface Row {
   id: string;
+  manifest: AddonManifest | null;
   name: string;
   description: string;
   author: string;
@@ -125,14 +207,7 @@ interface Row {
   installed?: InstalledAddonRow;
 }
 
-/**
- * The registry and the installed list, joined into one list of things.
- *
- * Two lists side by side - "available" and "installed" - would put an addon in
- * one place before you press a button and another place afterwards, which
- * makes the button feel like it moved the thing away rather than turned it on.
- * One list, with the state on each row.
- */
+/** The registry and the installed list, joined into one list. */
 function rowsOf(
   available: AvailableAddon[],
   installed: InstalledAddonRow[],
@@ -145,6 +220,7 @@ function rowsOf(
     if (!manifest) continue;
     rows.push({
       id: entry.id,
+      manifest,
       name: manifest.name,
       description: manifest.description,
       author: entry.author,
@@ -155,13 +231,12 @@ function rowsOf(
     byId.delete(entry.id);
   }
 
-  // Installed but no longer offered - withdrawn from the registry, or listed
-  // for a newer version of the app. It is still on this machine and still has
-  // to be removable, so it cannot simply be dropped off the screen.
+  // Installed but no longer offered. Still on this machine, still removable.
   for (const row of byId.values()) {
     const manifest = parseManifest(row.manifest);
     rows.push({
       id: row.id,
+      manifest,
       name: manifest?.name ?? row.id,
       description: manifest?.description ?? "",
       author: "Unknown",
@@ -174,19 +249,20 @@ function rowsOf(
   return rows;
 }
 
+/** The grant as stored, or empty when it cannot be read. */
+const grantOf = (row: InstalledAddonRow): AddonCapability[] =>
+  parseCapabilities(row.granted) ?? [];
+
 /** What the user is being asked to agree to, with the answer still pending. */
 interface Asking {
   row: Row;
   impact: AddonImpact;
-  /** Removing takes the bundle off the machine as well. Switching off does
-   *  not, and is the only one of the two a bundled addon offers. */
   kind: "disable" | "remove";
 }
 
 const count = (n: number, one: string, many: string): string =>
   `${n} ${n === 1 ? one : many}`;
 
-/** What will happen, in a sentence, before it happens. */
 function consequence(asking: Asking): string {
   const { activities, futureSlots } = asking.impact;
   const named = activities.map((activity) => activity.name).join(", ");
@@ -217,15 +293,7 @@ const Addons: React.FC = () => {
     void read().catch(() => setAvailable([]));
   }, [read]);
 
-  /**
-   * Every change re-reads the server *and* re-loads the frames.
-   *
-   * The two are not the same thing: the server knows what is installed, and
-   * `loadAddons` is what fetches the bundles and hands them to the host. An
-   * addon installed but not loaded is a session that opens empty, and one
-   * switched off but still loaded is code still running after the user said
-   * stop.
-   */
+  /** Every change re-reads the server and re-loads the frames. */
   const after = useCallback(
     async (work: Promise<unknown>, wrong: string) => {
       try {
@@ -267,16 +335,21 @@ const Addons: React.FC = () => {
     );
 
   const remove = (row: Row) =>
-    after(api.removeAddon(row.id), "Couldn't remove that just now.");
+    after(
+      api.removeAddon(row.id).then(() => forgetAddon(row.id)),
+      "Couldn't remove that just now.",
+    );
 
-  /**
-   * Ask the server what this would cost, and only then ask the user.
-   *
-   * Nothing to lose means nothing to confirm: an addon with no active
-   * activities is switched off with one press, because a dialog that always
-   * says "this will affect nothing" trains people to dismiss the one that
-   * matters.
-   */
+  /** Allow everything the manifest asks for, including what is new. */
+  const allowAll = (row: Row) => {
+    setBusy(row.id);
+    void after(
+      api.installAddon(row.id, row.capabilities),
+      "Couldn't change that just now.",
+    );
+  };
+
+  /** Ask the server what this would cost, and only then ask the user. */
   const confirmThen = (row: Row, kind: Asking["kind"]) => {
     setBusy(row.id);
     api
@@ -297,8 +370,6 @@ const Addons: React.FC = () => {
   const rows = rowsOf(available ?? [], installed);
 
   return (
-    // The same shape as Calendars and Settings: a full-width scroller so its
-    // bar sits at the page edge, with the reading measure as a column inside.
     <div className="wr-page-scroll">
       <div className="wr-measure">
         <h2 className="wr-settings-title">Addons</h2>
@@ -319,89 +390,118 @@ const Addons: React.FC = () => {
             </p>
           ) : null}
 
-          {rows.map((row) => (
-            <Card
-              key={row.id}
-              title={row.name}
-              note={`${row.author} · ${row.version}`}
-            >
-              <p className="wr-body" style={{ margin: 0 }}>
-                {row.description}
-              </p>
-
-              {row.installed?.revoked ? (
-                // Withdrawn after it was installed. Said plainly rather than
-                // dressed up: this is the one case where the app overrides a
-                // choice the user made, and they are entitled to know.
-                <p
-                  className="wr-body"
-                  style={{ margin: "8px 0 0", fontWeight: 600 }}
-                >
-                  Withdrawn from the registry. It has stopped running; remove it
-                  when convenient.
-                </p>
-              ) : null}
-
-              <Permissions capabilities={row.capabilities} />
-
-              <div
-                style={{
-                  display: "flex",
-                  gap: 10,
-                  alignItems: "center",
-                  marginTop: 12,
-                }}
+          {rows.map((row) => {
+            const granted = row.installed ? grantOf(row.installed) : null;
+            const missing = granted ? ungranted(row.capabilities, granted) : [];
+            return (
+              <Card
+                key={row.id}
+                title={row.name}
+                note={`${row.author} · ${row.version}`}
               >
-                {row.installed ? (
-                  <>
-                    <Toggle
-                      label={`${row.name} on`}
-                      checked={row.installed.isEnabled}
-                      onChange={(next) => {
-                        if (busy) return;
-                        // Switching *on* never costs anything, so it never
-                        // asks. Only the direction that takes something away
-                        // stops to explain itself.
-                        if (next) {
-                          setBusy(row.id);
-                          void enable(row);
-                        } else {
-                          confirmThen(row, "disable");
-                        }
-                      }}
-                    />
-                    {/* Bundled addons ship inside the app, so there is nothing
-                        to remove - the server refuses it, and a button that
-                        undid itself on the next page load would be worse than
-                        no button. The switch does everything removing would. */}
-                    {row.installed.bundled ? null : (
-                      <Button
-                        variant="quiet"
-                        disabled={busy === row.id}
-                        onClick={() => confirmThen(row, "remove")}
-                      >
-                        Remove
-                      </Button>
-                    )}
-                  </>
-                ) : (
-                  <Button
-                    variant="secondary"
-                    disabled={busy === row.id}
-                    onClick={() => {
-                      setBusy(row.id);
-                      void after(
-                        api.installAddon(row.id),
-                        "Couldn't install that just now.",
-                      );
-                    }}
+                <p className="wr-body" style={{ margin: 0 }}>
+                  {row.description}
+                </p>
+
+                {row.installed?.revoked ? (
+                  <p
+                    className="wr-body"
+                    style={{ margin: "8px 0 0", fontWeight: 600 }}
                   >
-                    Install
-                  </Button>
-                )}
-              </div>
-            </Card>
-          ))}
+                    Withdrawn from the registry. It has stopped running; remove
+                    it when convenient.
+                  </p>
+                ) : null}
+
+                <Permissions
+                  capabilities={granted ?? row.capabilities}
+                  {...(granted && missing.length > 0
+                    ? { title: "Allowed" }
+                    : {})}
+                />
+
+                {granted && missing.length > 0 ? (
+                  <>
+                    <Permissions title="Also asks for" capabilities={missing} />
+                    <div style={{ marginTop: 8 }}>
+                      <Button
+                        variant="secondary"
+                        disabled={busy === row.id}
+                        onClick={() => allowAll(row)}
+                      >
+                        Allow
+                      </Button>
+                    </div>
+                  </>
+                ) : null}
+
+                {row.installed &&
+                row.manifest &&
+                row.manifest.settings.length > 0 ? (
+                  <AddonSettings
+                    id={row.id}
+                    manifest={row.manifest}
+                    stored={row.installed.settings}
+                    onSaved={async () => {
+                      await read();
+                      await loadAddons();
+                    }}
+                  />
+                ) : null}
+
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "center",
+                    marginTop: 12,
+                  }}
+                >
+                  {row.installed ? (
+                    <>
+                      <Toggle
+                        label={`${row.name} on`}
+                        checked={row.installed.isEnabled}
+                        onChange={(next) => {
+                          if (busy) return;
+                          // Switching on costs nothing, so it never asks.
+                          if (next) {
+                            setBusy(row.id);
+                            void enable(row);
+                          } else {
+                            confirmThen(row, "disable");
+                          }
+                        }}
+                      />
+                      {row.installed.bundled ? null : (
+                        <Button
+                          variant="quiet"
+                          disabled={busy === row.id}
+                          onClick={() => confirmThen(row, "remove")}
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      disabled={busy === row.id}
+                      onClick={() => {
+                        setBusy(row.id);
+                        void after(
+                          api.installAddon(row.id),
+                          "Couldn't install that just now.",
+                        );
+                      }}
+                    >
+                      Install
+                    </Button>
+                  )}
+                </div>
+              </Card>
+            );
+          })}
         </div>
       </div>
 
@@ -434,8 +534,6 @@ const Addons: React.FC = () => {
             </>
           }
         >
-          {/* Named, not counted. "2 activities" asks somebody to confirm a
-              number they have no way to check. */}
           <ul
             className="wr-body"
             style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 3 }}

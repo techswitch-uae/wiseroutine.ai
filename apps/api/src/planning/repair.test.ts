@@ -40,6 +40,7 @@ const slot = (over: Partial<SlotRow> = {}): SlotRow => ({
   conflictEventId: null,
   conflictSeverity: null,
   autoMoveCount: 0,
+  ownerAddonId: null,
   planRunId: null,
   createdAt: DAY,
   ...over,

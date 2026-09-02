@@ -2,14 +2,8 @@ import { type AddonManifest, parseManifest } from "@wiseroutine/addons";
 import type { InstalledAddon } from "./installed";
 
 /**
- * An addon, for tests that need one installed.
- *
- * Built through `parseManifest` rather than cast into shape, and that is the
- * whole point of the file: a hand-written object literal typed as
- * `AddonManifest` would let a test pass against a manifest the real parser
- * would refuse, which is precisely the class of bug the parser exists to
- * catch. Anything this fixture produces is something the app would actually
- * install.
+ * An addon, for tests that need one installed. Built through
+ * `parseManifest`, so a fixture is always something the app would install.
  */
 
 export const testManifest = (
@@ -61,11 +55,18 @@ export const testManifest = (
   return parsed;
 };
 
-/** The manifest, plus a bundle that draws nothing. The frame is not the
- *  subject of any test that uses this. */
+/** The manifest, granted everything it asks for, with a bundle that draws
+ *  nothing. */
 export const testAddon = (
   over: Record<string, unknown> = {},
-): InstalledAddon => ({
-  manifest: testManifest(over),
-  bundle: "",
-});
+): InstalledAddon => {
+  const manifest = testManifest(over);
+  return {
+    manifest,
+    granted: manifest.capabilities,
+    settings: {},
+    author: "Acme",
+    bundled: false,
+    bundle: "",
+  };
+};

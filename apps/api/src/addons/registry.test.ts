@@ -1,6 +1,12 @@
 import { isGrantable } from "@wiseroutine/addons";
 import { describe, expect, it } from "vitest";
-import { bundledEntries, entryFor, registry } from "./registry";
+import {
+  bundledEntries,
+  entryFor,
+  isListable,
+  type RegistryEntry,
+  registry,
+} from "./registry";
 
 const IDS = [
   "wiseroutine.breathing",
@@ -65,5 +71,29 @@ describe("registry", () => {
 
   it("has no unknown addon", () => {
     expect(entryFor("acme.nothing")).toBeUndefined();
+  });
+});
+
+describe("listing rules", () => {
+  const entry = (over: Partial<RegistryEntry>): RegistryEntry => {
+    const base = entryFor("wiseroutine.todos");
+    if (!base) throw new Error("todos is not on the registry");
+    return { ...base, bundled: false, ...over };
+  };
+
+  it("needs a hash for anything that is downloaded", () => {
+    expect(isListable(entry({ id: "acme.todos", bundleHash: "" }))).toBe(false);
+    expect(
+      isListable(entry({ id: "acme.todos", bundleHash: "a".repeat(64) })),
+    ).toBe(true);
+  });
+
+  it("keeps the app's own id prefix for the app", () => {
+    expect(
+      isListable(
+        entry({ id: "wiseroutine.todos2", bundleHash: "a".repeat(64) }),
+      ),
+    ).toBe(false);
+    expect(isListable(entry({ bundled: true, bundleHash: "" }))).toBe(true);
   });
 });

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { publishPlan, resetPlans } from "../lib/plan-store";
 import { AddonFrame } from "./frame";
 import { type AddonContext, dispatchQuickAdd, serve } from "./host";
+import type { InstalledAddon } from "./installed";
 
 /**
  * The boundary, tested adversarially.
@@ -48,10 +49,27 @@ const manifest = (over: Partial<AddonManifest> = {}): AddonManifest => {
   return { ...base, ...over };
 };
 
+/** The manifest, installed. Granted everything it asks for unless said. */
+const installed = (
+  addon: AddonManifest,
+  over: Partial<InstalledAddon> = {},
+): InstalledAddon => ({
+  manifest: addon,
+  granted: addon.capabilities,
+  settings: {},
+  author: "Acme",
+  bundled: false,
+  bundle: "/* addon */",
+  ...over,
+});
+
+const SLOT = { id: "s1", title: "Breathing", startsAt: 0, endsAt: 60_000 };
+const CONFIG = { pattern: "4-7-8" };
 const SESSION: AddonContext = {
   kind: "session",
-  slot: { id: "s1", title: "Breathing", startsAt: 0, endsAt: 60_000 },
-  config: { pattern: "4-7-8" },
+  slot: SLOT,
+  config: CONFIG,
+  finish: () => undefined,
 };
 
 /**
@@ -62,14 +80,15 @@ const SESSION: AddonContext = {
  * never send.
  */
 function connectTo(
-  addon: AddonManifest,
+  addon: AddonManifest | InstalledAddon,
   context: AddonContext = SESSION,
 ): {
   call: (method: string, params?: unknown) => Promise<unknown>;
   stop: () => void;
 } {
   const channel = new MessageChannel();
-  const stop = serve(channel.port1, addon, () => context);
+  const served = "manifest" in addon ? addon : installed(addon);
+  const stop = serve(channel.port1, served, () => context);
   channel.port2.start();
 
   let nextId = 1;
@@ -101,12 +120,7 @@ const denied = (reply: unknown): boolean =>
 describe("the frame an addon runs in", () => {
   const frameOf = (addon: AddonManifest) => {
     const { container } = render(
-      <AddonFrame
-        title="Session"
-        manifest={addon}
-        bundle="/* addon */"
-        context={SESSION}
-      />,
+      <AddonFrame title="Session" addon={installed(addon)} context={SESSION} />,
     );
     const frame = container.querySelector("iframe");
     if (!frame) throw new Error("no frame rendered");
@@ -148,7 +162,7 @@ describe("the frame an addon runs in", () => {
     expect(html).toContain("default-src 'none'");
   });
 
-  test("an addon may reach exactly the origins it declared", () => {
+  test("an addon may reach exactly the origins it was granted", () => {
     const withNet = manifest({
       capabilities: [
         { kind: "ui:session" },
@@ -158,6 +172,32 @@ describe("the frame an addon runs in", () => {
     const html = frameOf(withNet).getAttribute("srcdoc") ?? "";
     expect(html).toContain("connect-src https://api.acme.example");
     expect(html).not.toContain("connect-src *");
+  });
+
+  /** The policy comes from the grant, not the manifest. */
+  test("an origin the manifest asks for but the user refused is not reachable", () => {
+    const withNet = manifest({
+      capabilities: [
+        { kind: "ui:session" },
+        { kind: "net:fetch", origins: ["https://api.acme.example"] },
+      ],
+    });
+    const { container } = render(
+      <AddonFrame
+        title="Session"
+        addon={installed(withNet, { granted: [{ kind: "ui:session" }] })}
+        context={SESSION}
+      />,
+    );
+    const html =
+      container.querySelector("iframe")?.getAttribute("srcdoc") ?? "";
+    expect(html).toContain("connect-src 'none'");
+  });
+
+  test("denies device features outright", () => {
+    const frame = frameOf(manifest());
+    expect(frame.getAttribute("allow")).toBe("");
+    expect(frame.getAttribute("referrerpolicy")).toBe("no-referrer");
   });
 
   /**
@@ -170,10 +210,10 @@ describe("the frame an addon runs in", () => {
     const { container } = render(
       <AddonFrame
         title="Session"
-        manifest={manifest()}
-        bundle={
-          '</script><meta http-equiv="Content-Security-Policy" content="">'
-        }
+        addon={installed(manifest(), {
+          bundle:
+            '</script><meta http-equiv="Content-Security-Policy" content="">',
+        })}
         context={SESSION}
       />,
     );
@@ -212,12 +252,7 @@ describe("where the frame comes from", () => {
 
   const frameOf = (addon: AddonManifest) => {
     const { container } = render(
-      <AddonFrame
-        title="Session"
-        manifest={addon}
-        bundle="/* addon */"
-        context={SESSION}
-      />,
+      <AddonFrame title="Session" addon={installed(addon)} context={SESSION} />,
     );
     const frame = container.querySelector("iframe");
     if (!frame) throw new Error("no frame rendered");
@@ -271,6 +306,46 @@ describe("what the host refuses", () => {
     stop();
   });
 
+  /** The grant is what the user approved. The manifest is what was asked. */
+  test("checks the grant, not the manifest", async () => {
+    const asks = manifest({
+      capabilities: [
+        { kind: "ui:session" },
+        { kind: "read:schedule", scope: "today" },
+      ],
+    });
+    const { call, stop } = connectTo(
+      installed(asks, { granted: [{ kind: "ui:session" }] }),
+    );
+    expect(denied(await call("day"))).toBe(true);
+    stop();
+  });
+
+  test("a notification needs notify", async () => {
+    const { call, stop } = connectTo(manifest());
+    expect(denied(await call("notify", { title: "Hi" }))).toBe(true);
+    stop();
+  });
+
+  test("host fetch is refused for an origin outside the grant", async () => {
+    const withNet = manifest({
+      capabilities: [
+        { kind: "ui:session" },
+        { kind: "net:fetch", origins: ["https://api.acme.example"] },
+      ],
+    });
+    const { call, stop } = connectTo(withNet);
+    expect(
+      denied(await call("fetch", { input: "https://evil.example/x" })),
+    ).toBe(true);
+    // Inside the grant, but this is the web build: no Rust to fetch through.
+    const reply = (await call("fetch", {
+      input: "https://api.acme.example/x",
+    })) as { error?: { message: string } };
+    expect(reply.error?.message).toContain("desktop app");
+    stop();
+  });
+
   // Cancelled, missed and planned are the app's to set. An addon may say a
   // thing it owns is finished or was skipped, and nothing else.
   test("a status outside completed and skipped is refused", async () => {
@@ -308,10 +383,42 @@ describe("what the host allows", () => {
     // The theme is not here: it travels with the port, in the handshake, so
     // that a widget - which never calls `session` - has it too, and so that
     // neither pays a round trip for a value that cannot change.
-    expect(reply.result).toMatchObject({
-      slot: SESSION.slot,
-      config: SESSION.config,
-    });
+    expect(reply.result).toMatchObject({ slot: SLOT, config: CONFIG });
+    stop();
+  });
+
+  test("an addon may end its own session early", async () => {
+    let finished = 0;
+    const { call, stop } = connectTo(manifest(), {
+      ...SESSION,
+      finish: () => {
+        finished += 1;
+      },
+    } as AddonContext);
+    await call("finishSession");
+    expect(finished).toBe(1);
+    stop();
+  });
+
+  test("the store keeps a JSON value per key, on this device", async () => {
+    const { call, stop } = connectTo(manifest());
+    await call("store.set", { key: "seen", value: { at: 5 } });
+    const reply = (await call("store.get", { key: "seen" })) as {
+      result?: unknown;
+    };
+    expect(reply.result).toEqual({ at: 5 });
+    expect(denied(await call("store.set", { key: "../x", value: 1 }))).toBe(
+      true,
+    );
+    stop();
+  });
+
+  test("addon settings are handed over without secrets", async () => {
+    const { call, stop } = connectTo(
+      installed(manifest(), { settings: { region: "eu" } }),
+    );
+    const reply = (await call("settings")) as { result?: unknown };
+    expect(reply.result).toEqual({ region: "eu" });
     stop();
   });
 
@@ -601,7 +708,7 @@ describe("being told the day changed", () => {
   test("tells the addon, without telling it what changed", async () => {
     const channel = new MessageChannel();
     const heard = listen(channel.port2);
-    const stop = serve(channel.port1, manifest(), () => SESSION);
+    const stop = serve(channel.port1, installed(manifest()), () => SESSION);
 
     publishPlan(null);
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -620,7 +727,7 @@ describe("being told the day changed", () => {
   test("stops when the frame does", async () => {
     const channel = new MessageChannel();
     const heard = listen(channel.port2);
-    const stop = serve(channel.port1, manifest(), () => SESSION);
+    const stop = serve(channel.port1, installed(manifest()), () => SESSION);
     stop();
 
     publishPlan(null);
@@ -630,8 +737,6 @@ describe("being told the day changed", () => {
 });
 
 describe("todos and quick add", () => {
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-
   test("the list is a grant of its own, refused to an addon without it", async () => {
     const { call, stop } = connectTo(manifest());
     expect(denied(await call("todos.list"))).toBe(true);
@@ -639,27 +744,86 @@ describe("todos and quick add", () => {
     stop();
   });
 
-  test("what Quick add typed reaches the addon's first frame, and nobody else", async () => {
+  /** Play an addon frame: answer a quick add request the way the SDK does. */
+  const frame = (
+    id: string,
+    kind: AddonContext["kind"],
+    answer: (request: unknown) => { message?: string; error?: string },
+  ) => {
     const channel = new MessageChannel();
     const heard: unknown[] = [];
     channel.port2.addEventListener("message", (event: MessageEvent) => {
-      if (event.data?.event === "quickAdd") heard.push(event.data.request);
+      if (event.data?.event !== "quickAdd") return;
+      heard.push(event.data.request);
+      channel.port2.postMessage({
+        event: "quickAdd:done",
+        requestId: event.data.requestId,
+        ...answer(event.data.request),
+      });
     });
     channel.port2.start();
+    const context: AddonContext =
+      kind === "background"
+        ? { kind: "background" }
+        : kind === "widget"
+          ? { kind: "widget", widgetKey: "w", present: () => undefined }
+          : SESSION;
     const stop = serve(
       channel.port1,
-      manifest({ id: "acme.todos" }),
-      () => SESSION,
+      installed(manifest({ id })),
+      () => context,
     );
+    return { heard, stop };
+  };
 
+  test("what Quick add typed reaches the addon, and the answer comes back", async () => {
+    const todos = frame("acme.todos", "widget", () => ({ message: "Kept" }));
     const request = { key: "todo", title: "Reply to Anders", minutes: 15 };
-    expect(dispatchQuickAdd("acme.todos", request)).toBe(true);
-    expect(dispatchQuickAdd("acme.other", request)).toBe(false);
-    await settle();
-    expect(heard).toEqual([request]);
 
-    // Torn down, so nothing is listening - and the dialog is told so.
-    stop();
-    expect(dispatchQuickAdd("acme.todos", request)).toBe(false);
+    await expect(dispatchQuickAdd("acme.todos", request)).resolves.toEqual({
+      ok: true,
+      message: "Kept",
+    });
+    expect(todos.heard).toEqual([request]);
+    await expect(dispatchQuickAdd("acme.other", request)).resolves.toEqual({
+      ok: false,
+      message: "That addon isn't running.",
+    });
+
+    // Torn down, so nothing is listening.
+    todos.stop();
+    await expect(dispatchQuickAdd("acme.todos", request)).resolves.toEqual({
+      ok: false,
+      message: "That addon isn't running.",
+    });
+  });
+
+  test("a failure in the addon is reported, not swallowed", async () => {
+    const todos = frame("acme.todos", "widget", () => ({ error: "No room" }));
+    await expect(
+      dispatchQuickAdd("acme.todos", {
+        key: "todo",
+        title: "x",
+        minutes: null,
+      }),
+    ).resolves.toEqual({ ok: false, message: "No room" });
+    todos.stop();
+  });
+
+  test("the background frame is asked before any other", async () => {
+    const card = frame("acme.todos", "widget", () => ({ message: "card" }));
+    const hidden = frame("acme.todos", "background", () => ({
+      message: "background",
+    }));
+    await expect(
+      dispatchQuickAdd("acme.todos", {
+        key: "todo",
+        title: "x",
+        minutes: null,
+      }),
+    ).resolves.toEqual({ ok: true, message: "background" });
+    expect(card.heard).toEqual([]);
+    card.stop();
+    hidden.stop();
   });
 });

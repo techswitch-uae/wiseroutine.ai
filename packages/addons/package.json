@@ -1,12 +1,29 @@
 {
   "name": "@wiseroutine/addons",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "description": "The Wise Routine addon manifest: types, parser and JSON Schema.",
+  "license": "MIT",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./manifest.schema.json": "./manifest.schema.json"
+  },
+  "files": [
+    "dist",
+    "manifest.schema.json"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./manifest.schema.json": "./manifest.schema.json"
+    }
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "git clean -xdf .cache .turbo dist node_modules"
