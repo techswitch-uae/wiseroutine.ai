@@ -18,8 +18,9 @@
 
 import { useSyncExternalStore } from "react";
 import type { TodayResponse } from "./api";
-import { onSessionReset } from "./session-lifecycle";
 import { onPrivacyRestricted, redactPlan } from "./privacy";
+import { onSessionReset } from "./session-lifecycle";
+
 onPrivacyRestricted(() => {
   if (plan) plan = redactPlan(plan);
   if (todayPlan) todayPlan = redactPlan(todayPlan);
@@ -30,7 +31,9 @@ onSessionReset(resetPlans);
 let operationalOwner = false;
 export function manageToday(): () => void {
   operationalOwner = true;
-  return () => { operationalOwner = false; };
+  return () => {
+    operationalOwner = false;
+  };
 }
 export function publishTodayPlan(next: TodayResponse | null): void {
   todayPlan = next;
@@ -114,7 +117,9 @@ export function publishPlan(
 
 export function publishStart(fn: (slotId: string) => void): () => void {
   start = fn;
-  return () => { if (start === fn) start = () => undefined; };
+  return () => {
+    if (start === fn) start = () => undefined;
+  };
 }
 
 export const startSlot = (slotId: string): void => start(slotId);
@@ -135,7 +140,9 @@ export function publishMove(
   fn: (slotId: string, startsAt: number, endsAt: number) => void,
 ): () => void {
   move = fn;
-  return () => { if (move === fn) move = () => undefined; };
+  return () => {
+    if (move === fn) move = () => undefined;
+  };
 }
 
 export const moveSlotTo = (
@@ -155,7 +162,9 @@ let reload: () => void = () => undefined;
 
 export function publishReload(fn: () => void): () => void {
   reload = fn;
-  return () => { if (reload === fn) reload = () => undefined; };
+  return () => {
+    if (reload === fn) reload = () => undefined;
+  };
 }
 
 export const reloadPlan = (): void => reload();

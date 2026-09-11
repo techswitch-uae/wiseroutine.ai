@@ -10,10 +10,7 @@ import { defineConfig } from "vite";
  * it still builds, installs, is granted, sandboxed and served by exactly the
  * same path. A widget-only addon is not a second kind of thing.
  */
-const INSTALLED = join(
-  import.meta.dirname,
-  "dist",
-);
+const INSTALLED = join(import.meta.dirname, "dist");
 
 export default defineConfig({
   build: {

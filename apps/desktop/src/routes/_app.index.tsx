@@ -14,7 +14,6 @@ import {
   Slot,
 } from "@wiseroutine/design";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { startTodaySlot } from "../lib/today-controller";
 import {
   ApiError,
   api,
@@ -36,6 +35,7 @@ import {
 } from "../lib/plan-store";
 import { markStarted } from "../lib/running-slot";
 import { dayOf, todayOf } from "../lib/scope";
+import { startTodaySlot } from "../lib/today-controller";
 import { TodayRail } from "../modules/today-rail";
 import { DAY_HOURS_ANCHOR } from "./_app.settings";
 
@@ -187,7 +187,13 @@ const Today: React.FC = () => {
     // is published rather than passed - see `lib/plan-store`.
     publishPlan(data);
   }, [data]);
-  useEffect(() => () => { publishPlan(null); pick(null); }, []);
+  useEffect(
+    () => () => {
+      publishPlan(null);
+      pick(null);
+    },
+    [],
+  );
 
   const refresh = useCallback(() => {
     lastSync.current = Date.now();

@@ -1,5 +1,10 @@
 import type { Activity } from "@wiseroutine/scheduler";
-import { at, type UserDatabase, userTransaction, isTransaction } from "../client";
+import {
+  at,
+  isTransaction,
+  type UserDatabase,
+  userTransaction,
+} from "../client";
 import type { Activity as ActivityRow } from "../generated/user/client";
 import { cancelUnstartedSlots } from "./slots";
 
@@ -149,8 +154,10 @@ export async function setActivityWindows(
   anchorMinutes: readonly number[],
   newId: () => string,
 ): Promise<void> {
-  if (!isTransaction(db)) return userTransaction(db, (tx) =>
-    setActivityWindows(tx, activityId, anchorMinutes, newId));
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) =>
+      setActivityWindows(tx, activityId, anchorMinutes, newId),
+    );
   await db.activityWindow.deleteMany({ where: { activityId } });
   for (const minutes of anchorMinutes) {
     await db.activityWindow.create({
@@ -172,8 +179,10 @@ export async function archiveActivity(
   now: number,
   newId: () => string,
 ): Promise<{ cancelled: number }> {
-  if (!isTransaction(db)) return userTransaction(db, (tx) =>
-    archiveActivity(tx, activityId, now, newId));
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) =>
+      archiveActivity(tx, activityId, now, newId),
+    );
   await updateActivity(db, activityId, {
     archivedAt: at(now),
     isActive: false,

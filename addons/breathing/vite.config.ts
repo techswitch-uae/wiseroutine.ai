@@ -24,10 +24,7 @@ import { defineConfig } from "vite";
  * The host does not know or care which of the two put the file there; it
  * fetches a URL either way.
  */
-const INSTALLED = join(
-  import.meta.dirname,
-  "dist",
-);
+const INSTALLED = join(import.meta.dirname, "dist");
 
 export default defineConfig({
   build: {

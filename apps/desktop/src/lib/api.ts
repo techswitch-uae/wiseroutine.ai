@@ -9,8 +9,6 @@
 
 import { freeGaps } from "@wiseroutine/scheduler";
 import { notify } from "./notify";
-import { eventDetailsAllowed, redactPlan, setEventDetailsAllowed } from "./privacy";
-import { changeSession, identifySession, invalidateServerState, onSessionReset, sessionGeneration, sessionSignal, sessionToken, SessionChangedError } from "./session-lifecycle";
 import {
   cachedPlan,
   cachePlan,
@@ -21,6 +19,21 @@ import {
   pending,
   withPending,
 } from "./offline";
+import {
+  eventDetailsAllowed,
+  redactPlan,
+  setEventDetailsAllowed,
+} from "./privacy";
+import {
+  changeSession,
+  identifySession,
+  invalidateServerState,
+  onSessionReset,
+  SessionChangedError,
+  sessionGeneration,
+  sessionSignal,
+  sessionToken,
+} from "./session-lifecycle";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8787";
 export const getSessionToken = sessionToken;
@@ -120,7 +133,11 @@ async function refusal(response: Response): Promise<unknown> {
 async function send(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getSessionToken();
   const generation = sessionGeneration();
-  const signal = AbortSignal.any([sessionSignal(), AbortSignal.timeout(15_000), ...(init.signal ? [init.signal] : [])]);
+  const signal = AbortSignal.any([
+    sessionSignal(),
+    AbortSignal.timeout(15_000),
+    ...(init.signal ? [init.signal] : []),
+  ]);
 
   let response: Response;
   try {
@@ -143,8 +160,16 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
   if (generation !== sessionGeneration()) throw new SessionChangedError();
   if (!response.ok) {
     const retry = response.headers.get("retry-after");
-    const delay = retry ? (Number.isFinite(Number(retry)) ? Number(retry) * 1000 : Date.parse(retry) - Date.now()) : 0;
-    throw new ApiError(response.status, await refusal(response), Math.max(0, delay || 0));
+    const delay = retry
+      ? Number.isFinite(Number(retry))
+        ? Number(retry) * 1000
+        : Date.parse(retry) - Date.now()
+      : 0;
+    throw new ApiError(
+      response.status,
+      await refusal(response),
+      Math.max(0, delay || 0),
+    );
   }
   if (init.method && init.method !== "GET") invalidateServerState();
   return response;
@@ -585,7 +610,13 @@ async function slotAction(
     // An addon's write is not queued: the queue replays as the user, and the
     // server would then check the wrong grant.
     if (addonId) throw error;
-    enqueue({ id: actionId, slotId, kind, at, ...(reason !== undefined ? { reason } : {}) });
+    enqueue({
+      id: actionId,
+      slotId,
+      kind,
+      at,
+      ...(reason !== undefined ? { reason } : {}),
+    });
     return { queued: true };
   }
 }
@@ -598,19 +629,31 @@ async function slotAction(
  * replanned or the day rolled over, and a queue that cannot drain is a queue
  * that blocks every later action behind it.
  */
-const retryable = (error: unknown): boolean => error instanceof OfflineError ||
-  (error instanceof ApiError && (error.status === 401 || error.status === 408 || error.status === 429 || error.status >= 500));
+const retryable = (error: unknown): boolean =>
+  error instanceof OfflineError ||
+  (error instanceof ApiError &&
+    (error.status === 401 ||
+      error.status === 408 ||
+      error.status === 429 ||
+      error.status >= 500));
 let draining: Promise<number> | null = null;
 let retryAt = 0;
 let awaitingAuth = false;
-onSessionReset(() => { draining = null; retryAt = 0; awaitingAuth = false; });
+onSessionReset(() => {
+  draining = null;
+  retryAt = 0;
+  awaitingAuth = false;
+});
 
 export function flushPending(): Promise<number> {
   if (draining) return draining;
-  if (awaitingAuth || Date.now() < retryAt || !getSessionToken()) return Promise.resolve(0);
+  if (awaitingAuth || Date.now() < retryAt || !getSessionToken())
+    return Promise.resolve(0);
   const operation = drainPending();
   draining = operation;
-  void operation.finally(() => { if (draining === operation) draining = null; });
+  void operation.finally(() => {
+    if (draining === operation) draining = null;
+  });
   return operation;
 }
 
@@ -624,26 +667,39 @@ async function drainPending(): Promise<number> {
   for (const action of queue) {
     if (generation !== sessionGeneration()) return sent;
     try {
-      await send(
-        `/slots/${action.slotId}/${action.kind}`,
-        { ...post({ at: action.at, ...(action.reason !== undefined ? { reason: action.reason } : {}) }),
-          headers: { "idempotency-key": action.id } },
-      );
+      await send(`/slots/${action.slotId}/${action.kind}`, {
+        ...post({
+          at: action.at,
+          ...(action.reason !== undefined ? { reason: action.reason } : {}),
+        }),
+        headers: { "idempotency-key": action.id },
+      });
       done.push(action.id);
       sent++;
     } catch (error) {
       if (generation !== sessionGeneration()) return sent;
       if (retryable(error)) {
-        retryAt = Date.now() + Math.max(5000, error instanceof ApiError ? error.retryAfterMs : 0);
+        retryAt =
+          Date.now() +
+          Math.max(5000, error instanceof ApiError ? error.retryAfterMs : 0);
         if (error instanceof ApiError && error.status === 401) {
           awaitingAuth = true;
-          notify("Your changes are saved on this device. Sign in again to sync them.");
+          notify(
+            "Your changes are saved on this device. Sign in again to sync them.",
+          );
         }
         break;
       }
       // Unknown client errors are not proof that the action was rejected.
-      if (!(error instanceof ApiError) || ![400, 403, 404, 409, 410, 422].includes(error.status)) break;
-      notify(error.detail ?? `A saved ${action.kind} could not be applied. The slot may have changed.`);
+      if (
+        !(error instanceof ApiError) ||
+        ![400, 403, 404, 409, 410, 422].includes(error.status)
+      )
+        break;
+      notify(
+        error.detail ??
+          `A saved ${action.kind} could not be applied. The slot may have changed.`,
+      );
       done.push(action.id);
     }
   }
@@ -772,10 +828,15 @@ export const api = {
     setSessionToken(null);
     // Local teardown is immediate even when the server is unreachable. Revoke
     // only the old token; never let a late response affect a new session.
-    if (token) void fetch(`${API_URL}/auth/sign-out`, {
-      ...post({}), headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(5000),
-    }).catch(() => undefined);
+    if (token)
+      void fetch(`${API_URL}/auth/sign-out`, {
+        ...post({}),
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        signal: AbortSignal.timeout(5000),
+      }).catch(() => undefined);
   },
 
   /**
@@ -791,7 +852,8 @@ export const api = {
     const result = await request<SessionResponse | null>("/auth/get-session");
     if (result?.user) {
       identifySession(result.user.id);
-      if (result.user.storeEventTitles !== undefined) setEventDetailsAllowed(result.user.storeEventTitles);
+      if (result.user.storeEventTitles !== undefined)
+        setEventDetailsAllowed(result.user.storeEventTitles);
     }
     return result;
   },
@@ -873,8 +935,14 @@ export const api = {
    *  validates the day's window against the row as it will be - see
    *  `PATCH /settings`. */
   updateSettings: async (patch: SettingsPatch) => {
-    if (patch.storeEventTitles === false) { clearCachedPlan(); setEventDetailsAllowed(false); }
-    await request<void>("/settings", { method: "PATCH", body: JSON.stringify(patch) });
+    if (patch.storeEventTitles === false) {
+      clearCachedPlan();
+      setEventDetailsAllowed(false);
+    }
+    await request<void>("/settings", {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
     if (patch.storeEventTitles === true) setEventDetailsAllowed(true);
   },
 

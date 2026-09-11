@@ -9,10 +9,8 @@ import {
   parseManifest,
 } from "@wiseroutine/addons";
 import {
-  addonImpact,
   activityPatchSchema,
-  userTransaction,
-  setEventPrivacy,
+  addonImpact,
   archiveActivity,
   cancelWork,
   connectedSince,
@@ -20,11 +18,13 @@ import {
   createActivity,
   createReminder,
   deleteConnection,
+  directoryTransaction,
   forgetStoredTitles,
   getAddon,
   getCalendarForSync,
   getReminder,
   getSlot,
+  getUser,
   installAddon,
   lastSyncedAt,
   listActivities,
@@ -50,6 +50,7 @@ import {
   setAddonEnabled,
   setAddonSettings,
   setCalendarSelected,
+  setEventPrivacy,
   setReminderStatus,
   setSlotStatus,
   toSchedulerActivity,
@@ -57,6 +58,7 @@ import {
   updateActivity,
   updateUserSettings,
   upsertCalendars,
+  userTransaction,
 } from "@wiseroutine/db";
 import { can, visibleWidgets } from "@wiseroutine/plans";
 import {
@@ -92,8 +94,8 @@ import {
   FULL_DAY_MINUTES,
   resolveRange,
 } from "../dayRanges";
-import { detectConflicts } from "../planning/planDay";
 import { planAndSchedule, scheduleGrace } from "../planning/commands";
+import { detectConflicts } from "../planning/planDay";
 import { accessTokenFor, type SyncDeps } from "../sync/engine";
 import { ensureWatch, stopWatch, type WatchDeps } from "../sync/watch";
 
@@ -845,90 +847,98 @@ app.get("/activities", async (c) => {
 
 function activityBody(value: unknown): Record<string, unknown> {
   const parsed = activityPatchSchema.safeParse(value);
-  if (!parsed.success) throw new HTTPException(400, {
-    message: parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "),
-  });
+  if (!parsed.success)
+    throw new HTTPException(400, {
+      message: parsed.error.issues
+        .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+        .join("; "),
+    });
   return parsed.data;
 }
 
-app.post("/activities", async (c) => userTransaction(c.get("db"), async (db) => {
-
-  // The free limit counts ACTIVE activities, so pausing one frees a slot.
-  const activeCount = await countActiveActivities(db);
-  enforce(c, { kind: "activity.create", activeCount });
-
-  const body = activityBody(await c.req.json().catch(() => null));
-  const id = await createActivity(
-    db,
-    {
-      name: String(body.name ?? "Activity"),
-      kind: String(body.kind ?? "recovery"),
-      minimumType: String(body.minimumType ?? "countPerDay"),
-      minimumValue: Number(body.minimumValue ?? 1),
-      sessionMinutes: Number(body.sessionMinutes ?? 10),
-      daysOfWeek: daysOfWeek(body.daysOfWeek, 0b1111111),
-      importance: String(body.importance ?? "normal"),
-      graceMinutes: Number(body.graceMinutes ?? 3),
-      bufferBeforeMeetingMinutes: Number(body.bufferBeforeMeetingMinutes ?? 0),
-      anchorMinutes: (body.preferredWindows as number[] | undefined) ?? [],
-      ...modulePatch(body),
-    },
-    c.get("now"),
-    newId,
-  );
-
-  return c.json({ id }, 201);
-}));
-
-app.patch("/activities/:id", async (c) => userTransaction(c.get("db"), async (db) => {
-  const body = activityBody(await c.req.json().catch(() => null));
-
-  // Re-activating counts against the plan limit; pausing never does.
-  if (body.isActive === true) {
+app.post("/activities", async (c) =>
+  userTransaction(c.get("db"), async (db) => {
+    // The free limit counts ACTIVE activities, so pausing one frees a slot.
     const activeCount = await countActiveActivities(db);
     enforce(c, { kind: "activity.create", activeCount });
-  }
 
-  if (typeof body.isActive === "boolean") {
-    await setActivityActive(db, c.req.param("id"), body.isActive);
-  }
-
-  const patch: Record<string, unknown> = {};
-  for (const key of [
-    "name",
-    "kind",
-    "minimumType",
-    "minimumValue",
-    "sessionMinutes",
-    "importance",
-    "graceMinutes",
-    "bufferBeforeMeetingMinutes",
-  ]) {
-    if (body[key] !== undefined) patch[key] = body[key];
-  }
-  Object.assign(patch, modulePatch(body));
-  // Checked rather than copied through: the same rule the create path applies.
-  if (body.daysOfWeek !== undefined) {
-    patch.daysOfWeek = daysOfWeek(body.daysOfWeek, 0b1111111);
-  }
-  if (Object.keys(patch).length > 0) {
-    await updateActivity(db, c.req.param("id"), patch);
-  }
-
-  // Absent leaves the windows alone; an empty array clears them. The two are
-  // different answers - "I did not say" and "nowhere in particular" - and
-  // collapsing them would wipe a preference on every unrelated edit.
-  if (Array.isArray(body.preferredWindows)) {
-    await setActivityWindows(
+    const body = activityBody(await c.req.json().catch(() => null));
+    const id = await createActivity(
       db,
-      c.req.param("id"),
-      body.preferredWindows as number[],
+      {
+        name: String(body.name ?? "Activity"),
+        kind: String(body.kind ?? "recovery"),
+        minimumType: String(body.minimumType ?? "countPerDay"),
+        minimumValue: Number(body.minimumValue ?? 1),
+        sessionMinutes: Number(body.sessionMinutes ?? 10),
+        daysOfWeek: daysOfWeek(body.daysOfWeek, 0b1111111),
+        importance: String(body.importance ?? "normal"),
+        graceMinutes: Number(body.graceMinutes ?? 3),
+        bufferBeforeMeetingMinutes: Number(
+          body.bufferBeforeMeetingMinutes ?? 0,
+        ),
+        anchorMinutes: (body.preferredWindows as number[] | undefined) ?? [],
+        ...modulePatch(body),
+      },
+      c.get("now"),
       newId,
     );
-  }
 
-  return c.body(null, 204);
-}));
+    return c.json({ id }, 201);
+  }),
+);
+
+app.patch("/activities/:id", async (c) =>
+  userTransaction(c.get("db"), async (db) => {
+    const body = activityBody(await c.req.json().catch(() => null));
+
+    // Re-activating counts against the plan limit; pausing never does.
+    if (body.isActive === true) {
+      const activeCount = await countActiveActivities(db);
+      enforce(c, { kind: "activity.create", activeCount });
+    }
+
+    if (typeof body.isActive === "boolean") {
+      await setActivityActive(db, c.req.param("id"), body.isActive);
+    }
+
+    const patch: Record<string, unknown> = {};
+    for (const key of [
+      "name",
+      "kind",
+      "minimumType",
+      "minimumValue",
+      "sessionMinutes",
+      "importance",
+      "graceMinutes",
+      "bufferBeforeMeetingMinutes",
+    ]) {
+      if (body[key] !== undefined) patch[key] = body[key];
+    }
+    Object.assign(patch, modulePatch(body));
+    // Checked rather than copied through: the same rule the create path applies.
+    if (body.daysOfWeek !== undefined) {
+      patch.daysOfWeek = daysOfWeek(body.daysOfWeek, 0b1111111);
+    }
+    if (Object.keys(patch).length > 0) {
+      await updateActivity(db, c.req.param("id"), patch);
+    }
+
+    // Absent leaves the windows alone; an empty array clears them. The two are
+    // different answers - "I did not say" and "nowhere in particular" - and
+    // collapsing them would wipe a preference on every unrelated edit.
+    if (Array.isArray(body.preferredWindows)) {
+      await setActivityWindows(
+        db,
+        c.req.param("id"),
+        body.preferredWindows as number[],
+        newId,
+      );
+    }
+
+    return c.body(null, 204);
+  }),
+);
 
 /**
  * Archived, not deleted - see `archiveActivity`. The slots it already produced
@@ -1073,21 +1083,42 @@ app.patch("/settings", async (c) => {
     throw new HTTPException(400, { message: "Unknown range" });
   }
 
-  if (body.storeEventTitles !== undefined && typeof body.storeEventTitles !== "boolean") {
-    throw new HTTPException(400, { message: "storeEventTitles must be a boolean" });
+  if (
+    body.storeEventTitles !== undefined &&
+    typeof body.storeEventTitles !== "boolean"
+  ) {
+    throw new HTTPException(400, {
+      message: "storeEventTitles must be a boolean",
+    });
   }
-  // Opt out locally first. A stale in-flight sync cannot reintroduce data.
-  if (body.storeEventTitles === false) await forgetStoredTitles(c.get("db"));
-  await updateUserSettings(c.get("directory"), c.get("user").userId, {
+  const patch = {
     ...body,
     // Store the name the user sees, without the whitespace they did not mean
     // to type - it is rendered in a picker row, where a leading space shows.
     ...(typeof body.customRangeLabel === "string"
       ? { customRangeLabel: body.customRangeLabel.trim() }
       : {}),
-  });
-
-  if (body.storeEventTitles === true) await setEventPrivacy(c.get("db"), true);
+  };
+  const userId = c.get("user").userId;
+  if (body.storeEventTitles === false) {
+    // Serialize preference writers. Failure leaves the local fence closed,
+    // never open under a directory preference that still says private.
+    await directoryTransaction(c.get("directory"), async (directory) => {
+      await forgetStoredTitles(c.get("db"));
+      await updateUserSettings(directory, userId, patch);
+    });
+  } else {
+    await updateUserSettings(c.get("directory"), userId, patch);
+    if (body.storeEventTitles === true) {
+      // Enable only after the opt-in committed, and recheck under the writer
+      // lock: a newer opt-out may have won while this request was in flight.
+      await directoryTransaction(c.get("directory"), async (directory) => {
+        if ((await getUser(directory, userId))?.storeEventTitles) {
+          await setEventPrivacy(c.get("db"), true);
+        }
+      });
+    }
+  }
 
   return c.body(null, 204);
 });
@@ -1185,17 +1216,14 @@ async function fillDay(
    */
   if (slots.length > 0) return;
 
-  await planAndSchedule(
-    c,
-    {
-      user,
-      // Midnight of the day itself. Its `end` is the first instant of the day
-      // *after* it, and passing that planned tomorrow while filing the run
-      // under today - so every open planned again, one day out.
-      onDay: wholeDay.start,
-      trigger: "morning",
-    },
-  );
+  await planAndSchedule(c, {
+    user,
+    // Midnight of the day itself. Its `end` is the first instant of the day
+    // *after* it, and passing that planned tomorrow while filing the run
+    // under today - so every open planned again, one day out.
+    onDay: wholeDay.start,
+    trigger: "morning",
+  });
 }
 
 app.get("/today", async (c) => {
@@ -1613,7 +1641,12 @@ async function actionAt(c: Ctx): Promise<number> {
 app.post("/slots/:id/start", async (c) => {
   await setSlotStatus(
     c.get("db"),
-    { slotId: c.req.param("id"), status: "started", actor: "user", ...actionIdentity(c) },
+    {
+      slotId: c.req.param("id"),
+      status: "started",
+      actor: "user",
+      ...actionIdentity(c),
+    },
     await actionAt(c),
     newId,
   );
@@ -1792,23 +1825,26 @@ app.post("/slots", async (c) => {
   const slot = await userTransaction(db, async (tx) => {
     if (subject.reminderId) {
       const current = await getReminder(tx, subject.reminderId);
-      if (current?.status !== "open") throw new HTTPException(409, { message: "That todo is already on the day, or done." });
+      if (current?.status !== "open")
+        throw new HTTPException(409, {
+          message: "That todo is already on the day, or done.",
+        });
     }
     const placed = await placeSlot(
-    tx,
-    {
-      activityId: subject.activityId,
-      reminderId: subject.reminderId,
-      title: subject.title,
-      kind: subject.kind,
-      startsAt: body.startsAt,
-      endsAt,
-      timeZone: user.timeZone,
-      ownerAddonId: own && addon ? addon.id : null,
-    },
-    now,
-    newId,
-  );
+      tx,
+      {
+        activityId: subject.activityId,
+        reminderId: subject.reminderId,
+        title: subject.title,
+        kind: subject.kind,
+        startsAt: body.startsAt,
+        endsAt,
+        timeZone: user.timeZone,
+        ownerAddonId: own && addon ? addon.id : null,
+      },
+      now,
+      newId,
+    );
 
     if (subject.reminderId) {
       await setReminderStatus(tx, subject.reminderId, "slotted", placed.id);

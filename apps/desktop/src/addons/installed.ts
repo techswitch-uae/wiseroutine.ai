@@ -7,7 +7,12 @@ import {
 } from "@wiseroutine/addons";
 import { useSyncExternalStore } from "react";
 import { type AvailableAddon, api, type InstalledAddonRow } from "../lib/api";
-import { accountStorageKey, onSessionReset, sessionGeneration, sessionIdentity } from "../lib/session-lifecycle";
+import {
+  accountStorageKey,
+  onSessionReset,
+  sessionGeneration,
+  sessionIdentity,
+} from "../lib/session-lifecycle";
 
 /** Whether there is a Tauri host to talk to. */
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in globalThis;
@@ -44,7 +49,10 @@ export async function forgetAddon(id: string): Promise<void> {
   } catch {
     // No storage. Nothing to forget.
   }
-  if (inTauri()) await invoke("forget_addon", { id, accountId: sessionIdentity() }).catch(() => undefined);
+  if (inTauri())
+    await invoke("forget_addon", { id, accountId: sessionIdentity() }).catch(
+      () => undefined,
+    );
 }
 
 /**
@@ -61,7 +69,12 @@ export function frameUrlFor(id: string): string | null {
     }
   ).__TAURI_INTERNALS__;
   const account = sessionIdentity();
-  return account ? (internals?.convertFileSrc?.(`${encodeURIComponent(account)}/${id}`, "addon") ?? null) : null;
+  return account
+    ? (internals?.convertFileSrc?.(
+        `${encodeURIComponent(account)}/${id}`,
+        "addon",
+      ) ?? null)
+    : null;
 }
 
 /**
@@ -83,7 +96,10 @@ export interface InstalledAddon {
 
 let addons: ReadonlyMap<string, InstalledAddon> = new Map();
 let loadSequence = 0;
-onSessionReset(() => { loadSequence++; publish(new Map()); });
+onSessionReset(() => {
+  loadSequence++;
+  publish(new Map());
+});
 const listeners = new Set<() => void>();
 
 const snapshot = (): ReadonlyMap<string, InstalledAddon> => addons;
@@ -227,7 +243,8 @@ export async function loadAddons(): Promise<void> {
   for (const addon of [...loaded, await sideload()]) {
     if (addon) next.set(addon.manifest.id, addon);
   }
-  if (generation === sessionGeneration() && sequence === loadSequence) publish(next);
+  if (generation === sessionGeneration() && sequence === loadSequence)
+    publish(next);
 }
 
 /**

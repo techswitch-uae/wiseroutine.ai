@@ -1,8 +1,4 @@
-import {
-  findWatchRoute,
-  getUser,
-  scheduleWork,
-} from "@wiseroutine/db";
+import { findWatchRoute, getUser, scheduleWork } from "@wiseroutine/db";
 import { required } from "@wiseroutine/env";
 import { Hono } from "hono";
 import type Stripe from "stripe";

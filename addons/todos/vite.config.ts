@@ -3,10 +3,7 @@ import { join } from "node:path";
 import { defineConfig } from "vite";
 
 /** One IIFE file, plus the manifest beside it - the same as every addon. */
-const INSTALLED = join(
-  import.meta.dirname,
-  "dist",
-);
+const INSTALLED = join(import.meta.dirname, "dist");
 
 export default defineConfig({
   build: {

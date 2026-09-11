@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import { onSessionReset } from "./session-lifecycle";
 import { api, openGaps, type TodayResponse, type Todo } from "./api";
+import { onSessionReset } from "./session-lifecycle";
 
 /** A todo with no length gets this much. One keypress to change. */
 export const DEFAULT_TODO_MINUTES = 15;

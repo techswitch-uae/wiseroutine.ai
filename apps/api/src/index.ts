@@ -1,10 +1,6 @@
 import {
-  abandonedSlots,
   ActionConflict,
-  listEventsInRange,
-  listSlotsForRange,
-  nextGraceDeadline,
-  userTransaction,
+  abandonedSlots,
   autoSlotsToComplete,
   completeWork,
   createDirectory,
@@ -14,25 +10,35 @@ import {
   failWork,
   getCalendarForSync,
   getUser,
+  listEventsInRange,
+  listSlotsForRange,
   moveSlot,
+  nextGraceDeadline,
   pruneEventsBefore,
   pruneProcessedEvents,
   scheduleWork,
   setSlotStatus,
   slotsPastGrace,
+  userTransaction,
   type WorkKind,
   watchesExpiringBefore,
 } from "@wiseroutine/db";
 import type { PlanId } from "@wiseroutine/plans";
-import { syncInterval, freeGaps, dayBounds, localDateOf, toBusyBlocks } from "@wiseroutine/scheduler";
+import {
+  dayBounds,
+  freeGaps,
+  localDateOf,
+  syncInterval,
+  toBusyBlocks,
+} from "@wiseroutine/scheduler";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { trustedOrigins } from "./auth";
 import {
   type App,
-  ensureUserSchema,
   type Bindings,
+  ensureUserSchema,
   newId,
   type SyncJob,
   withContext,
@@ -128,7 +134,8 @@ api.route("/", appRoutes);
 
 api.onError((error, c) => {
   if (error instanceof HTTPException) return error.getResponse();
-  if (error instanceof ActionConflict) return c.json({ message: error.message }, 409);
+  if (error instanceof ActionConflict)
+    return c.json({ message: error.message }, 409);
   console.error("unhandled", error);
   return c.json({ error: "internal_error" }, 500);
 });
@@ -204,144 +211,184 @@ export async function sweepGrace(
   now: number,
 ): Promise<number | undefined> {
   const db = createUserDatabase(userCredentials(config, job.databaseName));
-  const user = await getUser(createDirectory(directoryCredentials(config)), job.userId);
+  const user = await getUser(
+    createDirectory(directoryCredentials(config)),
+    job.userId,
+  );
   if (!user) return undefined;
   return userTransaction(db, async (db) => {
-  const due = await slotsPastGrace(db, now, 200, GRACE_WINDOW);
+    const due = await slotsPastGrace(db, now, 200, GRACE_WINDOW);
 
-  for (const slot of due) {
-    switch (graceAction(slot, now)) {
-      /**
-       * An activity that starts itself.
-       *
-       * The slot goes live at its own start time and is closed at its end by
-       * `autoSlotsToComplete` below. It is never moved, whether or not it is
-       * locked - moving something that has already begun is not a
-       * rescheduling, it is a lie about what happened.
-       */
-      case "start":
-        await setSlotStatus(
-          db,
-          {
-            slotId: slot.id,
-            status: "started",
-            actor: "system",
-            reasonCode: "auto_start",
-          },
-          now,
-          newId,
-        );
-        break;
+    for (const slot of due) {
+      switch (graceAction(slot, now)) {
+        /**
+         * An activity that starts itself.
+         *
+         * The slot goes live at its own start time and is closed at its end by
+         * `autoSlotsToComplete` below. It is never moved, whether or not it is
+         * locked - moving something that has already begun is not a
+         * rescheduling, it is a lie about what happened.
+         */
+        case "start":
+          await setSlotStatus(
+            db,
+            {
+              slotId: slot.id,
+              status: "started",
+              actor: "system",
+              reasonCode: "auto_start",
+            },
+            now,
+            newId,
+          );
+          break;
 
-      case "leave":
-        break;
+        case "leave":
+          break;
 
-      case "miss":
-        await setSlotStatus(
-          db,
-          {
-            slotId: slot.id,
-            status: "missed",
-            actor: "system",
-            reasonCode: "auto_move_limit",
-            reasonText: "moved twice, then no gap appeared",
-          },
-          now,
-          newId,
-        );
-        break;
+        case "miss":
+          await setSlotStatus(
+            db,
+            {
+              slotId: slot.id,
+              status: "missed",
+              actor: "system",
+              reasonCode: "auto_move_limit",
+              reasonText: "moved twice, then no gap appeared",
+            },
+            now,
+            newId,
+          );
+          break;
 
-      case "move": {
-        const duration = slot.endsAt - slot.startsAt;
-        const bounds = dayBounds(localDateOf(now, user.timeZone), user.timeZone,
-          user.dayStartMinutes, user.dayEndMinutes);
-        const [events, slots] = await Promise.all([
-          listEventsInRange(db, bounds.start, bounds.end),
-          listSlotsForRange(db, bounds.start, bounds.end),
-        ]);
-        const busy = toBusyBlocks(events);
-        const occupied = [...busy, ...slots.filter((other) => other.id !== slot.id &&
-          ["planned", "live", "started"].includes(other.status)).map((other) => ({ start: other.startsAt, end: other.endsAt }))];
-        const gap = freeGaps({ start: Math.max(bounds.start, now + 5 * MINUTE), end: bounds.end }, occupied)
-          .find((gap) => gap.end - gap.start >= duration +
-            (busy.some((meeting) => meeting.start === gap.end) ? slot.bufferBeforeMeetingMinutes * MINUTE : 0));
-        if (!gap) {
-          await setSlotStatus(db, { slotId: slot.id, status: "bucketed", actor: "system",
-            reasonCode: "no_gap", reasonText: "No free time remains in working hours", fromStartsAt: slot.startsAt }, now, newId);
+        case "move": {
+          const duration = slot.endsAt - slot.startsAt;
+          const bounds = dayBounds(
+            localDateOf(now, user.timeZone),
+            user.timeZone,
+            user.dayStartMinutes,
+            user.dayEndMinutes,
+          );
+          const [events, slots] = await Promise.all([
+            listEventsInRange(db, bounds.start, bounds.end),
+            listSlotsForRange(db, bounds.start, bounds.end),
+          ]);
+          const busy = toBusyBlocks(events);
+          const occupied = [
+            ...busy,
+            ...slots
+              .filter(
+                (other) =>
+                  other.id !== slot.id &&
+                  ["planned", "live", "started"].includes(other.status),
+              )
+              .map((other) => ({ start: other.startsAt, end: other.endsAt })),
+          ];
+          const gap = freeGaps(
+            {
+              start: Math.max(bounds.start, now + 5 * MINUTE),
+              end: bounds.end,
+            },
+            occupied,
+          ).find(
+            (gap) =>
+              gap.end - gap.start >=
+              duration +
+                (busy.some((meeting) => meeting.start === gap.end)
+                  ? slot.bufferBeforeMeetingMinutes * MINUTE
+                  : 0),
+          );
+          if (!gap) {
+            await setSlotStatus(
+              db,
+              {
+                slotId: slot.id,
+                status: "bucketed",
+                actor: "system",
+                reasonCode: "no_gap",
+                reasonText: "No free time remains in working hours",
+                fromStartsAt: slot.startsAt,
+              },
+              now,
+              newId,
+            );
+            break;
+          }
+          await moveSlot(
+            db,
+            {
+              slotId: slot.id,
+              startsAt: gap.start,
+              endsAt: gap.start + duration,
+              actor: "system",
+              reasonCode: "grace_expired",
+              reasonText: "not started in time",
+            },
+            now,
+            newId,
+          );
           break;
         }
-        await moveSlot(
-          db,
-          {
-            slotId: slot.id,
-            startsAt: gap.start,
-            endsAt: gap.start + duration,
-            actor: "system",
-            reasonCode: "grace_expired",
-            reasonText: "not started in time",
-          },
-          now,
-          newId,
-        );
-        break;
       }
     }
-  }
 
-  // Close anything that started itself and has now run its length. Separate
-  // from the loop above because these are `started`, not `planned` - a
-  // different question asked of a different set of slots.
-  const finished = await autoSlotsToComplete(db, now, 200);
-  for (const slot of finished) {
-    await setSlotStatus(
-      db,
-      {
-        slotId: slot.id,
-        status: "completed",
-        actor: "system",
-        reasonCode: "auto_complete",
-      },
-      now,
-      newId,
+    // Close anything that started itself and has now run its length. Separate
+    // from the loop above because these are `started`, not `planned` - a
+    // different question asked of a different set of slots.
+    const finished = await autoSlotsToComplete(db, now, 200);
+    for (const slot of finished) {
+      await setSlotStatus(
+        db,
+        {
+          slotId: slot.id,
+          status: "completed",
+          actor: "system",
+          reasonCode: "auto_complete",
+        },
+        now,
+        newId,
+      );
+    }
+
+    /**
+     * Sessions someone started and never finished.
+     *
+     * The one status with nothing behind it. `auto` slots are closed by the pass
+     * above and manual ones are closed from inside the session - so a window
+     * shut mid-stretch left the row `started` for ever. Still drawn as "running
+     * now" days later, still counted as scheduled, so the day never re-asked for
+     * the session either.
+     *
+     * Recorded as missed, not completed, and this is the judgement call in here:
+     * we know it was started and we do not know it was done. Inventing progress
+     * in someone's own health record is the worse of the two mistakes, and the
+     * missed list can say exactly what happened where a silent completion could
+     * not. The reason code is what makes it reversible if that call is wrong.
+     *
+     * After the `auto` pass on purpose - by here, anything still `started` and an
+     * hour past its end really was abandoned.
+     */
+    const abandoned = await abandonedSlots(db, now, 200, ABANDONED_AFTER);
+    for (const slot of abandoned) {
+      await setSlotStatus(
+        db,
+        {
+          slotId: slot.id,
+          status: "missed",
+          actor: "system",
+          reasonCode: "never_finished",
+          reasonText: "started, then left running",
+        },
+        now,
+        newId,
+      );
+    }
+
+    const next = await nextGraceDeadline(db, now);
+    return Math.max(
+      now + MINUTE,
+      Math.min(next ?? Infinity, now + 15 * MINUTE),
     );
-  }
-
-  /**
-   * Sessions someone started and never finished.
-   *
-   * The one status with nothing behind it. `auto` slots are closed by the pass
-   * above and manual ones are closed from inside the session - so a window
-   * shut mid-stretch left the row `started` for ever. Still drawn as "running
-   * now" days later, still counted as scheduled, so the day never re-asked for
-   * the session either.
-   *
-   * Recorded as missed, not completed, and this is the judgement call in here:
-   * we know it was started and we do not know it was done. Inventing progress
-   * in someone's own health record is the worse of the two mistakes, and the
-   * missed list can say exactly what happened where a silent completion could
-   * not. The reason code is what makes it reversible if that call is wrong.
-   *
-   * After the `auto` pass on purpose - by here, anything still `started` and an
-   * hour past its end really was abandoned.
-   */
-  const abandoned = await abandonedSlots(db, now, 200, ABANDONED_AFTER);
-  for (const slot of abandoned) {
-    await setSlotStatus(
-      db,
-      {
-        slotId: slot.id,
-        status: "missed",
-        actor: "system",
-        reasonCode: "never_finished",
-        reasonText: "started, then left running",
-      },
-      now,
-      newId,
-    );
-  }
-
-  const next = await nextGraceDeadline(db, now);
-  return Math.max(now + MINUTE, Math.min(next ?? Infinity, now + 15 * MINUTE));
   });
 }
 
@@ -560,7 +607,10 @@ export default {
 
       try {
         const user = await getUser(directory, job.userId);
-        if (!user || user.deletedAt || !user.databaseReady) { message.ack(); continue; }
+        if (!user || user.deletedAt || !user.databaseReady) {
+          message.ack();
+          continue;
+        }
         await ensureUserSchema(config, directory, user.id, user);
         const nextDueAt =
           job.type === "grace-sweep"

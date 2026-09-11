@@ -1,6 +1,15 @@
-import { at, atOrNull, ms, msOrNull, type UserDatabase, userTransaction, isTransaction } from "../client";
+import {
+  at,
+  atOrNull,
+  isTransaction,
+  ms,
+  msOrNull,
+  type UserDatabase,
+  userTransaction,
+} from "../client";
 
 export class ActionConflict extends Error {}
+
 import type {
   Slot as PrismaSlot,
   SlotEvent as PrismaSlotEvent,
@@ -179,8 +188,10 @@ export async function replacePlannedSlots(
   now: number,
   newId: () => string,
 ): Promise<{ removed: number; created: number }> {
-  if (!isTransaction(db)) return userTransaction(db, (tx) =>
-    replacePlannedSlots(tx, params, planned, now, newId));
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) =>
+      replacePlannedSlots(tx, params, planned, now, newId),
+    );
   const replaceable = await db.slot.findMany({
     where: {
       startsAt: { gte: at(params.from), lt: at(params.to) },
@@ -252,8 +263,8 @@ export async function placeSlot(
   now: number,
   newId: () => string,
 ): Promise<SlotRow> {
-  if (!isTransaction(db)) return userTransaction(db, (tx) =>
-    placeSlot(tx, params, now, newId));
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) => placeSlot(tx, params, now, newId));
   const id = newId();
   await db.slot.create({
     data: {
@@ -355,8 +366,8 @@ export async function moveSlot(
   now: number,
   newId: () => string,
 ): Promise<void> {
-  if (!isTransaction(db)) return userTransaction(db, (tx) =>
-    moveSlot(tx, params, now, newId));
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) => moveSlot(tx, params, now, newId));
   const current = await getSlot(db, params.slotId);
   if (!current) return;
 
@@ -424,19 +435,33 @@ export async function setSlotStatus(
   now: number,
   newId: () => string,
 ): Promise<void> {
-  if (!isTransaction(db)) return userTransaction(db, (tx) =>
-    setSlotStatus(tx, params, now, newId));
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) => setSlotStatus(tx, params, now, newId));
   if (params.actionId) {
-    const fingerprint = JSON.stringify([params.slotId, params.status, params.actor, params.reasonCode ?? null, params.reasonText ?? null]);
+    const fingerprint = JSON.stringify([
+      params.slotId,
+      params.status,
+      params.actor,
+      params.reasonCode ?? null,
+      params.reasonText ?? null,
+    ]);
     const existing = await db.$queryRawUnsafe<{ fingerprint: string }[]>(
-      "SELECT fingerprint FROM _slot_actions WHERE id = ?", params.actionId);
+      "SELECT fingerprint FROM _slot_actions WHERE id = ?",
+      params.actionId,
+    );
     if (existing[0]) {
-      if (existing[0].fingerprint !== fingerprint) throw new ActionConflict("Action id already used for a different action");
+      if (existing[0].fingerprint !== fingerprint)
+        throw new ActionConflict(
+          "Action id already used for a different action",
+        );
       return;
     }
     await db.$executeRawUnsafe(
       "INSERT INTO _slot_actions (id, slot_id, fingerprint) VALUES (?, ?, ?)",
-      params.actionId, params.slotId, fingerprint);
+      params.actionId,
+      params.slotId,
+      fingerprint,
+    );
   }
   await db.slot.updateMany({
     where: { id: params.slotId },
@@ -587,7 +612,13 @@ export async function slotsPastGrace(
     // a filter here: a hand-placed eye rest still has to start itself, it just
     // must never be moved. See `sweepGrace`.
     include: {
-      activity: { select: { startPolicy: true, graceMinutes: true, bufferBeforeMeetingMinutes: true } },
+      activity: {
+        select: {
+          startPolicy: true,
+          graceMinutes: true,
+          bufferBeforeMeetingMinutes: true,
+        },
+      },
     },
     orderBy: { startsAt: "asc" },
     take: limit,
@@ -664,17 +695,25 @@ export async function nextGraceDeadline(
   after: number,
 ): Promise<number | undefined> {
   const rows = await db.slot.findMany({
-    where: { OR: [
-      { status: "planned", startsAt: { gt: at(after - 30 * 60_000) } },
-      { status: "started" },
-    ] },
-    include: { activity: { select: { startPolicy: true, graceMinutes: true } } },
+    where: {
+      OR: [
+        { status: "planned", startsAt: { gt: at(after - 30 * 60_000) } },
+        { status: "started" },
+      ],
+    },
+    include: {
+      activity: { select: { startPolicy: true, graceMinutes: true } },
+    },
   });
   const deadlines = rows.flatMap((row) => {
     const auto = row.activity?.startPolicy === "auto";
-    if (row.status === "started") return [ms(row.endsAt) + (auto ? 0 : 60 * 60_000)];
+    if (row.status === "started")
+      return [ms(row.endsAt) + (auto ? 0 : 60 * 60_000)];
     if (!auto && row.isLocked) return [];
-    return [ms(row.startsAt) + (auto ? 0 : (row.activity?.graceMinutes ?? 0) * 60_000)];
+    return [
+      ms(row.startsAt) +
+        (auto ? 0 : (row.activity?.graceMinutes ?? 0) * 60_000),
+    ];
   });
   return deadlines.length ? Math.min(...deadlines) : undefined;
 }

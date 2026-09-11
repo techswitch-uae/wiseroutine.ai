@@ -479,6 +479,18 @@ mod tests {
   use super::*;
 
   #[test]
+  fn account_namespaces_do_not_share_addon_secrets_or_accept_empty_identity() {
+    let a = account_component("user-a").unwrap();
+    let b = account_component("user-b").unwrap();
+    assert_ne!(a, b);
+    assert_eq!(a, account_component("user-a").unwrap());
+    assert_eq!(a.len(), 64);
+    assert!(account_component("").is_err());
+    // An identity cannot inject path components into the native store.
+    assert!(!account_component("../../another-user").unwrap().contains('/'));
+  }
+
+  #[test]
   fn embed_and_fetch_origins_do_not_leak_into_each_other() {
     let granted = r#"[
       {"kind":"net:fetch","origins":["https://api.acme.example"]},

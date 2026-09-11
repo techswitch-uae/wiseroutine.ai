@@ -105,8 +105,13 @@ export function pending(): PendingAction[] {
   return read<PendingAction[]>(QUEUE_KEY) ?? [];
 }
 
-export function enqueue(action: Omit<PendingAction, "id"> & { id?: string }): PendingAction {
-  const entry: PendingAction = { ...action, id: action.id ?? crypto.randomUUID() };
+export function enqueue(
+  action: Omit<PendingAction, "id"> & { id?: string },
+): PendingAction {
+  const entry: PendingAction = {
+    ...action,
+    id: action.id ?? crypto.randomUUID(),
+  };
   write(QUEUE_KEY, [...pending(), entry]);
   return entry;
 }

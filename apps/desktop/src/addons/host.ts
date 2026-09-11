@@ -7,10 +7,15 @@ import {
   isPlainHttpsOrigin,
 } from "@wiseroutine/addons";
 import { api, openGaps, type Todo } from "../lib/api";
-import { accountStorageKey, onSessionReset, sessionGeneration, sessionIdentity } from "../lib/session-lifecycle";
 import { notify as toast } from "../lib/notify";
 import { openExternal } from "../lib/open-external";
 import { reloadPlan, subscribePlan, todaySnapshot } from "../lib/plan-store";
+import {
+  accountStorageKey,
+  onSessionReset,
+  sessionGeneration,
+  sessionIdentity,
+} from "../lib/session-lifecycle";
 import {
   DEFAULT_TODO_MINUTES,
   fitsAt,

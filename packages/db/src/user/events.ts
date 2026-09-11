@@ -1,5 +1,12 @@
 import type { CalendarEvent } from "@wiseroutine/scheduler";
-import { at, atOrNull, ms, type UserDatabase, userTransaction, isTransaction } from "../client";
+import {
+  at,
+  atOrNull,
+  isTransaction,
+  ms,
+  type UserDatabase,
+  userTransaction,
+} from "../client";
 
 export interface NormalisedEvent {
   providerEventId: string;
@@ -52,11 +59,13 @@ export async function upsertEvents(
   newId: () => string,
 ): Promise<UpsertResult> {
   if (events.length === 0) return { written: 0, skipped: 0 };
-  if (!isTransaction(db)) return userTransaction(db, (tx) =>
-    upsertEvents(tx, params, events, now, newId));
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) =>
+      upsertEvents(tx, params, events, now, newId),
+    );
   // A stale sync target must not undo a privacy preference committed while
   // the provider fetch was in flight. Check under the same writer lock.
-  const storeTitles = params.storeTitles && await storesEventDetails(db);
+  const storeTitles = params.storeTitles && (await storesEventDetails(db));
 
   const existing = await db.externalEvent.findMany({
     where: { calendarId: params.calendarId },
@@ -195,17 +204,24 @@ export async function pruneEventsBefore(
  *  is a promise we only keep going forward. */
 export async function storesEventDetails(db: UserDatabase): Promise<boolean> {
   const rows = await db.$queryRawUnsafe<{ store_titles: number }[]>(
-    "SELECT store_titles FROM _event_privacy WHERE id = 1");
+    "SELECT store_titles FROM _event_privacy WHERE id = 1",
+  );
   return Number(rows[0]?.store_titles) === 1;
 }
 
-export async function setEventPrivacy(db: UserDatabase, storeTitles: boolean): Promise<void> {
+export async function setEventPrivacy(
+  db: UserDatabase,
+  storeTitles: boolean,
+): Promise<void> {
   await userTransaction(db, async (tx) => {
     await tx.$executeRawUnsafe(
-      "UPDATE _event_privacy SET store_titles = ? WHERE id = 1", storeTitles ? 1 : 0);
-    if (!storeTitles) await tx.externalEvent.updateMany({
-      data: { title: null, joinUrl: null, description: null },
-    });
+      "UPDATE _event_privacy SET store_titles = ? WHERE id = 1",
+      storeTitles ? 1 : 0,
+    );
+    if (!storeTitles)
+      await tx.externalEvent.updateMany({
+        data: { title: null, joinUrl: null, description: null },
+      });
   });
 }
 

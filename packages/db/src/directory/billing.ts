@@ -1,4 +1,10 @@
-import { at, atOrNull, type Directory, directoryTransaction, isTransaction } from "../client";
+import {
+  at,
+  atOrNull,
+  type Directory,
+  directoryTransaction,
+  isTransaction,
+} from "../client";
 import { refreshUserPlan } from "./users";
 
 export interface SubscriptionInput {
@@ -18,15 +24,25 @@ export async function upsertSubscription(
   input: SubscriptionInput,
   now: number,
 ): Promise<Awaited<ReturnType<typeof refreshUserPlan>>> {
-  if (!isTransaction(directory)) return directoryTransaction(directory, (tx) =>
-    upsertSubscription(tx, input, now));
+  if (!isTransaction(directory))
+    return directoryTransaction(directory, (tx) =>
+      upsertSubscription(tx, input, now),
+    );
   const data = {
     stripeCustomerId: input.stripeCustomerId,
-    ...(input.stripeSubscriptionId !== undefined ? { stripeSubscriptionId: input.stripeSubscriptionId } : {}),
-    ...(input.stripePriceId !== undefined ? { stripePriceId: input.stripePriceId } : {}),
+    ...(input.stripeSubscriptionId !== undefined
+      ? { stripeSubscriptionId: input.stripeSubscriptionId }
+      : {}),
+    ...(input.stripePriceId !== undefined
+      ? { stripePriceId: input.stripePriceId }
+      : {}),
     status: input.status,
-    ...(input.currentPeriodEnd !== undefined ? { currentPeriodEnd: atOrNull(input.currentPeriodEnd) } : {}),
-    ...(input.cancelAtPeriodEnd !== undefined ? { cancelAtPeriodEnd: input.cancelAtPeriodEnd } : {}),
+    ...(input.currentPeriodEnd !== undefined
+      ? { currentPeriodEnd: atOrNull(input.currentPeriodEnd) }
+      : {}),
+    ...(input.cancelAtPeriodEnd !== undefined
+      ? { cancelAtPeriodEnd: input.cancelAtPeriodEnd }
+      : {}),
     updatedAt: at(now),
   };
 
@@ -79,7 +95,9 @@ export async function processWebhook(
     const id = `${source}:${eventId}`;
     if (await tx.processedEvent.findUnique({ where: { id } })) return false;
     await apply(tx);
-    await tx.processedEvent.create({ data: { id, source, processedAt: at(now) } });
+    await tx.processedEvent.create({
+      data: { id, source, processedAt: at(now) },
+    });
     return true;
   });
 }

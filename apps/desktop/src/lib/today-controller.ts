@@ -1,6 +1,12 @@
 import { api, flushPending } from "./api";
 import { notify } from "./notify";
-import { isToday, manageToday, publishTodayPlan, reloadPlan, todaySnapshot } from "./plan-store";
+import {
+  isToday,
+  manageToday,
+  publishTodayPlan,
+  reloadPlan,
+  todaySnapshot,
+} from "./plan-store";
 import { markStarted } from "./running-slot";
 import { onServerInvalidated, sessionGeneration } from "./session-lifecycle";
 
@@ -17,26 +23,50 @@ export function startTodayController(): () => void {
   const current = () => !stopped && generation === sessionGeneration();
   const load = () => {
     const request = ++sequence;
-    void api.today({ range: "full" }).then((plan) => {
-      if (current() && request === sequence) publishTodayPlan(isToday(plan, Date.now()) ? plan : null);
-    }).catch(() => { /* Keep the last known plan; never substitute another date. */ });
+    void api
+      .today({ range: "full" })
+      .then((plan) => {
+        if (current() && request === sequence)
+          publishTodayPlan(isToday(plan, Date.now()) ? plan : null);
+      })
+      .catch(() => {
+        /* Keep the last known plan; never substitute another date. */
+      });
   };
-  const refresh = () => { if (current()) { load(); reloadPlan(); } };
+  const refresh = () => {
+    if (current()) {
+      load();
+      reloadPlan();
+    }
+  };
   const catchUp = () => {
     if (!current()) return;
     const plan = todaySnapshot();
     if (plan && !isToday(plan, Date.now())) publishTodayPlan(null);
-    void flushPending().then(() => { if (current()) load(); });
+    void flushPending().then(() => {
+      if (current()) load();
+    });
   };
   const tick = () => {
-    timer = setTimeout(() => { catchUp(); if (current()) tick(); }, 60_000 - Date.now() % 60_000);
+    timer = setTimeout(
+      () => {
+        catchUp();
+        if (current()) tick();
+      },
+      60_000 - (Date.now() % 60_000),
+    );
   };
   const unsubscribe = onServerInvalidated(refresh);
   globalThis.addEventListener?.("focus", catchUp);
   globalThis.addEventListener?.("online", catchUp);
-  load(); tick();
+  load();
+  tick();
   return () => {
-    stopped = true; sequence++; clearTimeout(timer); unsubscribe(); release();
+    stopped = true;
+    sequence++;
+    clearTimeout(timer);
+    unsubscribe();
+    release();
     globalThis.removeEventListener?.("focus", catchUp);
     globalThis.removeEventListener?.("online", catchUp);
   };
@@ -45,11 +75,25 @@ export function startTodayController(): () => void {
 export async function startTodaySlot(slotId: string): Promise<void> {
   const generation = sessionGeneration();
   const plan = todaySnapshot();
-  if (!plan || !isToday(plan, Date.now()) || !plan.slots.some((slot) => slot.id === slotId)) return;
+  if (
+    !plan ||
+    !isToday(plan, Date.now()) ||
+    !plan.slots.some((slot) => slot.id === slotId)
+  )
+    return;
   markStarted(slotId);
-  publishTodayPlan({ ...plan, slots: plan.slots.map((slot) => slot.id === slotId ? { ...slot, status: "started" } : slot) });
-  try { await api.startSlot(slotId); }
-  catch {
-    if (generation === sessionGeneration()) { publishTodayPlan(plan); notify("Couldn't start that just now."); }
+  publishTodayPlan({
+    ...plan,
+    slots: plan.slots.map((slot) =>
+      slot.id === slotId ? { ...slot, status: "started" } : slot,
+    ),
+  });
+  try {
+    await api.startSlot(slotId);
+  } catch {
+    if (generation === sessionGeneration()) {
+      publishTodayPlan(plan);
+      notify("Couldn't start that just now.");
+    }
   }
 }

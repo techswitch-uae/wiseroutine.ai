@@ -14,6 +14,7 @@
 
 import { useSyncExternalStore } from "react";
 import { onSessionReset } from "./session-lifecycle";
+
 onSessionReset(() => setPlacing(null));
 
 export interface Placement {

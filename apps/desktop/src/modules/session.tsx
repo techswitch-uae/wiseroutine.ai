@@ -58,9 +58,7 @@ export const SessionOverlay: React.FC = () => {
         // The queue takes it offline; anything else is worth saying, because a
         // session that ran and was not recorded is a number quietly going
         // wrong.
-        notify(
-          "Couldn't record that. Please try again.",
-        );
+        notify("Couldn't record that. Please try again.");
       })
       // Always, and this is what makes a stopped session resumable.
       //

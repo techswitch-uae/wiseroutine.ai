@@ -3,8 +3,8 @@ import {
   applyMigrations,
   createDirectory,
   type Directory,
-  refreshUserPlan,
   forgetStoredTitles,
+  refreshUserPlan,
   storesEventDetails,
   USER_MIGRATIONS,
   type UserDatabase,
@@ -203,7 +203,10 @@ export const requireUser: MiddlewareHandler<App> = async (c, next) => {
   c.set("db", createUserDb(c.get("env"), session.user.databaseName));
   // Existing opt-outs predate the local privacy fence. Install it once before
   // serving reads; sync writes consult it inside their transaction.
-  if (!session.user.storeEventTitles && await storesEventDetails(c.get("db"))) {
+  if (
+    !session.user.storeEventTitles &&
+    (await storesEventDetails(c.get("db")))
+  ) {
     await forgetStoredTitles(c.get("db"));
   }
 
@@ -259,7 +262,9 @@ export async function ensureUserSchema(
     });
   } catch (error) {
     console.error("schema catch-up", userId, error);
-    throw new HTTPException(503, { message: "Your data is being upgraded. Please retry shortly." });
+    throw new HTTPException(503, {
+      message: "Your data is being upgraded. Please retry shortly.",
+    });
   }
 }
 

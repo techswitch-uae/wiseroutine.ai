@@ -39,11 +39,16 @@ export async function userTransaction<T>(
   work: (tx: UserDatabase) => Promise<T>,
 ): Promise<T> {
   if (isTransaction(db) || !("$transaction" in db)) return work(db);
-  return db.$transaction(async (tx) => {
-    transactionScopes.add(tx);
-    await tx.$executeRawUnsafe("UPDATE _write_lock SET version = version + 1 WHERE id = 1");
-    return work(tx);
-  }, { timeout: 30_000, maxWait: 10_000 });
+  return db.$transaction(
+    async (tx) => {
+      transactionScopes.add(tx);
+      await tx.$executeRawUnsafe(
+        "UPDATE _write_lock SET version = version + 1 WHERE id = 1",
+      );
+      return work(tx);
+    },
+    { timeout: 30_000, maxWait: 10_000 },
+  );
 }
 
 export async function directoryTransaction<T>(
@@ -51,11 +56,16 @@ export async function directoryTransaction<T>(
   work: (tx: Directory) => Promise<T>,
 ): Promise<T> {
   if (isTransaction(db) || !("$transaction" in db)) return work(db);
-  return db.$transaction(async (tx) => {
-    transactionScopes.add(tx);
-    await tx.$executeRawUnsafe("UPDATE _write_lock SET version = version + 1 WHERE id = 1");
-    return work(tx);
-  }, { timeout: 30_000, maxWait: 10_000 });
+  return db.$transaction(
+    async (tx) => {
+      transactionScopes.add(tx);
+      await tx.$executeRawUnsafe(
+        "UPDATE _write_lock SET version = version + 1 WHERE id = 1",
+      );
+      return work(tx);
+    },
+    { timeout: 30_000, maxWait: 10_000 },
+  );
 }
 
 export interface Credentials {

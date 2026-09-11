@@ -126,12 +126,25 @@ export function plan(input: PlanInput): PlanResult {
   }
   // A bad persisted row or a non-HTTP caller must not create an unbounded
   // loop, even when zero-length placements would never consume a gap.
-  if (input.demands.length > 1000 || input.busy.length + input.locked.length > 10000 || input.dayEnd - input.dayStart > 48 * 60 * MINUTE) throw new RangeError("Plan exceeds work bounds");
+  if (
+    input.demands.length > 1000 ||
+    input.busy.length + input.locked.length > 10000 ||
+    input.dayEnd - input.dayStart > 48 * 60 * MINUTE
+  )
+    throw new RangeError("Plan exceeds work bounds");
   for (const demand of input.demands) {
-    if (!Number.isInteger(demand.sessionsNeeded) || demand.sessionsNeeded < 0 || demand.sessionsNeeded > 1440 ||
-        !Number.isFinite(demand.activity.sessionMinutes) || demand.activity.sessionMinutes < 1 || demand.activity.sessionMinutes > 1440 ||
-        !Number.isFinite(demand.activity.bufferBeforeMeetingMinutes) || demand.activity.bufferBeforeMeetingMinutes < 0 ||
-        demand.preferredAt.length > 48 || demand.preferredAt.some((at) => !Number.isFinite(at))) {
+    if (
+      !Number.isInteger(demand.sessionsNeeded) ||
+      demand.sessionsNeeded < 0 ||
+      demand.sessionsNeeded > 1440 ||
+      !Number.isFinite(demand.activity.sessionMinutes) ||
+      demand.activity.sessionMinutes < 1 ||
+      demand.activity.sessionMinutes > 1440 ||
+      !Number.isFinite(demand.activity.bufferBeforeMeetingMinutes) ||
+      demand.activity.bufferBeforeMeetingMinutes < 0 ||
+      demand.preferredAt.length > 48 ||
+      demand.preferredAt.some((at) => !Number.isFinite(at))
+    ) {
       throw new RangeError("Invalid or excessive placement demand");
     }
   }

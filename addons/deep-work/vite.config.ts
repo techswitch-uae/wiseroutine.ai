@@ -10,10 +10,7 @@ import { defineConfig } from "vite";
  * injected into a frame with an opaque origin, so it can load nothing else,
  * and the manifest must be readable *without* executing the bundle.
  */
-const INSTALLED = join(
-  import.meta.dirname,
-  "dist",
-);
+const INSTALLED = join(import.meta.dirname, "dist");
 
 export default defineConfig({
   build: {

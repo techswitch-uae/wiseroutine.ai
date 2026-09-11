@@ -16,15 +16,13 @@ import {
 } from "@wiseroutine/design";
 import { useEffect, useState } from "react";
 import { setAccount, useAccount } from "../lib/account";
-import { armAlerts } from "../lib/alerts";
+import { armAlerts, upNextOf } from "../lib/alerts";
 import { ApiError, api, getSessionToken, setSessionToken } from "../lib/api";
 import { dismiss, useToasts } from "../lib/notify";
-import { useTodayPlan } from "../lib/plan-store";
+import { todaySnapshot, useTodayPlan } from "../lib/plan-store";
 import { dayLabel, periodLabel, scopeOf, todayOf } from "../lib/scope";
 import { useSessionIdentity } from "../lib/session-lifecycle";
 import { startTodayController, startTodaySlot } from "../lib/today-controller";
-import { todaySnapshot } from "../lib/plan-store";
-import { upNextOf } from "../lib/alerts";
 import "../lib/rail";
 import { AddonBackground } from "../addons/background";
 import { loadAddons } from "../addons/installed";
@@ -168,9 +166,13 @@ const useMenuBar = (): void => {
         const next = upNextOf(todaySnapshot()?.slots ?? [], Date.now());
         if (next?.slotId) void startTodaySlot(next.slotId);
       });
-      if (stopped) stop(); else unlisten = stop;
+      if (stopped) stop();
+      else unlisten = stop;
     });
-    return () => { stopped = true; unlisten?.(); };
+    return () => {
+      stopped = true;
+      unlisten?.();
+    };
   }, [identity]);
 
   // On the plan, and on nothing else. There was a thirty-second tick here

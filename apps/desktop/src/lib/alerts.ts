@@ -25,6 +25,7 @@
 
 import type { TodaySlot } from "./api";
 import { onSessionReset, sessionGeneration } from "./session-lifecycle";
+
 onSessionReset(() => armAlerts([]));
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in globalThis;
