@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 import {
   AppFrame,
+  Loading,
   ScopeSwitcher,
   Sidebar,
   Toasts,
@@ -20,6 +21,10 @@ import { ApiError, api, getSessionToken, setSessionToken } from "../lib/api";
 import { dismiss, useToasts } from "../lib/notify";
 import { useTodayPlan } from "../lib/plan-store";
 import { dayLabel, periodLabel, scopeOf, todayOf } from "../lib/scope";
+import { useSessionIdentity } from "../lib/session-lifecycle";
+import { startTodayController, startTodaySlot } from "../lib/today-controller";
+import { todaySnapshot } from "../lib/plan-store";
+import { upNextOf } from "../lib/alerts";
 import "../lib/rail";
 import { AddonBackground } from "../addons/background";
 import { loadAddons } from "../addons/installed";
@@ -149,6 +154,24 @@ const UpdateNotice: React.FC = () => {
  */
 const useMenuBar = (): void => {
   const plan = useTodayPlan();
+  const identity = useSessionIdentity();
+  useEffect(() => {
+    if (!identity) return;
+    return startTodayController();
+  }, [identity]);
+  useEffect(() => {
+    if (!identity || !("__TAURI_INTERNALS__" in globalThis)) return;
+    let stopped = false;
+    let unlisten: (() => void) | undefined;
+    void import("@tauri-apps/api/event").then(async ({ listen }) => {
+      const stop = await listen("tray://start", () => {
+        const next = upNextOf(todaySnapshot()?.slots ?? [], Date.now());
+        if (next?.slotId) void startTodaySlot(next.slotId);
+      });
+      if (stopped) stop(); else unlisten = stop;
+    });
+    return () => { stopped = true; unlisten?.(); };
+  }, [identity]);
 
   // On the plan, and on nothing else. There was a thirty-second tick here
   // once, to move the countdown beside the icon along - and it was the bug:
@@ -166,10 +189,11 @@ const useMenuBar = (): void => {
   // page is open, so the addon that draws it has to be loaded whatever page
   // was open. Idempotent, and a failure leaves the app running without it.
   useEffect(() => {
+    if (!identity) return;
     void loadAddons();
     // The todos the rail's card and Quick add both read - see `lib/todos`.
     void reloadTodos();
-  }, []);
+  }, [identity]);
 };
 
 /**
@@ -198,6 +222,7 @@ function useQuickAdd(): [boolean, (open: boolean) => void] {
 
 const AppLayout: React.FC = () => {
   const navigate = useNavigate();
+  const identity = useSessionIdentity();
   useMenuBar();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   // The switcher names the period on screen, and the period lives in the URL -
@@ -304,6 +329,7 @@ const AppLayout: React.FC = () => {
   // after the user has moved to Today, and the message has to survive that.
   const toasts = useToasts();
 
+  if (!identity) return <Loading>Opening your account…</Loading>;
   return (
     <>
       <AppFrame

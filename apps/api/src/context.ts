@@ -4,6 +4,8 @@ import {
   createDirectory,
   type Directory,
   refreshUserPlan,
+  forgetStoredTitles,
+  storesEventDetails,
   USER_MIGRATIONS,
   type UserDatabase,
 } from "@wiseroutine/db";
@@ -193,12 +195,17 @@ export const requireUser: MiddlewareHandler<App> = async (c, next) => {
     storeEventTitles: session.user.storeEventTitles,
     lastSeenAt: session.user.lastSeenAt?.getTime() ?? null,
   });
-  await catchUpSchema(c, session.user.id, {
+  await ensureUserSchema(c.get("env"), c.get("directory"), session.user.id, {
     databaseName: session.user.databaseName,
     schemaVersion: session.user.schemaVersion,
   });
 
   c.set("db", createUserDb(c.get("env"), session.user.databaseName));
+  // Existing opt-outs predate the local privacy fence. Install it once before
+  // serving reads; sync writes consult it inside their transaction.
+  if (!session.user.storeEventTitles && await storesEventDetails(c.get("db"))) {
+    await forgetStoredTitles(c.get("db"));
+  }
 
   await next();
 };
@@ -228,15 +235,14 @@ export const requireUser: MiddlewareHandler<App> = async (c, next) => {
  *
  * ## When it fails
  *
- * The request continues. `applyMigrations` records what it applied in the
- * user's own `_migrations` table and skips it next time, so a half-finished
- * run is resumed rather than repeated - and refusing to serve a user because
- * one statement failed would turn a stale column into an outage. The version
- * is written only after the whole run succeeds, so a failure means the next
- * request tries again.
+ * Fail closed with a retryable response: a handler must never read or mutate
+ * an incompatible schema. Each migration and its marker commit atomically;
+ * the version is advanced only after the whole run succeeds. Queue consumers
+ * use this same gate before opening a user's database.
  */
-async function catchUpSchema(
-  c: Context<App>,
+export async function ensureUserSchema(
+  env: ServerEnv,
+  directory: Directory,
   userId: string,
   user: { databaseName: string; schemaVersion: number },
 ): Promise<void> {
@@ -244,15 +250,16 @@ async function catchUpSchema(
 
   try {
     await applyMigrations(
-      userCredentials(c.get("env"), user.databaseName),
+      userCredentials(env, user.databaseName),
       USER_MIGRATIONS,
     );
-    await c.get("directory").user.update({
+    await directory.user.update({
       where: { id: userId },
       data: { schemaVersion: USER_MIGRATIONS.length },
     });
   } catch (error) {
     console.error("schema catch-up", userId, error);
+    throw new HTTPException(503, { message: "Your data is being upgraded. Please retry shortly." });
   }
 }
 

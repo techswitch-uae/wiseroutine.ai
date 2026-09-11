@@ -1,4 +1,6 @@
-import { at, atOrNull, ms, msOrNull, type UserDatabase } from "../client";
+import { at, atOrNull, ms, msOrNull, type UserDatabase, userTransaction, isTransaction } from "../client";
+
+export class ActionConflict extends Error {}
 import type {
   Slot as PrismaSlot,
   SlotEvent as PrismaSlotEvent,
@@ -177,6 +179,8 @@ export async function replacePlannedSlots(
   now: number,
   newId: () => string,
 ): Promise<{ removed: number; created: number }> {
+  if (!isTransaction(db)) return userTransaction(db, (tx) =>
+    replacePlannedSlots(tx, params, planned, now, newId));
   const replaceable = await db.slot.findMany({
     where: {
       startsAt: { gte: at(params.from), lt: at(params.to) },
@@ -248,6 +252,8 @@ export async function placeSlot(
   now: number,
   newId: () => string,
 ): Promise<SlotRow> {
+  if (!isTransaction(db)) return userTransaction(db, (tx) =>
+    placeSlot(tx, params, now, newId));
   const id = newId();
   await db.slot.create({
     data: {
@@ -349,6 +355,8 @@ export async function moveSlot(
   now: number,
   newId: () => string,
 ): Promise<void> {
+  if (!isTransaction(db)) return userTransaction(db, (tx) =>
+    moveSlot(tx, params, now, newId));
   const current = await getSlot(db, params.slotId);
   if (!current) return;
 
@@ -405,6 +413,8 @@ export async function setSlotStatus(
     actor: SlotActor;
     reasonCode?: string;
     reasonText?: string;
+    /** Stable client action id: status and deduplication commit together. */
+    actionId?: string;
     /** Where it was, and where we would have put it. Only the bucket fills
      *  these in: a suggestion the user has not answered yet is a position, and
      *  the log is where a position with no slot to sit on lives. */
@@ -414,6 +424,20 @@ export async function setSlotStatus(
   now: number,
   newId: () => string,
 ): Promise<void> {
+  if (!isTransaction(db)) return userTransaction(db, (tx) =>
+    setSlotStatus(tx, params, now, newId));
+  if (params.actionId) {
+    const fingerprint = JSON.stringify([params.slotId, params.status, params.actor, params.reasonCode ?? null, params.reasonText ?? null]);
+    const existing = await db.$queryRawUnsafe<{ fingerprint: string }[]>(
+      "SELECT fingerprint FROM _slot_actions WHERE id = ?", params.actionId);
+    if (existing[0]) {
+      if (existing[0].fingerprint !== fingerprint) throw new ActionConflict("Action id already used for a different action");
+      return;
+    }
+    await db.$executeRawUnsafe(
+      "INSERT INTO _slot_actions (id, slot_id, fingerprint) VALUES (?, ?, ?)",
+      params.actionId, params.slotId, fingerprint);
+  }
   await db.slot.updateMany({
     where: { id: params.slotId },
     data: { status: params.status },
@@ -535,6 +559,7 @@ export interface DueSlot extends SlotRow {
    *  it, which is the behaviour that existed before policies did. */
   startPolicy: string;
   graceMinutes: number;
+  bufferBeforeMeetingMinutes: number;
 }
 
 export async function slotsPastGrace(
@@ -562,7 +587,7 @@ export async function slotsPastGrace(
     // a filter here: a hand-placed eye rest still has to start itself, it just
     // must never be moved. See `sweepGrace`.
     include: {
-      activity: { select: { startPolicy: true, graceMinutes: true } },
+      activity: { select: { startPolicy: true, graceMinutes: true, bufferBeforeMeetingMinutes: true } },
     },
     orderBy: { startsAt: "asc" },
     take: limit,
@@ -572,6 +597,7 @@ export async function slotsPastGrace(
     ...toSlot(row),
     startPolicy: activity?.startPolicy ?? "manual",
     graceMinutes: activity?.graceMinutes ?? 0,
+    bufferBeforeMeetingMinutes: activity?.bufferBeforeMeetingMinutes ?? 0,
   }));
 }
 
@@ -637,12 +663,20 @@ export async function nextGraceDeadline(
   db: UserDatabase,
   after: number,
 ): Promise<number | undefined> {
-  const row = await db.slot.findFirst({
-    where: { status: "planned", startsAt: { gt: at(after) } },
-    orderBy: { startsAt: "asc" },
-    select: { startsAt: true },
+  const rows = await db.slot.findMany({
+    where: { OR: [
+      { status: "planned", startsAt: { gt: at(after - 30 * 60_000) } },
+      { status: "started" },
+    ] },
+    include: { activity: { select: { startPolicy: true, graceMinutes: true } } },
   });
-  return row ? ms(row.startsAt) : undefined;
+  const deadlines = rows.flatMap((row) => {
+    const auto = row.activity?.startPolicy === "auto";
+    if (row.status === "started") return [ms(row.endsAt) + (auto ? 0 : 60 * 60_000)];
+    if (!auto && row.isLocked) return [];
+    return [ms(row.startsAt) + (auto ? 0 : (row.activity?.graceMinutes ?? 0) * 60_000)];
+  });
+  return deadlines.length ? Math.min(...deadlines) : undefined;
 }
 
 /** Progress so far, for the solver's demand calculation. */

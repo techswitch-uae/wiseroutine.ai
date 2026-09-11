@@ -1,5 +1,7 @@
 import type { ToastMessage } from "@wiseroutine/design";
 import { useSyncExternalStore } from "react";
+import { onSessionReset } from "./session-lifecycle";
+onSessionReset(() => { for (const id of timers.keys()) dismiss(id); });
 
 /**
  * Telling the user something did not happen.

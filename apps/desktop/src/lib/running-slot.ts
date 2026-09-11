@@ -6,6 +6,7 @@
  */
 
 import type { TodaySlot } from "./api";
+import { onSessionReset } from "./session-lifecycle";
 
 /**
  * The slots this run of the app has actually started.
@@ -22,6 +23,7 @@ import type { TodaySlot } from "./api";
  * completed or missed.
  */
 const startedHere = new Map<string, number>();
+onSessionReset(() => startedHere.clear());
 
 /** Called by the one place that starts a slot - see `start` on Today.
  *

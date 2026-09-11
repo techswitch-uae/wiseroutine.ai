@@ -12,7 +12,7 @@ import { defineConfig } from "vite";
  */
 const INSTALLED = join(
   import.meta.dirname,
-  "../../apps/desktop/public/addons/wiseroutine.deep-work",
+  "dist",
 );
 
 export default defineConfig({

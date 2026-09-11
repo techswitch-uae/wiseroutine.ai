@@ -1,5 +1,10 @@
 import {
   abandonedSlots,
+  ActionConflict,
+  listEventsInRange,
+  listSlotsForRange,
+  nextGraceDeadline,
+  userTransaction,
   autoSlotsToComplete,
   completeWork,
   createDirectory,
@@ -19,13 +24,14 @@ import {
   watchesExpiringBefore,
 } from "@wiseroutine/db";
 import type { PlanId } from "@wiseroutine/plans";
-import { syncInterval } from "@wiseroutine/scheduler";
+import { syncInterval, freeGaps, dayBounds, localDateOf, toBusyBlocks } from "@wiseroutine/scheduler";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { trustedOrigins } from "./auth";
 import {
   type App,
+  ensureUserSchema,
   type Bindings,
   newId,
   type SyncJob,
@@ -122,6 +128,7 @@ api.route("/", appRoutes);
 
 api.onError((error, c) => {
   if (error instanceof HTTPException) return error.getResponse();
+  if (error instanceof ActionConflict) return c.json({ message: error.message }, 409);
   console.error("unhandled", error);
   return c.json({ error: "internal_error" }, 500);
 });
@@ -191,12 +198,15 @@ const GRACE_WINDOW = 30 * MINUTE;
  */
 const ABANDONED_AFTER = 60 * MINUTE;
 
-async function sweepGrace(
+export async function sweepGrace(
   job: SyncJob,
   config: ServerEnv,
   now: number,
 ): Promise<number | undefined> {
   const db = createUserDatabase(userCredentials(config, job.databaseName));
+  const user = await getUser(createDirectory(directoryCredentials(config)), job.userId);
+  if (!user) return undefined;
+  return userTransaction(db, async (db) => {
   const due = await slotsPastGrace(db, now, 200, GRACE_WINDOW);
 
   for (const slot of due) {
@@ -243,12 +253,29 @@ async function sweepGrace(
 
       case "move": {
         const duration = slot.endsAt - slot.startsAt;
+        const bounds = dayBounds(localDateOf(now, user.timeZone), user.timeZone,
+          user.dayStartMinutes, user.dayEndMinutes);
+        const [events, slots] = await Promise.all([
+          listEventsInRange(db, bounds.start, bounds.end),
+          listSlotsForRange(db, bounds.start, bounds.end),
+        ]);
+        const busy = toBusyBlocks(events);
+        const occupied = [...busy, ...slots.filter((other) => other.id !== slot.id &&
+          ["planned", "live", "started"].includes(other.status)).map((other) => ({ start: other.startsAt, end: other.endsAt }))];
+        const gap = freeGaps({ start: Math.max(bounds.start, now + 5 * MINUTE), end: bounds.end }, occupied)
+          .find((gap) => gap.end - gap.start >= duration +
+            (busy.some((meeting) => meeting.start === gap.end) ? slot.bufferBeforeMeetingMinutes * MINUTE : 0));
+        if (!gap) {
+          await setSlotStatus(db, { slotId: slot.id, status: "bucketed", actor: "system",
+            reasonCode: "no_gap", reasonText: "No free time remains in working hours", fromStartsAt: slot.startsAt }, now, newId);
+          break;
+        }
         await moveSlot(
           db,
           {
             slotId: slot.id,
-            startsAt: now + 5 * MINUTE,
-            endsAt: now + 5 * MINUTE + duration,
+            startsAt: gap.start,
+            endsAt: gap.start + duration,
             actor: "system",
             reasonCode: "grace_expired",
             reasonText: "not started in time",
@@ -313,10 +340,9 @@ async function sweepGrace(
     );
   }
 
-  // Come back in a minute while anything is still pending, otherwise back off.
-  return due.length > 0 || finished.length > 0 || abandoned.length > 0
-    ? now + MINUTE
-    : now + 15 * MINUTE;
+  const next = await nextGraceDeadline(db, now);
+  return Math.max(now + MINUTE, Math.min(next ?? Infinity, now + 15 * MINUTE));
+  });
 }
 
 async function runSyncJob(
@@ -533,6 +559,9 @@ export default {
       const job = message.body;
 
       try {
+        const user = await getUser(directory, job.userId);
+        if (!user || user.deletedAt || !user.databaseReady) { message.ack(); continue; }
+        await ensureUserSchema(config, directory, user.id, user);
         const nextDueAt =
           job.type === "grace-sweep"
             ? await sweepGrace(job, config, now)

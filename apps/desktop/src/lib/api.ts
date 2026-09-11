@@ -8,10 +8,13 @@
  */
 
 import { freeGaps } from "@wiseroutine/scheduler";
+import { notify } from "./notify";
+import { eventDetailsAllowed, redactPlan, setEventDetailsAllowed } from "./privacy";
+import { changeSession, identifySession, invalidateServerState, onSessionReset, sessionGeneration, sessionSignal, sessionToken, SessionChangedError } from "./session-lifecycle";
 import {
   cachedPlan,
   cachePlan,
-  clearOfflineState,
+  clearCachedPlan,
   enqueue,
   forget,
   type PendingKind,
@@ -20,11 +23,7 @@ import {
 } from "./offline";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8787";
-const TOKEN_KEY = "wiseroutine.session";
-
-export function getSessionToken(): string | null {
-  return globalThis.localStorage?.getItem(TOKEN_KEY) ?? null;
-}
+export const getSessionToken = sessionToken;
 
 /**
  * The zone this device believes it is in.
@@ -42,8 +41,7 @@ export function deviceTimeZone(): string {
 }
 
 export function setSessionToken(token: string | null): void {
-  if (token) globalThis.localStorage?.setItem(TOKEN_KEY, token);
-  else globalThis.localStorage?.removeItem(TOKEN_KEY);
+  changeSession(token);
 }
 
 /** No response at all, as opposed to a response we did not like. Only this
@@ -73,6 +71,7 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly body: unknown,
+    readonly retryAfterMs = 0,
   ) {
     super(`API ${status}`);
     this.name = "ApiError";
@@ -120,11 +119,14 @@ async function refusal(response: Response): Promise<unknown> {
 
 async function send(path: string, init: RequestInit = {}): Promise<Response> {
   const token = getSessionToken();
+  const generation = sessionGeneration();
+  const signal = AbortSignal.any([sessionSignal(), AbortSignal.timeout(15_000), ...(init.signal ? [init.signal] : [])]);
 
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {
       ...init,
+      signal,
       headers: {
         "content-type": "application/json",
         ...(token ? { authorization: `Bearer ${token}` } : {}),
@@ -132,21 +134,29 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
       },
     });
   } catch {
+    if (generation !== sessionGeneration()) throw new SessionChangedError();
     // fetch only rejects when the request never completed - no DNS, no route,
     // no server. That is the one case worth retrying later.
     throw new OfflineError();
   }
 
+  if (generation !== sessionGeneration()) throw new SessionChangedError();
   if (!response.ok) {
-    throw new ApiError(response.status, await refusal(response));
+    const retry = response.headers.get("retry-after");
+    const delay = retry ? (Number.isFinite(Number(retry)) ? Number(retry) * 1000 : Date.parse(retry) - Date.now()) : 0;
+    throw new ApiError(response.status, await refusal(response), Math.max(0, delay || 0));
   }
+  if (init.method && init.method !== "GET") invalidateServerState();
   return response;
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const generation = sessionGeneration();
   const response = await send(path, init);
   if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  const data = await response.json();
+  if (generation !== sessionGeneration()) throw new SessionChangedError();
+  return data as T;
 }
 
 const post = (body: unknown): RequestInit => ({
@@ -331,12 +341,14 @@ export interface SessionResponse {
     customRangeEndMinutes: number | null;
     dayOpensOn: string;
     showOutsideRange: boolean;
+    storeEventTitles?: boolean;
   };
 }
 
 /** Everything `PATCH /settings` accepts. The three custom-range fields move
  *  together - all set, or all null to clear it. */
 export interface SettingsPatch {
+  storeEventTitles?: boolean;
   timeZone?: string;
   dayStartMinutes?: number;
   dayEndMinutes?: number;
@@ -558,20 +570,22 @@ async function slotAction(
   addonId?: string,
 ): Promise<{ queued: boolean }> {
   const at = Date.now();
+  const generation = sessionGeneration();
+  const actionId = crypto.randomUUID();
   const body = { at, ...(reason !== undefined ? { reason } : {}) };
 
   try {
     await send(`/slots/${slotId}/${kind}`, {
       ...post(body),
-      headers: forAddon(addonId),
+      headers: { ...forAddon(addonId), "idempotency-key": actionId },
     });
     return { queued: false };
   } catch (error) {
-    if (!(error instanceof OfflineError)) throw error;
+    if (generation !== sessionGeneration() || !retryable(error)) throw error;
     // An addon's write is not queued: the queue replays as the user, and the
     // server would then check the wrong grant.
     if (addonId) throw error;
-    enqueue({ slotId, kind, at, ...(reason !== undefined ? { reason } : {}) });
+    enqueue({ id: actionId, slotId, kind, at, ...(reason !== undefined ? { reason } : {}) });
     return { queued: true };
   }
 }
@@ -584,31 +598,57 @@ async function slotAction(
  * replanned or the day rolled over, and a queue that cannot drain is a queue
  * that blocks every later action behind it.
  */
-export async function flushPending(): Promise<number> {
+const retryable = (error: unknown): boolean => error instanceof OfflineError ||
+  (error instanceof ApiError && (error.status === 401 || error.status === 408 || error.status === 429 || error.status >= 500));
+let draining: Promise<number> | null = null;
+let retryAt = 0;
+let awaitingAuth = false;
+onSessionReset(() => { draining = null; retryAt = 0; awaitingAuth = false; });
+
+export function flushPending(): Promise<number> {
+  if (draining) return draining;
+  if (awaitingAuth || Date.now() < retryAt || !getSessionToken()) return Promise.resolve(0);
+  const operation = drainPending();
+  draining = operation;
+  void operation.finally(() => { if (draining === operation) draining = null; });
+  return operation;
+}
+
+async function drainPending(): Promise<number> {
+  const generation = sessionGeneration();
   const queue = pending();
   if (queue.length === 0) return 0;
 
   const done: string[] = [];
-
+  let sent = 0;
   for (const action of queue) {
+    if (generation !== sessionGeneration()) return sent;
     try {
       await send(
         `/slots/${action.slotId}/${action.kind}`,
-        post({
-          at: action.at,
-          ...(action.reason !== undefined ? { reason: action.reason } : {}),
-        }),
+        { ...post({ at: action.at, ...(action.reason !== undefined ? { reason: action.reason } : {}) }),
+          headers: { "idempotency-key": action.id } },
       );
       done.push(action.id);
+      sent++;
     } catch (error) {
-      if (error instanceof OfflineError) break;
-      console.warn("dropping unsendable action", action.kind, action.slotId);
+      if (generation !== sessionGeneration()) return sent;
+      if (retryable(error)) {
+        retryAt = Date.now() + Math.max(5000, error instanceof ApiError ? error.retryAfterMs : 0);
+        if (error instanceof ApiError && error.status === 401) {
+          awaitingAuth = true;
+          notify("Your changes are saved on this device. Sign in again to sync them.");
+        }
+        break;
+      }
+      // Unknown client errors are not proof that the action was rejected.
+      if (!(error instanceof ApiError) || ![400, 403, 404, 409, 410, 422].includes(error.status)) break;
+      notify(error.detail ?? `A saved ${action.kind} could not be applied. The slot may have changed.`);
       done.push(action.id);
     }
   }
-
-  forget(done);
-  return done.length;
+  if (generation === sessionGeneration()) forget(done);
+  return sent;
 }
 
 /**
@@ -644,7 +684,6 @@ export const api = {
     );
     const token = response.headers.get("set-auth-token");
     if (!token) throw new ApiError(500, { error: "no_session_token" });
-    clearOfflineState();
     setSessionToken(token);
     await announceTimeZone();
   },
@@ -694,9 +733,9 @@ export const api = {
         | { status: "expired" }
       >("/signin/social/claim", post({ ticket }));
 
+      if (signal?.aborted) return;
       if (result.status === "pending") continue;
       if (result.status === "ready") {
-        clearOfflineState();
         setSessionToken(result.token);
         await announceTimeZone();
         return;
@@ -728,11 +767,15 @@ export const api = {
     request<unknown>("/auth/unlink-account", post({ accountId })),
 
   async signOut(): Promise<void> {
-    await send("/auth/sign-out", post({})).catch(() => undefined);
+    const token = getSessionToken();
+    clearCachedPlan();
     setSessionToken(null);
-    // Whose "today" this is has changed; a leftover plan or queued action
-    // would belong to the previous account.
-    clearOfflineState();
+    // Local teardown is immediate even when the server is unreachable. Revoke
+    // only the old token; never let a late response affect a new session.
+    if (token) void fetch(`${API_URL}/auth/sign-out`, {
+      ...post({}), headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5000),
+    }).catch(() => undefined);
   },
 
   /**
@@ -744,7 +787,14 @@ export const api = {
    * assumes a user here reads `.user` off null and throws somewhere far away
    * from the cause.
    */
-  session: () => request<SessionResponse | null>("/auth/get-session"),
+  session: async () => {
+    const result = await request<SessionResponse | null>("/auth/get-session");
+    if (result?.user) {
+      identifySession(result.user.id);
+      if (result.user.storeEventTitles !== undefined) setEventDetailsAllowed(result.user.storeEventTitles);
+    }
+    return result;
+  },
 
   /** Mint a consent URL for the signed-in account. Authenticated, so which
    *  account the calendar attaches to is never a query parameter. */
@@ -770,7 +820,8 @@ export const api = {
     const suffix = query.size > 0 ? `?${query}` : "";
 
     try {
-      const data = await request<TodayResponse>(`/today${suffix}`);
+      const response = await request<TodayResponse>(`/today${suffix}`);
+      const data = eventDetailsAllowed() ? response : redactPlan(response);
       cachePlan(data, now);
       return { ...withPending(data, pending()), stale: false, cachedAt: now };
     } catch (error) {
@@ -821,11 +872,11 @@ export const api = {
   /** Everything else on the settings page. One route, because the server
    *  validates the day's window against the row as it will be - see
    *  `PATCH /settings`. */
-  updateSettings: (patch: SettingsPatch) =>
-    request<void>("/settings", {
-      method: "PATCH",
-      body: JSON.stringify(patch),
-    }),
+  updateSettings: async (patch: SettingsPatch) => {
+    if (patch.storeEventTitles === false) { clearCachedPlan(); setEventDetailsAllowed(false); }
+    await request<void>("/settings", { method: "PATCH", body: JSON.stringify(patch) });
+    if (patch.storeEventTitles === true) setEventDetailsAllowed(true);
+  },
 
   /** Every connected account and the calendars under it, selected or not. */
   calendars: () => request<CalendarsResponse>("/calendars"),

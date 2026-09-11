@@ -18,6 +18,24 @@
 
 import { useSyncExternalStore } from "react";
 import type { TodayResponse } from "./api";
+import { onSessionReset } from "./session-lifecycle";
+import { onPrivacyRestricted, redactPlan } from "./privacy";
+onPrivacyRestricted(() => {
+  if (plan) plan = redactPlan(plan);
+  if (todayPlan) todayPlan = redactPlan(todayPlan);
+  for (const listen of listeners) listen();
+});
+
+onSessionReset(resetPlans);
+let operationalOwner = false;
+export function manageToday(): () => void {
+  operationalOwner = true;
+  return () => { operationalOwner = false; };
+}
+export function publishTodayPlan(next: TodayResponse | null): void {
+  todayPlan = next;
+  for (const listen of listeners) listen();
+}
 
 let plan: TodayResponse | null = null;
 /**
@@ -90,12 +108,13 @@ export function publishPlan(
    * something is coming, the second says nothing is.
    */
   if (todayPlan && !isToday(todayPlan, now)) todayPlan = null;
-  if (next && isToday(next, now)) todayPlan = next;
+  if (!operationalOwner && next && isToday(next, now)) todayPlan = next;
   for (const listen of listeners) listen();
 }
 
-export function publishStart(fn: (slotId: string) => void): void {
+export function publishStart(fn: (slotId: string) => void): () => void {
   start = fn;
+  return () => { if (start === fn) start = () => undefined; };
 }
 
 export const startSlot = (slotId: string): void => start(slotId);
@@ -114,8 +133,9 @@ let move: (slotId: string, startsAt: number, endsAt: number) => void = () =>
 
 export function publishMove(
   fn: (slotId: string, startsAt: number, endsAt: number) => void,
-): void {
+): () => void {
   move = fn;
+  return () => { if (move === fn) move = () => undefined; };
 }
 
 export const moveSlotTo = (
@@ -133,8 +153,9 @@ export const moveSlotTo = (
  */
 let reload: () => void = () => undefined;
 
-export function publishReload(fn: () => void): void {
+export function publishReload(fn: () => void): () => void {
   reload = fn;
+  return () => { if (reload === fn) reload = () => undefined; };
 }
 
 export const reloadPlan = (): void => reload();
@@ -156,7 +177,7 @@ function subscribe(listen: () => void): () => void {
  */
 export const subscribePlan = subscribe;
 
-const snapshot = (): TodayResponse | null => plan;
+const snapshot = (): TodayResponse | null => plan ?? todayPlan;
 
 /** The day as Today last saw it, or null before the first load. The server
  *  snapshot is null too: nothing has been fetched during a render. */
@@ -183,4 +204,9 @@ export const useTodayPlan = (): TodayResponse | null =>
 export function resetPlans(): void {
   plan = null;
   todayPlan = null;
+  operationalOwner = false;
+  start = () => undefined;
+  move = () => undefined;
+  reload = () => undefined;
+  for (const listen of listeners) listen();
 }

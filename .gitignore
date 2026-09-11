@@ -9,6 +9,7 @@ target
 .DS_Store
 .turbo
 src/generated
+apps/desktop/src-tauri/tauri.release.generated.json
 .prisma-shadow.db
 .shadow-*.db
 

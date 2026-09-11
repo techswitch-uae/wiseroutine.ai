@@ -21,7 +21,7 @@ describe("splitStatements", () => {
       // UPDATE for the same reason: a column added to a table that already has
       // rows in it sometimes has to say something about those rows.
       const expected = (
-        migration.sql.match(/^(CREATE|ALTER|DROP|UPDATE) /gm) ?? []
+        migration.sql.match(/^(CREATE|ALTER|DROP|UPDATE|INSERT) /gm) ?? []
       ).length;
       expect(expected).toBeGreaterThan(0);
       expect(splitStatements(migration.sql)).toHaveLength(expected);

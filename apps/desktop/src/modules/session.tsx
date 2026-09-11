@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { notify } from "../lib/notify";
-import { reloadPlan, usePlan } from "../lib/plan-store";
+import { reloadPlan, useTodayPlan } from "../lib/plan-store";
 import { runningSlot, sessionEndOf } from "../lib/running-slot";
 import { configFor, moduleFor } from "./activities";
 
@@ -23,7 +23,7 @@ import { configFor, moduleFor } from "./activities";
  */
 
 export const SessionOverlay: React.FC = () => {
-  const plan = usePlan();
+  const plan = useTodayPlan();
   /**
    * A session the user has closed, so it does not immediately reopen.
    *
@@ -59,7 +59,7 @@ export const SessionOverlay: React.FC = () => {
         // session that ran and was not recorded is a number quietly going
         // wrong.
         notify(
-          "Couldn't record that just now. It will sync when you reconnect.",
+          "Couldn't record that. Please try again.",
         );
       })
       // Always, and this is what makes a stopped session resumable.

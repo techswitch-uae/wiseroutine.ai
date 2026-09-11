@@ -24,6 +24,8 @@
  */
 
 import type { TodaySlot } from "./api";
+import { onSessionReset, sessionGeneration } from "./session-lifecycle";
+onSessionReset(() => armAlerts([]));
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in globalThis;
 
@@ -136,8 +138,10 @@ export async function ensureAlertPermission(): Promise<boolean> {
  * and nothing to count down to.
  */
 async function pushSchedule(slots: readonly TodaySlot[]): Promise<void> {
+  const generation = sessionGeneration();
   try {
     const { invoke } = await import("@tauri-apps/api/core");
+    if (generation !== sessionGeneration()) return;
     await invoke("set_schedule", {
       entries: slots
         .filter((slot) => PENDING.has(slot.status))

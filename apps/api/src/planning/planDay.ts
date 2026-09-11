@@ -7,6 +7,8 @@ import {
   replacePlannedSlots,
   toSchedulerActivity,
   type UserDatabase,
+  userTransaction,
+  isTransaction,
 } from "@wiseroutine/db";
 import {
   type Demand,
@@ -73,6 +75,8 @@ export async function planDay(
   now: number,
   newId: () => string,
 ): Promise<PlanDayResult> {
+  if (!isTransaction(db)) return userTransaction(db, (tx) =>
+    planDay(tx, params, now, newId));
   const started = Date.now();
   const zone = params.user.timeZone;
   const date = localDateOf(params.onDay, zone);

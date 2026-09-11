@@ -1,4 +1,5 @@
 import type { TodayResponse } from "./api";
+import { accountStorageKey } from "./session-lifecycle";
 
 /**
  * Enough of the app to follow your routine with no connection.
@@ -36,21 +37,21 @@ interface CachedPlan {
 const store = (): Storage | undefined => globalThis.localStorage;
 
 function read<T>(key: string): T | null {
-  const raw = store()?.getItem(key);
+  const raw = store()?.getItem(accountStorageKey(key));
   if (!raw) return null;
   try {
     return JSON.parse(raw) as T;
   } catch {
     // A half-written or older-format entry is not worth recovering; the next
     // successful request replaces it.
-    store()?.removeItem(key);
+    store()?.removeItem(accountStorageKey(key));
     return null;
   }
 }
 
 function write(key: string, value: unknown): void {
   try {
-    store()?.setItem(key, JSON.stringify(value));
+    store()?.setItem(accountStorageKey(key), JSON.stringify(value));
   } catch {
     // A full quota must never break the request that triggered the save.
   }
@@ -89,9 +90,13 @@ export function cachedPlan(
 }
 
 /** Sign-in and sign-out both change who "today" belongs to. */
+export function clearCachedPlan(): void {
+  store()?.removeItem(accountStorageKey(PLAN_KEY));
+}
+
 export function clearOfflineState(): void {
-  store()?.removeItem(PLAN_KEY);
-  store()?.removeItem(QUEUE_KEY);
+  clearCachedPlan();
+  store()?.removeItem(accountStorageKey(QUEUE_KEY));
 }
 
 /* ── The queue ───────────────────────────────────────────────────────────── */
@@ -100,8 +105,8 @@ export function pending(): PendingAction[] {
   return read<PendingAction[]>(QUEUE_KEY) ?? [];
 }
 
-export function enqueue(action: Omit<PendingAction, "id">): PendingAction {
-  const entry: PendingAction = { id: crypto.randomUUID(), ...action };
+export function enqueue(action: Omit<PendingAction, "id"> & { id?: string }): PendingAction {
+  const entry: PendingAction = { ...action, id: action.id ?? crypto.randomUUID() };
   write(QUEUE_KEY, [...pending(), entry]);
   return entry;
 }

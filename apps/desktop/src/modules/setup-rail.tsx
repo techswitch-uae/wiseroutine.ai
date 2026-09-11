@@ -12,6 +12,7 @@ import {
   ensureAlertPermission,
 } from "../lib/alerts";
 import { api } from "../lib/api";
+import { accountStorageKey } from "../lib/session-lifecycle";
 import { beginConnect } from "../routes/_app.calendars";
 import { DAY_HOURS_ANCHOR } from "../routes/_app.settings";
 
@@ -71,7 +72,7 @@ const DONE = "wr.setup.done";
 
 const remembered = (key: string): boolean => {
   try {
-    return globalThis.localStorage?.getItem(key) === "1";
+    return globalThis.localStorage?.getItem(accountStorageKey(key)) === "1";
   } catch {
     // Private windows and locked-down profiles throw on access rather than
     // returning null. Not remembering asks again, which is a small annoyance;
@@ -82,7 +83,7 @@ const remembered = (key: string): boolean => {
 
 const remember = (key: string): void => {
   try {
-    globalThis.localStorage?.setItem(key, "1");
+    globalThis.localStorage?.setItem(accountStorageKey(key), "1");
   } catch {
     // Then it asks again next launch. Nothing else breaks.
   }

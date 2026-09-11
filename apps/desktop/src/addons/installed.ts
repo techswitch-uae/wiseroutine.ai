@@ -7,6 +7,7 @@ import {
 } from "@wiseroutine/addons";
 import { useSyncExternalStore } from "react";
 import { type AvailableAddon, api, type InstalledAddonRow } from "../lib/api";
+import { accountStorageKey, onSessionReset, sessionGeneration, sessionIdentity } from "../lib/session-lifecycle";
 
 /** Whether there is a Tauri host to talk to. */
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in globalThis;
@@ -24,6 +25,7 @@ async function store(addon: InstalledAddon, hash: string): Promise<void> {
   if (!inTauri()) return;
   await invoke("install_addon", {
     id: addon.manifest.id,
+    accountId: sessionIdentity(),
     manifest: JSON.stringify(addon.manifest),
     granted: JSON.stringify(addon.granted),
     bundle: addon.bundle,
@@ -33,7 +35,7 @@ async function store(addon: InstalledAddon, hash: string): Promise<void> {
 
 /** Take everything the device holds for an addon: bundle, secrets, store. */
 export async function forgetAddon(id: string): Promise<void> {
-  const prefix = `wr.addon.${id}.`;
+  const prefix = accountStorageKey(`wr.addon.${id}.`);
   try {
     const keys = Object.keys(globalThis.localStorage ?? {});
     for (const key of keys) {
@@ -42,7 +44,7 @@ export async function forgetAddon(id: string): Promise<void> {
   } catch {
     // No storage. Nothing to forget.
   }
-  if (inTauri()) await invoke("forget_addon", { id }).catch(() => undefined);
+  if (inTauri()) await invoke("forget_addon", { id, accountId: sessionIdentity() }).catch(() => undefined);
 }
 
 /**
@@ -58,7 +60,8 @@ export function frameUrlFor(id: string): string | null {
       };
     }
   ).__TAURI_INTERNALS__;
-  return internals?.convertFileSrc?.(id, "addon") ?? null;
+  const account = sessionIdentity();
+  return account ? (internals?.convertFileSrc?.(`${encodeURIComponent(account)}/${id}`, "addon") ?? null) : null;
 }
 
 /**
@@ -79,6 +82,8 @@ export interface InstalledAddon {
 }
 
 let addons: ReadonlyMap<string, InstalledAddon> = new Map();
+let loadSequence = 0;
+onSessionReset(() => { loadSequence++; publish(new Map()); });
 const listeners = new Set<() => void>();
 
 const snapshot = (): ReadonlyMap<string, InstalledAddon> => addons;
@@ -120,6 +125,7 @@ async function load(
   row: InstalledAddonRow,
   entry: { bundleUrl: string; bundleHash: string; author: string },
   manifest: AddonManifest,
+  generation: number,
 ): Promise<InstalledAddon | null> {
   try {
     const response = await fetch(entry.bundleUrl);
@@ -139,6 +145,7 @@ async function load(
       bundled: row.bundled,
       bundle,
     };
+    if (generation !== sessionGeneration()) return null;
     await store(addon, entry.bundleHash);
     return addon;
   } catch {
@@ -186,6 +193,8 @@ async function sideload(): Promise<InstalledAddon | null> {
  * app shell, and again after anything is installed, changed or removed.
  */
 export async function loadAddons(): Promise<void> {
+  const generation = sessionGeneration();
+  const sequence = ++loadSequence;
   let rows: InstalledAddonRow[];
   try {
     rows = (await api.installedAddons()).addons;
@@ -210,7 +219,7 @@ export async function loadAddons(): Promise<void> {
         const entry = available.find((candidate) => candidate.id === row.id);
         if (!entry) return null;
 
-        return load(row, entry, manifest);
+        return load(row, entry, manifest, generation);
       }),
   );
 
@@ -218,7 +227,7 @@ export async function loadAddons(): Promise<void> {
   for (const addon of [...loaded, await sideload()]) {
     if (addon) next.set(addon.manifest.id, addon);
   }
-  publish(next);
+  if (generation === sessionGeneration() && sequence === loadSequence) publish(next);
 }
 
 /**

@@ -18,6 +18,7 @@ import {
   type InstalledAddonRow,
 } from "../lib/api";
 import { notify } from "../lib/notify";
+import { sessionIdentity } from "../lib/session-lifecycle";
 
 /**
  * Addons: the packages, not the cards.
@@ -110,7 +111,7 @@ function useSecrets(id: string, fields: AddonManifest["settings"]) {
   const read = useCallback(async () => {
     if (!wanted || !inTauri()) return;
     const { invoke } = await import("@tauri-apps/api/core");
-    setPresent(await invoke<string[]>("addon_secret_keys", { id }));
+    setPresent(await invoke<string[]>("addon_secret_keys", { id, accountId: sessionIdentity() }));
   }, [id, wanted]);
 
   useEffect(() => {
@@ -123,7 +124,7 @@ function useSecrets(id: string, fields: AddonManifest["settings"]) {
       return;
     }
     const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("set_addon_secret", { id, key, value });
+    await invoke("set_addon_secret", { id, key, value, accountId: sessionIdentity() });
     await read();
   };
 

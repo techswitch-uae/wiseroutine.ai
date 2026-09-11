@@ -71,12 +71,20 @@ fn store_dir<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
   app.path().app_data_dir().ok().map(|dir| dir.join("addons"))
 }
 
-fn addon_dir<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<PathBuf, String> {
+fn account_component(account_id: &str) -> Result<String, String> {
+  if account_id.is_empty() || account_id.len() > 256 {
+    return Err("no signed-in account".to_string());
+  }
+  Ok(sha256_hex(account_id.as_bytes()))
+}
+
+fn addon_dir<R: Runtime>(app: &AppHandle<R>, account_id: &str, id: &str) -> Result<PathBuf, String> {
   if !is_valid_id(id) {
     return Err(format!("not an addon id: {id}"));
   }
+  let account = account_component(account_id)?;
   store_dir(app)
-    .map(|dir| dir.join(id))
+    .map(|dir| dir.join("accounts").join(account).join(id))
     .ok_or_else(|| "no app data directory".to_string())
 }
 
@@ -97,6 +105,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 #[tauri::command]
 pub fn install_addon<R: Runtime>(
   app: AppHandle<R>,
+  account_id: String,
   id: String,
   manifest: String,
   granted: String,
@@ -112,7 +121,7 @@ pub fn install_addon<R: Runtime>(
     return Err("the bundle does not match its published hash".to_string());
   }
 
-  let dir = addon_dir(&app, &id)?;
+  let dir = addon_dir(&app, &account_id, &id)?;
   fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
   let write = |name: &str, body: &str| {
     fs::write(dir.join(name), body).map_err(|error| error.to_string())
@@ -131,8 +140,8 @@ pub fn install_addon<R: Runtime>(
 ///
 /// A bad id, or a delete that failed.
 #[tauri::command]
-pub fn forget_addon<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
-  let dir = addon_dir(&app, &id)?;
+pub fn forget_addon<R: Runtime>(app: AppHandle<R>, account_id: String, id: String) -> Result<(), String> {
+  let dir = addon_dir(&app, &account_id, &id)?;
   if dir.exists() {
     fs::remove_dir_all(&dir).map_err(|error| error.to_string())?;
   }
@@ -209,9 +218,11 @@ pub fn serve<R: Runtime>(
   ctx: UriSchemeContext<'_, R>,
   request: http::Request<Vec<u8>>,
 ) -> http::Response<Vec<u8>> {
-  let id = request.uri().path().trim_start_matches('/');
-
-  let Ok(dir) = addon_dir(ctx.app_handle(), id) else {
+  let path = request.uri().path().trim_start_matches('/');
+  let Some((account_id, id)) = path.split_once('/') else {
+    return http::Response::builder().status(404).body(Vec::new()).unwrap();
+  };
+  let Ok(dir) = addon_dir(ctx.app_handle(), account_id, id) else {
     return not_found("not an addon id");
   };
 
@@ -246,12 +257,12 @@ pub fn serve<R: Runtime>(
 
 /* ── Secrets ─────────────────────────────────────────────────────────────── */
 
-fn secrets_path<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<PathBuf, String> {
-  Ok(addon_dir(app, id)?.join("secrets.json"))
+fn secrets_path<R: Runtime>(app: &AppHandle<R>, account_id: &str, id: &str) -> Result<PathBuf, String> {
+  Ok(addon_dir(app, account_id, id)?.join("secrets.json"))
 }
 
-fn read_secrets<R: Runtime>(app: &AppHandle<R>, id: &str) -> Result<HashMap<String, String>, String> {
-  let path = secrets_path(app, id)?;
+fn read_secrets<R: Runtime>(app: &AppHandle<R>, account_id: &str, id: &str) -> Result<HashMap<String, String>, String> {
+  let path = secrets_path(app, account_id, id)?;
   let Ok(text) = fs::read_to_string(&path) else {
     return Ok(HashMap::new());
   };
@@ -274,6 +285,7 @@ fn is_setting_key(key: &str) -> bool {
 #[tauri::command]
 pub fn set_addon_secret<R: Runtime>(
   app: AppHandle<R>,
+  account_id: String,
   id: String,
   key: String,
   value: String,
@@ -281,14 +293,14 @@ pub fn set_addon_secret<R: Runtime>(
   if !is_setting_key(&key) {
     return Err(format!("not a setting key: {key}"));
   }
-  let mut secrets = read_secrets(&app, &id)?;
+  let mut secrets = read_secrets(&app, &account_id, &id)?;
   if value.is_empty() {
     secrets.remove(&key);
   } else {
     secrets.insert(key, value);
   }
 
-  let path = secrets_path(&app, &id)?;
+  let path = secrets_path(&app, &account_id, &id)?;
   if let Some(parent) = path.parent() {
     fs::create_dir_all(parent).map_err(|error| error.to_string())?;
   }
@@ -311,8 +323,8 @@ pub fn set_addon_secret<R: Runtime>(
 ///
 /// A bad id, or a secrets file that is not JSON.
 #[tauri::command]
-pub fn addon_secret_keys<R: Runtime>(app: AppHandle<R>, id: String) -> Result<Vec<String>, String> {
-  let mut keys: Vec<String> = read_secrets(&app, &id)?.into_keys().collect();
+pub fn addon_secret_keys<R: Runtime>(app: AppHandle<R>, account_id: String, id: String) -> Result<Vec<String>, String> {
+  let mut keys: Vec<String> = read_secrets(&app, &account_id, &id)?.into_keys().collect();
   keys.sort();
   Ok(keys)
 }
@@ -374,13 +386,14 @@ fn origin_of(url: &reqwest::Url) -> Option<String> {
 #[tauri::command]
 pub async fn addon_fetch<R: Runtime>(
   app: AppHandle<R>,
+  account_id: String,
   id: String,
   url: String,
   method: String,
   headers: HashMap<String, String>,
   body: Option<String>,
 ) -> Result<FetchReply, String> {
-  let dir = addon_dir(&app, &id)?;
+  let dir = addon_dir(&app, &account_id, &id)?;
   let granted = fs::read_to_string(dir.join("granted.json"))
     .map_err(|_| "that addon is not installed".to_string())?;
 
@@ -410,7 +423,7 @@ pub async fn addon_fetch<R: Runtime>(
   }
 
   if let Some(auth) = grant.auth {
-    let secrets = read_secrets(&app, &id)?;
+    let secrets = read_secrets(&app, &account_id, &id)?;
     let secret = secrets
       .get(&auth.secret)
       .ok_or_else(|| "The key for this service has not been entered yet.".to_string())?;

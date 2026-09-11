@@ -121,6 +121,20 @@ function orderDemands(
  * `dayStart: max(localDayStart, now)`.
  */
 export function plan(input: PlanInput): PlanResult {
+  if (!Number.isFinite(input.dayStart) || !Number.isFinite(input.dayEnd)) {
+    throw new RangeError("Plan bounds must be finite");
+  }
+  // A bad persisted row or a non-HTTP caller must not create an unbounded
+  // loop, even when zero-length placements would never consume a gap.
+  if (input.demands.length > 1000 || input.busy.length + input.locked.length > 10000 || input.dayEnd - input.dayStart > 48 * 60 * MINUTE) throw new RangeError("Plan exceeds work bounds");
+  for (const demand of input.demands) {
+    if (!Number.isInteger(demand.sessionsNeeded) || demand.sessionsNeeded < 0 || demand.sessionsNeeded > 1440 ||
+        !Number.isFinite(demand.activity.sessionMinutes) || demand.activity.sessionMinutes < 1 || demand.activity.sessionMinutes > 1440 ||
+        !Number.isFinite(demand.activity.bufferBeforeMeetingMinutes) || demand.activity.bufferBeforeMeetingMinutes < 0 ||
+        demand.preferredAt.length > 48 || demand.preferredAt.some((at) => !Number.isFinite(at))) {
+      throw new RangeError("Invalid or excessive placement demand");
+    }
+  }
   const bounds = { start: input.dayStart, end: input.dayEnd };
   const lockedIntervals = input.locked.map((s) => ({
     start: s.start,
@@ -135,6 +149,8 @@ export function plan(input: PlanInput): PlanResult {
     endsAtMeeting: g.end < bounds.end,
   }));
 
+  let budget = 200_000 - gaps.length * input.demands.length;
+  if (budget < 0) throw new RangeError("Plan exceeds work bounds");
   const initialGaps = gaps.map((g) => ({ ...g }));
   const placed: PlacedSlot[] = [...input.locked];
   const shortfall = new Map<
@@ -151,6 +167,8 @@ export function plan(input: PlanInput): PlanResult {
       let best: Placement | undefined;
 
       for (const [index, gap] of gaps.entries()) {
+        budget -= Math.max(1, demand.preferredAt.length);
+        if (budget < 0) throw new RangeError("Plan exceeds work bounds");
         const fit = fitInGap(gap, duration, bufferMs, demand.preferredAt);
         if (!fit) continue;
         if (

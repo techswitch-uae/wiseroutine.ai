@@ -14,6 +14,7 @@
       "outputs": ["src/generated/**"]
     },
     "build": {
+      "env": ["VITE_API_URL"],
       "dependsOn": ["^build", "test", "generate", "^generate"],
       "outputs": ["dist/**", ".output/**", "!.output/**/cache/**"]
     },

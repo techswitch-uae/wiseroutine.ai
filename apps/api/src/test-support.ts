@@ -140,6 +140,8 @@ async function emptyDirectory(): Promise<void> {
 /** Empty the shared user database. */
 export async function resetUserDatabase(): Promise<void> {
   const db = userDb();
+  await db.$executeRawUnsafe("DELETE FROM _slot_actions");
+  await db.$executeRawUnsafe("UPDATE _event_privacy SET store_titles = 1 WHERE id = 1");
   await db.slotEvent.deleteMany();
   await db.slot.deleteMany();
   await db.planRun.deleteMany();

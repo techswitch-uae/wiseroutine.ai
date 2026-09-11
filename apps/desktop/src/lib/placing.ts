@@ -13,6 +13,8 @@
  */
 
 import { useSyncExternalStore } from "react";
+import { onSessionReset } from "./session-lifecycle";
+onSessionReset(() => setPlacing(null));
 
 export interface Placement {
   /** The activity being placed, and what it is called on the day. */

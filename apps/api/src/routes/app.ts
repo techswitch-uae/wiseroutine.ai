@@ -10,6 +10,9 @@ import {
 } from "@wiseroutine/addons";
 import {
   addonImpact,
+  activityPatchSchema,
+  userTransaction,
+  setEventPrivacy,
   archiveActivity,
   cancelWork,
   connectedSince,
@@ -89,7 +92,8 @@ import {
   FULL_DAY_MINUTES,
   resolveRange,
 } from "../dayRanges";
-import { detectConflicts, planDay } from "../planning/planDay";
+import { detectConflicts } from "../planning/planDay";
+import { planAndSchedule, scheduleGrace } from "../planning/commands";
 import { accessTokenFor, type SyncDeps } from "../sync/engine";
 import { ensureWatch, stopWatch, type WatchDeps } from "../sync/watch";
 
@@ -839,14 +843,21 @@ app.get("/activities", async (c) => {
   );
 });
 
-app.post("/activities", async (c) => {
-  const db = c.get("db");
+function activityBody(value: unknown): Record<string, unknown> {
+  const parsed = activityPatchSchema.safeParse(value);
+  if (!parsed.success) throw new HTTPException(400, {
+    message: parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "),
+  });
+  return parsed.data;
+}
+
+app.post("/activities", async (c) => userTransaction(c.get("db"), async (db) => {
 
   // The free limit counts ACTIVE activities, so pausing one frees a slot.
   const activeCount = await countActiveActivities(db);
   enforce(c, { kind: "activity.create", activeCount });
 
-  const body = await c.req.json<Record<string, unknown>>();
+  const body = activityBody(await c.req.json().catch(() => null));
   const id = await createActivity(
     db,
     {
@@ -867,11 +878,10 @@ app.post("/activities", async (c) => {
   );
 
   return c.json({ id }, 201);
-});
+}));
 
-app.patch("/activities/:id", async (c) => {
-  const db = c.get("db");
-  const body = await c.req.json<Record<string, unknown>>();
+app.patch("/activities/:id", async (c) => userTransaction(c.get("db"), async (db) => {
+  const body = activityBody(await c.req.json().catch(() => null));
 
   // Re-activating counts against the plan limit; pausing never does.
   if (body.isActive === true) {
@@ -918,7 +928,7 @@ app.patch("/activities/:id", async (c) => {
   }
 
   return c.body(null, 204);
-});
+}));
 
 /**
  * Archived, not deleted - see `archiveActivity`. The slots it already produced
@@ -1063,6 +1073,11 @@ app.patch("/settings", async (c) => {
     throw new HTTPException(400, { message: "Unknown range" });
   }
 
+  if (body.storeEventTitles !== undefined && typeof body.storeEventTitles !== "boolean") {
+    throw new HTTPException(400, { message: "storeEventTitles must be a boolean" });
+  }
+  // Opt out locally first. A stale in-flight sync cannot reintroduce data.
+  if (body.storeEventTitles === false) await forgetStoredTitles(c.get("db"));
   await updateUserSettings(c.get("directory"), c.get("user").userId, {
     ...body,
     // Store the name the user sees, without the whitespace they did not mean
@@ -1072,9 +1087,7 @@ app.patch("/settings", async (c) => {
       : {}),
   });
 
-  if (body.storeEventTitles === false) {
-    await forgetStoredTitles(c.get("db"));
-  }
+  if (body.storeEventTitles === true) await setEventPrivacy(c.get("db"), true);
 
   return c.body(null, 204);
 });
@@ -1130,7 +1143,6 @@ async function fillDay(
   wholeDay: { start: number; end: number },
 ): Promise<void> {
   const db = c.get("db");
-  const now = c.get("now");
   const user = c.get("user");
 
   if (isOver(c, wholeDay)) return;
@@ -1173,8 +1185,8 @@ async function fillDay(
    */
   if (slots.length > 0) return;
 
-  await planDay(
-    db,
+  await planAndSchedule(
+    c,
     {
       user,
       // Midnight of the day itself. Its `end` is the first instant of the day
@@ -1183,8 +1195,6 @@ async function fillDay(
       onDay: wholeDay.start,
       trigger: "morning",
     },
-    now,
-    newId,
   );
 }
 
@@ -1236,14 +1246,14 @@ app.get("/today", async (c) => {
     .filter((e) => busy.some((b) => e.start < b.end && b.start < e.end))
     .map((e) => ({
       id: e.id,
-      title: e.title ?? null,
+      title: user.storeEventTitles ? (e.title ?? null) : null,
       startsAt: e.start,
       endsAt: e.end,
       isAllDay: e.isAllDay,
       // The one thing a block on the day could not answer: where the call is.
       // Null for the many meetings that are in a room.
-      joinUrl: e.joinUrl,
-      description: e.description,
+      joinUrl: user.storeEventTitles ? e.joinUrl : null,
+      description: user.storeEventTitles ? e.description : null,
     }));
 
   // Half-open against the visible window: a meeting that ends exactly as the
@@ -1525,7 +1535,7 @@ app.get("/scope", async (c) => {
           id: event.id,
           // Null when the account stores busy intervals without titles. The
           // client says "Busy"; nothing here invents a name for it.
-          title: event.title ?? null,
+          title: user.storeEventTitles ? (event.title ?? null) : null,
           startsAt: event.start,
           endsAt: event.end,
           isAllDay: event.isAllDay,
@@ -1557,26 +1567,13 @@ app.post("/plan", async (c) => {
     return c.json({ planRunId: null, placed: 0, removed: 0, unplaced: [] });
   }
 
-  const result = await planDay(
-    c.get("db"),
+  const result = await planAndSchedule(
+    c,
     // No `from`: the whole working day, the same rule `fillDay` uses. Two
     // different answers to "where does this go" depending on which door the
     // request came through is the kind of difference nobody can debug.
     { user, onDay, trigger },
-    now,
-    newId,
   );
-
-  // Newly planned slots have grace periods, and the sweep is driven from the
-  // directory - so a plan has to leave a marker there or nothing will fire.
-  if (result.created > 0) {
-    await scheduleWork(
-      c.get("directory"),
-      { userId: user.userId, kind: "grace_sweep", dueAt: now + 60_000 },
-      now,
-      newId,
-    );
-  }
 
   return c.json({
     planRunId: result.planRunId,
@@ -1597,6 +1594,15 @@ app.post("/plan", async (c) => {
  * computed from - becomes fiction. `replayedAt` is what keeps that claim
  * inside something a genuine offline stretch could produce.
  */
+function actionIdentity(c: Ctx): { actionId?: string } {
+  const actionId = c.req.header("idempotency-key");
+  if (actionId === undefined) return {};
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(actionId)) {
+    throw new HTTPException(400, { message: "Invalid idempotency key" });
+  }
+  return { actionId };
+}
+
 async function actionAt(c: Ctx): Promise<number> {
   const body = await c.req
     .json<{ at?: number }>()
@@ -1607,7 +1613,7 @@ async function actionAt(c: Ctx): Promise<number> {
 app.post("/slots/:id/start", async (c) => {
   await setSlotStatus(
     c.get("db"),
-    { slotId: c.req.param("id"), status: "started", actor: "user" },
+    { slotId: c.req.param("id"), status: "started", actor: "user", ...actionIdentity(c) },
     await actionAt(c),
     newId,
   );
@@ -1622,6 +1628,7 @@ app.post("/slots/:id/complete", async (c) => {
       slotId: c.req.param("id"),
       status: "completed",
       actor: c.get("addon") ? "addon" : "user",
+      ...actionIdentity(c),
     },
     await actionAt(c),
     newId,
@@ -1641,6 +1648,7 @@ app.post("/slots/:id/skip", async (c) => {
       slotId: c.req.param("id"),
       status: "skipped",
       actor: c.get("addon") ? "addon" : "user",
+      ...actionIdentity(c),
       reasonCode: "dismissed",
       ...(body.reason !== undefined ? { reasonText: body.reason } : {}),
     },
@@ -1780,8 +1788,14 @@ app.post("/slots", async (c) => {
     });
   }
 
-  const slot = await placeSlot(
-    db,
+  await scheduleGrace(c);
+  const slot = await userTransaction(db, async (tx) => {
+    if (subject.reminderId) {
+      const current = await getReminder(tx, subject.reminderId);
+      if (current?.status !== "open") throw new HTTPException(409, { message: "That todo is already on the day, or done." });
+    }
+    const placed = await placeSlot(
+    tx,
     {
       activityId: subject.activityId,
       reminderId: subject.reminderId,
@@ -1796,20 +1810,11 @@ app.post("/slots", async (c) => {
     newId,
   );
 
-  // A todo on the day is a slot now. The todo stays, pointing at it, so a
-  // later view can list what was placed beside what was not.
-  if (subject.reminderId) {
-    await setReminderStatus(db, subject.reminderId, "slotted", slot.id);
-  }
-
-  // A placed slot has a grace period like any other, and the sweep is driven
-  // from the directory - without this marker nothing would ever move it on.
-  await scheduleWork(
-    c.get("directory"),
-    { userId: user.userId, kind: "grace_sweep", dueAt: now + 60_000 },
-    now,
-    newId,
-  );
+    if (subject.reminderId) {
+      await setReminderStatus(tx, subject.reminderId, "slotted", placed.id);
+    }
+    return placed;
+  });
 
   return c.json(
     {

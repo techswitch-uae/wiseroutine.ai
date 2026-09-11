@@ -19,19 +19,55 @@ import { PrismaClient as UserClient } from "./generated/user/client";
  * Both are Turso (libSQL) over HTTP, so neither is a Worker binding: they are
  * a URL plus an auth token, resolved per request.
  */
-export type Directory = DirectoryClient;
-export type UserDatabase = UserClient;
+type TransactionView<T> = Omit<
+  T,
+  "$connect" | "$disconnect" | "$on" | "$transaction" | "$extends"
+>;
+export type Directory = DirectoryClient | TransactionView<DirectoryClient>;
+export type UserDatabase = UserClient | TransactionView<UserClient>;
+
+// Prisma versions that support savepoints may expose $transaction even on a
+// scoped client. Detect our scope explicitly, not by property existence.
+const transactionScopes = new WeakSet<object>();
+export const isTransaction = (db: object): boolean => transactionScopes.has(db);
+
+/** Acquire the SQLite writer before reading state used by a mutation. Nested
+ * repository operations reuse the caller's transaction rather than committing
+ * independently. This also serializes concurrent plans and action replays. */
+export async function userTransaction<T>(
+  db: UserDatabase,
+  work: (tx: UserDatabase) => Promise<T>,
+): Promise<T> {
+  if (isTransaction(db) || !("$transaction" in db)) return work(db);
+  return db.$transaction(async (tx) => {
+    transactionScopes.add(tx);
+    await tx.$executeRawUnsafe("UPDATE _write_lock SET version = version + 1 WHERE id = 1");
+    return work(tx);
+  }, { timeout: 30_000, maxWait: 10_000 });
+}
+
+export async function directoryTransaction<T>(
+  db: Directory,
+  work: (tx: Directory) => Promise<T>,
+): Promise<T> {
+  if (isTransaction(db) || !("$transaction" in db)) return work(db);
+  return db.$transaction(async (tx) => {
+    transactionScopes.add(tx);
+    await tx.$executeRawUnsafe("UPDATE _write_lock SET version = version + 1 WHERE id = 1");
+    return work(tx);
+  }, { timeout: 30_000, maxWait: 10_000 });
+}
 
 export interface Credentials {
   url: string;
   authToken?: string | undefined;
 }
 
-export function createDirectory(credentials: Credentials): Directory {
+export function createDirectory(credentials: Credentials): DirectoryClient {
   return new DirectoryClient({ adapter: new PrismaLibSql(credentials) });
 }
 
-export function createUserDatabase(credentials: Credentials): UserDatabase {
+export function createUserDatabase(credentials: Credentials): UserClient {
   return new UserClient({ adapter: new PrismaLibSql(credentials) });
 }
 
@@ -121,20 +157,32 @@ export async function applyMigrations(
        )`,
     );
 
-    const done = await client.execute("SELECT name FROM _migrations");
-    const seen = new Set(done.rows.map((row) => String(row.name)));
-
     for (const migration of migrations) {
-      if (seen.has(migration.name)) continue;
-
-      const statements = splitStatements(migration.sql);
-
-      await client.batch(statements, "write");
-      await client.execute({
-        sql: "INSERT INTO _migrations (name, applied_at) VALUES (?, ?)",
-        args: [migration.name, Date.now()],
-      });
-      applied.push(migration.name);
+      // The write transaction is acquired before the marker is read. Concurrent
+      // catch-ups cannot both decide to run the same ALTER TABLE.
+      const tx = await client.transaction("write");
+      try {
+        const done = await tx.execute({
+          sql: "SELECT name FROM _migrations WHERE name = ?",
+          args: [migration.name],
+        });
+        if (done.rows.length === 0) {
+          for (const statement of splitStatements(migration.sql)) {
+            await tx.execute(statement);
+          }
+          await tx.execute({
+            sql: "INSERT INTO _migrations (name, applied_at) VALUES (?, ?)",
+            args: [migration.name, Date.now()],
+          });
+        }
+        await tx.commit();
+        if (done.rows.length === 0) applied.push(migration.name);
+      } catch (error) {
+        await tx.rollback();
+        throw error;
+      } finally {
+        tx.close();
+      }
     }
   } finally {
     client.close();

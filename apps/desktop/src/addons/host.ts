@@ -7,6 +7,7 @@ import {
   isPlainHttpsOrigin,
 } from "@wiseroutine/addons";
 import { api, openGaps, type Todo } from "../lib/api";
+import { accountStorageKey, onSessionReset, sessionGeneration, sessionIdentity } from "../lib/session-lifecycle";
 import { notify as toast } from "../lib/notify";
 import { openExternal } from "../lib/open-external";
 import { reloadPlan, subscribePlan, todaySnapshot } from "../lib/plan-store";
@@ -158,6 +159,8 @@ export function serve(
   /** Read per request, not captured, so the port survives re-renders. */
   contextOf: () => AddonContext,
 ): () => void {
+  const generation = sessionGeneration();
+  const accountId = sessionIdentity();
   const { manifest, granted } = addon;
   const id = manifest.id;
 
@@ -350,6 +353,7 @@ export function serve(
         headers: [string, string][];
         body: string;
       }>("addon_fetch", {
+        accountId,
         id,
         url: p.input,
         method: typeof p.method === "string" ? p.method : "GET",
@@ -519,6 +523,7 @@ export function serve(
   };
 
   const onMessage = (event: MessageEvent<Request>) => {
+    if (generation !== sessionGeneration()) return;
     const { id: callId, method, params } = event.data ?? {};
     if (typeof callId !== "number" || typeof method !== "string") return;
 
@@ -571,14 +576,18 @@ export function serve(
   const entry = { port, kind: contextOf().kind };
   served.set(id, [...(served.get(id) ?? []), entry]);
 
-  return () => {
+  const stop = () => {
     const rest = (served.get(id) ?? []).filter((p) => p !== entry);
     if (rest.length > 0) served.set(id, rest);
     else served.delete(id);
     stopWatchingTodos();
     stopWatching();
     port.removeEventListener("message", onMessage);
+    port.close();
+    stopReset();
   };
+  const stopReset = onSessionReset(stop);
+  return stop;
 }
 
 const STORE_KEY = /^[A-Za-z0-9_.-]{1,64}$/;
@@ -589,5 +598,5 @@ function storeKey(addonId: string, key: unknown): string {
       "A store key is letters, digits, dot, dash or underscore.",
     );
   }
-  return `wr.addon.${addonId}.${key}`;
+  return accountStorageKey(`wr.addon.${addonId}.${key}`);
 }

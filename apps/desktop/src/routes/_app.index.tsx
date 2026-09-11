@@ -14,7 +14,7 @@ import {
   Slot,
 } from "@wiseroutine/design";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { upNextOf } from "../lib/alerts";
+import { startTodaySlot } from "../lib/today-controller";
 import {
   ApiError,
   api,
@@ -187,6 +187,7 @@ const Today: React.FC = () => {
     // is published rather than passed - see `lib/plan-store`.
     publishPlan(data);
   }, [data]);
+  useEffect(() => () => { publishPlan(null); pick(null); }, []);
 
   const refresh = useCallback(() => {
     lastSync.current = Date.now();
@@ -366,6 +367,10 @@ const Today: React.FC = () => {
    * day in hand, and the server's answer either confirms it or takes it back.
    */
   const start = useCallback((slotId: string) => {
+    if (dataRef.current && isToday(dataRef.current, Date.now())) {
+      void startTodaySlot(slotId);
+      return;
+    }
     // This run opened it, so this run may show its session - see
     // `lib/running-slot`. Marked before the request, because the optimistic
     // status below is what the overlay reads.
@@ -459,30 +464,7 @@ const Today: React.FC = () => {
    * `upNextOf` last called up next" - worked out here, from the same plan the
    * menu was rendered from.
    */
-  useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in globalThis)) return;
-
-    let stop: (() => void)[] = [];
-    void import("@tauri-apps/api/event").then(async ({ listen }) => {
-      stop = await Promise.all([
-        listen("tray://start", () => {
-          // The menu says "start what's next", and next means today. If the
-          // window happens to be showing another day, that day's plan is not
-          // an answer to it - better to do nothing than to start something
-          // scheduled for a week away.
-          const plan = dataRef.current;
-          const at = Date.now();
-          if (!plan || at < plan.dayStart || at >= plan.dayEnd) return;
-          const next = upNextOf(plan.slots, at);
-          if (next?.slotId) start(next.slotId);
-        }),
-      ]);
-    });
-
-    return () => {
-      for (const off of stop) off();
-    };
-  }, [start]);
+  // Native events are owned by the signed-in shell, not this route.
 
   if (!data) {
     return (

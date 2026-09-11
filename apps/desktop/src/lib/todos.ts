@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { onSessionReset } from "./session-lifecycle";
 import { api, openGaps, type TodayResponse, type Todo } from "./api";
 
 /** A todo with no length gets this much. One keypress to change. */
@@ -40,6 +41,7 @@ export function fitsAt(
  */
 
 let todos: readonly Todo[] | null = null;
+onSessionReset(resetTodos);
 const listeners = new Set<() => void>();
 
 function publish(next: readonly Todo[] | null): void {

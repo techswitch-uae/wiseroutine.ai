@@ -32,7 +32,29 @@ permissions:
   pull-requests: write
 
 jobs:
+  verify:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: brew install tursodatabase/tap/turso
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec turbo run typecheck test --force
+      - run: pnpm test:release
+      - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+      - run: pnpm release:config
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          TAURI_SIGNING_PUBLIC_KEY: ${{ vars.TAURI_SIGNING_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
   release-please:
+    needs: verify
     runs-on: ubuntu-latest
     outputs:
       # Consumed by the build job that will attach installers to the release.
@@ -95,8 +117,16 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - run: pnpm release:config
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          TAURI_SIGNING_PUBLIC_KEY: ${{ vars.TAURI_SIGNING_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
       - uses: tauri-apps/tauri-action@v1
         env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          TAURI_SIGNING_PUBLIC_KEY: ${{ vars.TAURI_SIGNING_PUBLIC_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
           # Signs the update artifacts so installed apps will accept them. This
@@ -121,4 +151,4 @@ jobs:
           # attaches the installers and `latest.json` to that one rather than
           # opening a second, empty release beside it.
           tagName: ${{ needs.release-please.outputs.tag }}
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} --config src-tauri/tauri.release.generated.json

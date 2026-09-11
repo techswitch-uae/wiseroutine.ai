@@ -243,9 +243,13 @@ describe("where the frame comes from", () => {
       convertFileSrc: (path: string, protocol: string) =>
         `${protocol}://localhost/${path}`,
     };
+    localStorage.setItem("wiseroutine.session", "test-token");
+    localStorage.setItem("wiseroutine.identity", "account-a");
     try {
       fn();
     } finally {
+      localStorage.removeItem("wiseroutine.session");
+      localStorage.removeItem("wiseroutine.identity");
       delete host.__TAURI_INTERNALS__;
     }
   };
@@ -262,7 +266,7 @@ describe("where the frame comes from", () => {
   test("is served over its own scheme when there is a host to serve it", () => {
     withTauri(() => {
       const frame = frameOf(manifest());
-      expect(frame.getAttribute("src")).toBe("addon://localhost/acme.fitness");
+      expect(frame.getAttribute("src")).toBe("addon://localhost/account-a/acme.fitness");
       // Both would be a document that still inherits.
       expect(frame.getAttribute("srcdoc")).toBeNull();
       // The origin is opaque either way: the scheme buys the policy, the

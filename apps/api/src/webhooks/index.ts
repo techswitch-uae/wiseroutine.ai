@@ -1,10 +1,7 @@
 import {
-  alreadyProcessed,
-  findUserByStripeCustomer,
   findWatchRoute,
   getUser,
   scheduleWork,
-  upsertSubscription,
 } from "@wiseroutine/db";
 import { required } from "@wiseroutine/env";
 import { Hono } from "hono";
@@ -12,6 +9,7 @@ import type Stripe from "stripe";
 import { type App, type Ctx, newId } from "../context";
 import { safeEqual } from "../crypto";
 import { constructStripeEvent, stripeClient } from "../stripe";
+import { applyBillingEvent } from "./billing";
 
 export const webhooks = new Hono<App>();
 
@@ -171,7 +169,7 @@ webhooks.post("/stripe", async (c) => {
   if (!signature) return c.body(null, 400);
 
   const rawBody = await c.req.text();
-  const stripe = stripeClient(env);
+  const stripe = stripeClient(env, true);
 
   let event: Stripe.Event;
   try {
@@ -188,96 +186,6 @@ webhooks.post("/stripe", async (c) => {
   const directory = c.get("directory");
   const now = c.get("now");
 
-  // Stripe retries. Without this, a retry re-applies the event.
-  if (await alreadyProcessed(directory, "stripe", event.id, now)) {
-    return c.json({ received: true, duplicate: true });
-  }
-
-  switch (event.type) {
-    case "checkout.session.completed": {
-      const session = event.data.object as Stripe.Checkout.Session;
-      const userId = session.client_reference_id;
-      const customerId =
-        typeof session.customer === "string"
-          ? session.customer
-          : session.customer?.id;
-      if (userId && customerId) {
-        await upsertSubscription(
-          directory,
-          {
-            userId,
-            stripeCustomerId: customerId,
-            stripeSubscriptionId:
-              typeof session.subscription === "string"
-                ? session.subscription
-                : null,
-            status: "active",
-          },
-          now,
-        );
-      }
-      break;
-    }
-
-    case "customer.subscription.created":
-    case "customer.subscription.updated":
-    case "customer.subscription.deleted": {
-      const subscription = event.data.object as Stripe.Subscription;
-      const customerId =
-        typeof subscription.customer === "string"
-          ? subscription.customer
-          : subscription.customer.id;
-
-      // Indexed lookup on our own table. Never scan a user list.
-      const userId =
-        subscription.metadata?.userId ??
-        (await findUserByStripeCustomer(directory, customerId));
-      if (!userId) break;
-
-      const item = subscription.items.data[0];
-      await upsertSubscription(
-        directory,
-        {
-          userId,
-          stripeCustomerId: customerId,
-          stripeSubscriptionId: subscription.id,
-          stripePriceId: item?.price.id ?? null,
-          status:
-            event.type === "customer.subscription.deleted"
-              ? "canceled"
-              : subscription.status,
-          currentPeriodEnd: item?.current_period_end
-            ? item.current_period_end * 1000
-            : null,
-          cancelAtPeriodEnd: subscription.cancel_at_period_end,
-        },
-        now,
-      );
-      break;
-    }
-
-    case "invoice.payment_failed": {
-      const invoice = event.data.object as Stripe.Invoice;
-      const customerId =
-        typeof invoice.customer === "string"
-          ? invoice.customer
-          : invoice.customer?.id;
-      if (!customerId) break;
-      const userId = await findUserByStripeCustomer(directory, customerId);
-      if (!userId) break;
-      // past_due keeps access - dunning is Stripe's job, not a hard cutoff the
-      // moment a card bounces.
-      await upsertSubscription(
-        directory,
-        { userId, stripeCustomerId: customerId, status: "past_due" },
-        now,
-      );
-      break;
-    }
-
-    default:
-      break;
-  }
-
-  return c.json({ received: true });
+  const applied = await applyBillingEvent(directory, stripe, event, now);
+  return c.json({ received: true, duplicate: !applied });
 });
