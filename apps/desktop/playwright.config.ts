@@ -65,6 +65,8 @@ export default defineConfig({
     {
       command:
         `pnpm --filter @wiseroutine/api exec wrangler dev --port ${PORTS.api}` +
+        ` --var APP_URL:${APP_URL}` +
+        ` --var API_URL:http://localhost:${PORTS.api}` +
         ` --var TURSO_DIRECTORY_URL:${DIRECTORY_URL}` +
         ` --var TURSO_USER_HOST:${USER_URL}` +
         ` --var E2E_SECRET:${E2E_SECRET}`,

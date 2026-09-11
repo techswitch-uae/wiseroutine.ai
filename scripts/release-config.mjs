@@ -25,7 +25,12 @@ export function releaseConfig(env, config) {
   const document = Buffer.from(key, "base64").toString("utf8");
   const lines = document.trim().split(/\r?\n/);
   const bytes = Buffer.from(lines[1] ?? "", "base64");
-  if (!lines[0].startsWith("untrusted comment:") || lines.length !== 2 || bytes.length !== 42 || bytes.subarray(0, 2).toString() !== "Ed")
+  if (
+    !lines[0].startsWith("untrusted comment:") ||
+    lines.length !== 2 ||
+    bytes.length !== 42 ||
+    bytes.subarray(0, 2).toString() !== "Ed"
+  )
     throw new Error("Invalid updater public-key document");
   return { plugins: { updater: { pubkey: key } } };
 }

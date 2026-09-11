@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { api, openGaps, type TodayResponse, type Todo } from "./api";
-import { onSessionReset } from "./session-lifecycle";
+import { onSessionReset, sessionGeneration } from "./session-lifecycle";
 
 /** A todo with no length gets this much. One keypress to change. */
 export const DEFAULT_TODO_MINUTES = 15;
@@ -51,10 +51,13 @@ function publish(next: readonly Todo[] | null): void {
 
 /** Re-read the list. Every write ends here - the server's list is the list. */
 export function reloadTodos(): Promise<void> {
+  const generation = sessionGeneration();
   return (
     api
       .todos()
-      .then(publish)
+      .then((next) => {
+        if (generation === sessionGeneration()) publish(next);
+      })
       // A failed read is not an empty list. Whatever was last known stands.
       .catch(() => undefined)
   );

@@ -15,6 +15,7 @@ import {
   clearCachedPlan,
   enqueue,
   forget,
+  hasLegacyPending,
   type PendingKind,
   pending,
   withPending,
@@ -178,6 +179,7 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const generation = sessionGeneration();
   const response = await send(path, init);
+  if (generation !== sessionGeneration()) throw new SessionChangedError();
   if (response.status === 204) return undefined as T;
   const data = await response.json();
   if (generation !== sessionGeneration()) throw new SessionChangedError();
@@ -617,6 +619,7 @@ async function slotAction(
       at,
       ...(reason !== undefined ? { reason } : {}),
     });
+    if (error instanceof ApiError) pauseReplay(error);
     return { queued: true };
   }
 }
@@ -645,15 +648,28 @@ onSessionReset(() => {
   awaitingAuth = false;
 });
 
+function pauseReplay(error: unknown): void {
+  retryAt =
+    Date.now() +
+    Math.max(5000, error instanceof ApiError ? error.retryAfterMs : 0);
+  if (error instanceof ApiError && error.status === 401) {
+    awaitingAuth = true;
+    notify(
+      "Your changes are saved on this device. Sign in again to sync them.",
+    );
+  }
+}
+
 export function flushPending(): Promise<number> {
   if (draining) return draining;
   if (awaitingAuth || Date.now() < retryAt || !getSessionToken())
     return Promise.resolve(0);
   const operation = drainPending();
   draining = operation;
-  void operation.finally(() => {
+  const finished = () => {
     if (draining === operation) draining = null;
-  });
+  };
+  void operation.then(finished, finished);
   return operation;
 }
 
@@ -679,15 +695,7 @@ async function drainPending(): Promise<number> {
     } catch (error) {
       if (generation !== sessionGeneration()) return sent;
       if (retryable(error)) {
-        retryAt =
-          Date.now() +
-          Math.max(5000, error instanceof ApiError ? error.retryAfterMs : 0);
-        if (error instanceof ApiError && error.status === 401) {
-          awaitingAuth = true;
-          notify(
-            "Your changes are saved on this device. Sign in again to sync them.",
-          );
-        }
+        pauseReplay(error);
         break;
       }
       // Unknown client errors are not proof that the action was rejected.
@@ -849,9 +857,15 @@ export const api = {
    * from the cause.
    */
   session: async () => {
+    const generation = sessionGeneration();
     const result = await request<SessionResponse | null>("/auth/get-session");
+    if (generation !== sessionGeneration()) throw new SessionChangedError();
     if (result?.user) {
       identifySession(result.user.id);
+      if (hasLegacyPending())
+        notify(
+          "Older unsynced actions remain on this device. Their account must be verified before replay.",
+        );
       if (result.user.storeEventTitles !== undefined)
         setEventDetailsAllowed(result.user.storeEventTitles);
     }
@@ -935,6 +949,7 @@ export const api = {
    *  validates the day's window against the row as it will be - see
    *  `PATCH /settings`. */
   updateSettings: async (patch: SettingsPatch) => {
+    const generation = sessionGeneration();
     if (patch.storeEventTitles === false) {
       clearCachedPlan();
       setEventDetailsAllowed(false);
@@ -943,6 +958,7 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(patch),
     });
+    if (generation !== sessionGeneration()) throw new SessionChangedError();
     if (patch.storeEventTitles === true) setEventDetailsAllowed(true);
   },
 

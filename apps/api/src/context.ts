@@ -48,6 +48,7 @@ export interface SyncJob {
   type: "sync-calendar" | "renew-watch" | "grace-sweep";
   /** Directory row id, so the consumer can reschedule or fail it. */
   workId: string;
+  workRevision?: number;
   userId: string;
   databaseName: string;
   targetId?: string;

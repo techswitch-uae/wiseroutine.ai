@@ -34,10 +34,12 @@ export type AggregateScheduledWork = {
 
 export type ScheduledWorkAvgAggregateOutputType = {
   failures: number | null
+  revision: number | null
 }
 
 export type ScheduledWorkSumAggregateOutputType = {
   failures: number | null
+  revision: number | null
 }
 
 export type ScheduledWorkMinAggregateOutputType = {
@@ -48,6 +50,7 @@ export type ScheduledWorkMinAggregateOutputType = {
   dueAt: Date | null
   backoffUntil: Date | null
   failures: number | null
+  revision: number | null
   createdAt: Date | null
 }
 
@@ -59,6 +62,7 @@ export type ScheduledWorkMaxAggregateOutputType = {
   dueAt: Date | null
   backoffUntil: Date | null
   failures: number | null
+  revision: number | null
   createdAt: Date | null
 }
 
@@ -70,6 +74,7 @@ export type ScheduledWorkCountAggregateOutputType = {
   dueAt: number
   backoffUntil: number
   failures: number
+  revision: number
   createdAt: number
   _all: number
 }
@@ -77,10 +82,12 @@ export type ScheduledWorkCountAggregateOutputType = {
 
 export type ScheduledWorkAvgAggregateInputType = {
   failures?: true
+  revision?: true
 }
 
 export type ScheduledWorkSumAggregateInputType = {
   failures?: true
+  revision?: true
 }
 
 export type ScheduledWorkMinAggregateInputType = {
@@ -91,6 +98,7 @@ export type ScheduledWorkMinAggregateInputType = {
   dueAt?: true
   backoffUntil?: true
   failures?: true
+  revision?: true
   createdAt?: true
 }
 
@@ -102,6 +110,7 @@ export type ScheduledWorkMaxAggregateInputType = {
   dueAt?: true
   backoffUntil?: true
   failures?: true
+  revision?: true
   createdAt?: true
 }
 
@@ -113,6 +122,7 @@ export type ScheduledWorkCountAggregateInputType = {
   dueAt?: true
   backoffUntil?: true
   failures?: true
+  revision?: true
   createdAt?: true
   _all?: true
 }
@@ -211,6 +221,7 @@ export type ScheduledWorkGroupByOutputType = {
   dueAt: Date
   backoffUntil: Date | null
   failures: number
+  revision: number
   createdAt: Date
   _count: ScheduledWorkCountAggregateOutputType | null
   _avg: ScheduledWorkAvgAggregateOutputType | null
@@ -245,6 +256,7 @@ export type ScheduledWorkWhereInput = {
   dueAt?: Prisma.DateTimeFilter<"ScheduledWork"> | Date | string
   backoffUntil?: Prisma.DateTimeNullableFilter<"ScheduledWork"> | Date | string | null
   failures?: Prisma.IntFilter<"ScheduledWork"> | number
+  revision?: Prisma.IntFilter<"ScheduledWork"> | number
   createdAt?: Prisma.DateTimeFilter<"ScheduledWork"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
 }
@@ -257,6 +269,7 @@ export type ScheduledWorkOrderByWithRelationInput = {
   dueAt?: Prisma.SortOrder
   backoffUntil?: Prisma.SortOrderInput | Prisma.SortOrder
   failures?: Prisma.SortOrder
+  revision?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   user?: Prisma.UserOrderByWithRelationInput
 }
@@ -273,6 +286,7 @@ export type ScheduledWorkWhereUniqueInput = Prisma.AtLeast<{
   dueAt?: Prisma.DateTimeFilter<"ScheduledWork"> | Date | string
   backoffUntil?: Prisma.DateTimeNullableFilter<"ScheduledWork"> | Date | string | null
   failures?: Prisma.IntFilter<"ScheduledWork"> | number
+  revision?: Prisma.IntFilter<"ScheduledWork"> | number
   createdAt?: Prisma.DateTimeFilter<"ScheduledWork"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
 }, "id" | "userId_kind_targetId">
@@ -285,6 +299,7 @@ export type ScheduledWorkOrderByWithAggregationInput = {
   dueAt?: Prisma.SortOrder
   backoffUntil?: Prisma.SortOrderInput | Prisma.SortOrder
   failures?: Prisma.SortOrder
+  revision?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.ScheduledWorkCountOrderByAggregateInput
   _avg?: Prisma.ScheduledWorkAvgOrderByAggregateInput
@@ -304,6 +319,7 @@ export type ScheduledWorkScalarWhereWithAggregatesInput = {
   dueAt?: Prisma.DateTimeWithAggregatesFilter<"ScheduledWork"> | Date | string
   backoffUntil?: Prisma.DateTimeNullableWithAggregatesFilter<"ScheduledWork"> | Date | string | null
   failures?: Prisma.IntWithAggregatesFilter<"ScheduledWork"> | number
+  revision?: Prisma.IntWithAggregatesFilter<"ScheduledWork"> | number
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"ScheduledWork"> | Date | string
 }
 
@@ -314,6 +330,7 @@ export type ScheduledWorkCreateInput = {
   dueAt: Date | string
   backoffUntil?: Date | string | null
   failures?: number
+  revision?: number
   createdAt: Date | string
   user: Prisma.UserCreateNestedOneWithoutScheduledWorkInput
 }
@@ -326,6 +343,7 @@ export type ScheduledWorkUncheckedCreateInput = {
   dueAt: Date | string
   backoffUntil?: Date | string | null
   failures?: number
+  revision?: number
   createdAt: Date | string
 }
 
@@ -336,6 +354,7 @@ export type ScheduledWorkUpdateInput = {
   dueAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   backoffUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   failures?: Prisma.IntFieldUpdateOperationsInput | number
+  revision?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutScheduledWorkNestedInput
 }
@@ -348,6 +367,7 @@ export type ScheduledWorkUncheckedUpdateInput = {
   dueAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   backoffUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   failures?: Prisma.IntFieldUpdateOperationsInput | number
+  revision?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -359,6 +379,7 @@ export type ScheduledWorkCreateManyInput = {
   dueAt: Date | string
   backoffUntil?: Date | string | null
   failures?: number
+  revision?: number
   createdAt: Date | string
 }
 
@@ -369,6 +390,7 @@ export type ScheduledWorkUpdateManyMutationInput = {
   dueAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   backoffUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   failures?: Prisma.IntFieldUpdateOperationsInput | number
+  revision?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -380,6 +402,7 @@ export type ScheduledWorkUncheckedUpdateManyInput = {
   dueAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   backoffUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   failures?: Prisma.IntFieldUpdateOperationsInput | number
+  revision?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -407,11 +430,13 @@ export type ScheduledWorkCountOrderByAggregateInput = {
   dueAt?: Prisma.SortOrder
   backoffUntil?: Prisma.SortOrder
   failures?: Prisma.SortOrder
+  revision?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
 export type ScheduledWorkAvgOrderByAggregateInput = {
   failures?: Prisma.SortOrder
+  revision?: Prisma.SortOrder
 }
 
 export type ScheduledWorkMaxOrderByAggregateInput = {
@@ -422,6 +447,7 @@ export type ScheduledWorkMaxOrderByAggregateInput = {
   dueAt?: Prisma.SortOrder
   backoffUntil?: Prisma.SortOrder
   failures?: Prisma.SortOrder
+  revision?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -433,11 +459,13 @@ export type ScheduledWorkMinOrderByAggregateInput = {
   dueAt?: Prisma.SortOrder
   backoffUntil?: Prisma.SortOrder
   failures?: Prisma.SortOrder
+  revision?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
 export type ScheduledWorkSumOrderByAggregateInput = {
   failures?: Prisma.SortOrder
+  revision?: Prisma.SortOrder
 }
 
 export type ScheduledWorkCreateNestedManyWithoutUserInput = {
@@ -489,6 +517,7 @@ export type ScheduledWorkCreateWithoutUserInput = {
   dueAt: Date | string
   backoffUntil?: Date | string | null
   failures?: number
+  revision?: number
   createdAt: Date | string
 }
 
@@ -499,6 +528,7 @@ export type ScheduledWorkUncheckedCreateWithoutUserInput = {
   dueAt: Date | string
   backoffUntil?: Date | string | null
   failures?: number
+  revision?: number
   createdAt: Date | string
 }
 
@@ -538,6 +568,7 @@ export type ScheduledWorkScalarWhereInput = {
   dueAt?: Prisma.DateTimeFilter<"ScheduledWork"> | Date | string
   backoffUntil?: Prisma.DateTimeNullableFilter<"ScheduledWork"> | Date | string | null
   failures?: Prisma.IntFilter<"ScheduledWork"> | number
+  revision?: Prisma.IntFilter<"ScheduledWork"> | number
   createdAt?: Prisma.DateTimeFilter<"ScheduledWork"> | Date | string
 }
 
@@ -548,6 +579,7 @@ export type ScheduledWorkCreateManyUserInput = {
   dueAt: Date | string
   backoffUntil?: Date | string | null
   failures?: number
+  revision?: number
   createdAt: Date | string
 }
 
@@ -558,6 +590,7 @@ export type ScheduledWorkUpdateWithoutUserInput = {
   dueAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   backoffUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   failures?: Prisma.IntFieldUpdateOperationsInput | number
+  revision?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -568,6 +601,7 @@ export type ScheduledWorkUncheckedUpdateWithoutUserInput = {
   dueAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   backoffUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   failures?: Prisma.IntFieldUpdateOperationsInput | number
+  revision?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -578,6 +612,7 @@ export type ScheduledWorkUncheckedUpdateManyWithoutUserInput = {
   dueAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   backoffUntil?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   failures?: Prisma.IntFieldUpdateOperationsInput | number
+  revision?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -591,6 +626,7 @@ export type ScheduledWorkSelect<ExtArgs extends runtime.Types.Extensions.Interna
   dueAt?: boolean
   backoffUntil?: boolean
   failures?: boolean
+  revision?: boolean
   createdAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["scheduledWork"]>
@@ -603,6 +639,7 @@ export type ScheduledWorkSelectCreateManyAndReturn<ExtArgs extends runtime.Types
   dueAt?: boolean
   backoffUntil?: boolean
   failures?: boolean
+  revision?: boolean
   createdAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["scheduledWork"]>
@@ -615,6 +652,7 @@ export type ScheduledWorkSelectUpdateManyAndReturn<ExtArgs extends runtime.Types
   dueAt?: boolean
   backoffUntil?: boolean
   failures?: boolean
+  revision?: boolean
   createdAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["scheduledWork"]>
@@ -627,10 +665,11 @@ export type ScheduledWorkSelectScalar = {
   dueAt?: boolean
   backoffUntil?: boolean
   failures?: boolean
+  revision?: boolean
   createdAt?: boolean
 }
 
-export type ScheduledWorkOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "kind" | "targetId" | "dueAt" | "backoffUntil" | "failures" | "createdAt", ExtArgs["result"]["scheduledWork"]>
+export type ScheduledWorkOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "kind" | "targetId" | "dueAt" | "backoffUntil" | "failures" | "revision" | "createdAt", ExtArgs["result"]["scheduledWork"]>
 export type ScheduledWorkInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
 }
@@ -662,6 +701,7 @@ export type $ScheduledWorkPayload<ExtArgs extends runtime.Types.Extensions.Inter
     dueAt: Date
     backoffUntil: Date | null
     failures: number
+    revision: number
     createdAt: Date
   }, ExtArgs["result"]["scheduledWork"]>
   composites: {}
@@ -1094,6 +1134,7 @@ export interface ScheduledWorkFieldRefs {
   readonly dueAt: Prisma.FieldRef<"ScheduledWork", 'DateTime'>
   readonly backoffUntil: Prisma.FieldRef<"ScheduledWork", 'DateTime'>
   readonly failures: Prisma.FieldRef<"ScheduledWork", 'Int'>
+  readonly revision: Prisma.FieldRef<"ScheduledWork", 'Int'>
   readonly createdAt: Prisma.FieldRef<"ScheduledWork", 'DateTime'>
 }
     

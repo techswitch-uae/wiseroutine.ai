@@ -43,9 +43,10 @@ export function startTodayController(): () => void {
     if (!current()) return;
     const plan = todaySnapshot();
     if (plan && !isToday(plan, Date.now())) publishTodayPlan(null);
-    void flushPending().then(() => {
+    const afterDrain = () => {
       if (current()) load();
-    });
+    };
+    void flushPending().then(afterDrain, afterDrain);
   };
   const tick = () => {
     timer = setTimeout(

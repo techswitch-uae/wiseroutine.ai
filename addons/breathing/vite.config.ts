@@ -15,14 +15,10 @@ import { defineConfig } from "vite";
  */
 
 /**
- * Where an installed addon lives.
- *
- * Writing into the app's static directory is exactly what installing a
- * downloaded addon will do - verify the signature, then put the bundle
- * somewhere the app can serve it from. This addon is bundled with the app
- * rather than downloaded, so its build does that step instead of an installer.
- * The host does not know or care which of the two put the file there; it
- * fetches a URL either way.
+ * A package-local, cacheable bundle. The desktop's assembly step copies all
+ * bundled addons into its static assets after their dependency builds finish.
+ * Native installation is separate and puts verified bundles into the active
+ * account's addon directory.
  */
 const INSTALLED = join(import.meta.dirname, "dist");
 

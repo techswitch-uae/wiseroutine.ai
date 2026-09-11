@@ -21,7 +21,10 @@ import { ApiError, api, getSessionToken, setSessionToken } from "../lib/api";
 import { dismiss, useToasts } from "../lib/notify";
 import { todaySnapshot, useTodayPlan } from "../lib/plan-store";
 import { dayLabel, periodLabel, scopeOf, todayOf } from "../lib/scope";
-import { useSessionIdentity } from "../lib/session-lifecycle";
+import {
+  sessionGeneration,
+  useSessionIdentity,
+} from "../lib/session-lifecycle";
 import { startTodayController, startTodaySlot } from "../lib/today-controller";
 import "../lib/rail";
 import { AddonBackground } from "../addons/background";
@@ -253,9 +256,10 @@ const AppLayout: React.FC = () => {
    */
   useEffect(() => {
     let cancelled = false;
+    const generation = sessionGeneration();
 
     const signedOut = () => {
-      if (cancelled) return;
+      if (cancelled || generation !== sessionGeneration()) return;
       setSessionToken(null);
       setAccount(null);
       void navigate({ to: "/signin", replace: true });
@@ -264,7 +268,7 @@ const AppLayout: React.FC = () => {
     api
       .session()
       .then((s) => {
-        if (cancelled) return;
+        if (cancelled || generation !== sessionGeneration()) return;
         if (!s?.user) return signedOut();
         setAccount({
           // Null for anyone who signed up with an emailed code, and empty for
@@ -294,6 +298,7 @@ const AppLayout: React.FC = () => {
               ? s.user.dayOpensOn
               : "working",
           showOutsideRange: s.user.showOutsideRange,
+          storeEventTitles: s.user.storeEventTitles ?? true,
         });
       })
       .catch((cause: unknown) => {

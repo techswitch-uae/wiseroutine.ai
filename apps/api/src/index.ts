@@ -538,6 +538,7 @@ export default {
         jobs.push({
           type: WORK_TO_JOB[item.kind],
           workId: item.id,
+          workRevision: item.revision,
           userId: item.userId,
           databaseName: user.databaseName,
           ...(item.targetId ? { targetId: item.targetId } : {}),
@@ -623,9 +624,19 @@ export default {
         // further to do. Forgetting this is how a calendar goes quiet.
         if (job.workId) {
           if (nextDueAt === undefined) {
-            await completeWork(directory, job.workId, now + 24 * 60 * MINUTE);
+            await completeWork(
+              directory,
+              job.workId,
+              now + 24 * 60 * MINUTE,
+              job.workRevision ?? 0,
+            );
           } else {
-            await completeWork(directory, job.workId, nextDueAt);
+            await completeWork(
+              directory,
+              job.workId,
+              nextDueAt,
+              job.workRevision ?? 0,
+            );
           }
         }
 
@@ -640,7 +651,7 @@ export default {
       } catch (error) {
         console.error("work failed", job.type, job.targetId, error);
         if (job.workId) {
-          await failWork(directory, job.workId, now);
+          await failWork(directory, job.workId, now, job.workRevision ?? 0);
         } else {
           // A webhook-triggered job with no directory row still needs to come
           // back, so leave a marker rather than losing the change entirely.

@@ -200,6 +200,7 @@ export const ScheduledWorkScalarFieldEnum = {
   dueAt: 'dueAt',
   backoffUntil: 'backoffUntil',
   failures: 'failures',
+  revision: 'revision',
   createdAt: 'createdAt'
 } as const
 

@@ -257,6 +257,7 @@ model ScheduledWork {
   dueAt        DateTime  @map("due_at")
   backoffUntil DateTime? @map("backoff_until")
   failures     Int       @default(0)
+  revision     Int       @default(0)
 
   createdAt DateTime @map("created_at")
 

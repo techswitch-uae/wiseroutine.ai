@@ -22,6 +22,7 @@ import {
   type SettingsPatch,
 } from "../lib/api";
 import { notify } from "../lib/notify";
+import { PrivacySettings } from "../modules/privacy-settings";
 
 /**
  * Every zone this runtime knows, for the picker.
@@ -233,6 +234,16 @@ const Settings: React.FC = () => {
           }}
           problem={problem}
         />
+      </section>
+
+      <section className="wr-settings-section">
+        <h2 className="wr-settings-title">Privacy</h2>
+        {account ? (
+          <PrivacySettings
+            storeDetails={account.storeEventTitles !== false}
+            onSaved={(enabled) => patchAccount({ storeEventTitles: enabled })}
+          />
+        ) : null}
       </section>
 
       <section id={DAY_HOURS_ANCHOR} className="wr-settings-section">

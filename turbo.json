@@ -1,7 +1,7 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
-  "globalDependencies": ["**/.env.*local"],
+  "globalDependencies": ["**/.env.*local", "scripts/**"],
   "envMode": "loose",
   "tasks": {
     "generate": {
@@ -16,7 +16,12 @@
     "build": {
       "env": ["VITE_API_URL"],
       "dependsOn": ["^build", "test", "generate", "^generate"],
-      "outputs": ["dist/**", ".output/**", "!.output/**/cache/**"]
+      "outputs": [
+        "dist/**",
+        ".output/**",
+        "!.output/**/cache/**",
+        "public/addons/**"
+      ]
     },
     "test": { "dependsOn": ["^test", "generate", "^generate"] },
     "typecheck": { "dependsOn": ["^typecheck", "generate", "^generate"] },

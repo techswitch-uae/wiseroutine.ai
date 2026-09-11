@@ -40,6 +40,7 @@ export interface Account {
   customRangeEndMinutes: number | null;
   dayOpensOn: "working" | "full" | "custom";
   showOutsideRange: boolean;
+  storeEventTitles?: boolean;
 }
 
 let current: Account | null = null;

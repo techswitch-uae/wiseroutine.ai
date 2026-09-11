@@ -1,10 +1,14 @@
 import { exports as worker } from "cloudflare:workers";
 import {
+  completeWork,
+  dueWork,
+  failWork,
   forgetStoredTitles,
   nextGraceDeadline,
   placeSlot,
   processWebhook,
   replacePlannedSlots,
+  scheduleWork,
   setActivityWindows,
   setSlotStatus,
   upsertEvents,
@@ -151,9 +155,9 @@ test.each([
   for (const [url, method] of [
     ["http://api/activities", "POST"],
     [`http://api/activities/${activityId}`, "PATCH"],
-  ]) {
-    const response = await worker.default.fetch(url!, {
-      method: method!,
+  ] as const) {
+    const response = await worker.default.fetch(url, {
+      method,
       headers: user.headers,
       body: JSON.stringify(patch),
     });
@@ -524,8 +528,8 @@ test("grace recovery finds distinct free gaps after meetings, not now + five", a
     now,
   );
   const slots = await db.slot.findMany({ orderBy: { startsAt: "asc" } });
-  expect(slots[0]!.startsAt.getTime()).toBe(now + 1800000);
-  expect(slots[1]!.startsAt.getTime()).toBe(slots[0]!.endsAt.getTime());
+  expect(slots[0]?.startsAt.getTime()).toBe(now + 1800000);
+  expect(slots[1]?.startsAt.getTime()).toBe(slots[0]?.endsAt.getTime());
 });
 
 test("grace recovery buckets work when the working day cannot fit it", async () => {
@@ -589,6 +593,63 @@ test("schema catch-up fails closed and succeeds on a later retry", async () => {
     (await worker.default.fetch("http://api/todos", { headers: user.headers }))
       .status,
   ).toBe(200);
+});
+
+test("a late sweep cannot overwrite a new write-ahead wake-up", async () => {
+  const user = await seedUser();
+  const db = directory();
+  const now = Date.now();
+  const input = {
+    userId: user.userId,
+    kind: "grace_sweep" as const,
+    dueAt: now,
+  };
+  await scheduleWork(db, input, now, id);
+  const [old] = await dueWork(db, now, 1);
+  if (!old) throw new Error("missing work");
+  await scheduleWork(db, { ...input, dueAt: now + 60000 }, now, id);
+  await completeWork(db, old.id, now + 900000, old.revision);
+  await failWork(db, old.id, now, old.revision);
+  const latest = await db.scheduledWork.findUnique({ where: { id: old.id } });
+  expect(latest).toMatchObject({
+    dueAt: new Date(now + 60000),
+    failures: 0,
+    revision: old.revision + 1,
+  });
+  await completeWork(db, old.id, now + 120000, old.revision + 1);
+  expect(
+    await db.scheduledWork.findUnique({ where: { id: old.id } }),
+  ).toMatchObject({ dueAt: new Date(now + 120000) });
+});
+
+test("a failed privacy preference write leaves the local fence closed", async () => {
+  const user = await seedUser();
+  const db = directory();
+  await db.$executeRawUnsafe(
+    "CREATE TRIGGER refuse_privacy BEFORE UPDATE OF store_event_titles ON users BEGIN SELECT RAISE(ABORT, 'preference failed'); END",
+  );
+  try {
+    const response = await worker.default.fetch("http://api/settings", {
+      method: "PATCH",
+      headers: user.headers,
+      body: JSON.stringify({ storeEventTitles: false }),
+    });
+    expect(response.status).toBe(500);
+    expect(
+      await userDb().$queryRawUnsafe("SELECT store_titles FROM _event_privacy"),
+    ).toEqual([{ store_titles: 0 }]);
+  } finally {
+    await db.$executeRawUnsafe("DROP TRIGGER refuse_privacy");
+  }
+  expect(
+    (
+      await worker.default.fetch("http://api/settings", {
+        method: "PATCH",
+        headers: user.headers,
+        body: JSON.stringify({ storeEventTitles: false }),
+      })
+    ).status,
+  ).toBe(204);
 });
 
 test("concurrent deliveries of the same action commit once", async () => {

@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { api, flushPending, setSessionToken } from "./api";
-import { cachedPlan, cachePlan, enqueue, pending } from "./offline";
+import {
+  cachedPlan,
+  cachePlan,
+  enqueue,
+  hasLegacyPending,
+  pending,
+} from "./offline";
 import {
   publishPlan,
   publishReload,
@@ -101,11 +107,35 @@ test("Retry-After is honored and a permanent rejection is not counted as deliver
   expect(pending()).toHaveLength(0);
 });
 
+test("an online rate limit postpones replay too", async () => {
+  fetcher().mockResolvedValueOnce(
+    new Response(null, { status: 429, headers: { "retry-after": "120" } }),
+  );
+  expect(await api.startSlot("s")).toEqual({ queued: true });
+  expect(await flushPending()).toBe(0);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  vi.setSystemTime(now + 120000);
+  fetcher().mockResolvedValueOnce(ok());
+  expect(await flushPending()).toBe(1);
+});
+
+test("full local storage never produces a false queued acknowledgement", async () => {
+  fetcher().mockRejectedValueOnce(new TypeError("offline"));
+  const write = vi
+    .spyOn(Storage.prototype, "setItem")
+    .mockImplementation(() => {
+      throw new DOMException("quota", "QuotaExceededError");
+    });
+  await expect(api.startSlot("s")).rejects.toThrow("device storage");
+  expect(pending()).toHaveLength(0);
+  write.mockRestore();
+});
+
 test("a lost acknowledgement reuses the online action's ID and concurrent drains share one operation", async () => {
   fetcher().mockRejectedValueOnce(new TypeError("connection closed"));
   expect(await api.startSlot("s")).toEqual({ queued: true });
-  const key = pending()[0]!.id;
-  expect(fetcher().mock.calls[0]![1]?.headers).toMatchObject({
+  const key = pending()[0]?.id;
+  expect(fetcher().mock.calls[0]?.[1]?.headers).toMatchObject({
     "idempotency-key": key,
   });
   let reply!: (response: Response) => void;
@@ -118,7 +148,7 @@ test("a lost acknowledgement reuses the online action's ID and concurrent drains
   const first = flushPending();
   const second = flushPending();
   expect(first).toBe(second);
-  expect(fetcher().mock.calls[1]![1]?.headers).toMatchObject({
+  expect(fetcher().mock.calls[1]?.[1]?.headers).toMatchObject({
     "idempotency-key": key,
   });
   reply(ok());
@@ -167,6 +197,19 @@ test("sign-out aborts old requests, clears in-memory state/callbacks, and ignore
   reply(Response.json(plan()));
   await rejected;
   expect(cachedPlan(now)).toBeNull();
+});
+
+test("legacy actions are detected and retained, not attributed to another account", () => {
+  const legacy = JSON.stringify([
+    { id: "legacy", slotId: "old-slot", kind: "start", at: now },
+  ]);
+  localStorage.setItem("wiseroutine.pending", legacy);
+  expect(hasLegacyPending()).toBe(true);
+  expect(pending()).toEqual([]);
+  setSessionToken("another-token");
+  identifySession("another-user");
+  expect(pending()).toEqual([]);
+  expect(localStorage.getItem("wiseroutine.pending")).toBe(legacy);
 });
 
 test("late completion of an old drain cannot remove the next account's queue", async () => {

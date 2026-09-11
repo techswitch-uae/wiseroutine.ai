@@ -54,6 +54,10 @@ testing.post("/reset", async (c) => {
   // Any name: locally they all resolve to the one database.
   const db = createUserDb(c.get("env"), "wr-e2e-reset");
 
+  await db.$executeRawUnsafe("DELETE FROM _slot_actions");
+  await db.$executeRawUnsafe(
+    "UPDATE _event_privacy SET store_titles = 1 WHERE id = 1",
+  );
   await db.slotEvent.deleteMany();
   await db.slot.deleteMany();
   await db.planRun.deleteMany();

@@ -17,6 +17,17 @@ import { accountStorageKey } from "./session-lifecycle";
 const PLAN_KEY = "wiseroutine.today";
 const QUEUE_KEY = "wiseroutine.pending";
 
+/** Old builds recorded no owner. Preserve this data for verified recovery,
+ * but never silently attribute it to the next account on this device. */
+export function hasLegacyPending(): boolean {
+  try {
+    const entries: unknown = JSON.parse(store()?.getItem(QUEUE_KEY) ?? "[]");
+    return Array.isArray(entries) && entries.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export type PendingKind = "start" | "complete" | "skip";
 
 export interface PendingAction {
@@ -34,7 +45,13 @@ interface CachedPlan {
   cachedAt: number;
 }
 
-const store = (): Storage | undefined => globalThis.localStorage;
+const store = (): Storage | undefined => {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return undefined;
+  }
+};
 
 function read<T>(key: string): T | null {
   const raw = store()?.getItem(accountStorageKey(key));
@@ -49,11 +66,14 @@ function read<T>(key: string): T | null {
   }
 }
 
-function write(key: string, value: unknown): void {
+function write(key: string, value: unknown): boolean {
   try {
-    store()?.setItem(accountStorageKey(key), JSON.stringify(value));
+    const storage = store();
+    if (!storage) return false;
+    storage.setItem(accountStorageKey(key), JSON.stringify(value));
+    return true;
   } catch {
-    // A full quota must never break the request that triggered the save.
+    return false;
   }
 }
 
@@ -91,7 +111,12 @@ export function cachedPlan(
 
 /** Sign-in and sign-out both change who "today" belongs to. */
 export function clearCachedPlan(): void {
-  store()?.removeItem(accountStorageKey(PLAN_KEY));
+  try {
+    store()?.removeItem(PLAN_KEY); // Discard pre-account-scoping cache data too.
+    store()?.removeItem(accountStorageKey(PLAN_KEY));
+  } catch {
+    /* Unavailable storage must not prevent local sign-out. */
+  }
 }
 
 export function clearOfflineState(): void {
@@ -112,7 +137,11 @@ export function enqueue(
     ...action,
     id: action.id ?? crypto.randomUUID(),
   };
-  write(QUEUE_KEY, [...pending(), entry]);
+  if (!write(QUEUE_KEY, [...pending(), entry])) {
+    throw new Error(
+      "Couldn't save this action: device storage is unavailable or full.",
+    );
+  }
   return entry;
 }
 
