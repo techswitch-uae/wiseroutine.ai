@@ -71,6 +71,8 @@ export async function planDay(
     /** Plan only from here onward, so a mid-day replan cannot place a slot in
      *  the past. */
     from?: number;
+    /** Adding a new activity must not reshuffle accepted placements. */
+    preservePlanned?: boolean;
   },
   now: number,
   newId: () => string,
@@ -98,7 +100,14 @@ export async function planDay(
 
   // Anything pinned, started or already settled survives a replan untouched.
   const locked = slots
-    .filter((s) => s.isLocked || s.status !== "planned")
+    .filter(
+      (s) =>
+        ["planned", "live", "started", "completed"].includes(s.status) &&
+        (s.isLocked ||
+          s.status !== "planned" ||
+          params.preservePlanned ||
+          s.startsAt < dayStart),
+    )
     .map((s) => ({
       activityId: s.activityId ?? s.id,
       start: s.startsAt,
@@ -126,7 +135,7 @@ export async function planDay(
   for (const slot of slots) {
     const keeps =
       slot.status === "planned"
-        ? slot.isLocked
+        ? slot.isLocked || params.preservePlanned || slot.startsAt < dayStart
         : slot.status === "live" || slot.status === "started";
     if (!keeps || !slot.activityId) continue;
     keptToday.set(slot.activityId, (keptToday.get(slot.activityId) ?? 0) + 1);
@@ -209,7 +218,14 @@ export async function planDay(
 
   const written = await replacePlannedSlots(
     db,
-    { from: dayStart, to: bounds.end, planRunId },
+    {
+      from: dayStart,
+      to: bounds.end,
+      planRunId,
+      ...(params.preservePlanned
+        ? { preserveIds: slots.map((slot) => slot.id) }
+        : {}),
+    },
     planned,
     now,
     newId,

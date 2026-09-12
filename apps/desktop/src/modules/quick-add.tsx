@@ -26,6 +26,7 @@ import {
   saveCaptureDraft,
 } from "../lib/capture-draft";
 import { useDialogFocus } from "../lib/dialog";
+import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
 import { useTodayPlan } from "../lib/plan-store";
 import { durationsFor, suggestionsFor } from "../lib/quick-add";
@@ -53,6 +54,7 @@ const fresh = (): CaptureDraft => ({
 /** Core capture never depends on an addon or a mounted calendar page. A
  * failed write keeps the same intent ID, including on reopening its draft. */
 export function QuickAdd({ onClose }: { onClose: () => void }) {
+  const flags = useFeatures();
   const owner = useRef(sessionIdentity());
   const scope = useRef(captureSessionScope()).current;
   const [draft, setDraft] = useState<CaptureDraft>(fresh);
@@ -281,6 +283,10 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
     : [];
   const addFiles = (files: File[]) => {
     if (locked.current || !ready) return;
+    if (!flags.capture_files) {
+      setError("File attachments are not available yet.");
+      return;
+    }
     const next = [
       ...draft.files,
       ...files.map((file) => ({ file, id: crypto.randomUUID() })),
@@ -298,6 +304,18 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
   };
   const save = async (what: Subject, at?: number, length = minutes) => {
     if (locked.current || !ready) return;
+    if (!flags.quick_capture) {
+      setError(
+        "Capture is not currently available. Your draft is kept on this device.",
+      );
+      return;
+    }
+    if (draft.files.length && !flags.capture_files) {
+      setError(
+        "File uploads are unavailable. Keep this draft for later, or explicitly remove its files before saving.",
+      );
+      return;
+    }
     if (what.kind === "todo" && (draft.files.length || draft.notes.trim())) {
       setError(
         "Choose the new capture row to keep these notes and files, or edit the existing item from the inbox.",
@@ -546,7 +564,11 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
               ref={input}
               className="wr-palette-input"
               aria-label="What to add"
-              placeholder="Add a task, paste a link, or drop files"
+              placeholder={
+                flags.capture_files
+                  ? "Add a task, paste a link, or drop files"
+                  : "Add a task or paste a link"
+              }
               disabled={!ready || busy}
               value={draft.text}
               onChange={(event) => {
@@ -614,14 +636,16 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
           {step === "search" ? (
             <>
               <div className="wr-capture-actions">
-                <button
-                  type="button"
-                  className="wr-palette-pill"
-                  disabled={busy || !ready}
-                  onClick={() => fileInput.current?.click()}
-                >
-                  Attach files
-                </button>
+                {flags.capture_files ? (
+                  <button
+                    type="button"
+                    className="wr-palette-pill"
+                    disabled={busy || !ready}
+                    onClick={() => fileInput.current?.click()}
+                  >
+                    Attach files
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="wr-palette-pill"
@@ -653,18 +677,20 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                   />
                 </label>
               ) : null}
-              <input
-                ref={fileInput}
-                hidden
-                aria-label="Attach files"
-                type="file"
-                multiple
-                disabled={busy || !ready}
-                onChange={(e) => {
-                  addFiles(Array.from(e.target.files ?? []));
-                  e.target.value = "";
-                }}
-              />
+              {flags.capture_files ? (
+                <input
+                  ref={fileInput}
+                  hidden
+                  aria-label="Attach files"
+                  type="file"
+                  multiple
+                  disabled={busy || !ready}
+                  onChange={(e) => {
+                    addFiles(Array.from(e.target.files ?? []));
+                    e.target.value = "";
+                  }}
+                />
+              ) : null}
               {/* Only once there is something to measure. The header already
                   says files can be dropped or pasted, so on an empty palette
                   this was a sentence of limits about an act nobody had

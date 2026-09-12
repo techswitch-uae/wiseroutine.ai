@@ -14,8 +14,8 @@ describe("can", () => {
     );
   });
 
-  test("adaptive replanning and ranked rearrange are pro only", () => {
-    expect(can("free", { kind: "plan.adaptive" }).ok).toBe(false);
+  test("adaptive replanning is core; ranked alternatives remain Pro", () => {
+    expect(can("free", { kind: "plan.adaptive" }).ok).toBe(true);
     expect(can("free", { kind: "plan.rearrange" }).ok).toBe(false);
     expect(can("pro", { kind: "plan.adaptive" }).ok).toBe(true);
     expect(can("pro", { kind: "plan.rearrange" }).ok).toBe(true);

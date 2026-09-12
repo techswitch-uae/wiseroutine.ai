@@ -19,19 +19,14 @@ import { DAY_HOURS_ANCHOR } from "../routes/_app.settings";
 /**
  * The rail's set-up module, and the sheet its one button opens.
  *
- * Four steps, all of them real: a calendar to read, two activities to place in
- * it, a look at the hours everything is placed between, and permission to say
- * something when a slot starts. There is no way out but finishing, because
- * there is nothing the app can do until they are true - a day with no calendar
- * and no activities is an empty ruler, a routine nobody is told about is a
- * list, and "Skip for now" only ever bought a blank screen with no explanation
- * on it.
+ * A calendar, one activity and working hours establish the routine.
+ * Notification permission is optional and never blocks setup completion.
  *
  * The notification step is not offered in a browser, where there is no menu
  * bar to be reminded from and nothing to grant.
  *
  * Each step retires itself by being satisfied, not by being pressed: the
- * calendar step goes when a connection lands, the activities step when two are
+ * calendar step goes when a connection lands, the activities step when one is
  * active. The module goes when the last one does, and does not come back.
  *
  * That last part is the difference between a checklist and a wizard, and this
@@ -90,7 +85,7 @@ const remember = (key: string): void => {
 };
 
 /** How many activities the first plan needs before it can shape a day. */
-const ENOUGH_ACTIVITIES = 2;
+const ENOUGH_ACTIVITIES = 1;
 
 export const SetupRail: React.FC = () => {
   const navigate = useNavigate();
@@ -136,8 +131,8 @@ export const SetupRail: React.FC = () => {
   }, [look]);
 
   const enough = active !== null && active >= ENOUGH_ACTIVITIES;
-  const alerted = !alertsAvailable() || alerts === true;
-  const complete = connected === true && enough && seenHours && alerted;
+  // Permission is optional; denial must never block a usable routine.
+  const complete = connected === true && enough && seenHours;
 
   // Written the moment it is first true, and never read as a live question
   // again - see `DONE`.
@@ -170,9 +165,8 @@ export const SetupRail: React.FC = () => {
           },
           {
             key: "activities",
-            label: "Add two activities",
-            detail:
-              "A stretch and something for your eyes is a good pair to start with.",
+            label: "Add your first activity",
+            detail: "Choose one thing you want to make time for.",
             done: enough,
             action: {
               label: "Add an activity",
@@ -202,7 +196,7 @@ export const SetupRail: React.FC = () => {
             ? [
                 {
                   key: "alerts",
-                  label: "Allow notifications",
+                  label: "Allow notifications (optional)",
                   detail:
                     "So a slot can tell you it is starting, even when the window is behind something else.",
                   done: alerts === true,

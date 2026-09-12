@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type TodaySlot } from "../lib/api";
+import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
 import { reloadPlan, useTodayPlan } from "../lib/plan-store";
 import { runningSlot, sessionEndOf } from "../lib/running-slot";
@@ -26,6 +27,7 @@ import { SessionActions } from "./session-actions";
 
 export const SessionOverlay: React.FC = () => {
   const plan = useTodayPlan();
+  const flags = useFeatures();
   const [moving, setMoving] = useState<TodaySlot | null>(null);
   /**
    * A session the user has closed, so it does not immediately reopen.
@@ -60,7 +62,7 @@ export const SessionOverlay: React.FC = () => {
   if (!slot || slot.id === dismissed) return null;
 
   const module = moduleFor(slot.presetKey);
-  if (!module?.Session) return null;
+  if (!flags.guided_sessions || !module?.Session) return null;
 
   const finish = (how: "complete" | "skip") => {
     setDismissed(slot.id);

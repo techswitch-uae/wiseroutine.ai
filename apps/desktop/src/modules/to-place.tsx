@@ -6,7 +6,6 @@ import {
   Widget,
 } from "@wiseroutine/design";
 import { useEffect, useRef, useState } from "react";
-import { useAccount } from "../lib/account";
 import { api } from "../lib/api";
 import { useDensity } from "../lib/density";
 import { dropTimeOf } from "../lib/drop-time";
@@ -36,8 +35,8 @@ import { reloadPlan, usePlan } from "../lib/plan-store";
  * scheduler for the rest of today only - which is also the answer to what a
  * month or a year view would place, namely nothing.
  *
- * On Pro the day is already filled by the time this could render, so it
- * quietly never appears.
+ * Automatic placement is core on both plans. This remains as a recovery
+ * surface for unplaced demand, not an upgrade prompt.
  */
 
 /** The drop target, which the page owns and this module only has to find. One
@@ -57,7 +56,6 @@ function place(at: Placement): void {
 
 export const ToPlace: React.FC = () => {
   const plan = usePlan();
-  const account = useAccount();
   const density = useDensity();
   const [placing, setPlacingState] = useState(false);
   /**
@@ -243,12 +241,6 @@ export const ToPlace: React.FC = () => {
       >
         Drag one onto a free stretch on this day, or have them placed for you.
       </p>
-
-      {account?.plan === "free" ? (
-        <p className="wr-body" style={{ marginTop: 6, marginBottom: 0 }}>
-          Pro does this each morning, and again whenever a meeting moves.
-        </p>
-      ) : null}
     </Widget>
   );
 };

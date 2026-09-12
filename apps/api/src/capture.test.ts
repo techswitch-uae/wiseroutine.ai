@@ -6,11 +6,15 @@ import {
   seedActivity,
   seedUser,
   type TestUser,
+  testFeatures,
   tomorrowNoon,
   userDb,
 } from "./test-support";
 
-beforeEach(resetDatabases);
+beforeEach(async () => {
+  await resetDatabases();
+  await testFeatures("all");
+});
 const uuid = () => crypto.randomUUID();
 const input = (extra: Record<string, unknown> = {}) => ({
   id: uuid(),

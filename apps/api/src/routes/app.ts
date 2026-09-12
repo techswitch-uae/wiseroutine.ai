@@ -57,12 +57,14 @@ import {
   setSlotStatus,
   toSchedulerActivity,
   touchLastSeen,
+  type UserDatabase,
   updateActivity,
   updateUserSettings,
   upsertCalendars,
   userTransaction,
 } from "@wiseroutine/db";
 import { can, visibleWidgets } from "@wiseroutine/plans";
+import { addonReleased, releasedWidgets } from "@wiseroutine/plans/features";
 import {
   googleListCalendars,
   microsoftListCalendars,
@@ -103,9 +105,11 @@ import {
   FULL_DAY_MINUTES,
   resolveRange,
 } from "../dayRanges";
+import { requireFeature } from "../features";
 import { planAndSchedule, scheduleGrace } from "../planning/commands";
 import { validatePlacement } from "../planning/placement";
-import { detectConflicts } from "../planning/planDay";
+import { detectConflicts, planDay } from "../planning/planDay";
+import { enforceActivityFeatures, releaseGates } from "../release-gates";
 import { accessTokenFor, type SyncDeps } from "../sync/engine";
 import { ensureWatch, stopWatch, type WatchDeps } from "../sync/watch";
 import { captureRoutes, updateTodoStatus } from "./capture";
@@ -232,6 +236,7 @@ const foreground: MiddlewareHandler<App> = async (c, next) => {
 };
 
 app.use("*", requireUser);
+app.use("*", releaseGates);
 app.use("*", foreground);
 
 /**
@@ -286,6 +291,11 @@ const asAddon: MiddlewareHandler<App> = async (c, next) => {
 };
 app.use("*", asAddon);
 
+app.get("/features", (c) => {
+  c.header("cache-control", "no-store");
+  return c.json({ features: c.get("features") });
+});
+
 /** Refuse unless the addon making this request holds the capability. A
  *  request with no addon passes. */
 function requireAddon(c: Ctx, capability: AddonCapability): void {
@@ -321,7 +331,9 @@ async function ownSlot(c: Ctx, slotId: string) {
  */
 app.get("/addons/available", async (c) => {
   const approved = await Promise.all(
-    registry().map(async (entry) => ((await isApproved(entry)) ? entry : null)),
+    registry()
+      .filter((entry) => addonReleased(c.get("features"), entry.id))
+      .map(async (entry) => ((await isApproved(entry)) ? entry : null)),
   );
   return c.json({
     addons: approved
@@ -340,7 +352,12 @@ app.get("/addons/available", async (c) => {
 
 app.get("/addons/bundles/:hash", async (c) => {
   const entry = releaseWithHash(c.req.param("hash"));
-  if (!entry || !(await isApproved(entry))) throw new HTTPException(404);
+  if (
+    !entry ||
+    !addonReleased(c.get("features"), entry.id) ||
+    !(await isApproved(entry))
+  )
+    throw new HTTPException(404);
   const bucket = c.env.ADDON_BUNDLES;
   if (!bucket)
     throw new HTTPException(503, {
@@ -389,20 +406,22 @@ app.get("/addons", async (c) => {
   if (reconciled) installed = await listAddons(c.get("db"));
   return c.json({
     addons: await Promise.all(
-      installed.map(async (row) => ({
-        bundleUrl: releaseFor(row.id, row.version)?.bundleUrl,
-        bundleHash: row.bundleHash,
-        approval: releaseFor(row.id, row.version)?.approval,
-        id: row.id,
-        version: row.version,
-        isEnabled: row.isEnabled,
-        installedAt: row.installedAt,
-        granted: JSON.parse(row.grantedJson) as unknown,
-        manifest: JSON.parse(row.manifestJson) as unknown,
-        settings: JSON.parse(row.settingsJson) as unknown,
-        revoked: !(await isApproved(releaseFor(row.id, row.version))),
-        bundled: entryFor(row.id)?.bundled === true,
-      })),
+      installed
+        .filter((row) => addonReleased(c.get("features"), row.id))
+        .map(async (row) => ({
+          bundleUrl: releaseFor(row.id, row.version)?.bundleUrl,
+          bundleHash: row.bundleHash,
+          approval: releaseFor(row.id, row.version)?.approval,
+          id: row.id,
+          version: row.version,
+          isEnabled: row.isEnabled,
+          installedAt: row.installedAt,
+          granted: JSON.parse(row.grantedJson) as unknown,
+          manifest: JSON.parse(row.manifestJson) as unknown,
+          settings: JSON.parse(row.settingsJson) as unknown,
+          revoked: !(await isApproved(releaseFor(row.id, row.version))),
+          bundled: entryFor(row.id)?.bundled === true,
+        })),
     ),
   });
 });
@@ -422,6 +441,7 @@ async function ensureBundled(c: Ctx): Promise<void> {
   const known = new Map(installed.map((row) => [row.id, row]));
 
   for (const entry of bundledEntries()) {
+    if (!addonReleased(c.get("features"), entry.id)) continue;
     const existing = known.get(entry.id);
     if (existing) continue; // Versions change only through explicit installation, never a background read.
 
@@ -478,7 +498,11 @@ app.post("/addons/:id/install", async (c) =>
     const entry = body.version
       ? releaseFor(c.req.param("id"), body.version)
       : entryFor(c.req.param("id"));
-    if (!entry || !(await isApproved(entry))) {
+    if (
+      !entry ||
+      !addonReleased(c.get("features"), entry.id) ||
+      !(await isApproved(entry))
+    ) {
       throw new HTTPException(404, { message: "No such addon" });
     }
 
@@ -977,6 +1001,32 @@ function activityBody(value: unknown): Record<string, unknown> {
   return parsed.data;
 }
 
+/** New/resumed activities get room without evicting the accepted routine. */
+async function placeActivityChanges(c: Ctx, db: UserDatabase): Promise<void> {
+  const now = c.get("now");
+  const user = c.get("user");
+  const bounds = dayBounds(
+    localDateOf(now, user.timeZone),
+    user.timeZone,
+    user.dayStartMinutes,
+    user.dayEndMinutes,
+  );
+  if (now >= bounds.end) return;
+  await scheduleGrace(c);
+  await planDay(
+    db,
+    {
+      user,
+      onDay: now,
+      from: now,
+      preservePlanned: true,
+      trigger: "user_request",
+    },
+    now,
+    newId,
+  );
+}
+
 app.post("/activities", async (c) =>
   userTransaction(c.get("db"), async (db) => {
     // The free limit counts ACTIVE activities, so pausing one frees a slot.
@@ -984,6 +1034,7 @@ app.post("/activities", async (c) =>
     enforce(c, { kind: "activity.create", activeCount });
 
     const body = activityBody(await c.req.json().catch(() => null));
+    enforceActivityFeatures(c, body);
     const id = await createActivity(
       db,
       {
@@ -1005,6 +1056,7 @@ app.post("/activities", async (c) =>
       newId,
     );
 
+    await placeActivityChanges(c, db);
     return c.json({ id }, 201);
   }),
 );
@@ -1012,15 +1064,45 @@ app.post("/activities", async (c) =>
 app.patch("/activities/:id", async (c) =>
   userTransaction(c.get("db"), async (db) => {
     const body = activityBody(await c.req.json().catch(() => null));
+    const previous = (await listActivities(db)).find(
+      ({ row }) => row.id === c.req.param("id"),
+    );
+    if (!previous)
+      throw new HTTPException(404, { message: "No such activity" });
+    enforceActivityFeatures(c, body, {
+      ...previous.row,
+      preferredWindows: previous.anchorMinutes,
+    });
 
     // Re-activating counts against the plan limit; pausing never does.
-    if (body.isActive === true) {
+    if (body.isActive === true && !previous.row.isActive) {
       const activeCount = await countActiveActivities(db);
       enforce(c, { kind: "activity.create", activeCount });
     }
 
     if (typeof body.isActive === "boolean") {
       await setActivityActive(db, c.req.param("id"), body.isActive);
+      if (!body.isActive) {
+        const future = await db.slot.findMany({
+          where: {
+            activityId: previous.row.id,
+            status: "planned",
+            startsAt: { gte: new Date(c.get("now")) },
+          },
+        });
+        for (const slot of future)
+          await setSlotStatus(
+            db,
+            {
+              slotId: slot.id,
+              status: "cancelled",
+              actor: "user",
+              reasonCode: "activity_paused",
+            },
+            c.get("now"),
+            newId,
+          );
+      }
     }
 
     const patch: Record<string, unknown> = {};
@@ -1057,6 +1139,7 @@ app.patch("/activities/:id", async (c) =>
       );
     }
 
+    if (body.isActive !== false) await placeActivityChanges(c, db);
     return c.body(null, 204);
   }),
 );
@@ -1103,6 +1186,17 @@ app.patch("/settings", async (c) => {
     storeEventTitles?: boolean;
   };
   const body: SettingsBody = await c.req.json<SettingsBody>();
+  const currentSettings = c.get("user");
+  for (const key of [
+    "customRangeLabel",
+    "customRangeStartMinutes",
+    "customRangeEndMinutes",
+    "dayOpensOn",
+    "showOutsideRange",
+  ] as const) {
+    if (body[key] !== undefined && body[key] !== currentSettings[key])
+      requireFeature(c, "day_view_options");
+  }
 
   /**
    * A zone the platform actually knows.
@@ -1299,19 +1393,8 @@ async function fillDay(
 
   if (isOver(c, wholeDay)) return;
 
-  /**
-   * Only Pro has its day filled in without being asked.
-   *
-   * This used to run for everyone on every load, which quietly undercut the
-   * whole pricing line: if the day is already placed by the time you look at
-   * it, "Pro does the placing for you" is selling something you already have.
-   * On Free the day stays as the user left it and a rail module offers to fill
-   * it - one press, when they want it, not before they have seen the day.
-   *
-   * It also answers the week/month/year question by not asking it. Nothing is
-   * materialised ahead of today, so opening a month cannot write a month of
-   * rows.
-   */
+  // Automatic placement and repair are part of Free's core promise.
+  // Wider views must not materialize future routines as a side effect.
   if (!can(user.plan, { kind: "plan.adaptive" }).ok) return;
 
   const [activities, slots] = await Promise.all([
@@ -1343,6 +1426,7 @@ async function fillDay(
     // *after* it, and passing that planned tomorrow while filing the run
     // under today - so every open planned again, one day out.
     onDay: wholeDay.start,
+    from: c.get("now"),
     trigger: "morning",
   });
 }
@@ -1353,6 +1437,11 @@ app.get("/today", async (c) => {
   const at = Number(c.req.query("at") ?? c.get("now"));
 
   const date = localDateOf(at, user.timeZone);
+  if (
+    JSON.stringify(date) !==
+    JSON.stringify(localDateOf(c.get("now"), user.timeZone))
+  )
+    requireFeature(c, "day_view_options");
   // The client may ask for a range; if it asks for one that no longer exists
   // it gets the working hours rather than an error - see `resolveRange`.
   const range = resolveRange(user, c.req.query("range"));
@@ -1376,7 +1465,11 @@ app.get("/today", async (c) => {
 
   // Before the read, not after: the whole point is that the slots this answer
   // carries are the ones this call just decided on.
-  await fillDay(c, wholeDay);
+  if (
+    (c.get("now") >= wholeDay.start && c.get("now") < wholeDay.end) ||
+    c.get("features").weekly_planning
+  )
+    await fillDay(c, wholeDay);
 
   const [slots, events, syncedAt, activities, done, scheduled] =
     await Promise.all([
@@ -1446,11 +1539,20 @@ app.get("/today", async (c) => {
           // switched off - the slot then behaves like any other timed slot, and
           // the client needs no second field to work that out.
           presetKey:
+            !c.get("features").guided_sessions ||
+            !addonReleased(
+              c.get("features"),
+              activity?.row.presetKey?.split("/")[0] ?? "",
+            ) ||
             activity?.row.sessionEnabled === false
               ? null
               : (activity?.row.presetKey ?? null),
-          startPolicy: activity?.row.startPolicy ?? "manual",
-          configJson: activity?.row.configJson ?? null,
+          startPolicy: c.get("features").guided_sessions
+            ? (activity?.row.startPolicy ?? "manual")
+            : "manual",
+          configJson: c.get("features").guided_sessions
+            ? (activity?.row.configJson ?? null)
+            : null,
         };
       }),
     meetings: inside,
@@ -1465,7 +1567,7 @@ app.get("/today", async (c) => {
           after: meetings.filter((m) => m.startsAt >= bounds.end),
         }
       : { before: [], after: [] },
-    widgets: visibleWidgets(user.plan, []),
+    widgets: releasedWidgets(c.get("features"), visibleWidgets(user.plan, [])),
     /**
      * Progress against today's minimums, for the "Today so far" module.
      *
@@ -1702,7 +1804,7 @@ app.post("/plan", async (c) => {
     .json<PlanBody>()
     .catch(() => ({}) as PlanBody);
 
-  // Free users get one placement each morning; live re-adaptation is pro.
+  // Core automatic placement and adaptation are available on both plans.
   const trigger = (body.trigger ?? "user_request") as
     | "morning"
     | "calendar_change"
@@ -1713,17 +1815,16 @@ app.post("/plan", async (c) => {
   }
 
   const onDay = body.at ?? now;
+  if (
+    JSON.stringify(localDateOf(onDay, user.timeZone)) !==
+    JSON.stringify(localDateOf(now, user.timeZone))
+  )
+    requireFeature(c, "weekly_planning");
   if (isOver(c, localDay(c, onDay))) {
     return c.json({ planRunId: null, placed: 0, removed: 0, unplaced: [] });
   }
 
-  const result = await planAndSchedule(
-    c,
-    // No `from`: the whole working day, the same rule `fillDay` uses. Two
-    // different answers to "where does this go" depending on which door the
-    // request came through is the kind of difference nobody can debug.
-    { user, onDay, trigger },
-  );
+  const result = await planAndSchedule(c, { user, onDay, trigger, from: now });
 
   return c.json({
     planRunId: result.planRunId,
@@ -1865,7 +1966,10 @@ app.post("/slots", async (c) => {
       message: "An addon may not place the user's activities.",
     });
   }
-  if (body.todoId) requireAddon(c, { kind: "write:todos" });
+  if (body.todoId) {
+    requireFeature(c, "quick_capture");
+    requireAddon(c, { kind: "write:todos" });
+  }
   if (own) requireAddon(c, { kind: "write:own" });
 
   /** What the slot is made from - an activity or a todo, resolved to the

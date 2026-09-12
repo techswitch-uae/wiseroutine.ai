@@ -1,5 +1,7 @@
 import { dayShown, expect, test, todayNoon } from "./support";
 
+test.use({ features: "all" });
+
 /**
  * The walking skeleton: one scenario, end to end, through every layer.
  *

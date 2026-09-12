@@ -23,6 +23,7 @@ import {
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { type App, type Ctx, newId } from "../context";
+import { requireFeature } from "../features";
 import { scheduleGrace } from "../planning/commands";
 import { validatePlacement } from "../planning/placement";
 
@@ -76,6 +77,7 @@ async function boundedBody(c: Ctx, limit: number): Promise<Uint8Array> {
  * Duplicate delivery returns the original identity; edited retries conflict. */
 captureRoutes.post("/capture", async (c) => {
   const input = parsed(captureSchema.safeParse(await json(c)));
+  if (input.fileIds.length) requireFeature(c, "capture_files");
   const fingerprint = JSON.stringify(input);
   const now = c.get("now");
   if (input.startsAt !== undefined || input.activityId) await scheduleGrace(c);
@@ -462,6 +464,7 @@ captureRoutes.post("/slots/:id/reschedule", async (c) => {
   };
   if (!input || typeof input !== "object") throw new HTTPException(400);
   const bucket = input.bucket === true;
+  if (bucket) requireFeature(c, "inbox");
   const actionId = c.req.header("idempotency-key");
   if (actionId) parsed(captureIdSchema.safeParse(actionId));
   const fingerprint = JSON.stringify(["reschedule", c.req.param("id"), input]);

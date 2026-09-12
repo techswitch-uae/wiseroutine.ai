@@ -4,6 +4,7 @@ import {
   DIRECTORY_URL,
   E2E_SECRET,
   PORTS,
+  TIME_ZONE,
   USER_URL,
 } from "./e2e/environment";
 
@@ -43,6 +44,7 @@ export default defineConfig({
   reporter: process.env.CI ? "list" : "line",
   use: {
     baseURL: APP_URL,
+    timezoneId: TIME_ZONE,
     // Kept only for a failure - a passing scenario's trace is noise nobody
     // opens.
     trace: "retain-on-failure",
@@ -64,7 +66,7 @@ export default defineConfig({
   webServer: [
     {
       command:
-        `pnpm --filter @wiseroutine/api exec wrangler dev --port ${PORTS.api}` +
+        `pnpm --filter @wiseroutine/api exec wrangler dev --port ${PORTS.api} --persist-to .wrangler/e2e-state` +
         ` --var APP_URL:${APP_URL}` +
         ` --var API_URL:http://localhost:${PORTS.api}` +
         ` --var TURSO_DIRECTORY_URL:${DIRECTORY_URL}` +

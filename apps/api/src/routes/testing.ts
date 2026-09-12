@@ -1,3 +1,8 @@
+import {
+  CORE_FEATURES,
+  featureUserKey,
+  parseFeatureOverrides,
+} from "@wiseroutine/plans/features";
 import { Hono } from "hono";
 import type { App } from "../context";
 import { requireUser } from "../context";
@@ -101,6 +106,7 @@ testing.post("/seed", async (c) => {
     .json<{
       timeZone?: string;
       plan?: "free" | "pro";
+      features?: unknown;
     }>()
     .catch(() => ({}) as Record<string, never>);
 
@@ -139,7 +145,24 @@ testing.post("/seed", async (c) => {
     },
   });
 
+  await c.env.CONFIG.put(
+    featureUserKey(userId),
+    JSON.stringify({
+      ...CORE_FEATURES,
+      ...parseFeatureOverrides(body.features ?? {}),
+    }),
+  );
   return c.json({ userId, token, email: `${userId}@e2e.invalid` });
+});
+
+// The same three test-only locks as seeding, plus account authentication.
+testing.post("/features", requireUser, async (c) => {
+  const flags = parseFeatureOverrides(await c.req.json());
+  await c.env.CONFIG.put(
+    featureUserKey(c.get("user").userId),
+    JSON.stringify({ ...CORE_FEATURES, ...flags }),
+  );
+  return c.body(null, 204);
 });
 
 /**

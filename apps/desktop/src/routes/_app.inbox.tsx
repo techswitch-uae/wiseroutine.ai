@@ -2,11 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount } from "../lib/account";
 import { api, type InboxItem } from "../lib/api";
+import { useFeatures } from "../lib/features";
 import { Bucket } from "../modules/dashboard";
+import { FeaturePage } from "../modules/feature-page";
 import { TodoDetails } from "../modules/todo-details";
 import "../modules/capture.css";
 
 function Inbox() {
+  const flags = useFeatures();
   const account = useAccount();
   const [items, setItems] = useState<InboxItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -62,17 +65,18 @@ function Inbox() {
     <section className="wr-inbox">
       <h1>Inbox</h1>
       <p>
-        Tasks, reading and files—keep them here until you are ready to give them
-        a time.
+        Keep tasks and reading here until you are ready to give them a time.
       </p>
       <div className="wr-capture-actions">
-        <button
-          type="button"
-          className="wr-palette-pill wr-palette-pill-on"
-          onClick={() => globalThis.dispatchEvent(new Event("wr:quick-add"))}
-        >
-          Add something · ⌘K
-        </button>
+        {flags.quick_capture ? (
+          <button
+            type="button"
+            className="wr-palette-pill wr-palette-pill-on"
+            onClick={() => globalThis.dispatchEvent(new Event("wr:quick-add"))}
+          >
+            Add something · ⌘/Ctrl K
+          </button>
+        ) : null}
         <label>
           <input
             type="checkbox"
@@ -135,7 +139,9 @@ function Inbox() {
             ? "No matching items."
             : done
               ? "No finished items yet."
-              : "Your inbox is clear. Capture text, links or files with Quick Add."}
+              : flags.quick_capture
+                ? "Your inbox is clear. Add something with Quick Capture."
+                : "Your inbox is clear."}
         </p>
       ) : null}
       {cursor ? (
@@ -161,6 +167,10 @@ function Inbox() {
   );
 }
 export const Route = createFileRoute("/_app/inbox")({
-  component: Inbox,
+  component: () => (
+    <FeaturePage feature="inbox">
+      <Inbox />
+    </FeaturePage>
+  ),
   staticData: { fullWidth: true },
 });

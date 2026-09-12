@@ -1,4 +1,5 @@
 // biome-ignore-all lint/style/noNonNullAssertion: Required synthetic fixtures and DOM nodes fail the test if absent.
+import "../test-support/future-features";
 import { mockConvertFileSrc } from "@tauri-apps/api/mocks";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import {

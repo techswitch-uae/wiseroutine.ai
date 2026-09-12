@@ -43,6 +43,10 @@ approximation.
 ordered feature releases, future Free/Pro packaging, founding-user offer,
 milestone communications, and feature-flag rollout process.
 
+[Feature controls and release inventory](docs/feature-releases.md): all-off core
+launch defaults, `pnpm features enable m1 --env local`, per-account previews,
+and built/missing/manual-acceptance checklists for every milestone.
+
 ## Addons
 
 Every guided session and rail card is an addon, written against

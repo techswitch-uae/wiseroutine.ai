@@ -25,12 +25,16 @@ import {
   seedActivity,
   seedCalendar,
   seedUser,
+  testFeatures,
   tomorrowNoon,
   userDb,
 } from "./test-support";
 import { applyBillingEvent } from "./webhooks/billing";
 
-beforeEach(resetDatabases);
+beforeEach(async () => {
+  await resetDatabases();
+  await testFeatures("all");
+});
 const id = () => crypto.randomUUID();
 async function slot() {
   return placeSlot(

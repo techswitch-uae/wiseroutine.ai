@@ -1,4 +1,8 @@
 import { test as base, expect } from "@playwright/test";
+import {
+  FEATURE_KEYS,
+  type FeatureOverrides,
+} from "@wiseroutine/plans/features";
 import { API_URL as DEFAULT_API_URL, E2E_SECRET } from "./environment";
 
 /**
@@ -74,12 +78,14 @@ async function seed<T>(
 }
 
 export const test = base.extend<{
+  features: FeatureOverrides | "all";
   /** Nothing left over from the last scenario. It hands the test nothing -
    *  it only has to have run. */
   clean: undefined;
   /** A signed-in user, already in the browser's storage. */
   signIn: (calendars?: SeedCalendar[]) => Promise<SeededUser>;
 }>({
+  features: [{}, { option: true }],
   /**
    * Empty both databases before every scenario.
    *
@@ -107,7 +113,7 @@ export const test = base.extend<{
     { auto: true },
   ],
 
-  signIn: async ({ page }, use) => {
+  signIn: async ({ page, features }, use) => {
     await use(async (calendars) => {
       // The seeded user lives in this machine's zone, so "noon" means the
       // same thing to the test and to the server. Left at a fixed zone, a
@@ -116,6 +122,10 @@ export const test = base.extend<{
       // nothing to say about calendars.
       const user = await seed<SeededUser>("/seed", {
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        features:
+          features === "all"
+            ? Object.fromEntries(FEATURE_KEYS.map((key) => [key, true]))
+            : features,
       });
 
       if (calendars?.length) {
@@ -138,6 +148,8 @@ export const test = base.extend<{
 });
 
 export { expect };
+export const setFeatures = (user: SeededUser, flags: FeatureOverrides) =>
+  seed<void>("/features", flags, user.token);
 
 /**
  * A wall-clock hour today, in the seeded user's zone - which is this machine's.

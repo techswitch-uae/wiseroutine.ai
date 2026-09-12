@@ -931,6 +931,8 @@ export const api = {
     return result;
   },
 
+  features: () => request<{ features: unknown }>("/features"),
+
   /** Mint a consent URL for the signed-in account. Authenticated, so which
    *  account the calendar attaches to is never a query parameter. */
   connectUrl: (provider: "google" | "microsoft") =>

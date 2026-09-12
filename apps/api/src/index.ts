@@ -11,6 +11,7 @@ import {
   getCalendarForSync,
   getUser,
   listEventsInRange,
+  listSlotEvents,
   listSlotsForRange,
   moveSlot,
   nextGraceDeadline,
@@ -24,6 +25,7 @@ import {
   watchesExpiringBefore,
 } from "@wiseroutine/db";
 import type { PlanId } from "@wiseroutine/plans";
+import { CORE_FEATURES, type FeatureFlags } from "@wiseroutine/plans/features";
 import {
   dayBounds,
   freeGaps,
@@ -50,6 +52,7 @@ import {
   type ServerEnv,
   userCredentials,
 } from "./env";
+import { readFeatures } from "./features";
 import { graceAction } from "./planning/grace";
 import { app as appRoutes } from "./routes/app";
 import { billing } from "./routes/billing";
@@ -209,6 +212,7 @@ export async function sweepGrace(
   job: SyncJob,
   config: ServerEnv,
   now: number,
+  features: FeatureFlags = CORE_FEATURES,
 ): Promise<number | undefined> {
   const db = createUserDatabase(userCredentials(config, job.databaseName));
   const user = await getUser(
@@ -220,7 +224,12 @@ export async function sweepGrace(
     const due = await slotsPastGrace(db, now, 200, GRACE_WINDOW);
 
     for (const slot of due) {
-      switch (graceAction(slot, now)) {
+      switch (
+        graceAction(
+          features.guided_sessions ? slot : { ...slot, startPolicy: "manual" },
+          now,
+        )
+      ) {
         /**
          * An activity that starts itself.
          *
@@ -337,6 +346,15 @@ export async function sweepGrace(
     // different question asked of a different set of slots.
     const finished = await autoSlotsToComplete(db, now, 200);
     for (const slot of finished) {
+      // Finish an auto-start already in flight during rollback, but never
+      // auto-complete a plain session the user started under core-only mode.
+      if (
+        !features.guided_sessions &&
+        !(await listSlotEvents(db, [slot.id])).some(
+          (event) => event.reasonCode === "auto_start",
+        )
+      )
+        continue;
       await setSlotStatus(
         db,
         {
@@ -615,7 +633,12 @@ export default {
         await ensureUserSchema(config, directory, user.id, user);
         const nextDueAt =
           job.type === "grace-sweep"
-            ? await sweepGrace(job, config, now)
+            ? await sweepGrace(
+                job,
+                config,
+                now,
+                await readFeatures(env.CONFIG, job.userId),
+              )
             : job.type === "renew-watch"
               ? await runWatchJob(job, config, rootKey, now)
               : await runSyncJob(job, config, rootKey, now);

@@ -8,6 +8,7 @@ import {
   refreshCaptured,
   wallTimes,
 } from "../lib/capture";
+import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
 import { clockIn } from "../lib/quick-add";
 import {
@@ -28,6 +29,7 @@ export function Reschedule({
   onClose: () => void;
   onSaved?: () => void;
 }) {
+  const flags = useFeatures();
   const scope = useRef(captureSessionScope()).current;
   const initial = Math.max(
     slot.startsAt,
@@ -99,13 +101,17 @@ export function Reschedule({
         }}
       >
         <p>
-          {timeZone}. Choose another time or keep it in the inbox without a
-          date.
+          {timeZone}. Choose another time
+          {flags.inbox ? " or keep it in the inbox without a date" : ""}.
         </p>
         {["started", "missed", "skipped"].includes(slot.status) ? (
           <p>
             The original session stays in history. This creates a new
-            appointment with the same todo and files.
+            appointment
+            {flags.inbox
+              ? " with the same todo and files"
+              : " for this activity"}
+            .
           </p>
         ) : null}
         {error ? (
@@ -128,29 +134,33 @@ export function Reschedule({
           >
             30 minutes later
           </button>
-          <button
-            type="button"
-            className="wr-palette-pill"
-            disabled={busy}
-            onClick={() => {
-              setDate(addLocalDays(dateIn(Date.now(), timeZone), 1));
-              setTime(clockIn(slot.startsAt, timeZone));
-              setOccurrence(0);
-            }}
-          >
-            Tomorrow
-          </button>
-          <button
-            type="button"
-            className="wr-palette-pill"
-            disabled={busy}
-            onClick={() => {
-              setDate(addLocalDays(dateIn(Date.now(), timeZone), 7));
-              setOccurrence(0);
-            }}
-          >
-            Next week
-          </button>
+          {flags.inbox ? (
+            <>
+              <button
+                type="button"
+                className="wr-palette-pill"
+                disabled={busy}
+                onClick={() => {
+                  setDate(addLocalDays(dateIn(Date.now(), timeZone), 1));
+                  setTime(clockIn(slot.startsAt, timeZone));
+                  setOccurrence(0);
+                }}
+              >
+                Tomorrow
+              </button>
+              <button
+                type="button"
+                className="wr-palette-pill"
+                disabled={busy}
+                onClick={() => {
+                  setDate(addLocalDays(dateIn(Date.now(), timeZone), 7));
+                  setOccurrence(0);
+                }}
+              >
+                Next week
+              </button>
+            </>
+          ) : null}
         </div>
         <label className="wr-capture-label">
           Day
@@ -212,14 +222,16 @@ export function Reschedule({
           >
             Move slot
           </button>
-          <button
-            type="button"
-            className="wr-palette-pill"
-            disabled={busy}
-            onClick={() => void save()}
-          >
-            Back to inbox
-          </button>
+          {flags.inbox ? (
+            <button
+              type="button"
+              className="wr-palette-pill"
+              disabled={busy}
+              onClick={() => void save()}
+            >
+              Back to inbox
+            </button>
+          ) : null}
         </div>
       </form>
     </CaptureModal>

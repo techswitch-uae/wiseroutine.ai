@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import { API_URL } from "./environment";
 import { expect, test } from "./support";
 
+test.use({ features: "all" });
+
 const nextDay = () => {
   const d = new Date();
   d.setDate(d.getDate() + 1);
@@ -85,7 +87,7 @@ test("capture links and multiple files, download exact bytes, plan and return to
     },
   ]);
   await page.screenshot({ path: "/tmp/wr-quick-capture.png" });
-  await quick.getByRole("button", { name: /Save to inbox ·/ }).click();
+  await quick.getByRole("button", { name: /^Save to inbox/ }).click();
   await expect(quick).toBeHidden();
   await page
     .getByRole("button", {
@@ -162,11 +164,11 @@ test("file drafts survive closing, reload and a failed offline capture", async (
   );
   await expect(quick.getByText(/paper.pdf/)).toBeVisible();
   await context.setOffline(true);
-  await quick.getByRole("button", { name: /Save to inbox ·/ }).click();
+  await quick.getByRole("button", { name: /^Save to inbox/ }).click();
   await expect(quick.getByRole("alert")).toBeVisible();
   await expect(quick).toBeVisible();
   await context.setOffline(false);
-  await quick.getByRole("button", { name: /Save to inbox ·/ }).click();
+  await quick.getByRole("button", { name: /^Save to inbox/ }).click();
   await expect(quick).toBeHidden();
   await expect(
     page.getByRole("button", { name: /Read the draft No time yet/ }),

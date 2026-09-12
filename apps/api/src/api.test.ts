@@ -19,6 +19,7 @@ import {
   seedCalendar,
   seedUser,
   type TestUser,
+  testFeatures,
   tomorrowNoon,
   userDb,
 } from "./test-support";
@@ -35,7 +36,12 @@ import {
 // `turso dev` serves one database per instance, so every test user shares
 // both. Reset between tests so counts, lists and fixed ids start from a known
 // state.
-beforeEach(resetDatabases);
+// This pre-existing integration suite exercises all implemented milestones.
+// features.test.ts separately verifies the actual all-off launch defaults.
+beforeEach(async () => {
+  await resetDatabases();
+  await testFeatures("all");
+});
 
 describe("health", () => {
   test("responds without auth", async () => {
@@ -910,14 +916,14 @@ describe("plan gating", () => {
     expect(response.status).toBe(201);
   });
 
-  test("free cannot request an adaptive replan", async () => {
+  test("free can request the core adaptive replan", async () => {
     const user = await seedUser({ plan: "free" });
     const response = await worker.default.fetch("http://api/plan", {
       method: "POST",
       headers: { ...user.headers, "content-type": "application/json" },
       body: JSON.stringify({ trigger: "calendar_change" }),
     });
-    expect(response.status).toBe(402);
+    expect(response.status).toBe(200);
   });
 
   test("free can still plan its day on request", async () => {
@@ -2166,22 +2172,24 @@ describe("planning a day on open", () => {
   });
 });
 
-describe("a free day is left as the user left it", () => {
+describe("a free day gets automatic placement", () => {
   const open = async (user: TestUser, at: number) =>
     worker.default.fetch(`http://api/today?at=${at}`, {
       headers: user.headers,
     });
 
-  test("opening the day places nothing", async () => {
+  test("opening the day places the routine", async () => {
     const user = await seedUser({ plan: "free" });
     await seedActivity({ minimumValue: 3 });
 
     const response = await open(user, tomorrowNoon());
     expect(response.status).toBe(200);
-    expect(((await response.json()) as { slots: unknown[] }).slots).toEqual([]);
+    expect(
+      ((await response.json()) as { slots: unknown[] }).slots,
+    ).toHaveLength(3);
   });
 
-  // The day is still fillable - on request, which is the whole difference.
+  // An explicit request remains available as a core recovery action.
   test("asking for it fills it", async () => {
     const user = await seedUser({ plan: "free" });
     await seedActivity({ minimumValue: 3 });
@@ -2199,7 +2207,7 @@ describe("a free day is left as the user left it", () => {
 
   // What the placement tray reads. Placed-but-not-done has to count against
   // the minimum, or it would keep asking for three more.
-  test("what is left to place drops as slots are placed", async () => {
+  test("automatic placement counts against demand and explicit planning does not duplicate it", async () => {
     const user = await seedUser({ plan: "free" });
     await seedActivity({ minimumValue: 3 });
 
@@ -2207,7 +2215,7 @@ describe("a free day is left as the user left it", () => {
     const start = (await before.json()) as {
       progress: { scheduled: number; count: number; minimumValue: number }[];
     };
-    expect(start.progress[0]?.scheduled).toBe(0);
+    expect(start.progress[0]?.scheduled).toBe(3);
 
     await worker.default.fetch("http://api/plan", {
       method: "POST",

@@ -52,5 +52,5 @@ jobs:
         working-directory: apps/desktop
       - run: node scripts/assemble-addons.mjs
       - name: Core capture, rescheduling and session regressions
-        run: pnpm test:capture-browser
+        run: pnpm test:core-browser && pnpm test:capture-browser
       # This job verifies only. Never expose publishing/deployment/signing secrets to PR code.

@@ -2,9 +2,9 @@
 
 **Status:** Working strategy. The direction is a free basic launch, optional paid features later, and a discount for early users. Specific limits, discount terms, pricing, and rollout thresholds below are recommendations requiring approval.
 
-**Scope:** Product packaging, release order, communications, acquisition, and feature rollout. This document does not implement flags, change entitlements, activate billing, or establish production readiness.
+**Scope:** Product packaging, release order, communications, acquisition, and feature rollout. The strategy itself is not a production-readiness claim. Implementation now has a separate [feature-controls and release inventory](feature-releases.md), including default-off flags, the free-core capability change, operator commands, and built/missing/manual-testing checklists. Refer there for current behavior; proposed pricing and discount terms here remain unapproved.
 
-**Relationship to existing docs:** This is the proposed commercial direction going forward. Statements about unchanged Free/Pro capabilities in [addon launch](addon-launch.md) and [capture and rescheduling](capture-and-rescheduling.md) describe those implementations, not this future strategy. The current code still needs to be reconciled with this plan. [Release preparation](releasing.md) and the [project audit](project-audit.md) remain separate technical launch gates.
+**Relationship to existing docs:** This is the proposed commercial direction going forward. Statements about unchanged Free/Pro capabilities in [addon launch](addon-launch.md) and [capture and rescheduling](capture-and-rescheduling.md) describe those implementations, not this future strategy. The free-core and release-control reconciliation is implemented; unfinished product/commercial work and manual acceptance are tracked in the [release inventory](feature-releases.md). [Release preparation](releasing.md) and the [project audit](project-audit.md) remain separate technical launch gates.
 
 ## 1. Strategy in one page
 
@@ -54,7 +54,7 @@ Lead with demonstrable scheduling behavior. Do not use “AI-powered” as a sub
 
 | Capability | Launch scope |
 | --- | --- |
-| Activity creation | Custom name, duration, and simple daily frequency. A few starter suggestions, such as focus, walking, and stretching. |
+| Activity creation | Custom name, duration, and simple daily frequency. Keep all existing templates (Stretch, Eye rest, Walk, Deep work, Breathing, Water) as plain timed activities; guidance comes later. |
 | Calendar connection | Read-only busy-time integration. Launch with the provider(s) and platform(s) actually validated; one provider/platform is acceptable if clearly disclosed. |
 | Availability | Working days, working hours, and timezone, with sensible scheduling defaults. |
 | Automatic placement | Place activities into available gaps in the remaining day. The user should not have to manually assemble the routine. |
@@ -307,7 +307,7 @@ A release flag must not masquerade as a subscription. Founding-discount eligibil
 
 ### Suggested release flags
 
-These names are proposed; no flag system is claimed to exist yet.
+This was the proposed flag inventory. The implemented registry, additional view/allowance flags, exact dependencies, and commands are documented in [feature controls](feature-releases.md#3-flag-inventory). All post-launch flags default off.
 
 | Flag | Purpose | Initial public state |
 | --- | --- | --- |
@@ -387,12 +387,12 @@ Spend first on reducing friction and demonstrating the product. Defer scaled pai
 
 | Area | Current evidence / required follow-up |
 | --- | --- |
-| Plan capabilities | `packages/plans/src/index.ts` currently gives Free two active activities and disables `adaptiveReplan` and `rankedRearrange`. Enable core automatic planning/adaptation for Free, decide the allowance, and keep ranked alternatives distinct if reserved for Pro. |
-| Capability enforcement | Update API/job behavior and client messaging together, with explicit Free/Pro tests. Do not merely hide upgrade prompts or issue expiring Pro grants to every free user. |
+| Plan capabilities | Free retains two active activities and now enables `adaptiveReplan`; `rankedRearrange` remains Pro. The final activity allowance still needs approval. |
+| Capability enforcement | API, jobs and client now separate release availability from plan entitlement, with Free/Pro regressions. Automatic signup trials have been removed; existing grants/subscriptions remain. Complete live acceptance. |
 | Existing commercial copy | Reconcile plan screens, trial UI, onboarding, and older commercial recommendations in the addon/capture docs when implementation changes. Keep historical verification records accurate. |
 | Founding-user records | Design durable eligibility, offer-version, activation/redemption tracking, account UI, and checkout application. Existing beta grants are not a substitute. |
-| Release configuration | Add coherent account-level release availability and enforce dependencies across client, API, jobs, and addon access. This is separate from `can()` subscription decisions. |
-| Initial shell | Hide future navigation and actions; retain Today, activity setup, calendar/settings access, Up Next, and unplaced-activity recovery. |
+| Release configuration | Default-off flags, account overrides, dependency checks, operator commands and client/API/job/addon gates are implemented. See the [operating guide](feature-releases.md). |
+| Initial shell | The core-only shell retains Today, activity setup, calendar/settings access, Up Next and unplaced recovery; future routes/actions are gated. Signed-installer/manual acceptance remains open. |
 | Guided sessions | `apps/desktop/src/modules/activities/index.ts` supports plain timed fallback without a specialized module. Preserve this separation when hiding guided/addon surfaces. |
 | Capture | Use [capture and rescheduling](capture-and-rescheduling.md) for transactional behavior, storage limits, migrations, and native acceptance. Do not remove core change-time controls with the capture flags. |
 | Advanced scheduling | Verify each rule across persistence, initial placement, repair, UI, and tests. Solver support or a simulator scenario does not by itself establish product support; see [rearrangement](rearrangement.md). |

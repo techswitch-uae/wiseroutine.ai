@@ -45,7 +45,7 @@ export interface PlanLimits {
 export const PLANS: Record<PlanId, PlanLimits> = {
   free: {
     maxActiveActivities: 2,
-    adaptiveReplan: false,
+    adaptiveReplan: true,
     rankedRearrange: false,
     widgets: DEFAULT_WIDGETS,
     reorderWidgets: false,

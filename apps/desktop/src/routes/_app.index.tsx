@@ -23,6 +23,7 @@ import {
   type TodayResponse,
 } from "../lib/api";
 import { setDensity, useDensity } from "../lib/density";
+import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
 import { pick, usePicked } from "../lib/picked";
 import { PLACING_KEY, usePlacing } from "../lib/placing";
@@ -72,7 +73,9 @@ const middayOn = (date: Date): number =>
 const Today: React.FC = () => {
   const navigate = useNavigate();
   /** The day on screen. Absent means today - see `lib/scope`. */
-  const { date: dateParam } = Route.useSearch();
+  const flags = useFeatures();
+  const search = Route.useSearch();
+  const dateParam = flags.day_view_options ? search.date : undefined;
   const [data, setData] = useState<CachedToday | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -130,7 +133,11 @@ const Today: React.FC = () => {
     }
     api
       .today({
-        ...(range ? { range } : {}),
+        ...(!flags.day_view_options
+          ? { range: "working" }
+          : range
+            ? { range }
+            : {}),
         // Omitted on today, so the request is the one it has always been and
         // the server's own clock decides which day that is.
         ...(dateParam ? { at: middayOn(dayOf(dateParam, new Date())) } : {}),
@@ -147,7 +154,7 @@ const Today: React.FC = () => {
             : "offline",
         );
       });
-  }, [range, dateParam]);
+  }, [range, dateParam, flags.day_view_options]);
 
   /**
    * Sync now, then show what arrived.
@@ -552,28 +559,32 @@ const Today: React.FC = () => {
 
       <DayBar
         hours={
-          <HoursMenu
-            ranges={data.ranges}
-            value={data.range}
-            onChange={setRange}
-            densities={DAY_DENSITIES}
-            density={density.key}
-            onDensityChange={setDensity}
-            onEdit={() =>
-              void navigate({ to: "/settings", hash: DAY_HOURS_ANCHOR })
-            }
-          />
+          flags.day_view_options ? (
+            <HoursMenu
+              ranges={data.ranges}
+              value={data.range}
+              onChange={setRange}
+              densities={DAY_DENSITIES}
+              density={density.key}
+              onDensityChange={setDensity}
+              onEdit={() =>
+                void navigate({ to: "/settings", hash: DAY_HOURS_ANCHOR })
+              }
+            />
+          ) : null
         }
         date={dayLabel}
         span={hoursLabel}
         nav={
-          <ScopeNav
-            atToday={atToday}
-            unit="day"
-            onBack={() => goTo(addDays(viewed, -1))}
-            onToday={() => goTo(null)}
-            onForward={() => goTo(addDays(viewed, 1))}
-          />
+          flags.day_view_options ? (
+            <ScopeNav
+              atToday={atToday}
+              unit="day"
+              onBack={() => goTo(addDays(viewed, -1))}
+              onToday={() => goTo(null)}
+              onForward={() => goTo(addDays(viewed, 1))}
+            />
+          ) : null
         }
         syncing={syncing}
         syncedAt={data.syncedAt}
@@ -582,7 +593,7 @@ const Today: React.FC = () => {
       />
 
       <div className="wr-page-scroll">
-        {data.outside.before.length > 0 ? (
+        {flags.day_view_options && data.outside.before.length > 0 ? (
           <OutsideRange
             edge="before"
             count={data.outside.before.length}
@@ -673,7 +684,7 @@ const Today: React.FC = () => {
           />
         )}
 
-        {data.outside.after.length > 0 ? (
+        {flags.day_view_options && data.outside.after.length > 0 ? (
           <OutsideRange
             edge="after"
             count={data.outside.after.length}

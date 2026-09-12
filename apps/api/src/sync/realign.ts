@@ -22,10 +22,8 @@ import { repair } from "../planning/repair";
  * faithfully and changed nothing: the slot sat underneath it, and the person
  * found out by looking.
  *
- * Two things happen here, and only one of them is a paid feature. Marking the
- * conflict is not - a slot the app knows is buried must say so on every plan,
- * because a timeline that quietly lies is worse than one that says "this
- * clashes". *Repairing* the day is `plan.adaptive`, which is pro.
+ * Conflict reporting and basic repair are both part of the free core.
+ * `plan.adaptive` remains a shared capability, now enabled on both plans.
  *
  * It repairs rather than replans. This used to call `planDay`, which wipes
  * every planned slot from `now` onward and re-solves the day - correct, and

@@ -9,6 +9,7 @@ import {
   seedCalendar,
   seedUser,
   type TestUser,
+  testFeatures,
   userDb,
 } from "../test-support";
 import { realignAfterSync } from "./realign";
@@ -29,7 +30,10 @@ import { realignAfterSync } from "./realign";
  * the schema can express none of those. See docs/rearrangement.md.
  */
 
-beforeEach(resetDatabases);
+beforeEach(async () => {
+  await resetDatabases();
+  await testFeatures("all");
+});
 
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
@@ -296,24 +300,20 @@ describe("the bucket", () => {
   });
 });
 
-/**
- * Seeing the clash is free; the app doing something about it is not.
- *
- * The same gate `POST /plan` applies to a `calendar_change` trigger, checked
- * here as well because a push notification must not become a way around it.
- * What free still gets is the truth: a timeline that quietly draws a slot
- * underneath a meeting is worse than one that says so.
- */
-test("a free plan is told, and left alone", async () => {
+/** The free launch includes the complete placement + repair loop. */
+test("a free plan repairs the conflict just like Pro", async () => {
   const { user, calendarId, activityId } = await aDay("free");
   const slotId = await seedSlot(activityId, hour(10), 30);
-  const eventId = await seedMeeting(calendarId, hour(10), hour(11));
+  await seedMeeting(calendarId, hour(10), hour(11));
 
   const outcome = await realignAfterSync(deps(user, "free"), hour(9), newId);
-  expect(outcome).toEqual({ conflicts: 1, moved: 0, bucketed: 0 });
+  expect(outcome).toEqual({ conflicts: 1, moved: 1, bucketed: 0 });
 
   const slot = await slotRow(slotId);
   expect(slot.status).toBe("planned");
-  expect(slot.startsAt.getTime()).toBe(hour(10));
-  expect(slot.conflictEventId).toBe(eventId);
+  expect(slot.startsAt.getTime()).not.toBe(hour(10));
+  expect(
+    slot.endsAt.getTime() <= hour(10) || slot.startsAt.getTime() >= hour(11),
+  ).toBe(true);
+  expect(slot.conflictEventId).toBeNull();
 });

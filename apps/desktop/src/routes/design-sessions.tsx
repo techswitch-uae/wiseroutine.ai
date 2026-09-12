@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, notFound, useNavigate } from "@tanstack/react-router";
 import { defaultConfig, type SettingField } from "@wiseroutine/addons";
 import { Button, Card } from "@wiseroutine/design";
 import { useEffect, useState } from "react";
@@ -268,6 +268,9 @@ const Sessions: React.FC = () => {
 };
 
 export const Route = createFileRoute("/design-sessions")({
+  beforeLoad: () => {
+    if (!import.meta.env.DEV) throw notFound();
+  },
   component: Sessions,
   validateSearch: (search: Record<string, unknown>): Search => ({
     ...(typeof search.open === "string" ? { open: search.open } : {}),

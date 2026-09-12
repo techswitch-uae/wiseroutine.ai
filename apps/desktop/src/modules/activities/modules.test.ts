@@ -1,3 +1,4 @@
+import "../../test-support/future-features";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testAddon } from "../../addons/fixtures";
 import { seedAddons } from "../../addons/installed";

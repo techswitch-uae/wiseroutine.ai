@@ -1,5 +1,6 @@
 import { localDateOf, zoneOffsetMs } from "@wiseroutine/scheduler";
 import { api } from "./api";
+import { featureSnapshot } from "./features";
 import {
   assertSessionScope,
   captureSessionScope,
@@ -95,7 +96,7 @@ export function captureError(
 export function refreshCaptured(): void {
   // The shell's operational controller also refreshes the visible calendar.
   invalidateServerState();
-  void reloadTodos();
+  if (featureSnapshot().inbox) void reloadTodos();
   globalThis.dispatchEvent(new Event("wr:inbox-changed"));
 }
 

@@ -183,7 +183,12 @@ export interface PlannedSlot {
  */
 export async function replacePlannedSlots(
   db: UserDatabase,
-  params: { from: number; to: number; planRunId: string },
+  params: {
+    from: number;
+    to: number;
+    planRunId: string;
+    preserveIds?: readonly string[];
+  },
   planned: readonly PlannedSlot[],
   now: number,
   newId: () => string,
@@ -197,6 +202,7 @@ export async function replacePlannedSlots(
       startsAt: { gte: at(params.from), lt: at(params.to) },
       isLocked: false,
       status: "planned",
+      ...(params.preserveIds ? { id: { notIn: [...params.preserveIds] } } : {}),
     },
     select: { id: true },
   });

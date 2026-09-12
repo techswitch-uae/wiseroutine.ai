@@ -8,6 +8,7 @@ import {
   refreshCaptured,
   wallTimes,
 } from "../lib/capture";
+import { useFeatures } from "../lib/features";
 import { openExternal } from "../lib/open-external";
 import { clockIn } from "../lib/quick-add";
 import {
@@ -28,6 +29,7 @@ export function TodoDetails({
   timeZone: string;
   onClose: () => void;
 }) {
+  const flags = useFeatures();
   const scope = useRef(captureSessionScope()).current;
   const [todo, setTodo] = useState<Details | null>(null);
   const [error, setError] = useState("");
@@ -343,42 +345,44 @@ export function TodoDetails({
             Downloads are not executed automatically. Open files only if you
             trust their source.
           </small>
-          <label className="wr-capture-label">
-            Add files
-            <input
-              type="file"
-              multiple
-              disabled={busy}
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []);
-                e.target.value = "";
-                if (files.some((f) => f.size > 5 * 1024 * 1024)) {
-                  setError("Each file must be at most 5 MiB.");
-                  return;
-                }
-                const items = [
-                  ...pending,
-                  ...files.map((file) => ({ id: crypto.randomUUID(), file })),
-                ];
-                if (
-                  todo.files.length + items.length > 10 ||
-                  [...todo.files, ...items.map((item) => item.file)].reduce(
-                    (size, file) => size + file.size,
-                    0,
-                  ) >
-                    20 * 1024 * 1024
-                ) {
-                  setError(
-                    "Keep at most 10 files and 20 MiB per todo. Remove files before adding more.",
-                  );
-                  return;
-                }
-                setPending(items);
-                upload(items);
-              }}
-            />
-          </label>
-          {pending.length ? (
+          {flags.capture_files ? (
+            <label className="wr-capture-label">
+              Add files
+              <input
+                type="file"
+                multiple
+                disabled={busy}
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  e.target.value = "";
+                  if (files.some((f) => f.size > 5 * 1024 * 1024)) {
+                    setError("Each file must be at most 5 MiB.");
+                    return;
+                  }
+                  const items = [
+                    ...pending,
+                    ...files.map((file) => ({ id: crypto.randomUUID(), file })),
+                  ];
+                  if (
+                    todo.files.length + items.length > 10 ||
+                    [...todo.files, ...items.map((item) => item.file)].reduce(
+                      (size, file) => size + file.size,
+                      0,
+                    ) >
+                      20 * 1024 * 1024
+                  ) {
+                    setError(
+                      "Keep at most 10 files and 20 MiB per todo. Remove files before adding more.",
+                    );
+                    return;
+                  }
+                  setPending(items);
+                  upload(items);
+                }}
+              />
+            </label>
+          ) : null}
+          {flags.capture_files && pending.length ? (
             <p>
               Unconfirmed uploads: {pending.map((f) => f.file.name).join(", ")}{" "}
               <button
@@ -431,7 +435,7 @@ export function TodoDetails({
                   >
                     Postpone / change time
                   </button>
-                ) : (
+                ) : flags.quick_capture ? (
                   <PlanTodo
                     todo={todo}
                     scope={scope}
@@ -441,7 +445,7 @@ export function TodoDetails({
                       void load().catch(() => undefined);
                     }}
                   />
-                )}
+                ) : null}
                 <button
                   type="button"
                   className="wr-palette-pill wr-palette-pill-on"

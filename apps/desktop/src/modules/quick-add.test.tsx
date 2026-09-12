@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import "../test-support/future-features";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { ActivityResponse, CaptureInput, TodayResponse } from "../lib/api";
 import { readCaptureDraft, saveCaptureDraft } from "../lib/capture-draft";

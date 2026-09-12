@@ -1,6 +1,8 @@
 import type { Locator, Page } from "@playwright/test";
 import { dayShown, expect, meetingAt, test } from "./support";
 
+test.use({ features: "all" });
+
 /**
  * Which hours the day shows, across the two screens that decide it.
  *

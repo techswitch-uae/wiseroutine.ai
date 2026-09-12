@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, getSessionToken, type ScopeResponse } from "../lib/api";
 import { fullDate, monthKey, monthLabel, monthOf, todayOf } from "../lib/scope";
 import { monthCellsFrom } from "../lib/scope-view";
+import { FeaturePage } from "../modules/feature-page";
 
 /** The day, the week and the month all settle the same way after a sync -
  *  see `_app.index`. */
@@ -154,5 +155,9 @@ export const Route = createFileRoute("/_app/month")({
   staticData: { fullWidth: true },
   validateSearch: (search: Record<string, unknown>) =>
     typeof search.m === "string" ? { m: search.m } : {},
-  component: Month,
+  component: () => (
+    <FeaturePage feature="month_view">
+      <Month />
+    </FeaturePage>
+  ),
 });

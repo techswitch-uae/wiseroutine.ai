@@ -11,6 +11,7 @@ import {
 } from "@wiseroutine/db";
 import { required } from "@wiseroutine/env";
 import { type Capability, can, type PlanId } from "@wiseroutine/plans";
+import type { FeatureFlags } from "@wiseroutine/plans/features";
 import type { Context, MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { type Auth, createAuth } from "./auth";
@@ -21,6 +22,7 @@ import {
   type ServerEnv,
   userCredentials,
 } from "./env";
+import { readFeatures } from "./features";
 
 /**
  * Cloudflare bindings.
@@ -96,6 +98,7 @@ export interface Variables {
   db: UserDatabase;
   now: number;
   addon: AddonActor | null;
+  features: FeatureFlags;
 }
 
 export type App = { Bindings: Bindings; Variables: Variables };
@@ -124,6 +127,7 @@ export const withContext: MiddlewareHandler<App> = async (c, next) => {
  * already paid for. Read from KV so it flips without a deploy.
  */
 export async function proOfferEnabled(c: Ctx): Promise<boolean> {
+  if (!c.get("features").billing_checkout) return false;
   const value = await c.env.CONFIG.get("PRO_OFFER_ENABLED");
   if (value === null) return c.get("env").PRO_OFFER_ENABLED;
   return value !== "false";
@@ -212,6 +216,7 @@ export const requireUser: MiddlewareHandler<App> = async (c, next) => {
     await forgetStoredTitles(c.get("db"));
   }
 
+  c.set("features", await readFeatures(c.env.CONFIG, session.user.id));
   await next();
 };
 
@@ -277,14 +282,21 @@ export async function ensureUserSchema(
  * side that counts. A gate that only exists in the UI is not a gate.
  */
 export function enforce(c: Ctx, capability: Capability): void {
-  const decision = can(c.get("user").plan, capability);
+  // Larger routines are a separate release from owning an existing Pro grant.
+  const plan =
+    capability.kind === "activity.create" && !c.get("features").larger_routines
+      ? "free"
+      : c.get("user").plan;
+  const decision = can(plan, capability);
   if (!decision.ok) {
     throw new HTTPException(402, {
       res: Response.json(
         {
           error: "plan_limit",
           reason: decision.reason,
-          upsell: decision.upsell,
+          upsell: c.get("features").billing_checkout
+            ? decision.upsell
+            : "Pause an activity you are not using to make room.",
         },
         { status: 402 },
       ),

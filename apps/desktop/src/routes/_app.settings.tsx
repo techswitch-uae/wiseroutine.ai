@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   AccountScreen,
+  Button,
   type DayHoursBlock,
   type DayHoursDraft,
   DayHoursSection,
@@ -21,6 +22,7 @@ import {
   OfflineError,
   type SettingsPatch,
 } from "../lib/api";
+import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
 import { PrivacySettings } from "../modules/privacy-settings";
 
@@ -237,6 +239,17 @@ const Settings: React.FC = () => {
       </section>
 
       <section className="wr-settings-section">
+        <h2 className="wr-settings-title">Calendars</h2>
+        <p>
+          Connect your calendar and choose which calendars shape your routine.
+          Meetings are read-only.
+        </p>
+        <Button onClick={() => void navigate({ to: "/calendars" })}>
+          Manage calendars
+        </Button>
+      </section>
+
+      <section className="wr-settings-section">
         <h2 className="wr-settings-title">Privacy</h2>
         {account ? (
           <PrivacySettings
@@ -266,6 +279,7 @@ const Settings: React.FC = () => {
  * See `DayHoursSection` for why; this side is where the optimism lives.
  */
 const DayHours: React.FC<{ account: Account }> = ({ account }) => {
+  const flags = useFeatures();
   const saved = draftFrom(account);
   const [draft, setDraft] = useState<DayHoursDraft>(saved);
   const [saving, setSaving] = useState<DayHoursBlock | null>(null);
@@ -275,11 +289,15 @@ const DayHours: React.FC<{ account: Account }> = ({ account }) => {
   const asPatch = (next: DayHoursDraft): SettingsPatch => ({
     dayStartMinutes: next.dayStartMinutes,
     dayEndMinutes: next.dayEndMinutes,
-    customRangeLabel: next.custom?.label.trim() ?? null,
-    customRangeStartMinutes: next.custom?.startMinutes ?? null,
-    customRangeEndMinutes: next.custom?.endMinutes ?? null,
-    dayOpensOn: next.dayOpensOn,
-    showOutsideRange: next.showOutsideRange,
+    ...(flags.day_view_options
+      ? {
+          customRangeLabel: next.custom?.label.trim() ?? null,
+          customRangeStartMinutes: next.custom?.startMinutes ?? null,
+          customRangeEndMinutes: next.custom?.endMinutes ?? null,
+          dayOpensOn: next.dayOpensOn,
+          showOutsideRange: next.showOutsideRange,
+        }
+      : {}),
   });
 
   /** What the store has to learn for Today to open on the right range. */
@@ -341,6 +359,7 @@ const DayHours: React.FC<{ account: Account }> = ({ account }) => {
 
   return (
     <DayHoursSection
+      advanced={flags.day_view_options}
       saved={saved}
       draft={draft}
       onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}

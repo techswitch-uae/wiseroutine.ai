@@ -18,7 +18,7 @@
  * no route in the app links to it.
  */
 
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, notFound } from "@tanstack/react-router";
 import { DayGrid, type DayGridItem, Slot } from "@wiseroutine/design";
 import {
   type BreatherRule,
@@ -32,7 +32,12 @@ import {
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 
-export const Route = createFileRoute("/sim")({ component: Sim });
+export const Route = createFileRoute("/sim")({
+  beforeLoad: () => {
+    if (!import.meta.env.DEV) throw notFound();
+  },
+  component: Sim,
+});
 
 /* ── Verdicts ────────────────────────────────────────────────────────────── */
 

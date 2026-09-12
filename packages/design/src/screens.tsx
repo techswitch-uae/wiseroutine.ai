@@ -482,7 +482,17 @@ export const DayHoursSection: React.FC<{
   /** Throw them away and go back to `saved`. */
   onCancel?: (block: DayHoursBlock) => void;
   saving?: DayHoursBlock | null;
-}> = ({ saved, draft, onChange, onCommit, onSave, onCancel, saving }) => {
+  advanced?: boolean;
+}> = ({
+  saved,
+  draft,
+  onChange,
+  onCommit,
+  onSave,
+  onCancel,
+  saving,
+  advanced = true,
+}) => {
   const custom = draft.custom;
 
   /** Update and Cancel, or nothing at all when there is nothing to commit. */
@@ -537,88 +547,94 @@ export const DayHoursSection: React.FC<{
           </div>
         </Block>
 
-        <Block
-          title="Custom range"
-          note={
-            custom
-              ? "The label is what appears in the day view picker."
-              : "A second window to switch the day to - your evenings, or the hours you are on call."
-          }
-          action={
-            <Toggle
-              label="Use a custom range"
-              checked={custom !== null}
-              // Saved on click, with a range already in it: a switch that
-              // turned on and then needed a second press to exist is how the
-              // range ended up missing from the day view's picker.
-              onChange={(on) =>
-                onCommit?.({ custom: on ? { ...NEW_CUSTOM_RANGE } : null })
+        {advanced ? (
+          <>
+            <Block
+              title="Custom range"
+              note={
+                custom
+                  ? "The label is what appears in the day view picker."
+                  : "A second window to switch the day to - your evenings, or the hours you are on call."
+              }
+              action={
+                <Toggle
+                  label="Use a custom range"
+                  checked={custom !== null}
+                  // Saved on click, with a range already in it: a switch that
+                  // turned on and then needed a second press to exist is how the
+                  // range ended up missing from the day view's picker.
+                  onChange={(on) =>
+                    onCommit?.({ custom: on ? { ...NEW_CUSTOM_RANGE } : null })
+                  }
+                />
+              }
+              {...(custom
+                ? commit(
+                    "custom",
+                    JSON.stringify(custom) !== JSON.stringify(saved.custom),
+                  )
+                : {})}
+            >
+              {custom ? (
+                <div className="wr-hours-row">
+                  <Field
+                    aria-label="Custom range name"
+                    className="wr-hours-name-field"
+                    value={custom.label}
+                    placeholder="Name this range"
+                    onChange={(event) =>
+                      onChange?.({
+                        custom: { ...custom, label: event.target.value },
+                      })
+                    }
+                  />
+                  <TimeField
+                    label="Custom range start"
+                    minutes={custom.startMinutes}
+                    onChange={(startMinutes) =>
+                      onChange?.({ custom: { ...custom, startMinutes } })
+                    }
+                  />
+                  <span className="wr-hours-to">to</span>
+                  <TimeField
+                    label="Custom range end"
+                    minutes={custom.endMinutes}
+                    onChange={(endMinutes) =>
+                      onChange?.({ custom: { ...custom, endMinutes } })
+                    }
+                  />
+                </div>
+              ) : null}
+            </Block>
+
+            <Block
+              title="Day opens on"
+              note="The range the timeline shows each morning"
+              action={
+                <Segmented
+                  label="Day opens on"
+                  options={OPENS_ON}
+                  value={draft.dayOpensOn}
+                  onChange={(dayOpensOn) => onCommit?.({ dayOpensOn })}
+                />
               }
             />
-          }
-          {...(custom
-            ? commit(
-                "custom",
-                JSON.stringify(custom) !== JSON.stringify(saved.custom),
-              )
-            : {})}
-        >
-          {custom ? (
-            <div className="wr-hours-row">
-              <Field
-                aria-label="Custom range name"
-                className="wr-hours-name-field"
-                value={custom.label}
-                placeholder="Name this range"
-                onChange={(event) =>
-                  onChange?.({
-                    custom: { ...custom, label: event.target.value },
-                  })
-                }
-              />
-              <TimeField
-                label="Custom range start"
-                minutes={custom.startMinutes}
-                onChange={(startMinutes) =>
-                  onChange?.({ custom: { ...custom, startMinutes } })
-                }
-              />
-              <span className="wr-hours-to">to</span>
-              <TimeField
-                label="Custom range end"
-                minutes={custom.endMinutes}
-                onChange={(endMinutes) =>
-                  onChange?.({ custom: { ...custom, endMinutes } })
-                }
-              />
-            </div>
-          ) : null}
-        </Block>
 
-        <Block
-          title="Day opens on"
-          note="The range the timeline shows each morning"
-          action={
-            <Segmented
-              label="Day opens on"
-              options={OPENS_ON}
-              value={draft.dayOpensOn}
-              onChange={(dayOpensOn) => onCommit?.({ dayOpensOn })}
+            <Block
+              title="Show meetings outside the range"
+              note="Collapsed into a line at the top and bottom of the day"
+              action={
+                <Toggle
+                  label="Show meetings outside the range"
+                  checked={draft.showOutsideRange}
+                  onChange={(showOutsideRange) =>
+                    onCommit?.({ showOutsideRange })
+                  }
+                />
+              }
             />
-          }
-        />
-
-        <Block
-          title="Show meetings outside the range"
-          note="Collapsed into a line at the top and bottom of the day"
-          action={
-            <Toggle
-              label="Show meetings outside the range"
-              checked={draft.showOutsideRange}
-              onChange={(showOutsideRange) => onCommit?.({ showOutsideRange })}
-            />
-          }
-        />
+          </>
+        ) : null}
       </Card>
     </div>
   );
@@ -1177,6 +1193,8 @@ export const ActivityForm: React.FC<{
    * anything else has to be given one by the person describing it.
    */
   named?: boolean;
+  advanced?: boolean;
+  showFrequency?: boolean;
   /**
    * Appended below the standing fields.
    *
@@ -1186,7 +1204,14 @@ export const ActivityForm: React.FC<{
    * forms, and has no business knowing that breathing has patterns.
    */
   children?: React.ReactNode;
-}> = ({ draft, onChange, named, children }) => {
+}> = ({
+  draft,
+  onChange,
+  named,
+  children,
+  advanced = true,
+  showFrequency = true,
+}) => {
   const set = <K extends keyof ActivityDraft>(
     key: K,
     value: ActivityDraft[K],
@@ -1218,13 +1243,15 @@ export const ActivityForm: React.FC<{
             set("sessionMinutes", stepMinutes(draft.sessionMinutes, direction))
           }
         />
-        <Stepper
-          label="How often"
-          value={`${draft.perDay} × day`}
-          canDecrease={draft.perDay > 1}
-          canIncrease={draft.perDay < 12}
-          onStep={(direction) => set("perDay", draft.perDay + direction)}
-        />
+        {showFrequency ? (
+          <Stepper
+            label="How often"
+            value={`${draft.perDay} × day`}
+            canDecrease={draft.perDay > 1}
+            canIncrease={draft.perDay < 12}
+            onStep={(direction) => set("perDay", draft.perDay + direction)}
+          />
+        ) : null}
       </div>
 
       <DayPicker
@@ -1233,19 +1260,21 @@ export const ActivityForm: React.FC<{
         onChange={(days) => set("days", days)}
       />
 
-      <div className="wr-field">
-        <span className="wr-label">When it should land</span>
-        <Segmented
-          label="When it should land"
-          options={LANDINGS}
-          value={draft.land}
-          onChange={(value) => set("land", value)}
-        />
-        <p className="wr-activity-hint">
-          A preference, not a rule - it lands as close to that as the day
-          allows.
-        </p>
-      </div>
+      {advanced ? (
+        <div className="wr-field">
+          <span className="wr-label">When it should land</span>
+          <Segmented
+            label="When it should land"
+            options={LANDINGS}
+            value={draft.land}
+            onChange={(value) => set("land", value)}
+          />
+          <p className="wr-activity-hint">
+            A preference, not a rule - it lands as close to that as the day
+            allows.
+          </p>
+        </div>
+      ) : null}
 
       {children}
     </div>

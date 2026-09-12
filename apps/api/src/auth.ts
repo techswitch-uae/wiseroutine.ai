@@ -1,6 +1,5 @@
 import {
   type Directory,
-  grantPlan,
   newDatabaseName,
   USER_DEFAULTS,
 } from "@wiseroutine/db";
@@ -12,9 +11,6 @@ import { emailOTP } from "better-auth/plugins/email-otp";
 import { Resend } from "resend";
 import type { ServerEnv } from "./env";
 import { provisionUserDatabase } from "./provisioning";
-
-/** What the pricing page promises: a fortnight of Pro, no card. */
-const TRIAL_DAYS = 14;
 
 /**
  * Authentication.
@@ -416,31 +412,9 @@ export function createAuth(directory: Directory, env: ServerEnv) {
               databaseName: String(user.databaseName),
             });
 
-            /**
-             * The trial, as a grant rather than a Stripe subscription.
-             *
-             * Fourteen days of Pro with no card, which is what the pricing
-             * page promises. Stripe has a trial of its own, but reaching it
-             * needs a checkout - and a trial you have to enter card details
-             * for is not the offer being made.
-             *
-             * A grant outranks Stripe in `resolvePlan`, so this is also what
-             * founding access is: the same row with a longer expiry and a
-             * different `reason`. One mechanism, and winding it down is a
-             * date passing rather than a flag being flipped.
-             */
-            await grantPlan(
-              directory,
-              {
-                userId: user.id,
-                plan: "pro",
-                reason: "trial",
-                grantedBy: "signup",
-                expiresAt: Date.now() + TRIAL_DAYS * 86_400_000,
-              },
-              Date.now(),
-              () => crypto.randomUUID(),
-            );
+            // M0 is a real Free account, not an expiring Pro trial. Existing
+            // grants/subscriptions are untouched; founding discounts are a
+            // separate commercial record to implement before paid launch.
           },
         },
       },

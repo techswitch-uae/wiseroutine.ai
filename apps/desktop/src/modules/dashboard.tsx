@@ -6,6 +6,7 @@ import {
   StateRow,
   Widget,
 } from "@wiseroutine/design";
+import { releasedWidgets } from "@wiseroutine/plans/features";
 import { useEffect, useState } from "react";
 import { AddonWidgets } from "../addons/widget";
 import { useAccount } from "../lib/account";
@@ -18,6 +19,7 @@ import {
   type TodaySlot,
 } from "../lib/api";
 import { refreshCaptured } from "../lib/capture";
+import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
 import { startSlot, usePlan } from "../lib/plan-store";
 import { Reschedule } from "./reschedule";
@@ -400,11 +402,12 @@ const TodaySoFar: React.FC = () => {
 
 export const DashboardWidgets: React.FC = () => {
   const plan = usePlan();
+  const flags = useFeatures();
   if (!plan) return null;
 
   return (
     <>
-      {plan.widgets.map((key) => {
+      {releasedWidgets(flags, plan.widgets).map((key) => {
         switch (key) {
           case "up_next":
             return <UpNext key={key} />;

@@ -9,9 +9,11 @@ import {
   parseManifest,
   verifyRelease,
 } from "@wiseroutine/addons";
+import { addonReleased, FEATURE_KEYS } from "@wiseroutine/plans/features";
 import { useSyncExternalStore } from "react";
 import trust from "../../../../addon-registry/trust.json" with { type: "json" };
 import { api, type InstalledAddonRow } from "../lib/api";
+import { featureSnapshot, subscribeFeatures } from "../lib/features";
 import {
   accountStorageKey,
   onSessionReset,
@@ -78,6 +80,7 @@ export function setAddonSafeMode(enabled: boolean): void {
 }
 export function addonAuthorized(addon: InstalledAddon): boolean {
   return (
+    addonReleased(featureSnapshot(), addon.manifest.id) &&
     addons.get(addon.manifest.id) === addon &&
     !addonSafeMode() &&
     (addon.bundled || Date.now() - checkedAt < 5 * 60000)
@@ -103,6 +106,14 @@ onSessionReset(() => {
   checkedAt = 0;
   publish(new Map());
   void authorize(new Map(), nativeAccount).catch(() => undefined);
+});
+subscribeFeatures(() => {
+  sequence++;
+  const next = new Map(
+    [...addons].filter(([id]) => addonReleased(featureSnapshot(), id)),
+  );
+  publish(next);
+  void authorize(next, sessionIdentity()).catch(() => undefined);
 });
 export const installedAddons = (): ReadonlyMap<string, InstalledAddon> =>
   addons;
@@ -227,14 +238,28 @@ export async function loadAddons(): Promise<void> {
   const generation = sessionGeneration(),
     request = ++sequence,
     accountId = sessionIdentity();
-  if (addonSafeMode()) {
+  if (
+    addonSafeMode() ||
+    !FEATURE_KEYS.some(
+      (key) =>
+        featureSnapshot()[key] &&
+        [
+          "guided_sessions",
+          "quick_capture",
+          "insights",
+          "community_addons",
+        ].includes(key),
+    )
+  ) {
     publish(new Map());
     await authorize(new Map(), accountId);
     return;
   }
   let rows: InstalledAddonRow[];
   try {
-    rows = (await api.installedAddons()).addons;
+    rows = (await api.installedAddons()).addons.filter((row) =>
+      addonReleased(featureSnapshot(), row.id),
+    );
   } catch {
     if (
       generation === sessionGeneration() &&
@@ -276,7 +301,12 @@ export async function loadAddons(): Promise<void> {
   // Sequential and bounded: a catalog must not fan out unlimited downloads/native writes.
   for (const row of rows.slice(0, 32)) {
     if (generation !== sessionGeneration() || request !== sequence) return;
-    if (!row.isEnabled || row.revoked) continue;
+    if (
+      !row.isEnabled ||
+      row.revoked ||
+      !addonReleased(featureSnapshot(), row.id)
+    )
+      continue;
     try {
       const manifest = parseManifest(row.manifest);
       if (

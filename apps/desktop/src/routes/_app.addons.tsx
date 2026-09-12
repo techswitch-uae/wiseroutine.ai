@@ -26,6 +26,7 @@ import {
 } from "../lib/api";
 import { notify } from "../lib/notify";
 import { sessionIdentity } from "../lib/session-lifecycle";
+import { FeaturePage } from "../modules/feature-page";
 
 /**
  * Addons: the packages, not the cards.
@@ -627,4 +628,10 @@ const Addons: React.FC = () => {
   );
 };
 
-export const Route = createFileRoute("/_app/addons")({ component: Addons });
+export const Route = createFileRoute("/_app/addons")({
+  component: () => (
+    <FeaturePage feature="community_addons">
+      <Addons />
+    </FeaturePage>
+  ),
+});

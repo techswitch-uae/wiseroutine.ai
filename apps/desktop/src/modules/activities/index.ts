@@ -1,5 +1,6 @@
 import { addonModuleFor, addonModules } from "../../addons/activity-type";
 import type { TodaySlot } from "../../lib/api";
+import { featureSnapshot } from "../../lib/features";
 
 /**
  * What an activity does when its slot is running.
@@ -83,7 +84,8 @@ export interface ActivityModule<C = unknown> {
  * off. Callers that want one key should use `moduleFor`; this is for the two
  * places that genuinely need the whole set, both of them galleries.
  */
-export const allModules = (): Record<string, ActivityModule> => addonModules();
+export const allModules = (): Record<string, ActivityModule> =>
+  featureSnapshot().guided_sessions ? addonModules() : {};
 
 /**
  * The module a slot runs under, or undefined for a plain timed slot.
@@ -97,7 +99,9 @@ export const allModules = (): Record<string, ActivityModule> => addonModules();
 export const moduleFor = (
   presetKey: string | null | undefined,
 ): ActivityModule | undefined =>
-  presetKey ? addonModuleFor(presetKey) : undefined;
+  featureSnapshot().guided_sessions && presetKey
+    ? addonModuleFor(presetKey)
+    : undefined;
 
 /**
  * The stored settings, as the module wants them.

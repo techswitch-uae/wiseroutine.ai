@@ -29,6 +29,7 @@ import { startTodayController, startTodaySlot } from "../lib/today-controller";
 import "../lib/rail";
 import { AddonBackground } from "../addons/background";
 import { watchAddons } from "../addons/installed";
+import { loadFeatures, useFeatures, watchFeatures } from "../lib/features";
 import { reloadTodos } from "../lib/todos";
 import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
 import { QuickAdd } from "../modules/quick-add";
@@ -157,6 +158,11 @@ const UpdateNotice: React.FC = () => {
 const useMenuBar = (): void => {
   const plan = useTodayPlan();
   const identity = useSessionIdentity();
+  const flags = useFeatures();
+  useEffect(() => {
+    if (!identity) return;
+    return watchFeatures();
+  }, [identity]);
   useEffect(() => {
     if (!identity) return;
     return startTodayController();
@@ -197,10 +203,9 @@ const useMenuBar = (): void => {
   useEffect(() => {
     if (!identity) return;
     const stop = watchAddons();
-    // The todos the rail's card and Quick add both read - see `lib/todos`.
-    void reloadTodos();
+    if (flags.inbox) void reloadTodos();
     return stop;
-  }, [identity]);
+  }, [identity, flags]);
 };
 
 /**
@@ -211,9 +216,13 @@ const useMenuBar = (): void => {
  * and the sidebar's button says ⌘K on it, so it had better be true wherever
  * the sidebar is.
  */
-function useQuickAdd(): [boolean, (open: boolean) => void] {
+function useQuickAdd(enabled: boolean): [boolean, (open: boolean) => void] {
   const [open, setOpen] = useState(false);
   useEffect(() => {
+    if (!enabled) {
+      setOpen(false);
+      return;
+    }
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || !(event.metaKey || event.ctrlKey)) return;
       if (event.altKey || event.shiftKey) return;
@@ -228,7 +237,7 @@ function useQuickAdd(): [boolean, (open: boolean) => void] {
       document.removeEventListener("keydown", onKey);
       globalThis.removeEventListener("wr:quick-add", open);
     };
-  }, []);
+  }, [enabled]);
   return [open, setOpen];
 }
 
@@ -243,7 +252,17 @@ const AppLayout: React.FC = () => {
   const search = useRouterState({ select: (s) => s.location.search });
   // Shared with the account page, which can change the name - see lib/account.
   const user = useAccount();
-  const [quickAdd, setQuickAdd] = useQuickAdd();
+  const flags = useFeatures();
+  const nav = [
+    { key: "today", label: "Today", to: "/" },
+    ...NAV.filter(
+      (item) =>
+        item.key !== "calendars" &&
+        (item.key !== "inbox" || flags.inbox) &&
+        (item.key !== "addons" || flags.community_addons),
+    ),
+  ];
+  const [quickAdd, setQuickAdd] = useQuickAdd(flags.quick_capture);
 
   // The macOS title bar is a transparent overlay, so the traffic lights land on
   // the sidebar. Tell the stylesheet to leave them room - see `.wr-tauri`.
@@ -322,7 +341,7 @@ const AppLayout: React.FC = () => {
 
   // No fallback: on a calendar scope nothing in this list is current, and
   // defaulting to one would light a row the user is not on.
-  const active = NAV.find((item) => item.to === pathname)?.key ?? "";
+  const active = nav.find((item) => item.to === pathname)?.key ?? "";
   const today = todayOf();
   const scope = scopeOf(pathname);
   const period = periodLabel(scope, search as Record<string, unknown>, today);
@@ -351,23 +370,32 @@ const AppLayout: React.FC = () => {
         // The same width of page whether or not this one has modules - unless
         // it has asked for the width instead, which the calendar's wider
         // scopes do.
-        reserveRail={!fullWidth}
+        reserveRail={!fullWidth && Boolean(Rail)}
         {...(Rail ? { rail: <Rail /> } : {})}
         sidebar={
           <Sidebar
-            items={NAV}
+            items={nav}
             active={active}
             scope={
-              <ScopeSwitcher
-                active={scope}
-                dayLabel={dayLabel(today)}
-                {...(period ? { periodLabel: period } : {})}
-                onSelect={(key) => void navigate({ to: SCOPE_ROUTES[key] })}
-              />
+              flags.week_view ? (
+                <ScopeSwitcher
+                  available={
+                    flags.month_view
+                      ? ["day", "week", "month"]
+                      : ["day", "week"]
+                  }
+                  active={scope}
+                  dayLabel={dayLabel(today)}
+                  {...(period ? { periodLabel: period } : {})}
+                  onSelect={(key) => void navigate({ to: SCOPE_ROUTES[key] })}
+                />
+              ) : null
             }
-            onQuickAdd={() => setQuickAdd(true)}
+            {...(flags.quick_capture
+              ? { onQuickAdd: () => setQuickAdd(true) }
+              : {})}
             onNavigate={(key) => {
-              const item = NAV.find((entry) => entry.key === key);
+              const item = nav.find((entry) => entry.key === key);
               // Destinations without a route yet do nothing rather than
               // navigating somewhere wrong. They are listed because they are the
               // real IA, not because they are built.
@@ -375,7 +403,7 @@ const AppLayout: React.FC = () => {
             }}
             user={
               <>
-                <TrialPill />
+                {flags.billing_checkout ? <TrialPill /> : null}
                 <UserMenu
                   // Name if the provider gave us one, address if not. `||` rather
                   // than `??` on purpose: an empty name is as absent as a null one,
@@ -383,7 +411,11 @@ const AppLayout: React.FC = () => {
                   name={user?.name || user?.email || "Account"}
                   {...(user?.avatarUrl ? { avatarSrc: user.avatarUrl } : {})}
                   {...(user?.email !== undefined ? { email: user.email } : {})}
-                  plan={user?.plan === "pro" ? "pro" : "free"}
+                  plan={
+                    flags.billing_checkout && user?.plan === "pro"
+                      ? "pro"
+                      : "free"
+                  }
                   items={USER_MENU}
                   onSelect={(key) => {
                     if (key === "signout") {
@@ -404,7 +436,9 @@ const AppLayout: React.FC = () => {
         }
       >
         <Outlet />
-        <AddonBackground />
+        {flags.community_addons || flags.quick_capture || flags.insights ? (
+          <AddonBackground />
+        ) : null}
       </AppFrame>
       {/* Keyed by who is signed in, so that signing in as somebody else
           remounts both rather than handing the next account the previous
@@ -417,7 +451,7 @@ const AppLayout: React.FC = () => {
           siblings that claim one identity. The prefix is what makes each key
           unique; the identity is what makes it change. */}
       <SessionOverlay key={`session-overlay/${identity}`} />
-      {quickAdd ? (
+      {flags.quick_capture && quickAdd ? (
         <QuickAdd
           key={`quick-add/${identity}`}
           onClose={() => setQuickAdd(false)}
@@ -429,8 +463,9 @@ const AppLayout: React.FC = () => {
 };
 
 export const Route = createFileRoute("/_app")({
-  beforeLoad: () => {
+  beforeLoad: async () => {
     if (!getSessionToken()) throw redirect({ to: "/signin" });
+    await loadFeatures();
   },
   component: AppLayout,
 });

@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import {
   createDirectory,
   createUserDatabase,
@@ -5,7 +6,27 @@ import {
   USER_MIGRATIONS,
   type UserDatabase,
 } from "@wiseroutine/db";
+import {
+  CORE_FEATURES,
+  FEATURE_CONFIG_KEY,
+  FEATURE_KEYS,
+  type FeatureOverrides,
+} from "@wiseroutine/plans/features";
 import { generateToken } from "./crypto";
+
+/** Feature suites opt in explicitly; production and new core tests default off. */
+export async function testFeatures(
+  flags: FeatureOverrides | "all" = {},
+): Promise<void> {
+  await (env.CONFIG as KVNamespace).put(
+    FEATURE_CONFIG_KEY,
+    JSON.stringify(
+      flags === "all"
+        ? Object.fromEntries(FEATURE_KEYS.map((key) => [key, true]))
+        : { ...CORE_FEATURES, ...flags },
+    ),
+  );
+}
 
 /**
  * Test fixtures.

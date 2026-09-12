@@ -7,6 +7,7 @@ import {
 } from "@wiseroutine/design";
 import { useEffect, useState } from "react";
 import { api, type TodayResponse } from "../lib/api";
+import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
 import { openExternal } from "../lib/open-external";
 import { pick, usePicked } from "../lib/picked";
@@ -181,6 +182,7 @@ const LEAVE_MS = 200;
 const TICK_MS = 30_000;
 
 export const ThisSlot: React.FC = () => {
+  const flags = useFeatures();
   const plan = usePlan();
   const picked = usePicked();
   const [moving, setMoving] = useState(false);
@@ -303,7 +305,7 @@ export const ThisSlot: React.FC = () => {
           Postpone / change time
         </Button>
       ) : null}
-      {slot.reminderId ? (
+      {flags.inbox && slot.reminderId ? (
         <Button
           variant="secondary"
           block
@@ -322,7 +324,7 @@ export const ThisSlot: React.FC = () => {
           onSaved={close}
         />
       ) : null}
-      {details && slot.reminderId ? (
+      {flags.inbox && details && slot.reminderId ? (
         <TodoDetails
           key={slot.reminderId}
           id={slot.reminderId}

@@ -1,6 +1,8 @@
 import { API_URL } from "./environment";
 import { expect, test, todayAt } from "./support";
 
+test.use({ features: "all" });
+
 const fullToday = (url: string) =>
   url.includes("/today?") && new URL(url).searchParams.get("range") === "full";
 

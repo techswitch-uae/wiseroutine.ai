@@ -51,11 +51,14 @@ export const ScopeSwitcher: React.FC<{
   /** The period on screen, on whichever entry is active. */
   periodLabel?: string;
   onSelect?: (scope: Scope) => void;
-}> = ({ active, dayLabel, periodLabel, onSelect }) => (
+  available?: readonly Scope[];
+}> = ({ active, dayLabel, periodLabel, onSelect, available }) => (
   <div className="wr-scope">
     <div className="wr-scope-label">Calendar view</div>
     <div className="wr-scope-items">
-      {SCOPES.map((scope) => {
+      {SCOPES.filter(
+        (scope) => !available || available.includes(scope.key),
+      ).map((scope) => {
         // The active scope names what is on screen. Day also names itself when
         // it is not active, because it is the one entry that is a promise
         // about where it goes rather than a label for where you are.

@@ -21,7 +21,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useInstalledAddons } from "../addons/installed";
 import { useAccount } from "../lib/account";
 import { type ActivityResponse, ApiError, api } from "../lib/api";
+import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
+import { invalidateServerState } from "../lib/session-lifecycle";
 import { moduleFor, type StartPolicy } from "../modules/activities";
 import {
   ActivityModuleFields,
@@ -40,7 +42,7 @@ import {
  * behind it invited exactly the mistake it looks like it invites: picking a
  * second template halfway through filling in the first.
  *
- * Pausing is deliberately not offered yet - see `Yours` below.
+ * Pausing is core and frees an active-activity allowance without erasing history.
  */
 
 /** Where the two named landings aim. Mid-morning and mid-afternoon rather than
@@ -186,7 +188,9 @@ const Activities: React.FC = () => {
    */
   const addons = useInstalledAddons();
   const plan = account?.plan === "pro" ? "pro" : "free";
-  const limit = PLANS[plan].maxActiveActivities;
+  const flags = useFeatures();
+  const limit =
+    PLANS[flags.larger_routines ? plan : "free"].maxActiveActivities;
 
   const [rows, setRows] = useState<readonly ActivityResponse[] | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -212,37 +216,44 @@ const Activities: React.FC = () => {
   const needsAddon = (row: ActivityResponse): boolean => {
     const addonId = addonBehind(row.presetKey);
     return (
-      addonId !== null && row.sessionEnabled !== false && !addons.has(addonId)
+      flags.guided_sessions &&
+      addonId !== null &&
+      row.sessionEnabled !== false &&
+      !addons.has(addonId)
     );
   };
 
   const active = rows?.filter((row) => row.isActive).length ?? 0;
   const atLimit = active >= limit;
 
-  /**
-   * Saving does not touch today.
-   *
-   * It used to re-plan straight after, so adding an activity in the morning
-   * meant walking back to Today and finding it already on the day. That is
-   * the one thing placement is not supposed to do: the day is filled once, at
-   * the start of it, and anything added afterwards is offered by the "To
-   * place today" module with a button, rather than arranged behind your back.
-   */
+  // The API places new demand while preserving accepted slots. Hidden fields
+  // are omitted on edit, never replaced with the simplified form's defaults.
   const save = () => {
     if (!editing) return;
     const { draft, id } = editing;
+    const previous = rows?.find((row) => row.id === id);
     const input = {
       name: draft.name.trim(),
       kind: draft.kind,
-      minimumType: "countPerDay" as const,
-      minimumValue: draft.perDay,
+      ...(!previous || previous.minimum.type === "countPerDay"
+        ? {
+            minimumType: "countPerDay" as const,
+            minimumValue: draft.perDay,
+          }
+        : {}),
       sessionMinutes: draft.sessionMinutes,
       daysOfWeek: draft.days,
-      preferredWindows: windowsOf(draft.land),
-      presetKey: editing.module.presetKey,
-      sessionEnabled: editing.module.sessionEnabled,
-      startPolicy: editing.module.startPolicy,
-      configJson: editing.module.configJson,
+      ...(flags.advanced_scheduling && plan === "pro"
+        ? { preferredWindows: windowsOf(draft.land) }
+        : {}),
+      ...(flags.guided_sessions
+        ? {
+            presetKey: editing.module.presetKey,
+            sessionEnabled: editing.module.sessionEnabled,
+            startPolicy: editing.module.startPolicy,
+            configJson: editing.module.configJson,
+          }
+        : {}),
     };
 
     setSaving(true);
@@ -254,6 +265,7 @@ const Activities: React.FC = () => {
     request
       .then(() => {
         setEditing(null);
+        invalidateServerState();
         load();
       })
       .catch((cause: unknown) => {
@@ -269,11 +281,30 @@ const Activities: React.FC = () => {
       .finally(() => setSaving(false));
   };
 
+  const toggle = (row: ActivityResponse) => {
+    setWorking(row.id);
+    void api
+      .updateActivity(row.id, { isActive: !row.isActive })
+      .then(() => {
+        load();
+        invalidateServerState();
+      })
+      .catch((cause) =>
+        notify(
+          cause instanceof ApiError
+            ? (cause.planLimit?.reason ?? "Couldn't change this activity.")
+            : "Couldn't change this activity.",
+        ),
+      )
+      .finally(() => setWorking(null));
+  };
+
   const remove = (id: string) => {
     setWorking(id);
     api
       .removeActivity(id)
       .then(() => {
+        invalidateServerState();
         load();
       })
       .catch(() => notify("Couldn't remove that activity. Try again."))
@@ -309,6 +340,7 @@ const Activities: React.FC = () => {
    * add it and find out.
    */
   const noteFor = (template: ActivityTemplate): TemplateNote | undefined => {
+    if (!flags.guided_sessions) return undefined;
     const presetKey = LIBRARY_MODULES[template.key];
     const addonId = addonBehind(presetKey);
     // A walk is a block of time. Nothing is behind it and there is nothing to
@@ -320,8 +352,10 @@ const Activities: React.FC = () => {
 
     const installed = addons.has(addonId);
     return {
-      group: "From an addon",
-      onConfigure: () => void navigate({ to: "/addons" }),
+      group: "Guided routines",
+      ...(flags.community_addons
+        ? { onConfigure: () => void navigate({ to: "/addons" }) }
+        : {}),
       configureLabel: installed
         ? `Manage the addon behind ${template.name}`
         : `${template.name} needs an addon that is switched off`,
@@ -340,7 +374,7 @@ const Activities: React.FC = () => {
               sessionMinutes: template.sessionMinutes,
               perDay: template.perDay,
               days: template.days,
-              land: template.land,
+              land: flags.advanced_scheduling ? template.land : "any",
             },
             module: moduleForTemplate(template.key),
             origin: "From the library · change anything",
@@ -359,11 +393,7 @@ const Activities: React.FC = () => {
         <h2 className="wr-settings-title">Activities</h2>
 
         {rows.length > 0 ? (
-          // No Pause here yet. The free limit counts active activities, so
-          // pausing is a real way to swap one out - but it is going to be a
-          // Pro capability, and shipping it to everyone first and taking it
-          // away later is the one order that cannot be done kindly. Remove is
-          // the way out until then; the kit still carries the control.
+          // Pause is core: it preserves history and frees an active allowance.
           <Card
             title="Yours"
             note="Each one is placed into the gaps your calendar leaves, on the days you picked."
@@ -396,6 +426,7 @@ const Activities: React.FC = () => {
                     id: row.id,
                   })
                 }
+                onToggle={() => toggle(row)}
                 onRemove={() => remove(row.id)}
               />
             ))}
@@ -422,9 +453,11 @@ const Activities: React.FC = () => {
             instead, which is the moment someone is about to add another. */}
         {atLimit ? (
           <div style={{ marginTop: 14 }}>
-            <PlanNote title="Free keeps two active at a time">
-              Remove one you are not using to make room, or move to Pro for as
-              many as you like.
+            <PlanNote title={`Your routine keeps ${limit} active at a time`}>
+              Pause an activity you are not using to make room.
+              {flags.billing_checkout && flags.larger_routines
+                ? " Pro supports larger routines."
+                : ""}
             </PlanNote>
           </div>
         ) : null}
@@ -480,9 +513,9 @@ const Activities: React.FC = () => {
                   nothing, so there is nothing to say about the plan. */}
               {editing.id ? null : (
                 <span className="wr-activity-note">
-                  {plan === "free"
-                    ? "Free covers two. A third asks you to swap one out or move to Pro."
-                    : "Pro does not limit these. A really busy day may still not fit them all."}
+                  {Number.isFinite(limit)
+                    ? `You can keep ${limit} activities active. Pause one to make room for another.`
+                    : "A really busy day may still not fit every activity."}
                 </span>
               )}
             </>
@@ -491,12 +524,20 @@ const Activities: React.FC = () => {
           <ActivityForm
             draft={editing.draft}
             named={editing.origin !== undefined}
+            advanced={flags.advanced_scheduling && plan === "pro"}
+            showFrequency={
+              !editing.id ||
+              rows.find((row) => row.id === editing.id)?.minimum.type ===
+                "countPerDay"
+            }
             onChange={(draft) => setEditing({ ...editing, draft })}
           >
-            <ActivityModuleFields
-              value={editing.module}
-              onChange={(module) => setEditing({ ...editing, module })}
-            />
+            {flags.guided_sessions ? (
+              <ActivityModuleFields
+                value={editing.module}
+                onChange={(module) => setEditing({ ...editing, module })}
+              />
+            ) : null}
           </ActivityForm>
           {problem ? (
             <p
