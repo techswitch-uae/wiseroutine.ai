@@ -1,0 +1,32 @@
+{
+  "name": "@wiseroutine/addon-tools",
+  "version": "0.1.0",
+  "description": "Validate, package and preview Wise Routine addons without the private app.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "wr-addon": "./bin/wr-addon.mjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "preview",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node --check bin/wr-addon.mjs",
+    "typecheck": "node --check bin/wr-addon.mjs && node --check preview/host.js",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@wiseroutine/addons": "workspace:*",
+    "ajv": "^8.20.0"
+  }
+}

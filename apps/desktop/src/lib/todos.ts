@@ -41,6 +41,7 @@ export function fitsAt(
  */
 
 let todos: readonly Todo[] | null = null;
+let loadSequence = 0;
 onSessionReset(resetTodos);
 const listeners = new Set<() => void>();
 
@@ -52,11 +53,13 @@ function publish(next: readonly Todo[] | null): void {
 /** Re-read the list. Every write ends here - the server's list is the list. */
 export function reloadTodos(): Promise<void> {
   const generation = sessionGeneration();
+  const sequence = ++loadSequence;
   return (
     api
       .todos()
       .then((next) => {
-        if (generation === sessionGeneration()) publish(next);
+        if (generation === sessionGeneration() && sequence === loadSequence)
+          publish(next);
       })
       // A failed read is not an empty list. Whatever was last known stands.
       .catch(() => undefined)
@@ -76,5 +79,6 @@ export const useTodos = (): readonly Todo[] | null =>
   useSyncExternalStore(subscribeTodos, todosSnapshot, () => null);
 
 export function resetTodos(): void {
+  loadSequence++;
   publish(null);
 }

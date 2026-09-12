@@ -2,6 +2,7 @@
 // Desktop only, like the updater below: there is no menu bar to put an icon
 // in on a phone.
 mod addons;
+mod attachments;
 
 #[cfg(desktop)]
 mod tray;
@@ -20,6 +21,7 @@ pub fn run() {
   let builder = tauri::Builder::default()
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_notification::init())
+    .plugin(tauri_plugin_dialog::init())
     // An addon frame is a fetched document on its own scheme, so it carries
     // its own Content-Security-Policy instead of inheriting the app's. See
     // `addons.rs`.
@@ -44,7 +46,9 @@ pub fn run() {
     })
     .invoke_handler(tauri::generate_handler![
       greet,
+      attachments::save_attachment,
       tray::set_schedule,
+      addons::authorize_addons,
       addons::install_addon,
       addons::forget_addon,
       addons::set_addon_secret,
@@ -53,15 +57,16 @@ pub fn run() {
     ]);
 
   #[cfg(not(desktop))]
-  let builder =
-    builder.invoke_handler(tauri::generate_handler![
-      greet,
-      addons::install_addon,
-      addons::forget_addon,
-      addons::set_addon_secret,
-      addons::addon_secret_keys,
-      addons::addon_fetch
-    ]);
+  let builder = builder.invoke_handler(tauri::generate_handler![
+    greet,
+    attachments::save_attachment,
+    addons::authorize_addons,
+    addons::install_addon,
+    addons::forget_addon,
+    addons::set_addon_secret,
+    addons::addon_secret_keys,
+    addons::addon_fetch
+  ]);
 
   builder
     .on_window_event(|window, event| {

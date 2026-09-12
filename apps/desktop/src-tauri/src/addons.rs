@@ -26,8 +26,13 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
-use std::time::Duration;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::{
+  atomic::{AtomicU64, Ordering},
+  LazyLock, Mutex,
+};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -42,6 +47,154 @@ pub const SCHEME: &str = "addon";
 
 const MAX_RESPONSE_BYTES: usize = 5 * 1024 * 1024;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_BUNDLE_BYTES: usize = 2 * 1024 * 1024;
+static STAGING_ID: AtomicU64 = AtomicU64::new(0);
+static AUTHORITIES: LazyLock<Mutex<HashMap<(String, String, String), Instant>>> =
+  LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Deserialize)]
+pub struct Authority {
+  id: String,
+  revision: String,
+}
+fn safe_mode_requested(mut arguments: impl Iterator<Item = String>) -> bool {
+  arguments.any(|arg| arg == "--safe-addons")
+}
+#[tauri::command]
+pub fn authorize_addons(account_id: String, releases: Vec<Authority>) -> Result<(), String> {
+  account_component(&account_id)?;
+  if !releases.is_empty() && safe_mode_requested(std::env::args()) {
+    return Err("Native addon safe mode: restart without --safe-addons to enable addons".into());
+  }
+  if releases.len() > 32
+    || releases
+      .iter()
+      .any(|r| !is_valid_id(&r.id) || !is_hash(&r.revision))
+  {
+    return Err("Invalid addon authorities".into());
+  }
+  let mut authorities = AUTHORITIES
+    .lock()
+    .map_err(|_| "Addon authority unavailable")?;
+  authorities.retain(|(account, _, _), until| account != &account_id && *until > Instant::now());
+  for release in releases {
+    authorities.insert(
+      (account_id.clone(), release.id, release.revision),
+      Instant::now() + Duration::from_secs(300),
+    );
+  }
+  Ok(())
+}
+fn authorized(account: &str, id: &str, revision: &str) -> bool {
+  AUTHORITIES
+    .lock()
+    .ok()
+    .and_then(|map| {
+      map
+        .get(&(account.into(), id.into(), revision.into()))
+        .copied()
+    })
+    .is_some_and(|until| until > Instant::now())
+}
+fn is_hash(value: &str) -> bool {
+  value.len() == 64
+    && value
+      .bytes()
+      .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+fn release_revision(manifest: &str, granted: &str, hash: &str) -> String {
+  sha256_hex(format!("{manifest}\n{granted}\n{hash}").as_bytes())
+}
+fn read_release(dir: &Path, revision: &str) -> Result<(String, String), String> {
+  if !is_hash(revision) {
+    return Err("Invalid release identity".into());
+  }
+  let read = |name: &str, max: u64| -> Result<String, String> {
+    let path = dir.join(name);
+    if fs::metadata(&path).map_err(|e| e.to_string())?.len() > max {
+      return Err("Release file too large".into());
+    }
+    fs::read_to_string(path).map_err(|e| e.to_string())
+  };
+  let manifest = read("manifest.json", 65536)?;
+  let granted = read("granted.json", 65536)?;
+  let bundle = read("addon.js", MAX_BUNDLE_BYTES as u64)?;
+  let hash = read("hash", 64)?;
+  if !is_hash(&hash)
+    || sha256_hex(bundle.as_bytes()) != hash
+    || release_revision(&manifest, &granted, &hash) != revision
+  {
+    return Err("Release verification failed".into());
+  }
+  Ok((granted, bundle))
+}
+/// Publish a complete directory with one rename. There is no mutable current pointer:
+/// the approved frontend frame URL is the activation, including its exact revision.
+fn stage_release(
+  root: &Path,
+  manifest: &str,
+  granted: &str,
+  bundle: &str,
+  hash: &str,
+) -> Result<String, String> {
+  if manifest.len() > 65536
+    || granted.len() > 65536
+    || bundle.len() > MAX_BUNDLE_BYTES
+    || !is_hash(hash)
+    || sha256_hex(bundle.as_bytes()) != hash
+  {
+    return Err("Invalid release size or hash".into());
+  }
+  let revision = release_revision(manifest, granted, hash);
+  let releases = root.join("releases");
+  fs::create_dir_all(&releases).map_err(|e| e.to_string())?;
+  let destination = releases.join(&revision);
+  if destination.exists() {
+    read_release(&destination, &revision)?;
+    return Ok(revision);
+  }
+  // Bound retained versions per addon. Never remove a release underneath a running frame.
+  if fs::read_dir(&releases).map_err(|e| e.to_string())?.count() >= 32 {
+    return Err("Release cache full; remove and reinstall this addon".into());
+  }
+  let staging = releases.join(format!(
+    ".stage-{}-{}",
+    std::process::id(),
+    STAGING_ID.fetch_add(1, Ordering::Relaxed)
+  ));
+  fs::create_dir(&staging).map_err(|e| e.to_string())?;
+  let result = (|| {
+    for (name, content) in [
+      ("manifest.json", manifest),
+      ("granted.json", granted),
+      ("addon.js", bundle),
+      ("hash", hash),
+    ] {
+      let mut file = fs::File::create(staging.join(name)).map_err(|e| e.to_string())?;
+      file
+        .write_all(content.as_bytes())
+        .map_err(|e| e.to_string())?;
+      file.sync_all().map_err(|e| e.to_string())?;
+    }
+    read_release(&staging, &revision)?;
+    if let Err(error) = fs::rename(&staging, &destination) {
+      // A concurrent installation of the same immutable snapshot is success,
+      // but never accept an existing corrupt directory as an activation.
+      if destination.exists() {
+        read_release(&destination, &revision)?;
+      } else {
+        return Err(error.to_string());
+      }
+    }
+    #[cfg(unix)]
+    fs::File::open(&releases)
+      .and_then(|file| file.sync_all())
+      .map_err(|e| e.to_string())?;
+    Ok(revision)
+  })();
+  let _ = fs::remove_dir_all(staging);
+  result
+}
 
 /// An addon id as a path component: lowercase, dot or hyphen separated. That
 /// shape has no separator, no `..` and no null byte, so it is safe to join
@@ -78,7 +231,11 @@ fn account_component(account_id: &str) -> Result<String, String> {
   Ok(sha256_hex(account_id.as_bytes()))
 }
 
-fn addon_dir<R: Runtime>(app: &AppHandle<R>, account_id: &str, id: &str) -> Result<PathBuf, String> {
+fn addon_dir<R: Runtime>(
+  app: &AppHandle<R>,
+  account_id: &str,
+  id: &str,
+) -> Result<PathBuf, String> {
   if !is_valid_id(id) {
     return Err(format!("not an addon id: {id}"));
   }
@@ -94,9 +251,9 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 /// Write an addon where the protocol handler can serve it.
 ///
-/// `hash` is the sha256 the registry published, or empty for an addon that
-/// ships inside the app. A bundle that does not match is refused before
-/// anything touches the disk.
+/// `hash` is mandatory: the published community digest or the digest of
+/// trusted signed-app assets computed by the host. A mismatch is refused
+/// before disk writes. Returns the immutable manifest/grant/code revision.
 ///
 /// # Errors
 ///
@@ -111,27 +268,14 @@ pub fn install_addon<R: Runtime>(
   granted: String,
   bundle: String,
   hash: String,
-) -> Result<(), String> {
+) -> Result<String, String> {
   serde_json::from_str::<serde_json::Value>(&manifest)
     .map_err(|error| format!("manifest is not JSON: {error}"))?;
   serde_json::from_str::<serde_json::Value>(&granted)
     .map_err(|error| format!("grant is not JSON: {error}"))?;
 
-  if !hash.is_empty() && sha256_hex(bundle.as_bytes()) != hash {
-    return Err("the bundle does not match its published hash".to_string());
-  }
-
   let dir = addon_dir(&app, &account_id, &id)?;
-  fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
-  let write = |name: &str, body: &str| {
-    fs::write(dir.join(name), body).map_err(|error| error.to_string())
-  };
-  write("manifest.json", &manifest)?;
-  write("granted.json", &granted)?;
-  write("addon.js", &bundle)?;
-  write("hash", &hash)?;
-
-  Ok(())
+  stage_release(&dir, &manifest, &granted, &bundle, &hash)
 }
 
 /// Remove everything the device holds for an addon, secrets included.
@@ -140,8 +284,16 @@ pub fn install_addon<R: Runtime>(
 ///
 /// A bad id, or a delete that failed.
 #[tauri::command]
-pub fn forget_addon<R: Runtime>(app: AppHandle<R>, account_id: String, id: String) -> Result<(), String> {
+pub fn forget_addon<R: Runtime>(
+  app: AppHandle<R>,
+  account_id: String,
+  id: String,
+) -> Result<(), String> {
   let dir = addon_dir(&app, &account_id, &id)?;
+  AUTHORITIES
+    .lock()
+    .map_err(|_| "Addon authority unavailable")?
+    .retain(|(account, addon, _), _| account != &account_id || addon != &id);
   if dir.exists() {
     fs::remove_dir_all(&dir).map_err(|error| error.to_string())?;
   }
@@ -176,12 +328,16 @@ fn origin_list(granted: &str, kind: &str) -> Option<Vec<String>> {
 }
 
 fn is_plain_https_origin(origin: &str) -> bool {
-  origin.starts_with("https://")
-    && !origin.contains('*')
-    && !origin.contains(' ')
-    && !origin.contains(';')
-    && !origin.contains('"')
-    && origin.matches('/').count() == 2
+  let Ok(url) = reqwest::Url::parse(origin) else {
+    return false;
+  };
+  url.scheme() == "https"
+    && !origin
+      .chars()
+      .any(|c| c.is_whitespace() || matches!(c, '*' | ';' | '"' | '\'' | '<' | '>'))
+    && url.username().is_empty()
+    && url.password().is_none()
+    && origin_of(&url).as_deref() == Some(origin)
 }
 
 /// The document an addon runs in. The only script is the bundle, so
@@ -194,7 +350,14 @@ fn document(bundle: &str, connect: &str, frame: &str) -> (String, String) {
   );
 
   // `</script` anywhere in the bundle would end the element early.
-  let safe = bundle.replace("</script", "<\\/script");
+  let mut safe = String::new();
+  let mut start = 0;
+  for (offset, _) in bundle.to_ascii_lowercase().match_indices("</script") {
+    safe.push_str(&bundle[start..offset]);
+    safe.push_str("<\\/script");
+    start = offset + 8;
+  }
+  safe.push_str(&bundle[start..]);
 
   let html = format!(
     "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n</head>\n\
@@ -212,33 +375,47 @@ fn not_found(reason: &str) -> http::Response<Vec<u8>> {
     .unwrap_or_else(|_| http::Response::new(Vec::new()))
 }
 
-/// Serve `addon://localhost/<id>`. The whole path is the id; there is no
-/// second route and nothing to decode.
+fn frame_identity(path: &str) -> Option<(String, &str, &str)> {
+  if path.len() > 1024 {
+    return None;
+  }
+  let mut parts = path.trim_start_matches('/').split('/');
+  let account = percent_encoding::percent_decode_str(parts.next()?)
+    .decode_utf8()
+    .ok()?
+    .into_owned();
+  let id = parts.next()?;
+  let revision = parts.next()?;
+  if parts.next().is_some()
+    || !is_valid_id(id)
+    || !is_hash(revision)
+    || account_component(&account).is_err()
+  {
+    return None;
+  }
+  Some((account, id, revision))
+}
+
+/// Serve only an approved `addon://localhost/<account>/<id>/<revision>`.
+/// The revision binds all files; a partial or unapproved snapshot cannot run.
 pub fn serve<R: Runtime>(
   ctx: UriSchemeContext<'_, R>,
   request: http::Request<Vec<u8>>,
 ) -> http::Response<Vec<u8>> {
   let path = request.uri().path().trim_start_matches('/');
-  let Some((account_id, id)) = path.split_once('/') else {
-    return http::Response::builder().status(404).body(Vec::new()).unwrap();
+  let Some((account_id, id, revision)) = frame_identity(path) else {
+    return not_found("Invalid addon release URL");
   };
-  let Ok(dir) = addon_dir(ctx.app_handle(), account_id, id) else {
+  let Ok(dir) = addon_dir(ctx.app_handle(), &account_id, id) else {
     return not_found("not an addon id");
   };
 
-  let (Ok(granted), Ok(bundle)) = (
-    fs::read_to_string(dir.join("granted.json")),
-    fs::read_to_string(dir.join("addon.js")),
-  ) else {
-    return not_found("that addon is not installed");
-  };
-
-  // Re-checked on every serve, so a bundle changed on disk after install is
-  // refused rather than run.
-  let hash = fs::read_to_string(dir.join("hash")).unwrap_or_default();
-  if !hash.is_empty() && sha256_hex(bundle.as_bytes()) != hash {
-    return not_found("that addon's bundle has changed since it was installed");
+  if !authorized(&account_id, id, revision) {
+    return not_found("Addon approval expired or withdrawn");
   }
+  let Ok((granted, bundle)) = read_release(&dir.join("releases").join(revision), revision) else {
+    return not_found("Release verification failed");
+  };
 
   let (html, csp) = document(
     &bundle,
@@ -257,11 +434,19 @@ pub fn serve<R: Runtime>(
 
 /* ── Secrets ─────────────────────────────────────────────────────────────── */
 
-fn secrets_path<R: Runtime>(app: &AppHandle<R>, account_id: &str, id: &str) -> Result<PathBuf, String> {
+fn secrets_path<R: Runtime>(
+  app: &AppHandle<R>,
+  account_id: &str,
+  id: &str,
+) -> Result<PathBuf, String> {
   Ok(addon_dir(app, account_id, id)?.join("secrets.json"))
 }
 
-fn read_secrets<R: Runtime>(app: &AppHandle<R>, account_id: &str, id: &str) -> Result<HashMap<String, String>, String> {
+fn read_secrets<R: Runtime>(
+  app: &AppHandle<R>,
+  account_id: &str,
+  id: &str,
+) -> Result<HashMap<String, String>, String> {
   let path = secrets_path(app, account_id, id)?;
   let Ok(text) = fs::read_to_string(&path) else {
     return Ok(HashMap::new());
@@ -323,7 +508,11 @@ pub fn set_addon_secret<R: Runtime>(
 ///
 /// A bad id, or a secrets file that is not JSON.
 #[tauri::command]
-pub fn addon_secret_keys<R: Runtime>(app: AppHandle<R>, account_id: String, id: String) -> Result<Vec<String>, String> {
+pub fn addon_secret_keys<R: Runtime>(
+  app: AppHandle<R>,
+  account_id: String,
+  id: String,
+) -> Result<Vec<String>, String> {
   let mut keys: Vec<String> = read_secrets(&app, &account_id, &id)?.into_keys().collect();
   keys.sort();
   Ok(keys)
@@ -388,22 +577,35 @@ pub async fn addon_fetch<R: Runtime>(
   app: AppHandle<R>,
   account_id: String,
   id: String,
+  revision: String,
   url: String,
   method: String,
   headers: HashMap<String, String>,
   body: Option<String>,
 ) -> Result<FetchReply, String> {
   let dir = addon_dir(&app, &account_id, &id)?;
-  let granted = fs::read_to_string(dir.join("granted.json"))
-    .map_err(|_| "that addon is not installed".to_string())?;
+  if !authorized(&account_id, &id, &revision) {
+    return Err("Addon approval expired or withdrawn".into());
+  }
+  let (granted, _) = read_release(&dir.join("releases").join(&revision), &revision)?;
+  if url.len() > 4096
+    || headers.len() > 64
+    || headers.iter().any(|(k, v)| k.len() > 128 || v.len() > 8192)
+    || body.as_ref().is_some_and(|b| b.len() > 65536)
+  {
+    return Err("Request limit exceeded".into());
+  }
 
   let parsed = reqwest::Url::parse(&url).map_err(|_| "not a URL".to_string())?;
+  if !parsed.username().is_empty() || parsed.password().is_some() {
+    return Err("URL credentials are not allowed".into());
+  }
   let origin = origin_of(&parsed).ok_or_else(|| "not a URL".to_string())?;
   let grant = fetch_grant_for(&granted, &origin)
     .ok_or_else(|| format!("This addon may not reach {origin}."))?;
 
-  let method = reqwest::Method::from_bytes(method.as_bytes())
-    .map_err(|_| "not an HTTP method".to_string())?;
+  let method =
+    reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| "not an HTTP method".to_string())?;
 
   let mut header_map = reqwest::header::HeaderMap::new();
   let auth_header = grant
@@ -412,7 +614,19 @@ pub async fn addon_fetch<R: Runtime>(
     .map(|auth| auth.header.to_ascii_lowercase());
   for (name, value) in headers {
     let lower = name.to_ascii_lowercase();
-    if lower == "cookie" || Some(&lower) == auth_header.as_ref() {
+    if [
+      "cookie",
+      "host",
+      "connection",
+      "content-length",
+      "transfer-encoding",
+      "proxy-authorization",
+      "proxy-connection",
+      "upgrade",
+    ]
+    .contains(&lower.as_str())
+      || Some(&lower) == auth_header.as_ref()
+    {
       continue;
     }
     let name = reqwest::header::HeaderName::from_bytes(lower.as_bytes())
@@ -467,6 +681,9 @@ pub async fn addon_fetch<R: Runtime>(
     bytes.extend_from_slice(&chunk);
   }
 
+  if !authorized(&account_id, &id, &revision) {
+    return Err("Addon approval expired or withdrawn".into());
+  }
   Ok(FetchReply {
     status,
     headers: reply_headers,
@@ -479,6 +696,93 @@ mod tests {
   use super::*;
 
   #[test]
+  fn immutable_release_staging_is_verified_and_interrupted_writes_do_not_activate() {
+    let root = std::env::temp_dir().join(format!(
+      "wr-addon-test-{}-{}",
+      std::process::id(),
+      STAGING_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    let first = stage_release(&root, "{}", "[]", "version1", &sha256_hex(b"version1")).unwrap();
+    let second = stage_release(&root, "{}", "[]", "version2", &sha256_hex(b"version2")).unwrap();
+    assert_ne!(first, second);
+    assert_eq!(
+      read_release(&root.join("releases").join(&first), &first)
+        .unwrap()
+        .1,
+      "version1"
+    );
+    assert!(stage_release(&root, "{}", "[]", "bad", "").is_err());
+    let interrupted = root.join("releases").join(".stage-interrupted");
+    fs::create_dir(&interrupted).unwrap();
+    fs::write(interrupted.join("addon.js"), "partial").unwrap();
+    assert!(read_release(&interrupted, &second).is_err());
+    assert_eq!(
+      read_release(&root.join("releases").join(&second), &second)
+        .unwrap()
+        .1,
+      "version2"
+    );
+    let dir = root.join("releases").join(&first);
+    fs::remove_file(dir.join("hash")).unwrap();
+    assert!(read_release(&dir, &first).is_err());
+    fs::write(dir.join("hash"), sha256_hex(b"version1")).unwrap();
+    fs::write(dir.join("granted.json"), "[{}]").unwrap();
+    assert!(read_release(&dir, &first).is_err());
+    fs::remove_dir_all(root).unwrap();
+  }
+
+  #[test]
+  fn frame_urls_decode_only_the_account_component_and_require_exact_revision() {
+    let revision = sha256_hex(b"revision");
+    let path = format!("/user%2Fwith%25value/example.test/{revision}");
+    let (account, id, found) = frame_identity(&path).unwrap();
+    assert_eq!(account, "user/with%value");
+    assert_eq!(id, "example.test");
+    assert_eq!(found, revision);
+    assert!(frame_identity(&format!("user/example.test/{revision}/extra")).is_none());
+    assert!(frame_identity(&format!("user/../{revision}")).is_none());
+    assert!(frame_identity("user/example.test/").is_none());
+    assert!(frame_identity(&format!("user%FF/example.test/{revision}")).is_none());
+  }
+
+  #[test]
+  fn out_of_band_safe_mode_is_explicit() {
+    assert!(safe_mode_requested(
+      ["app", "--safe-addons"].into_iter().map(str::to_string)
+    ));
+    assert!(!safe_mode_requested(
+      ["app", "--other"].into_iter().map(str::to_string)
+    ));
+  }
+
+  #[test]
+  fn native_authority_expires_and_is_account_and_revision_scoped() {
+    let revision = sha256_hex(b"release");
+    authorize_addons(
+      "lease-test".into(),
+      vec![Authority {
+        id: "example.test".into(),
+        revision: revision.clone(),
+      }],
+    )
+    .unwrap();
+    assert!(authorized("lease-test", "example.test", &revision));
+    assert!(!authorized("other-account", "example.test", &revision));
+    assert!(!authorized(
+      "lease-test",
+      "example.test",
+      &sha256_hex(b"other")
+    ));
+    AUTHORITIES.lock().unwrap().insert(
+      ("lease-test".into(), "example.test".into(), revision.clone()),
+      Instant::now() - Duration::from_secs(1),
+    );
+    assert!(!authorized("lease-test", "example.test", &revision));
+    authorize_addons("lease-test".into(), vec![]).unwrap();
+    assert!(!authorized("lease-test", "example.test", &revision));
+  }
+
+  #[test]
   fn account_namespaces_do_not_share_addon_secrets_or_accept_empty_identity() {
     let a = account_component("user-a").unwrap();
     let b = account_component("user-b").unwrap();
@@ -487,7 +791,9 @@ mod tests {
     assert_eq!(a.len(), 64);
     assert!(account_component("").is_err());
     // An identity cannot inject path components into the native store.
-    assert!(!account_component("../../another-user").unwrap().contains('/'));
+    assert!(!account_component("../../another-user")
+      .unwrap()
+      .contains('/'));
   }
 
   #[test]
@@ -496,8 +802,14 @@ mod tests {
       {"kind":"net:fetch","origins":["https://api.acme.example"]},
       {"kind":"ui:embed","origins":["https://player.acme.example"]}
     ]"#;
-    assert_eq!(origins_for(granted, "net:fetch"), "https://api.acme.example");
-    assert_eq!(origins_for(granted, "ui:embed"), "https://player.acme.example");
+    assert_eq!(
+      origins_for(granted, "net:fetch"),
+      "https://api.acme.example"
+    );
+    assert_eq!(
+      origins_for(granted, "ui:embed"),
+      "https://player.acme.example"
+    );
     assert_eq!(origins_for(granted, "open:external"), "'none'");
   }
 
@@ -511,8 +823,18 @@ mod tests {
   #[test]
   fn refuses_anything_that_could_leave_the_store() {
     for id in [
-      "..", "../etc", "a/../b", "a/b", "/absolute", ".hidden", "trailing.", "double..dot",
-      "Upper", "with space", "with\0null", "",
+      "..",
+      "../etc",
+      "a/../b",
+      "a/b",
+      "/absolute",
+      ".hidden",
+      "trailing.",
+      "double..dot",
+      "Upper",
+      "with space",
+      "with\0null",
+      "",
     ] {
       assert!(!is_valid_id(id), "{id} should be refused");
     }
@@ -522,7 +844,10 @@ mod tests {
   fn an_addon_granted_nothing_may_reach_nothing() {
     assert_eq!(origins_for("[]", "net:fetch"), "'none'");
     assert_eq!(origins_for("not json", "net:fetch"), "'none'");
-    assert_eq!(origins_for(r#"[{"kind":"ui:session"}]"#, "net:fetch"), "'none'");
+    assert_eq!(
+      origins_for(r#"[{"kind":"ui:session"}]"#, "net:fetch"),
+      "'none'"
+    );
   }
 
   #[test]
@@ -532,6 +857,9 @@ mod tests {
       "http://acme.example",
       "https://acme.example/path",
       "https://a.example; script-src *",
+      "https://a.example;script-src",
+      "https://user@a.example",
+      "https://a.example?query",
       "https://b.example c.example",
       "https://d.example\""
     ]}]"#;
@@ -543,6 +871,8 @@ mod tests {
     let (html, _) = document("</script><img onerror=alert(1)>", "'none'", "'none'");
     assert!(!html.contains("</script><img"));
     assert!(html.contains("<\\/script>"));
+    let (upper, _) = document("</SCRIPT><p>x</p>", "'none'", "'none'");
+    assert!(!upper.contains("</SCRIPT>"));
   }
 
   #[test]
@@ -567,7 +897,10 @@ mod tests {
       "auth":{"secret":"apiKey","header":"Authorization","prefix":"Bearer "}}]"#;
     let grant = fetch_grant_for(granted, "https://api.acme.example");
     assert!(grant.is_some());
-    assert_eq!(grant.and_then(|g| g.auth).map(|a| a.prefix), Some("Bearer ".to_string()));
+    assert_eq!(
+      grant.and_then(|g| g.auth).map(|a| a.prefix),
+      Some("Bearer ".to_string())
+    );
     assert!(fetch_grant_for(granted, "https://evil.example").is_none());
     assert!(fetch_grant_for(granted, "http://api.acme.example").is_none());
   }

@@ -171,9 +171,7 @@ fn due_starts(state: &mut DayState, now: i64) -> Vec<Entry> {
   let ready: Vec<Entry> = state
     .entries
     .iter()
-    .filter(|entry| {
-      entry.starts_at <= now && entry.starts_at > now - LATE
-    })
+    .filter(|entry| entry.starts_at <= now && entry.starts_at > now - LATE)
     .cloned()
     .collect();
 
@@ -303,7 +301,10 @@ fn refresh<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
      * push replaces it wholesale.
      */
     let day = app.state::<Day>();
-    let mut state = day.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut state = day
+      .0
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner());
     let due = due_starts(&mut state, now);
     (state.entries.clone(), due)
   };

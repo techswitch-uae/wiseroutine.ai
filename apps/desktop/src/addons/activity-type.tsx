@@ -63,6 +63,7 @@ function sessionFor(
             addon={addon}
             context={{
               kind: "session",
+              activityTypeKey: type.key,
               // Only the four fields the SDK publishes.
               slot: {
                 id: slot.id,
@@ -93,15 +94,25 @@ function configFormFor(
   );
 }
 
-/** Every activity type every installed addon defines, as modules. Rebuilt
- *  per call: the map changes when an addon is installed. */
+const cachedModules = new WeakMap<
+  InstalledAddon,
+  Record<string, ActivityModule>
+>();
+/** Stable component types for each loaded release: ordinary shell renders must not restart sessions. */
 export function addonModules(): Record<string, ActivityModule> {
   const modules: Record<string, ActivityModule> = {};
 
   for (const addon of installedAddons().values()) {
+    const cached = cachedModules.get(addon);
+    if (cached) {
+      Object.assign(modules, cached);
+      continue;
+    }
+    const own: Record<string, ActivityModule> = {};
+    cachedModules.set(addon, own);
     for (const type of addon.manifest.activityTypes) {
       const key = qualify(addon.manifest.id, type.key);
-      modules[key] = {
+      modules[key] = own[key] = {
         key,
         name: type.name,
         blurb: type.blurb,

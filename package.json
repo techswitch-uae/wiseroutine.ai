@@ -19,6 +19,10 @@
     "release:config": "node scripts/release-config.mjs",
     "release:frontend": "node scripts/release-config.mjs --check && turbo run typecheck build --filter=@wiseroutine/desktop...",
     "test:release": "node --test scripts/release-config.test.mjs",
+    "test:capture-browser": "pnpm --filter @wiseroutine/desktop exec playwright test quick-capture.spec.ts session-integrity.spec.ts",
+    "addon:verify": "pnpm --filter @wiseroutine/addons build && pnpm --filter @wiseroutine/addon-tools test && node --test scripts/addon-launch.test.mjs && node scripts/check-addon-catalog.mjs",
+    "addon:kit": "turbo run build --filter='./addons/*' --filter='@wiseroutine/addon-*' --filter=@wiseroutine/addons && node scripts/export-addon-kit.mjs",
+    "test:addon-browser": "pnpm --filter @wiseroutine/addon-sdk build && pnpm --filter @wiseroutine/addons build && pnpm --filter @wiseroutine/desktop exec playwright test --config playwright.addons.config.ts",
     "api": "pnpm --filter @wiseroutine/api dev",
     "wrangler": "pnpm --filter @wiseroutine/api exec wrangler",
     "release:preview": "pnpm dlx release-please release-pr --dry-run --repo-url=techswitch-uae/wiseroutine.ai --config-file=release-please-config.json --manifest-file=.release-please-manifest.json --token=$GITHUB_TOKEN",
@@ -26,7 +30,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.8",
-    "typescript": "^7.0.2",
-    "turbo": "^2.6.2"
+    "js-yaml": "4.3.1",
+    "turbo": "^2.6.2",
+    "typescript": "^7.0.2"
   }
 }

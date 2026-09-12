@@ -37,6 +37,12 @@ run **in workerd** via `@cloudflare/vitest-pool-workers`, against real D1 and KV
 bindings and the same migrations wrangler applies in production - not a jsdom
 approximation.
 
+## Product strategy
+
+[Launch and expansion strategy](docs/launch-strategy.md): the free core,
+ordered feature releases, future Free/Pro packaging, founding-user offer,
+milestone communications, and feature-flag rollout process.
+
 ## Addons
 
 Every guided session and rail card is an addon, written against

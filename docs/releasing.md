@@ -34,6 +34,8 @@ Use the root build graph (`pnpm build`) rather than invoking Vite directly on a 
 
 Apply directory migrations **before deploying the new Worker**, including the writer-lock and scheduled-work revision migrations. Run the project's migration command with the intended environment; see `setup-database.md` before selecting a database.
 
+Capture/inbox support requires user migration **`0015_capture.sql`** (currently **5 directory / 15 user migrations**). It adds private attachment storage and capture idempotency, preserves guided-activity identity on todos, and repairs stranded todo/slot links. Include the regenerated Prisma client and embedded migrations with the Worker. See [capture and rescheduling](capture-and-rescheduling.md) for storage limits and native acceptance checks.
+
 User databases catch up on authenticated requests and queue consumption. A schema upgrade failure now refuses the operation with a retryable error instead of continuing against an incompatible schema. Each migration commits together with its marker.
 
 ## Local-data compatibility

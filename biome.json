@@ -24,6 +24,8 @@
       "!**/.turbo",
       "!**/routeTree.gen.ts",
       "!**/public/addons",
+      "!**/test-results",
+      "!**/playwright-report",
       "!**/src/generated",
       "!**/.wrangler",
       "!**/.turso-local",

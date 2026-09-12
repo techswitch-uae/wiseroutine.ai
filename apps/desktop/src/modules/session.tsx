@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { api } from "../lib/api";
+import { api, type TodaySlot } from "../lib/api";
 import { notify } from "../lib/notify";
 import { reloadPlan, useTodayPlan } from "../lib/plan-store";
 import { runningSlot, sessionEndOf } from "../lib/running-slot";
 import { configFor, moduleFor } from "./activities";
+import { Reschedule } from "./reschedule";
+import { SessionActions } from "./session-actions";
 
 /**
  * The running slot, taking over the window.
@@ -24,6 +26,7 @@ import { configFor, moduleFor } from "./activities";
 
 export const SessionOverlay: React.FC = () => {
   const plan = useTodayPlan();
+  const [moving, setMoving] = useState<TodaySlot | null>(null);
   /**
    * A session the user has closed, so it does not immediately reopen.
    *
@@ -45,6 +48,15 @@ export const SessionOverlay: React.FC = () => {
     if (dismissed && slot?.id !== dismissed) setDismissed(null);
   }, [dismissed, slot]);
 
+  if (moving && plan)
+    return (
+      <Reschedule
+        slot={moving}
+        timeZone={plan.timeZone}
+        onClose={() => setMoving(null)}
+        onSaved={() => setDismissed(moving.id)}
+      />
+    );
   if (!slot || slot.id === dismissed) return null;
 
   const module = moduleFor(slot.presetKey);
@@ -72,11 +84,13 @@ export const SessionOverlay: React.FC = () => {
 
   const Session = module.Session;
   return (
-    <Session
-      slot={{ ...slot, endsAt: sessionEndOf(slot) }}
-      config={configFor(module, slot.configJson)}
-      onDone={() => finish("complete")}
-      onSkip={() => finish("skip")}
-    />
+    <SessionActions.Provider value={{ postpone: () => setMoving(slot) }}>
+      <Session
+        slot={{ ...slot, endsAt: sessionEndOf(slot) }}
+        config={configFor(module, slot.configJson)}
+        onDone={() => finish("complete")}
+        onSkip={() => finish("skip")}
+      />
+    </SessionActions.Provider>
   );
 };

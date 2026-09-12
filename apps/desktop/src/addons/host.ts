@@ -11,7 +11,6 @@ import { notify as toast } from "../lib/notify";
 import { openExternal } from "../lib/open-external";
 import { reloadPlan, subscribePlan, todaySnapshot } from "../lib/plan-store";
 import {
-  accountStorageKey,
   onSessionReset,
   sessionGeneration,
   sessionIdentity,
@@ -23,6 +22,7 @@ import {
   subscribeTodos,
   todosSnapshot,
 } from "../lib/todos";
+import { addonStorageKey, writeAddonValue } from "./storage";
 
 /**
  * The one place an addon's requests are answered.
@@ -38,6 +38,7 @@ import {
 
 /** What the host needs to serve an addon. `InstalledAddon` satisfies it. */
 export interface ServedAddon {
+  revision?: string;
   manifest: AddonManifest;
   /** The user's grant. Checked here; never the manifest. */
   granted: readonly AddonCapability[];
@@ -49,6 +50,7 @@ export interface ServedAddon {
 export type AddonContext =
   | {
       kind: "session";
+      activityTypeKey?: string;
       slot: unknown;
       config: unknown;
       /** Ends the session as done. The host completes the slot. */
@@ -139,7 +141,6 @@ export const isServing = (addonId: string): boolean =>
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in globalThis;
 
-const STORE_VALUE_LIMIT = 16 * 1024;
 const NOTIFY_INTERVAL = 10_000;
 const lastNotified = new Map<string, number>();
 
@@ -163,6 +164,7 @@ export function serve(
   addon: ServedAddon,
   /** Read per request, not captured, so the port survives re-renders. */
   contextOf: () => AddonContext,
+  authorized: () => boolean = () => true,
 ): () => void {
   const generation = sessionGeneration();
   const accountId = sessionIdentity();
@@ -200,7 +202,11 @@ export function serve(
       if (context.kind !== "session") {
         throw new Denied("This addon was not loaded as a session.");
       }
-      return { slot: context.slot, config: context.config };
+      return {
+        slot: context.slot,
+        config: context.config,
+        activityTypeKey: context.activityTypeKey,
+      };
     },
 
     finishSession: async () => {
@@ -360,6 +366,7 @@ export function serve(
       }>("addon_fetch", {
         accountId,
         id,
+        revision: addon.revision,
         url: p.input,
         method: typeof p.method === "string" ? p.method : "GET",
         headers,
@@ -423,7 +430,7 @@ export function serve(
     /** On this device, in the app's own storage, under the addon's id. */
     "store.get": async (params) => {
       const { key } = (params ?? {}) as { key?: unknown };
-      const raw = globalThis.localStorage?.getItem(storeKey(id, key));
+      const raw = globalThis.localStorage?.getItem(addonStorageKey(id, key));
       if (raw === null || raw === undefined) return undefined;
       try {
         return JSON.parse(raw);
@@ -437,20 +444,12 @@ export function serve(
         key?: unknown;
         value?: unknown;
       };
-      const name = storeKey(id, key);
-      if (value === undefined) {
-        globalThis.localStorage?.removeItem(name);
-        return undefined;
-      }
-      const text = JSON.stringify(value);
-      if (typeof text !== "string") throw new Denied("Not a JSON value.");
-      if (text.length > STORE_VALUE_LIMIT) {
-        throw new Denied("Too large. The store holds 16 KB per key.");
-      }
       try {
-        globalThis.localStorage?.setItem(name, text);
-      } catch {
-        throw new Denied("The store is full.");
+        writeAddonValue(globalThis.localStorage, id, key, value);
+      } catch (error) {
+        throw new Denied(
+          error instanceof Error ? error.message : "The store is full.",
+        );
       }
       return undefined;
     },
@@ -527,12 +526,38 @@ export function serve(
     },
   };
 
+  let closed = false;
+  let inFlight = 0;
+  let windowAt = Date.now();
+  let calls = 0;
   const onMessage = (event: MessageEvent<Request>) => {
-    if (generation !== sessionGeneration()) return;
+    if (closed || generation !== sessionGeneration() || !authorized()) return;
     const { id: callId, method, params } = event.data ?? {};
     if (typeof callId !== "number" || typeof method !== "string") return;
 
-    const handler = handlers[method];
+    if (!Number.isSafeInteger(callId) || method.length > 64) return;
+    if (Date.now() - windowAt >= 1000) {
+      windowAt = Date.now();
+      calls = 0;
+    }
+    let size = Infinity;
+    try {
+      size = new TextEncoder().encode(
+        JSON.stringify(params ?? null),
+      ).byteLength;
+    } catch {
+      /* Non-JSON wire data is refused. */
+    }
+    if (++calls > 60 || inFlight >= 8 || size > 64 * 1024) {
+      port.postMessage({
+        id: callId,
+        error: { message: "Addon request limit exceeded", kind: "denied" },
+      });
+      return;
+    }
+    const handler = Object.hasOwn(handlers, method)
+      ? handlers[method]
+      : undefined;
     if (!handler) {
       port.postMessage({
         id: callId,
@@ -541,9 +566,19 @@ export function serve(
       return;
     }
 
-    handler(params)
-      .then((result) => port.postMessage({ id: callId, result }))
+    inFlight++;
+    Promise.resolve()
+      .then(() => {
+        if (closed || generation !== sessionGeneration() || !authorized())
+          throw new Denied("Addon connection closed");
+        return handler(params);
+      })
+      .then((result) => {
+        if (!closed && generation === sessionGeneration() && authorized())
+          port.postMessage({ id: callId, result });
+      })
       .catch((error: unknown) => {
+        if (closed || generation !== sessionGeneration()) return;
         const denied = error instanceof Denied;
         port.postMessage({
           id: callId,
@@ -556,6 +591,9 @@ export function serve(
             kind: denied ? "denied" : "failed",
           },
         });
+      })
+      .finally(() => {
+        inFlight--;
       });
   };
 
@@ -582,6 +620,7 @@ export function serve(
   served.set(id, [...(served.get(id) ?? []), entry]);
 
   const stop = () => {
+    closed = true;
     const rest = (served.get(id) ?? []).filter((p) => p !== entry);
     if (rest.length > 0) served.set(id, rest);
     else served.delete(id);
@@ -593,15 +632,4 @@ export function serve(
   };
   const stopReset = onSessionReset(stop);
   return stop;
-}
-
-const STORE_KEY = /^[A-Za-z0-9_.-]{1,64}$/;
-
-function storeKey(addonId: string, key: unknown): string {
-  if (typeof key !== "string" || !STORE_KEY.test(key)) {
-    throw new Denied(
-      "A store key is letters, digits, dot, dash or underscore.",
-    );
-  }
-  return accountStorageKey(`wr.addon.${addonId}.${key}`);
 }

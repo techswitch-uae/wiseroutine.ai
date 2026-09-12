@@ -20,10 +20,17 @@ describe("what a row says", () => {
   });
 
   it("says so when today has no gap for it, and offers no button", () => {
-    expect(metaOf(todo({ minutes: null, fitsAt: null }), "UTC")).toBe(
-      "no length · no gap today",
-    );
+    expect(metaOf(todo({ fitsAt: null }), "UTC")).toBe("20 min · no gap today");
     expect(slotLabelOf(todo({ fitsAt: null }), "UTC")).toBeNull();
+  });
+
+  // Most todos are typed in a hurry and carry no estimate. Saying "no length"
+  // about the ordinary case spent the row's whole second line on a non-event.
+  it("leaves a missing length unsaid rather than naming it", () => {
+    expect(metaOf(todo({ minutes: null }), "UTC")).toBe("fits 12:00");
+    expect(metaOf(todo({ minutes: null, fitsAt: null }), "UTC")).toBe(
+      "no gap today",
+    );
   });
 
   it("reads the clock in the user's zone, not the frame's", () => {

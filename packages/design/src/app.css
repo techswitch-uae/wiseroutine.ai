@@ -637,6 +637,11 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
 .wr-widget-attention .wr-widget-time-soft {
   color: color-mix(in srgb, var(--color-neutral-100) 66%, transparent);
 }
+/* Same reason, for a second line borrowed from a light-surface row: the muted
+   token is near-black, and on this card that is invisible rather than quiet. */
+.wr-widget-attention .wr-slot-meta {
+  color: color-mix(in srgb, var(--color-neutral-100) 66%, transparent);
+}
 .wr-widget-empty {
   background: transparent; box-shadow: none; border: 1px dashed var(--wr-dashed);
   padding: 15px 17px; display: flex; align-items: center; gap: 10px;
@@ -2198,9 +2203,6 @@ button.wr-month-cell:hover { box-shadow: var(--wr-lift-2); }
   box-shadow: 0 1px 2px rgba(46, 43, 37, 0.06), 0 4px 12px rgba(46, 43, 37, 0.07);
 }
 .wr-palette-chip:hover { box-shadow: 0 2px 5px rgba(46, 43, 37, 0.1), 0 10px 22px rgba(46, 43, 37, 0.14); }
-.wr-palette-chip-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--color-accent-2-600); }
-.wr-palette-chip-dot-focus { background: var(--color-accent); }
-.wr-palette-chip-meta { font: 400 11.5px var(--font-body); color: var(--wr-text-muted); }
 .wr-palette-chip .wr-keycap { padding: 2px 6px; }
 .wr-palette-row {
   display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
@@ -2228,16 +2230,29 @@ button.wr-month-cell:hover { box-shadow: var(--wr-lift-2); }
   box-shadow: inset 0 0 0 1px rgba(46, 43, 37, 0.08);
 }
 .wr-palette-pill-on { background: var(--color-accent-700); color: #fff; box-shadow: none; }
-.wr-palette-hint { margin-left: auto; font: 400 11px var(--font-body); color: var(--wr-text-muted); }
-.wr-palette-time { display: flex; gap: 10px; align-items: center; }
-.wr-palette-time input {
-  font: 600 14px var(--font-body); padding: 8px 12px; border-radius: 999px; border: 0;
-  background: var(--color-neutral-100); color: var(--color-text);
+/* A pill you can type a number into. Same height, same ground and same radius
+   as the chips beside it, so the row has one baseline rather than a form field
+   standing among buttons. */
+.wr-palette-pill-field {
+  display: inline-flex; align-items: baseline; gap: 4px; cursor: text;
+  /* Dashed and set apart at the end of the row - the same "not one of these,
+     type your own" that `wr-palette-row-dashed` means. Solid and inline it was
+     a fifth chip reading "15 min" beside the selected "15 min", which looked
+     like the same choice twice. */
+  margin-left: auto; background: transparent;
+  box-shadow: none; border: 1px dashed #cdbe9f;
 }
+.wr-palette-pill-field input {
+  width: 3ch; min-width: 0; border: 0; padding: 0; background: transparent;
+  color: var(--color-text); font: inherit; text-align: right;
+  font-variant-numeric: tabular-nums; outline: none;
+  -moz-appearance: textfield; appearance: textfield;
+}
+.wr-palette-pill-field input::-webkit-outer-spin-button,
+.wr-palette-pill-field input::-webkit-inner-spin-button { appearance: none; margin: 0; }
+.wr-palette-pill-field:focus-within { box-shadow: inset 0 0 0 1.5px var(--color-accent); }
 .wr-palette-foot {
   display: flex; align-items: center; gap: 14px; padding: 11px 24px;
   font: 400 11px var(--font-body); color: var(--wr-text-muted);
 }
 .wr-palette-foot span { display: inline-flex; align-items: center; gap: 5px; }
-.wr-palette-foot .wr-palette-hint { margin-left: auto; }
-.wr-palette-empty { font: 400 12.5px var(--font-body); color: var(--wr-text-muted); margin: 2px 0; }

@@ -1,67 +1,134 @@
 import {
   type AddonCapability,
   type AddonManifest,
+  type ApprovalKeys,
+  canonicalJSON,
+  MAX_BUNDLE_BYTES,
   parseCapabilities,
   parseConfig,
   parseManifest,
+  verifyRelease,
 } from "@wiseroutine/addons";
 import { useSyncExternalStore } from "react";
-import { type AvailableAddon, api, type InstalledAddonRow } from "../lib/api";
+import trust from "../../../../addon-registry/trust.json" with { type: "json" };
+import { api, type InstalledAddonRow } from "../lib/api";
 import {
   accountStorageKey,
   onSessionReset,
   sessionGeneration,
   sessionIdentity,
 } from "../lib/session-lifecycle";
+import { addonStoragePrefix } from "./storage";
 
-/** Whether there is a Tauri host to talk to. */
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in globalThis;
-
-async function invoke<T>(command: string, args: unknown): Promise<T> {
+async function invoke<T>(
+  command: string,
+  args: Record<string, unknown>,
+): Promise<T> {
   const core = await import("@tauri-apps/api/core");
-  return core.invoke<T>(command, args as Record<string, unknown>);
+  return core.invoke<T>(command, args);
 }
-
-/**
- * Hand an addon to Rust, which serves the frame. Rust checks the hash again
- * and refuses a bundle that does not match. Web build: nothing to hand to.
- */
-async function store(addon: InstalledAddon, hash: string): Promise<void> {
-  if (!inTauri()) return;
-  await invoke("install_addon", {
-    id: addon.manifest.id,
-    accountId: sessionIdentity(),
-    manifest: JSON.stringify(addon.manifest),
-    granted: JSON.stringify(addon.granted),
-    bundle: addon.bundle,
-    hash,
-  });
+export interface InstalledAddon {
+  manifest: AddonManifest;
+  granted: readonly AddonCapability[];
+  settings: Record<string, unknown>;
+  author: string;
+  bundled: boolean;
+  bundle: string;
+  revision?: string;
 }
-
-/** Take everything the device holds for an addon: bundle, secrets, store. */
-export async function forgetAddon(id: string): Promise<void> {
-  const prefix = accountStorageKey(`wr.addon.${id}.`);
+let addons: ReadonlyMap<string, InstalledAddon> = new Map();
+let problems: ReadonlyMap<string, string> = new Map();
+let sequence = 0;
+let checkedAt = 0;
+let nativeAccount: string | null = null;
+let authorityQueue: Promise<unknown> = Promise.resolve();
+function authorize(
+  next: ReadonlyMap<string, InstalledAddon>,
+  accountId: string | null,
+): Promise<unknown> {
+  if (!inTauri() || !accountId) return Promise.resolve();
+  nativeAccount = accountId;
+  const releases = [...next.values()]
+    .filter((addon) => addon.revision)
+    .map((addon) => ({ id: addon.manifest.id, revision: addon.revision }));
+  authorityQueue = authorityQueue
+    .catch(() => undefined)
+    .then(() => invoke("authorize_addons", { accountId, releases }));
+  return authorityQueue;
+}
+export function addonSafeMode(): boolean {
   try {
-    const keys = Object.keys(globalThis.localStorage ?? {});
-    for (const key of keys) {
-      if (key.startsWith(prefix)) globalThis.localStorage.removeItem(key);
-    }
-  } catch {
-    // No storage. Nothing to forget.
-  }
-  if (inTauri())
-    await invoke("forget_addon", { id, accountId: sessionIdentity() }).catch(
-      () => undefined,
+    return (
+      localStorage.getItem(accountStorageKey("wr.addons.safe-mode")) === "true"
     );
+  } catch {
+    return false;
+  }
 }
+export function setAddonSafeMode(enabled: boolean): void {
+  localStorage.setItem(
+    accountStorageKey("wr.addons.safe-mode"),
+    String(enabled),
+  );
+  sequence++;
+  publish(new Map());
+  void authorize(new Map(), sessionIdentity()).catch(() => undefined);
+  if (!enabled) void loadAddons();
+}
+export function addonAuthorized(addon: InstalledAddon): boolean {
+  return (
+    addons.get(addon.manifest.id) === addon &&
+    !addonSafeMode() &&
+    (addon.bundled || Date.now() - checkedAt < 5 * 60000)
+  );
+}
+const listeners = new Set<() => void>();
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+};
+function publish(
+  next: ReadonlyMap<string, InstalledAddon>,
+  errors: ReadonlyMap<string, string> = new Map(),
+): void {
+  addons = next;
+  problems = errors;
+  for (const listener of listeners) listener();
+}
+onSessionReset(() => {
+  sequence++;
+  checkedAt = 0;
+  publish(new Map());
+  void authorize(new Map(), nativeAccount).catch(() => undefined);
+});
+export const installedAddons = (): ReadonlyMap<string, InstalledAddon> =>
+  addons;
+export const useInstalledAddons = () =>
+  useSyncExternalStore(subscribe, installedAddons, installedAddons);
+const problemSnapshot = () => problems;
+export const useAddonProblems = () =>
+  useSyncExternalStore(subscribe, problemSnapshot, problemSnapshot);
 
-/**
- * The URL the frame is served from, or null when there is no host to serve
- * it. Built with Tauri's own `convertFileSrc` because it differs by platform.
- */
-export function frameUrlFor(id: string): string | null {
+export async function forgetAddon(id: string): Promise<void> {
+  const next = new Map(addons);
+  next.delete(id);
+  publish(next, problems); // Stop ports even if device cleanup later fails.
+  const accountId = sessionIdentity();
+  const prefix = addonStoragePrefix(id);
+  try {
+    for (const key of Object.keys(localStorage))
+      if (key.startsWith(prefix)) localStorage.removeItem(key);
+  } catch {
+    /* unavailable storage */
+  }
+  if (inTauri()) await invoke("forget_addon", { id, accountId });
+}
+export function frameUrlFor(id: string, revision?: string): string | null {
   if (!inTauri()) return null;
-  const internals = (
+  const host = (
     globalThis as unknown as {
       __TAURI_INTERNALS__?: {
         convertFileSrc?: (path: string, protocol: string) => string;
@@ -69,190 +136,248 @@ export function frameUrlFor(id: string): string | null {
     }
   ).__TAURI_INTERNALS__;
   const account = sessionIdentity();
-  return account
-    ? (internals?.convertFileSrc?.(
-        `${encodeURIComponent(account)}/${id}`,
-        "addon",
-      ) ?? null)
+  // convertFileSrc encodes the entire file path (including slashes). Obtain
+  // only its platform-specific origin, then append our separate URL segments.
+  const base = host?.convertFileSrc?.("", "addon");
+  return account && base
+    ? `${base}${encodeURIComponent(account)}/${id}${revision ? `/${revision}` : ""}`
     : null;
 }
-
-/**
- * An installed addon, loaded.
- *
- * `granted` is what the user approved, and is what the host checks. It can
- * be narrower than `manifest.capabilities`.
- */
-export interface InstalledAddon {
-  manifest: AddonManifest;
-  granted: readonly AddonCapability[];
-  /** Addon-level settings, parsed against the manifest. Never secrets. */
-  settings: Record<string, unknown>;
-  author: string;
-  bundled: boolean;
-  /** The built bundle, as text. */
-  bundle: string;
-}
-
-let addons: ReadonlyMap<string, InstalledAddon> = new Map();
-let loadSequence = 0;
-onSessionReset(() => {
-  loadSequence++;
-  publish(new Map());
-});
-const listeners = new Set<() => void>();
-
-const snapshot = (): ReadonlyMap<string, InstalledAddon> => addons;
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
-function publish(next: ReadonlyMap<string, InstalledAddon>): void {
-  addons = next;
-  for (const listen of listeners) listen();
-}
-
-/** Every installed addon, right now. For code that is not a component. */
-export const installedAddons = snapshot;
-
-export const useInstalledAddons = (): ReadonlyMap<string, InstalledAddon> =>
-  useSyncExternalStore(subscribe, snapshot, snapshot);
-
 export async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest(
+  const bytes = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(text),
   );
-  return [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
+  return [...new Uint8Array(bytes)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
 }
-
-/**
- * Fetch one addon's bundle, check it, and hand it to the device.
- *
- * The manifest and grant are the server's, which is what the user approved.
- * A bundle that does not hash to what the registry published is dropped:
- * the addon is then simply not loaded.
- */
-async function load(
-  row: InstalledAddonRow,
-  entry: { bundleUrl: string; bundleHash: string; author: string },
-  manifest: AddonManifest,
-  generation: number,
-): Promise<InstalledAddon | null> {
+export async function boundedText(
+  response: Response,
+  maximum = MAX_BUNDLE_BYTES,
+): Promise<string> {
+  if (!response.ok || !response.body)
+    throw new Error(`Download failed (${response.status})`);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
   try {
-    const response = await fetch(entry.bundleUrl);
-    if (!response.ok) return null;
-    const bundle = await response.text();
-
-    if (entry.bundleHash && (await sha256Hex(bundle)) !== entry.bundleHash) {
-      return null;
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      size += chunk.value.byteLength;
+      if (size > maximum) throw new Error("Addon download exceeds size limit");
+      chunks.push(chunk.value);
     }
-
-    const granted = parseCapabilities(row.granted) ?? [];
-    const addon: InstalledAddon = {
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+    bytes,
+  );
+}
+const textAt = async (url: string, max = MAX_BUNDLE_BYTES) =>
+  boundedText(
+    await fetch(url, { signal: AbortSignal.timeout(10000), redirect: "error" }),
+    max,
+  );
+async function installNative(
+  addon: InstalledAddon,
+  hash: string,
+  accountId: string | null,
+): Promise<void> {
+  const manifest = JSON.stringify(addon.manifest),
+    granted = JSON.stringify(addon.granted);
+  addon.revision = await sha256Hex(`${manifest}\n${granted}\n${hash}`);
+  if (inTauri()) {
+    const revision = await invoke<string>("install_addon", {
+      id: addon.manifest.id,
+      accountId,
       manifest,
       granted,
-      settings: parseConfig(manifest, row.settings),
-      author: entry.author,
-      bundled: row.bundled,
-      bundle,
-    };
-    if (generation !== sessionGeneration()) return null;
-    await store(addon, entry.bundleHash);
-    return addon;
-  } catch {
-    // A missing or refused addon is a missing addon, not a broken app.
-    return null;
+      bundle: addon.bundle,
+      hash,
+    });
+    if (revision !== addon.revision)
+      throw new Error("Native release identity mismatch");
   }
 }
-
-/**
- * A local addon during development.
- *
- * Set `VITE_ADDON_SIDELOAD` to a URL that serves `manifest.json` and
- * `addon.js`. It is loaded with everything it asks for, on top of what is
- * installed. Development builds only.
- */
-async function sideload(): Promise<InstalledAddon | null> {
-  const base = import.meta.env.DEV
-    ? (import.meta.env.VITE_ADDON_SIDELOAD as string | undefined)
-    : undefined;
-  if (!base) return null;
-  try {
-    const url = base.replace(/\/$/, "");
-    const manifest = parseManifest(
-      await fetch(`${url}/manifest.json`).then((r) => r.json()),
-    );
-    if (!manifest) return null;
-    const bundle = await fetch(`${url}/addon.js`).then((r) => r.text());
-    const addon: InstalledAddon = {
-      manifest,
-      granted: manifest.capabilities,
-      settings: parseConfig(manifest, {}),
-      author: "Sideloaded",
-      bundled: false,
-      bundle,
-    };
-    await store(addon, "").catch(() => undefined);
-    return addon;
-  } catch {
-    return null;
-  }
+function unchanged(
+  old: InstalledAddon,
+  row: InstalledAddonRow,
+  manifest: AddonManifest,
+): boolean {
+  return (
+    old.manifest.version === row.version &&
+    canonicalJSON(old.manifest) === canonicalJSON(manifest) &&
+    canonicalJSON(old.granted) === canonicalJSON(row.granted) &&
+    canonicalJSON(old.settings) ===
+      canonicalJSON(parseConfig(manifest, row.settings))
+  );
 }
 
-/**
- * Load every addon this user has installed and switched on. Called from the
- * app shell, and again after anything is installed, changed or removed.
- */
+/** Exact installed releases, never a lookup in the latest catalog by ID. */
 export async function loadAddons(): Promise<void> {
-  const generation = sessionGeneration();
-  const sequence = ++loadSequence;
+  const generation = sessionGeneration(),
+    request = ++sequence,
+    accountId = sessionIdentity();
+  if (addonSafeMode()) {
+    publish(new Map());
+    await authorize(new Map(), accountId);
+    return;
+  }
   let rows: InstalledAddonRow[];
   try {
     rows = (await api.installedAddons()).addons;
   } catch {
-    // Offline, or not signed in yet. Keep what is already loaded.
+    if (
+      generation === sessionGeneration() &&
+      request === sequence &&
+      Date.now() - checkedAt > 5 * 60000
+    ) {
+      const errors = new Map<string, string>();
+      const next = new Map(
+        [...addons].filter(([id, addon]) => {
+          if (addon.bundled) return true;
+          errors.set(
+            id,
+            "Approval could not be refreshed. Reconnect to run this addon.",
+          );
+          return false;
+        }),
+      );
+      publish(next, errors);
+      await authorize(next, accountId).catch(() => undefined);
+    }
     return;
   }
-
-  const available = await api
-    .availableAddons()
-    .then((response) => response.addons)
-    .catch(() => [] as AvailableAddon[]);
-
-  const loaded = await Promise.all(
-    rows
-      // Off is still installed but not loaded. Revoked stops running here.
-      .filter((row) => row.isEnabled && !row.revoked)
-      .map(async (row) => {
-        const manifest = parseManifest(row.manifest);
-        if (!manifest || manifest.id !== row.id) return null;
-
-        const entry = available.find((candidate) => candidate.id === row.id);
-        if (!entry) return null;
-
-        return load(row, entry, manifest, generation);
-      }),
+  if (generation !== sessionGeneration() || request !== sequence) return;
+  const retained = new Map(
+    [...addons].filter(([id, old]) =>
+      rows.some(
+        (row) =>
+          row.id === id &&
+          row.isEnabled &&
+          !row.revoked &&
+          unchanged(old, row, parseManifest(row.manifest) ?? old.manifest),
+      ),
+    ),
   );
-
-  const next = new Map<string, InstalledAddon>();
-  for (const addon of [...loaded, await sideload()]) {
-    if (addon) next.set(addon.manifest.id, addon);
+  publish(retained, problems);
+  await authorize(retained, accountId).catch(() => undefined);
+  const next = new Map<string, InstalledAddon>(),
+    errors = new Map<string, string>();
+  // Sequential and bounded: a catalog must not fan out unlimited downloads/native writes.
+  for (const row of rows.slice(0, 32)) {
+    if (generation !== sessionGeneration() || request !== sequence) return;
+    if (!row.isEnabled || row.revoked) continue;
+    try {
+      const manifest = parseManifest(row.manifest);
+      if (
+        !manifest ||
+        manifest.id !== row.id ||
+        manifest.version !== row.version
+      )
+        throw new Error("Unsupported or mismatched addon manifest");
+      if (!row.bundled) {
+        if (
+          !row.approval ||
+          !(await verifyRelease(row.approval, trust as ApprovalKeys))
+        )
+          throw new Error("This release is not approved by a trusted key");
+        const p = row.approval.payload;
+        if (
+          p.id !== row.id ||
+          p.version !== row.version ||
+          p.bundleHash !== row.bundleHash ||
+          canonicalJSON(parseManifest(p.manifest)) !== canonicalJSON(manifest)
+        )
+          throw new Error("Installed release does not match its approval");
+      }
+      const old = addons.get(row.id);
+      if (
+        old &&
+        unchanged(old, row, manifest) &&
+        (row.bundled || row.bundleHash === (await sha256Hex(old.bundle)))
+      ) {
+        next.set(row.id, old);
+        continue;
+      }
+      let bundle: string;
+      if (row.bundled) {
+        const local = parseManifest(
+          JSON.parse(
+            await textAt(`/addons/${row.id}/manifest.json`, 64 * 1024),
+          ),
+        );
+        if (canonicalJSON(local) !== canonicalJSON(manifest))
+          throw new Error("Update the desktop app to use this bundled release");
+        bundle = await textAt(`/addons/${row.id}/addon.js`);
+      } else {
+        if (!row.bundleHash) throw new Error("Missing community bundle digest");
+        bundle = await boundedText(await api.addonBundle(row.bundleHash));
+      }
+      const hash = await sha256Hex(bundle);
+      if (!row.bundled && hash !== row.bundleHash)
+        throw new Error("Addon bundle hash mismatch");
+      const granted = parseCapabilities(row.granted);
+      if (!granted) throw new Error("Invalid addon grant");
+      const addon: InstalledAddon = {
+        manifest,
+        granted,
+        settings: parseConfig(manifest, row.settings),
+        author: row.approval?.payload.author ?? "Wise Routine",
+        bundled: row.bundled,
+        bundle,
+      };
+      if (generation !== sessionGeneration() || request !== sequence) return;
+      await installNative(addon, hash, accountId);
+      next.set(row.id, addon);
+    } catch (error) {
+      errors.set(
+        row.id,
+        error instanceof Error ? error.message : "Could not load addon",
+      );
+    }
   }
-  if (generation === sessionGeneration() && sequence === loadSequence)
-    publish(next);
+  if (generation === sessionGeneration() && request === sequence) {
+    try {
+      await authorize(next, accountId);
+    } catch {
+      next.clear();
+      errors.set(
+        "native",
+        "Native addon approval failed. Restart the app or use safe mode.",
+      );
+    }
+    if (generation === sessionGeneration() && request === sequence) {
+      checkedAt = Date.now();
+      publish(next, errors);
+    }
+  }
 }
-
-/**
- * Test seam. Puts addons straight into the store without a fetch, a Rust
- * command or a frame. Called with nothing, it empties the store.
- */
+/** Approval lease: foreground/online checks plus a bounded periodic refresh. */
+export function watchAddons(): () => void {
+  const refresh = () => {
+    void loadAddons();
+  };
+  refresh();
+  const timer = setInterval(refresh, 30000);
+  globalThis.addEventListener("focus", refresh);
+  globalThis.addEventListener("online", refresh);
+  return () => {
+    sequence++;
+    clearInterval(timer);
+    globalThis.removeEventListener("focus", refresh);
+    globalThis.removeEventListener("online", refresh);
+  };
+}
 export function seedAddons(next: Iterable<InstalledAddon> = []): void {
-  const map = new Map<string, InstalledAddon>();
-  for (const addon of next) map.set(addon.manifest.id, addon);
-  publish(map);
+  publish(new Map([...next].map((addon) => [addon.manifest.id, addon])));
 }

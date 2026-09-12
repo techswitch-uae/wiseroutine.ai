@@ -18,6 +18,7 @@ import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppActivitiesRouteImport } from './routes/_app.activities'
 import { Route as AppAddonsRouteImport } from './routes/_app.addons'
 import { Route as AppCalendarsRouteImport } from './routes/_app.calendars'
+import { Route as AppInboxRouteImport } from './routes/_app.inbox'
 import { Route as AppMonthRouteImport } from './routes/_app.month'
 import { Route as AppSettingsRouteImport } from './routes/_app.settings'
 import { Route as AppWeekRouteImport } from './routes/_app.week'
@@ -67,6 +68,11 @@ const AppCalendarsRoute = AppCalendarsRouteImport.update({
   path: '/calendars',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInboxRoute = AppInboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppMonthRoute = AppMonthRouteImport.update({
   id: '/month',
   path: '/month',
@@ -97,6 +103,7 @@ export interface FileRoutesByFullPath {
   '/activities': typeof AppActivitiesRoute
   '/addons': typeof AppAddonsRoute
   '/calendars': typeof AppCalendarsRoute
+  '/inbox': typeof AppInboxRoute
   '/month': typeof AppMonthRoute
   '/settings': typeof AppSettingsRoute
   '/week': typeof AppWeekRoute
@@ -110,6 +117,7 @@ export interface FileRoutesByTo {
   '/activities': typeof AppActivitiesRoute
   '/addons': typeof AppAddonsRoute
   '/calendars': typeof AppCalendarsRoute
+  '/inbox': typeof AppInboxRoute
   '/month': typeof AppMonthRoute
   '/settings': typeof AppSettingsRoute
   '/week': typeof AppWeekRoute
@@ -126,6 +134,7 @@ export interface FileRoutesById {
   '/_app/activities': typeof AppActivitiesRoute
   '/_app/addons': typeof AppAddonsRoute
   '/_app/calendars': typeof AppCalendarsRoute
+  '/_app/inbox': typeof AppInboxRoute
   '/_app/month': typeof AppMonthRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/week': typeof AppWeekRoute
@@ -143,6 +152,7 @@ export interface FileRouteTypes {
     | '/activities'
     | '/addons'
     | '/calendars'
+    | '/inbox'
     | '/month'
     | '/settings'
     | '/week'
@@ -156,6 +166,7 @@ export interface FileRouteTypes {
     | '/activities'
     | '/addons'
     | '/calendars'
+    | '/inbox'
     | '/month'
     | '/settings'
     | '/week'
@@ -171,6 +182,7 @@ export interface FileRouteTypes {
     | '/_app/activities'
     | '/_app/addons'
     | '/_app/calendars'
+    | '/_app/inbox'
     | '/_app/month'
     | '/_app/settings'
     | '/_app/week'
@@ -252,6 +264,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCalendarsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/inbox': {
+      id: '/_app/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof AppInboxRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/month': {
       id: '/_app/month'
       path: '/month'
@@ -287,6 +306,7 @@ interface AppRouteChildren {
   AppActivitiesRoute: typeof AppActivitiesRoute
   AppAddonsRoute: typeof AppAddonsRoute
   AppCalendarsRoute: typeof AppCalendarsRoute
+  AppInboxRoute: typeof AppInboxRoute
   AppMonthRoute: typeof AppMonthRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppWeekRoute: typeof AppWeekRoute
@@ -297,6 +317,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppActivitiesRoute: AppActivitiesRoute,
   AppAddonsRoute: AppAddonsRoute,
   AppCalendarsRoute: AppCalendarsRoute,
+  AppInboxRoute: AppInboxRoute,
   AppMonthRoute: AppMonthRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppWeekRoute: AppWeekRoute,

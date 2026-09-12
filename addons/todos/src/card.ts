@@ -20,19 +20,53 @@ const clockIn = (at: number, timeZone: string): string =>
     timeZone,
   }).format(at);
 
-/** The row's second line: how long, and where it would land today. */
+/**
+ * The row's second line: how long, and where it would land today.
+ *
+ * A missing length is left unsaid rather than spelled "no length". It is the
+ * ordinary case for something typed in a hurry, it is not news, and in a
+ * 108px column that phrase was what pushed the line onto a second row.
+ */
 export function metaOf(todo: Todo, timeZone: string): string {
-  const length = todo.minutes === null ? "no length" : `${todo.minutes} min`;
   const fit =
     todo.fitsAt === null
       ? "no gap today"
       : `fits ${clockIn(todo.fitsAt, timeZone)}`;
-  return `${length} · ${fit}`;
+  return todo.minutes === null ? fit : `${todo.minutes} min · ${fit}`;
 }
 
-/** The "Slot" button's label, or null when there is nowhere to slot it. */
+/**
+ * The slot button's accessible name, or null when there is nowhere to put it.
+ *
+ * A name, not a label: the button draws an icon. The time it would land at is
+ * already on the row's second line, and printing it twice is what forced the
+ * button wide enough that it could only appear on hover.
+ */
 export const slotLabelOf = (todo: Todo, timeZone: string): string | null =>
   todo.fitsAt === null ? null : `Slot ${clockIn(todo.fitsAt, timeZone)}`;
+
+/**
+ * The kit's icons, drawn by hand because a frame cannot import them.
+ *
+ * Tabler's own paths at Tabler's own 24-box, so these are the same glyphs the
+ * app uses rather than a second set that merely looks similar. Stroke 2.4 and
+ * `currentColor` to match `packages/design/src/icons.tsx`.
+ */
+const icon = (paths: readonly string[]): string =>
+  `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+    stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+    >${paths.map((d) => `<path d="${d}"></path>`).join("")}</svg>`;
+
+const CALENDAR_PLUS = icon([
+  "M12.5 21h-6.5a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v5",
+  "M16 3v4",
+  "M8 3v4",
+  "M4 11h16",
+  "M16 19h6",
+  "M19 16v6",
+]);
+
+const CROSS = icon(["M18 6l-12 12", "M6 6l12 12"]);
 
 /**
  * What was typed in the add row, read as a todo.
@@ -65,6 +99,9 @@ export function markup(theme: AddonTheme): string {
     display: flex; align-items: center; gap: 10px; padding: 9px 11px;
     border-radius: 13px; border: 1px solid ${theme.hairline};
   }
+  /* The row answers the pointer with its ground, the way every other row in
+     the app does - there is nothing left to reveal. */
+  .row:hover { border-color: ${theme.muted}; }
   .row.done { opacity: .55; }
   .row.done .title { text-decoration: line-through; }
   .tick {
@@ -74,18 +111,29 @@ export function markup(theme: AddonTheme): string {
   .tick:hover { border-color: ${theme.accent}; }
   .text { flex: 1; min-width: 0; }
   .title { font: 600 12.5px/1.3 ${theme.fontBody}; overflow-wrap: anywhere; }
-  .meta { font: 400 11px/1.3 ${theme.fontBody}; color: ${theme.muted}; }
-  .acts { display: none; gap: 5px; flex: none; }
-  .row:hover .acts, .row:focus-within .acts { display: flex; }
-  .row:hover .meta { display: none; }
-  .slot {
-    padding: 5px 10px; border-radius: 999px; border: 0; cursor: pointer;
-    background: ${theme.accent}; color: #fff; font: 600 10.5px ${theme.fontBody};
+  /* One line, always. The row's height must not depend on how long a todo's
+     second line happens to be. */
+  .meta {
+    font: 400 11px/1.3 ${theme.fontBody}; color: ${theme.muted};
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .drop {
-    width: 22px; height: 22px; border-radius: 999px; border: 0; cursor: pointer;
-    background: ${theme.track}; color: ${theme.text}; font: 600 12px ${theme.fontBody};
+  /* Always there, never revealed.
+     These used to appear on hover while the meta line was hidden to make room,
+     so pointing at a row changed its height, the card re-measured, and the
+     whole rail below it moved - on a list, every row you pass over. Nothing
+     here changes size any more: hover only changes colour, which is what the
+     rest of the app does too. */
+  .acts { display: flex; gap: 2px; flex: none; }
+  .act {
+    width: 22px; height: 22px; flex: none; padding: 0; border: 0; cursor: pointer;
+    border-radius: 999px; background: transparent; color: ${theme.muted};
+    display: flex; align-items: center; justify-content: center;
   }
+  .act:hover:not(:disabled) { background: ${theme.track}; color: ${theme.text}; }
+  /* Offered but not available: today has no gap this would fit in, which the
+     row's second line already says. Kept in place so a list of rows has one
+     column of buttons rather than a ragged edge. */
+  .act:disabled { cursor: default; opacity: .35; }
   .add {
     display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 9px 11px;
     border-radius: 13px; border: 1px dashed ${theme.muted};
@@ -153,22 +201,29 @@ export function render(
 
     const acts = doc.createElement("div");
     acts.className = "acts";
+
     const slotLabel = slotLabelOf(todo, timeZone);
-    if (slotLabel) {
-      const slot = doc.createElement("button");
-      slot.type = "button";
-      slot.className = "slot";
-      slot.textContent = slotLabel;
-      slot.addEventListener("click", () => on.place(todo.id));
-      acts.append(slot);
-    }
+    const slot = doc.createElement("button");
+    slot.type = "button";
+    slot.className = "act";
+    // The glyphs are ours, not the user's - `markup` writes the same constants
+    // into the stylesheet above. Everything the user typed still goes in as
+    // text, which is the rule this file is built around.
+    slot.innerHTML = CALENDAR_PLUS;
+    slot.disabled = slotLabel === null;
+    slot.title = slotLabel ?? "No gap for it today";
+    slot.setAttribute("aria-label", `${slot.title}: ${todo.title}`);
+    if (slotLabel) slot.addEventListener("click", () => on.place(todo.id));
+
     const drop = doc.createElement("button");
     drop.type = "button";
-    drop.className = "drop";
-    drop.textContent = "×";
+    drop.className = "act";
+    drop.innerHTML = CROSS;
+    drop.title = "Remove";
     drop.setAttribute("aria-label", `Remove: ${todo.title}`);
     drop.addEventListener("click", () => on.drop(todo.id));
-    acts.append(drop);
+
+    acts.append(slot, drop);
 
     row.append(tick, text, acts);
     list.append(row);

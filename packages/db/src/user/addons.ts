@@ -1,6 +1,12 @@
-import { at, ms, type UserDatabase } from "../client";
+import {
+  at,
+  isTransaction,
+  ms,
+  type UserDatabase,
+  userTransaction,
+} from "../client";
 import { setActivityActive } from "./activities";
-import { cancelUnstartedSlots } from "./slots";
+import { cancelUnstartedSlots, setSlotStatus } from "./slots";
 
 /**
  * The addons a user has installed.
@@ -83,6 +89,8 @@ export async function installAddon(
   input: AddonInput,
   now: number,
 ): Promise<AddonRow> {
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) => installAddon(tx, input, now));
   const existing = await db.addon.findUnique({
     where: { id: input.id },
     select: { isEnabled: true },
@@ -190,16 +198,14 @@ export async function addonImpact(
     orderBy: { name: "asc" },
   });
 
-  if (activities.length === 0) return { activities: [], futureSlots: 0 };
-
   const futureSlots = await db.slot.count({
     where: {
-      activityId: { in: activities.map((activity) => activity.id) },
-      startsAt: { gt: at(now) },
+      OR: [{ activity: dependentsOf(id) }, { ownerAddonId: id }],
+      startsAt: { gte: at(now) },
       // The same set `cancelUnstartedSlots` will actually take. A slot already
       // started, completed or skipped is the past and stays; counting it here
       // would promise to remove something that is not going to be removed.
-      status: { in: ["planned", "live"] },
+      status: { in: ["planned", "live", "bucketed"] },
     },
   });
 
@@ -235,6 +241,8 @@ export async function removeAddon(
   now: number,
   newId: () => string,
 ): Promise<RemovalResult> {
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) => removeAddon(tx, id, now, newId));
   const result = await pauseDependents(db, id, now, newId);
   await db.addon.deleteMany({ where: { id } });
   return result;
@@ -259,18 +267,22 @@ export async function pauseDependents(
   now: number,
   newId: () => string,
 ): Promise<RemovalResult> {
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) => pauseDependents(tx, id, now, newId));
   const affected = await db.activity.findMany({
-    where: { ...dependentsOf(id), isActive: true },
-    select: { id: true },
+    where: dependentsOf(id),
+    select: { id: true, isActive: true },
   });
 
   let cancelled = 0;
   for (const activity of affected) {
-    await setActivityActive(db, activity.id, false);
-    await db.activity.update({
-      where: { id: activity.id },
-      data: { pausedByAddonAt: at(now) },
-    });
+    if (activity.isActive) {
+      await setActivityActive(db, activity.id, false);
+      await db.activity.update({
+        where: { id: activity.id },
+        data: { pausedByAddonAt: at(now) },
+      });
+    }
     cancelled += await cancelUnstartedSlots(
       db,
       { activityId: activity.id, from: now, reasonCode: "addon_removed" },
@@ -279,7 +291,33 @@ export async function pauseDependents(
     );
   }
 
-  return { paused: affected.length, cancelled };
+  // Own standalone slots have no activityId and must not survive removal.
+  // Already-completed/started/history rows remain untouched.
+  const standalone = await db.slot.findMany({
+    where: {
+      ownerAddonId: id,
+      startsAt: { gte: at(now) },
+      status: { in: ["planned", "live", "bucketed"] },
+    },
+    select: { id: true },
+  });
+  for (const slot of standalone)
+    await setSlotStatus(
+      db,
+      {
+        slotId: slot.id,
+        status: "cancelled",
+        actor: "user",
+        reasonCode: "addon_removed",
+      },
+      now,
+      newId,
+    );
+  cancelled += standalone.length;
+  return {
+    paused: affected.filter((activity) => activity.isActive).length,
+    cancelled,
+  };
 }
 
 /**
@@ -299,6 +337,8 @@ export async function resumeDependents(
   db: UserDatabase,
   id: string,
 ): Promise<{ resumed: number }> {
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) => resumeDependents(tx, id));
   const paused = await db.activity.findMany({
     where: { ...dependentsOf(id), pausedByAddonAt: { not: null } },
     select: { id: true },

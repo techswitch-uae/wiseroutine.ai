@@ -1,7 +1,7 @@
 import { type AddonCapability, API_VERSION } from "@wiseroutine/addons";
 import { useEffect, useRef, useState } from "react";
 import { type AddonContext, serve } from "./host";
-import { frameUrlFor, type InstalledAddon } from "./installed";
+import { addonAuthorized, frameUrlFor, type InstalledAddon } from "./installed";
 import { addonTheme } from "./theme";
 
 /**
@@ -65,14 +65,36 @@ export interface AddonFrameProps {
   title: string;
 }
 
-export const AddonFrame: React.FC<AddonFrameProps> = ({
+export const AddonFrame: React.FC<AddonFrameProps> = (props) => (
+  <FrameInstance
+    key={JSON.stringify([
+      props.addon.revision ?? props.addon.bundle,
+      props.addon.manifest,
+      props.addon.granted,
+      props.addon.settings,
+      props.context.kind,
+      props.context.kind === "widget"
+        ? props.context.widgetKey
+        : props.context.kind === "session"
+          ? [
+              props.context.activityTypeKey,
+              (props.context.slot as { id?: string })?.id,
+            ]
+          : null,
+    ])}
+    {...props}
+  />
+);
+
+const FrameInstance: React.FC<AddonFrameProps> = ({
   addon,
   context,
   style,
   title,
 }) => {
+  const [frameAddon] = useState(addon);
   const ref = useRef<HTMLIFrameElement>(null);
-  const served = frameUrlFor(addon.manifest.id);
+  const served = frameUrlFor(addon.manifest.id, addon.revision);
   const [html] = useState(() => documentFor(addon.granted, addon.bundle));
 
   // Read per request, not captured: the context is a new object every
@@ -92,7 +114,12 @@ export const AddonFrame: React.FC<AddonFrameProps> = ({
     if (!frame) return;
 
     const channel = new MessageChannel();
-    const stop = serve(channel.port1, addon, () => latest.current);
+    const stop = serve(
+      channel.port1,
+      frameAddon,
+      () => latest.current,
+      () => addonAuthorized(frameAddon),
+    );
 
     const send = () => {
       const context = latest.current;
@@ -102,22 +129,25 @@ export const AddonFrame: React.FC<AddonFrameProps> = ({
           role:
             context.kind === "widget"
               ? { kind: "widget", widgetKey: context.widgetKey }
-              : { kind: context.kind },
+              : context.kind === "session"
+                ? { kind: "session", activityTypeKey: context.activityTypeKey }
+                : { kind: context.kind },
           theme: addonTheme(),
           hostVersion: API_VERSION,
+          apiVersion: API_VERSION,
         },
         "*",
         [channel.port2],
       );
     };
 
-    frame.addEventListener("load", send);
+    frame.addEventListener("load", send, { once: true });
     return () => {
       frame.removeEventListener("load", send);
       stop();
       channel.port1.close();
     };
-  }, [addon]);
+  }, [frameAddon]);
 
   return (
     <iframe

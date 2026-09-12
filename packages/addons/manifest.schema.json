@@ -13,12 +13,17 @@
       "maxLength": 64,
       "description": "Lowercase, dot or hyphen separated. The `wiseroutine.` prefix is reserved."
     },
-    "apiVersion": { "type": "integer", "minimum": 1, "default": 1 },
+    "apiVersion": { "type": "integer", "const": 1, "default": 1 },
     "name": { "type": "string", "minLength": 1, "maxLength": 500 },
-    "version": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "version": {
+      "type": "string",
+      "maxLength": 500,
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?$"
+    },
     "description": { "type": "string", "minLength": 1, "maxLength": 500 },
     "capabilities": {
       "type": "array",
+      "maxItems": 20,
       "items": { "$ref": "#/$defs/capability" }
     },
     "settings": {
@@ -27,13 +32,19 @@
       "description": "Settings for the addon as a whole. The only place a `secret` field may appear.",
       "items": { "$ref": "#/$defs/field" }
     },
-    "widgets": { "type": "array", "items": { "$ref": "#/$defs/contribution" } },
+    "widgets": {
+      "type": "array",
+      "maxItems": 4,
+      "items": { "$ref": "#/$defs/contribution" }
+    },
     "quickAdd": {
       "type": "array",
+      "maxItems": 4,
       "items": { "$ref": "#/$defs/contribution" }
     },
     "activityTypes": {
       "type": "array",
+      "maxItems": 4,
       "items": { "$ref": "#/$defs/activityType" }
     }
   },
@@ -46,11 +57,13 @@
     "settingKey": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]+$",
+      "not": { "enum": ["__proto__", "prototype", "constructor"] },
       "maxLength": 64
     },
     "origin": {
       "type": "string",
-      "pattern": "^https://[^/*\\s;\"]+$",
+      "pattern": "^https://[^/*\\s;\"?#@\\\\]+$",
+      "format": "wr-origin",
       "description": "A plain https origin: scheme and host, nothing else."
     },
     "origins": {
@@ -178,7 +191,11 @@
               "properties": {
                 "type": { "const": "text" },
                 "default": { "type": "string" },
-                "maxLength": { "type": "number" },
+                "maxLength": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4096
+                },
                 "placeholder": { "type": "string", "maxLength": 100 }
               },
               "required": ["default"]
@@ -232,14 +249,25 @@
           "required": ["width", "height"],
           "additionalProperties": false,
           "properties": {
-            "width": { "type": "number", "minimum": 200, "maximum": 560 },
-            "height": { "type": "number", "minimum": 120, "maximum": 520 }
+            "width": {
+              "type": "number",
+              "description": "Clamped to 200–560 by the host."
+            },
+            "height": {
+              "type": "number",
+              "description": "Clamped to 120–520 by the host."
+            }
           }
         },
         "settings": {
           "type": "array",
           "maxItems": 20,
-          "items": { "$ref": "#/$defs/field" }
+          "items": {
+            "allOf": [
+              { "$ref": "#/$defs/field" },
+              { "not": { "properties": { "type": { "const": "secret" } } } }
+            ]
+          }
         }
       }
     }

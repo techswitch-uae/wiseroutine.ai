@@ -114,7 +114,7 @@ export async function listSlotsForRange(
   to: number,
 ): Promise<SlotRow[]> {
   const rows = await db.slot.findMany({
-    where: { startsAt: { gte: at(from), lt: at(to) } },
+    where: { startsAt: { lt: at(to) }, endsAt: { gt: at(from) } },
     orderBy: { startsAt: "asc" },
   });
   return rows.map(toSlot);
@@ -386,7 +386,9 @@ export async function moveSlot(
       // Giving a bucketed slot a time is what takes it out of the bucket -
       // that is the whole meaning of the status, so accepting a suggestion is
       // this call and nothing else. Every other status is left alone.
-      status: current.status === "bucketed" ? "planned" : current.status,
+      status: ["bucketed", "live"].includes(current.status)
+        ? "planned"
+        : current.status,
       // Wherever it has gone, it is not under the meeting it was under. The
       // marker is a cache of an overlap, and this call just invalidated it -
       // which was true of a slot dragged clear by hand long before the bucket
@@ -396,11 +398,19 @@ export async function moveSlot(
     },
   });
 
+  if (current.reminderId)
+    await db.reminder.updateMany({
+      where: { id: current.reminderId, slotId: current.id },
+      data: {
+        status: "slotted",
+        estimatedMinutes: Math.ceil((params.endsAt - params.startsAt) / 60_000),
+      },
+    });
   await recordSlotEvent(
     db,
     {
       slotId: params.slotId,
-      type: params.actor === "user" ? "user_moved" : "auto_moved",
+      type: params.actor === "system" ? "auto_moved" : "user_moved",
       actor: params.actor,
       ...(params.reasonCode !== undefined
         ? { reasonCode: params.reasonCode }
@@ -463,10 +473,44 @@ export async function setSlotStatus(
       fingerprint,
     );
   }
+  const slot = await getSlot(db, params.slotId);
+  if (!slot) throw new ActionConflict("Slot no longer exists");
+  if (slot.status === "completed" && params.status !== "completed")
+    throw new ActionConflict("Completed history cannot be changed");
+  if (params.status === "started" && slot.reminderId) {
+    const todo = await db.reminder.findUnique({
+      where: { id: slot.reminderId },
+    });
+    if (todo?.slotId && todo.slotId !== slot.id)
+      throw new ActionConflict("This todo has a newer appointment");
+  }
+  if (
+    params.status === "started" &&
+    ["completed", "cancelled", "missed", "bucketed"].includes(slot.status)
+  )
+    throw new ActionConflict("Reschedule this slot before starting it");
   await db.slot.updateMany({
     where: { id: params.slotId },
     data: { status: params.status },
   });
+  // An old offline action must never finish or reopen a newer appointment.
+  if (slot.reminderId) {
+    const status =
+      params.status === "completed"
+        ? "done"
+        : ["cancelled", "skipped", "missed", "bucketed"].includes(params.status)
+          ? "open"
+          : "slotted";
+    await db.reminder.updateMany({
+      where: { id: slot.reminderId, slotId: slot.id },
+      data: {
+        status,
+        slotId: ["cancelled", "skipped", "missed"].includes(params.status)
+          ? null
+          : slot.id,
+      },
+    });
+  }
 
   const typeByStatus: Partial<Record<SlotStatus, SlotEventType>> = {
     started: "started",
@@ -516,11 +560,16 @@ export async function setSlotStatus(
  */
 export async function listBucket(
   db: UserDatabase,
-  from: number,
-  to: number,
+  from?: number,
+  to?: number,
 ): Promise<SlotRow[]> {
   const rows = await db.slot.findMany({
-    where: { startsAt: { gte: at(from), lt: at(to) }, status: "bucketed" },
+    where: {
+      ...(from !== undefined && to !== undefined
+        ? { startsAt: { gte: at(from), lt: at(to) } }
+        : {}),
+      status: "bucketed",
+    },
     orderBy: { startsAt: "asc" },
   });
   return rows.map(toSlot);
@@ -556,7 +605,7 @@ export async function markConflicts(
   conflicts: readonly ConflictMark[],
 ): Promise<void> {
   await db.slot.updateMany({
-    where: { startsAt: { gte: at(range.from), lt: at(range.to) } },
+    where: { startsAt: { lt: at(range.to) }, endsAt: { gt: at(range.from) } },
     data: { conflictEventId: null, conflictSeverity: null },
   });
 

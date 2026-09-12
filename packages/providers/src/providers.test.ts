@@ -1,8 +1,8 @@
 import { isBusy } from "@wiseroutine/scheduler";
 import { describe, expect, test } from "vitest";
-import { normaliseGoogleEvent } from "./google";
+import { googleRefresh, normaliseGoogleEvent } from "./google";
 import { microsoftSyncPage, normaliseMicrosoftEvent } from "./microsoft";
-import { decodeIdToken, toCalendarEvent } from "./types";
+import { decodeIdToken, ProviderError, toCalendarEvent } from "./types";
 
 /**
  * Fixtures shaped like real provider payloads. These exist mainly to pin the
@@ -461,5 +461,59 @@ describe("a link in the description", () => {
       description: "Old link: https://us02web.zoom.us/j/000",
     });
     expect(found.joinUrl).toBe("https://meet.google.com/real-link");
+  });
+});
+
+/**
+ * A revoked or aged-out grant.
+ *
+ * Google answers its *token* endpoint with 400 `invalid_grant`, not the 401 the
+ * calendar API uses, so reading only the status classified a dead grant as an
+ * ordinary bad request: nothing marked the connection, the queue retried it
+ * forever, and Calendars went on reporting that it was reading fine.
+ */
+describe("a dead refresh token", () => {
+  const denied = async <T>(run: () => Promise<T>): Promise<unknown> => {
+    const real = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          error: "invalid_grant",
+          error_description: "Token has been expired or revoked.",
+        }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      )) as typeof fetch;
+    try {
+      return await run().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    } finally {
+      globalThis.fetch = real;
+    }
+  };
+
+  test("asks for a reconnection rather than a retry", async () => {
+    const error = await denied(() =>
+      googleRefresh({
+        refreshToken: "revoked",
+        clientId: "id",
+        clientSecret: "secret",
+      }),
+    );
+
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as ProviderError).needsReauth).toBe(true);
+    // Retrying a grant the user has taken away is what filled the log.
+    expect((error as ProviderError).isRetryable).toBe(false);
+  });
+
+  test("a plain bad request is still just a bad request", () => {
+    const malformed = new ProviderError(
+      "google",
+      400,
+      '{"error":"invalid_request"}',
+    );
+    expect(malformed.needsReauth).toBe(false);
   });
 });

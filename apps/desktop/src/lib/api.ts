@@ -26,11 +26,13 @@ import {
   setEventDetailsAllowed,
 } from "./privacy";
 import {
+  assertSessionScope,
   changeSession,
   identifySession,
   invalidateServerState,
   onSessionReset,
   SessionChangedError,
+  type SessionScope,
   sessionGeneration,
   sessionSignal,
   sessionToken,
@@ -131,8 +133,16 @@ async function refusal(response: Response): Promise<unknown> {
   }
 }
 
-async function send(path: string, init: RequestInit = {}): Promise<Response> {
+async function send(
+  path: string,
+  init: RequestInit = {},
+  scope?: SessionScope,
+): Promise<Response> {
   const token = getSessionToken();
+  if (scope) {
+    assertSessionScope(scope);
+    if (token !== scope.token) throw new SessionChangedError();
+  }
   const generation = sessionGeneration();
   const signal = AbortSignal.any([
     sessionSignal(),
@@ -159,6 +169,7 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
   }
 
   if (generation !== sessionGeneration()) throw new SessionChangedError();
+  if (scope) assertSessionScope(scope);
   if (!response.ok) {
     const retry = response.headers.get("retry-after");
     const delay = retry
@@ -172,16 +183,29 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
       Math.max(0, delay || 0),
     );
   }
-  if (init.method && init.method !== "GET") invalidateServerState();
+  if (
+    init.method &&
+    init.method !== "GET" &&
+    !/^\/(?:captures\/[^/]+\/files(?:\/[^/]+)?|todos\/[^/]+\/files\/[^/]+)$/.test(
+      path,
+    )
+  )
+    invalidateServerState();
   return response;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  scope?: SessionScope,
+): Promise<T> {
   const generation = sessionGeneration();
-  const response = await send(path, init);
+  const response = await send(path, init, scope);
+  if (scope) assertSessionScope(scope);
   if (generation !== sessionGeneration()) throw new SessionChangedError();
   if (response.status === 204) return undefined as T;
   const data = await response.json();
+  if (scope) assertSessionScope(scope);
   if (generation !== sessionGeneration()) throw new SessionChangedError();
   return data as T;
 }
@@ -218,6 +242,7 @@ export interface TodaySlot {
    *  the slot so pressing Start does not need a second request to find out
    *  what to open. */
   presetKey?: string | null;
+  reminderId?: string | null;
   /** "manual" | "auto" | "prompt". */
   startPolicy?: string;
   /** The module's own settings, as the JSON text it wrote. */
@@ -431,9 +456,13 @@ export interface AvailableAddon {
   /** sha256 hex of the bundle. Empty for a bundled addon. */
   bundleHash: string;
   manifest: unknown;
+  approval?: import("@wiseroutine/addons").ApprovedRelease;
 }
 
 export interface InstalledAddonRow {
+  bundleHash?: string;
+  bundleUrl?: string;
+  approval?: import("@wiseroutine/addons").ApprovedRelease;
   id: string;
   version: string;
   isEnabled: boolean;
@@ -546,6 +575,7 @@ export interface BucketItem {
   kind: "recovery" | "focus" | "task";
   /** The hour it was due at before the day moved under it. */
   wasAt: number;
+  reminderId?: string | null;
   /** The engine's reason - `no_gap`, `too_close`, `large_drift`,
    *  `outside_window`, `day_over`. Comma-joined when there was more than one. */
   reasonCode: string | null;
@@ -565,6 +595,35 @@ export interface Todo {
   minutes: number | null;
   needsFocus: boolean;
   createdAt: number;
+}
+
+export interface TodoFile {
+  id: string;
+  name: string;
+  size: number;
+}
+export interface InboxItem extends Todo {
+  status: "open" | "slotted" | "done" | "dropped";
+  slotId: string | null;
+  startsAt?: number | null;
+  endsAt?: number | null;
+}
+export interface TodoDetails extends InboxItem {
+  notes: string;
+  links: string[];
+  files: TodoFile[];
+  slot: TodaySlot | null;
+}
+export interface CaptureInput {
+  id: string;
+  title: string;
+  notes: string;
+  links: string[];
+  minutes: number;
+  fileIds: string[];
+  activityId?: string;
+  todoId?: string;
+  startsAt?: number;
 }
 
 export interface MissedItem {
@@ -1063,17 +1122,112 @@ export const api = {
   /* ── Todos ───────────────────────────────────────────────────────────── */
 
   todos: () => request<Todo[]>("/todos"),
+  capture: (input: CaptureInput, scope?: SessionScope) =>
+    request<{ todoId: string; slotId: string | null }>(
+      "/capture",
+      post(input),
+      scope,
+    ),
+  uploadCaptureFile: (
+    captureId: string,
+    id: string,
+    file: File,
+    scope?: SessionScope,
+  ) =>
+    request<TodoFile>(
+      `/captures/${captureId}/files/${id}`,
+      {
+        method: "PUT",
+        body: file,
+        headers: {
+          "content-type": "application/octet-stream",
+          "x-file-name": encodeURIComponent(file.name),
+        },
+      },
+      scope,
+    ),
+  discardCaptureFiles: (captureId: string, scope?: SessionScope) =>
+    request<void>(`/captures/${captureId}/files`, { method: "DELETE" }, scope),
+  inbox: (cursor?: string, done = false, query = "") =>
+    request<{ items: InboxItem[]; nextCursor: string | null }>(
+      `/inbox?done=${done ? 1 : 0}&q=${encodeURIComponent(query)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
+  todoDetails: (id: string, scope?: SessionScope) =>
+    request<TodoDetails>(`/todos/${id}/details`, {}, scope),
+  editTodo: (
+    id: string,
+    input: { title: string; notes: string; links: string[]; minutes: number },
+    scope?: SessionScope,
+  ) =>
+    request<void>(
+      `/todos/${id}/details`,
+      {
+        method: "PUT",
+        body: JSON.stringify(input),
+      },
+      scope,
+    ),
+  addTodoFile: (todoId: string, id: string, file: File, scope?: SessionScope) =>
+    request<TodoFile>(
+      `/todos/${todoId}/files/${id}`,
+      {
+        method: "PUT",
+        body: file,
+        headers: {
+          "content-type": "application/octet-stream",
+          "x-file-name": encodeURIComponent(file.name),
+        },
+      },
+      scope,
+    ),
+  todoFile: async (todoId: string, id: string, scope?: SessionScope) => {
+    const generation = sessionGeneration();
+    const blob = await (
+      await send(`/todos/${todoId}/files/${id}`, {}, scope)
+    ).blob();
+    if (scope) assertSessionScope(scope);
+    if (generation !== sessionGeneration()) throw new SessionChangedError();
+    if (blob.size > 5 * 1024 * 1024)
+      throw new Error("Attachment exceeds the download limit");
+    return blob;
+  },
+  deleteTodoFile: (todoId: string, id: string, scope?: SessionScope) =>
+    request<void>(`/todos/${todoId}/files/${id}`, { method: "DELETE" }, scope),
+  slotDetails: (id: string) => request<TodaySlot>(`/slots/${id}/details`),
+  rescheduleSlot: (
+    id: string,
+    input: { startsAt: number; endsAt: number } | { bucket: true },
+    actionId = crypto.randomUUID(),
+    scope?: SessionScope,
+  ) =>
+    request<{ slotId: string }>(
+      `/slots/${id}/reschedule`,
+      {
+        ...post(input),
+        headers: { "idempotency-key": actionId },
+      },
+      scope,
+    ),
   /** `addonId` names the addon writing, so the server checks its grant. */
   createTodo: (
     input: { title: string; minutes?: number | null },
     addonId?: string,
   ) => request<Todo>("/todos", { ...post(input), headers: forAddon(addonId) }),
-  setTodo: (id: string, status: "done" | "dropped", addonId?: string) =>
-    request<void>(`/todos/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ status }),
-      headers: forAddon(addonId),
-    }),
+  setTodo: (
+    id: string,
+    status: "done" | "dropped",
+    addonId?: string,
+    scope?: SessionScope,
+  ) =>
+    request<void>(
+      `/todos/${id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+        headers: forAddon(addonId),
+      },
+      scope,
+    ),
   /** The todo becomes a slot. Same route as `placeSlot`, same refusals. */
   placeTodo: (
     todoId: string,
@@ -1114,12 +1268,17 @@ export const api = {
   /** `granted` is the subset of the manifest's capabilities the user
    *  approved. Omitted, a fresh install grants all and an upgrade keeps
    *  what it had. */
-  installAddon: (id: string, granted?: unknown) =>
+  addonBundle: (hash: string) =>
+    send(`/addons/bundles/${encodeURIComponent(hash)}`),
+  installAddon: (id: string, granted?: unknown, version?: string) =>
     request<{ id: string; version: string }>(
       `/addons/${encodeURIComponent(id)}/install`,
       {
         method: "POST",
-        body: JSON.stringify(granted !== undefined ? { granted } : {}),
+        body: JSON.stringify({
+          ...(granted !== undefined ? { granted } : {}),
+          ...(version ? { version } : {}),
+        }),
       },
     ),
   setAddonSettings: (id: string, settings: unknown) =>

@@ -9,10 +9,17 @@ import {
 } from "@wiseroutine/addons";
 import { Button, Card, Modal, Toggle } from "@wiseroutine/design";
 import { useCallback, useEffect, useState } from "react";
-import { forgetAddon, loadAddons } from "../addons/installed";
+import {
+  addonSafeMode,
+  forgetAddon,
+  loadAddons,
+  setAddonSafeMode,
+  useAddonProblems,
+} from "../addons/installed";
 import { SettingsFields } from "../addons/settings-fields";
 import {
   type AddonImpact,
+  ApiError,
   type AvailableAddon,
   api,
   type InstalledAddonRow,
@@ -41,17 +48,17 @@ function describe(capability: AddonCapability): string {
   switch (capability.kind) {
     case "read:schedule":
       return capability.scope === "today"
-        ? "Read today's schedule"
+        ? "Read today's activity and task titles and times (not calendar-event details)"
         : `Read your schedule (${capability.scope})`;
     case "write:own":
       return "Place blocks of its own on your day, and finish or skip them - never yours";
     case "ui:widget":
       return "Show a card in the rail";
     case "ui:session":
-      return "Draw the screen while one of its sessions runs";
+      return "Draw and finish the guided session assigned to it";
     case "net:fetch":
       return capability.auth
-        ? `Talk to ${capability.origins.join(", ")}, signed with a key you enter here`
+        ? `Send requests to ${capability.origins.join(", ")} using ${capability.auth.secret} in ${capability.auth.header}, prefix ${JSON.stringify(capability.auth.prefix ?? "")}. Requests can change remote data.`
         : `Talk to ${capability.origins.join(", ")}`;
     case "ui:embed":
       return `Show a page from ${capability.origins.join(", ")} inside the app`;
@@ -64,7 +71,7 @@ function describe(capability: AddonCapability): string {
     case "read:todos":
       return "See your todos";
     case "write:todos":
-      return "Add, finish and drop todos, and put them on your day";
+      return "Add, finish and drop any of your todos, and put them on your day";
   }
 }
 
@@ -276,6 +283,8 @@ const count = (n: number, one: string, many: string): string =>
 
 function consequence(asking: Asking): string {
   const { activities, futureSlots } = asking.impact;
+  if (activities.length === 0)
+    return `${count(futureSlots, "block", "blocks")} placed by this addon will come off your future schedule. Anything already started or done stays in your history.`;
   const named = activities.map((activity) => activity.name).join(", ");
   const slots =
     futureSlots > 0
@@ -286,6 +295,8 @@ function consequence(asking: Asking): string {
 }
 
 const Addons: React.FC = () => {
+  const problems = useAddonProblems();
+  const [safeMode, setSafeMode] = useState(addonSafeMode);
   const [available, setAvailable] = useState<AvailableAddon[] | null>(null);
   const [installed, setInstalled] = useState<InstalledAddonRow[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -311,8 +322,8 @@ const Addons: React.FC = () => {
         await work;
         await read();
         await loadAddons();
-      } catch {
-        notify(wrong);
+      } catch (error) {
+        notify(error instanceof ApiError ? error.message : wrong);
       } finally {
         setBusy(null);
         setAsking(null);
@@ -355,7 +366,7 @@ const Addons: React.FC = () => {
   const allowAll = (row: Row) => {
     setBusy(row.id);
     void after(
-      api.installAddon(row.id, row.capabilities),
+      api.installAddon(row.id, row.capabilities, row.version),
       "Couldn't change that just now.",
     );
   };
@@ -366,7 +377,7 @@ const Addons: React.FC = () => {
     api
       .addonImpact(row.id)
       .then((impact) => {
-        if (impact.activities.length === 0) {
+        if (impact.activities.length === 0 && impact.futureSlots === 0) {
           return kind === "remove" ? remove(row) : disable(row);
         }
         setAsking({ row, impact, kind });
@@ -386,12 +397,39 @@ const Addons: React.FC = () => {
         <h2 className="wr-settings-title">Addons</h2>
 
         <p className="wr-body" style={{ margin: "0 0 22px" }}>
-          Every guided session and every card in the rail is an addon, including
-          the ones we wrote. Each says what it needs, and can do nothing else.
-          Switch one off and it stops running - any activities that use it are
-          paused until you switch it back on.
+          Guided sessions and optional cards can be extended with addons. Review
+          each permission before installing. A sandbox and review reduce risk;
+          they are not a guarantee about an author's code. Switching an addon
+          off pauses the activities that depend on it. Wise Routine's Free and
+          Pro limits still apply.
         </p>
 
+        <Toggle
+          label="Addon safe mode — stop all addons on this device"
+          checked={safeMode}
+          onChange={(enabled) => {
+            try {
+              setAddonSafeMode(enabled);
+              setSafeMode(enabled);
+            } catch {
+              notify("Could not save safe mode. Check device storage.");
+            }
+          }}
+        />
+        {safeMode ? (
+          <p role="status">
+            Addons are stopped on this device. Your account's installed addons
+            and activities have not been removed.
+          </p>
+        ) : null}
+        {problems.get("native") ? (
+          <p role="alert">{problems.get("native")}</p>
+        ) : null}
+        <p className="wr-body">
+          Community addons are a curated developer preview. Addon code and Wise
+          Routine subscriptions are separate: an addon does not include a Pro
+          subscription.
+        </p>
         <div style={{ display: "grid", gap: 14 }}>
           {available === null ? (
             <p className="wr-body">Loading…</p>
@@ -404,6 +442,11 @@ const Addons: React.FC = () => {
           {rows.map((row) => {
             const granted = row.installed ? grantOf(row.installed) : null;
             const missing = granted ? ungranted(row.capabilities, granted) : [];
+            const update =
+              row.installed && row.installed.version !== row.version;
+            const installedManifest = row.installed
+              ? parseManifest(row.installed.manifest)
+              : null;
             return (
               <Card
                 key={row.id}
@@ -414,6 +457,15 @@ const Addons: React.FC = () => {
                   {row.description}
                 </p>
 
+                {problems.get(row.id) ? (
+                  <p role="alert">Not running: {problems.get(row.id)}</p>
+                ) : null}
+                {update ? (
+                  <p className="wr-body">
+                    Installed: {row.installed?.version}. Available:{" "}
+                    {row.version}. Finish any running session before updating.
+                  </p>
+                ) : null}
                 {row.installed?.revoked ? (
                   <p
                     className="wr-body"
@@ -431,27 +483,34 @@ const Addons: React.FC = () => {
                     : {})}
                 />
 
-                {granted && missing.length > 0 ? (
+                {granted && (missing.length > 0 || update) ? (
                   <>
-                    <Permissions title="Also asks for" capabilities={missing} />
+                    {missing.length ? (
+                      <Permissions
+                        title="New or changed permissions"
+                        capabilities={missing}
+                      />
+                    ) : (
+                      <p>No additional permissions requested.</p>
+                    )}
                     <div style={{ marginTop: 8 }}>
                       <Button
                         variant="secondary"
                         disabled={busy === row.id}
                         onClick={() => allowAll(row)}
                       >
-                        Allow
+                        {update ? "Update and approve permissions" : "Allow"}
                       </Button>
                     </div>
                   </>
                 ) : null}
 
                 {row.installed &&
-                row.manifest &&
-                row.manifest.settings.length > 0 ? (
+                installedManifest &&
+                installedManifest.settings.length > 0 ? (
                   <AddonSettings
                     id={row.id}
-                    manifest={row.manifest}
+                    manifest={installedManifest}
                     stored={row.installed.settings}
                     onSaved={async () => {
                       await read();
@@ -501,7 +560,11 @@ const Addons: React.FC = () => {
                       onClick={() => {
                         setBusy(row.id);
                         void after(
-                          api.installAddon(row.id),
+                          api.installAddon(
+                            row.id,
+                            row.capabilities,
+                            row.version,
+                          ),
                           "Couldn't install that just now.",
                         );
                       }}

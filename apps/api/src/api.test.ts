@@ -2,6 +2,7 @@ import { exports as worker } from "cloudflare:workers";
 import {
   abandonedSlots,
   autoSlotsToComplete,
+  removeAddon,
   slotsPastGrace,
 } from "@wiseroutine/db";
 import { beforeEach, describe, expect, test } from "vitest";
@@ -440,13 +441,69 @@ describe("an addon's own requests", () => {
 
     await worker.default.fetch(`http://api/addons/${TODOS}`, {
       method: "PATCH",
-      headers: asAddon(user, TODOS),
+      headers: { ...user.headers, "content-type": "application/json" },
       body: JSON.stringify({ isEnabled: false }),
     });
     const off = await worker.default.fetch("http://api/todos", {
       headers: asAddon(user, TODOS),
     });
     expect(off.status).toBe(403);
+  });
+
+  test("unknown installed versions and non-addon endpoints fail closed", async () => {
+    const user = await seedUser({ plan: "free" });
+    await ready(user);
+    const endpoint = await worker.default.fetch(`http://api/addons/${TODOS}`, {
+      method: "PATCH",
+      headers: asAddon(user, TODOS),
+      body: JSON.stringify({ isEnabled: true }),
+    });
+    expect(endpoint.status).toBe(403);
+    const planning = await worker.default.fetch("http://api/plan", {
+      method: "POST",
+      headers: asAddon(user, TODOS),
+      body: JSON.stringify({ trigger: "calendar_change" }),
+    });
+    expect(planning.status).toBe(403);
+    await userDb().addon.update({
+      where: { id: TODOS },
+      data: { version: "99.0.0" },
+    });
+    const unknown = await worker.default.fetch("http://api/todos", {
+      headers: asAddon(user, TODOS),
+    });
+    expect(unknown.status).toBe(403);
+    const list = await worker.default.fetch("http://api/addons", {
+      headers: user.headers,
+    });
+    const body = (await list.json()) as {
+      addons: { id: string; revoked: boolean }[];
+    };
+    expect(body.addons.find((addon) => addon.id === TODOS)?.revoked).toBe(true);
+  });
+
+  test("reenabling addon activities cannot bypass the Free plan limit and rolls back the flag", async () => {
+    const user = await seedUser({ plan: "free" });
+    await ready(user);
+    const dependent = await seedActivity({ presetKey: `${BREATHING}/pacer` });
+    const change = (isEnabled: boolean) =>
+      worker.default.fetch(`http://api/addons/${BREATHING}`, {
+        method: "PATCH",
+        headers: { ...user.headers, "content-type": "application/json" },
+        body: JSON.stringify({ isEnabled }),
+      });
+    expect((await change(false)).status).toBe(200);
+    await seedActivity();
+    await seedActivity();
+    expect((await change(true)).status).toBe(402);
+    expect(
+      (await userDb().addon.findUnique({ where: { id: BREATHING } }))
+        ?.isEnabled,
+    ).toBe(false);
+    expect(
+      (await userDb().activity.findUnique({ where: { id: dependent } }))
+        ?.isActive,
+    ).toBe(false);
   });
 
   test("checks the grant, not the manifest, on every write", async () => {
@@ -476,6 +533,66 @@ describe("an addon's own requests", () => {
       body: JSON.stringify({ title: "x" }),
     });
     expect(narrowed.status).toBe(403);
+  });
+
+  test("removal rolls back failures and disabling cancels standalone owned future slots, not history", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await ready(user);
+    const db = userDb(),
+      now = Date.now(),
+      start = now + 3600000;
+    const dependent = await seedActivity({ presetKey: `${TODOS}/test` });
+    for (const status of ["planned", "completed", "started"] as const)
+      await db.slot.create({
+        data: {
+          id: `owned-${status}`,
+          ownerAddonId: TODOS,
+          title: status,
+          kind: "task",
+          startsAt: new Date(start),
+          endsAt: new Date(start + 600000),
+          timeZone: "UTC",
+          status,
+          createdAt: new Date(now),
+        },
+      });
+    await expect(
+      removeAddon(db, TODOS, now, () => {
+        throw new Error("synthetic history failure");
+      }),
+    ).rejects.toThrow("synthetic history failure");
+    expect(
+      (await db.activity.findUnique({ where: { id: dependent } }))?.isActive,
+    ).toBe(true);
+    expect(
+      (await db.slot.findUnique({ where: { id: "owned-planned" } }))?.status,
+    ).toBe("planned");
+    expect(await db.addon.findUnique({ where: { id: TODOS } })).not.toBeNull();
+    const impact = await worker.default.fetch(
+      `http://api/addons/${TODOS}/impact`,
+      { headers: user.headers },
+    );
+    expect(((await impact.json()) as { futureSlots: number }).futureSlots).toBe(
+      1,
+    );
+    const disabled = await worker.default.fetch(`http://api/addons/${TODOS}`, {
+      method: "PATCH",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ isEnabled: false }),
+    });
+    expect(disabled.status).toBe(200);
+    expect(((await disabled.json()) as { cancelled: number }).cancelled).toBe(
+      1,
+    );
+    expect(
+      (await db.slot.findUnique({ where: { id: "owned-planned" } }))?.status,
+    ).toBe("cancelled");
+    expect(
+      (await db.slot.findUnique({ where: { id: "owned-completed" } }))?.status,
+    ).toBe("completed");
+    expect(
+      (await db.slot.findUnique({ where: { id: "owned-started" } }))?.status,
+    ).toBe("started");
   });
 
   test("an addon may change only the slots it placed", async () => {
@@ -589,7 +706,7 @@ describe("grants", () => {
     ]);
   });
 
-  test("an upgrade keeps the grant it had", async () => {
+  test("reads never upgrade; an explicit upgrade keeps its narrowed grant", async () => {
     const user = await seedUser({ plan: "pro" });
     await granted(user, TODOS);
     await userDb().addon.update({
@@ -597,8 +714,18 @@ describe("grants", () => {
       data: { version: "0.1.0", grantedJson: JSON.stringify([]) },
     });
 
+    expect((await granted(user, TODOS))?.version).toBe("0.1.0");
+    const upgrade = await worker.default.fetch(
+      `http://api/addons/${TODOS}/install`,
+      {
+        method: "POST",
+        headers: { ...user.headers, "content-type": "application/json" },
+        body: JSON.stringify({ version: "1.0.0" }),
+      },
+    );
+    expect(upgrade.status).toBe(201);
     const row = await granted(user, TODOS);
-    expect(row?.version).not.toBe("0.1.0");
+    expect(row?.version).toBe("1.0.0");
     expect(row?.granted).toEqual([]);
   });
 

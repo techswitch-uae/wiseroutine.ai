@@ -717,11 +717,10 @@ describe("being told the day changed", () => {
     const stop = serve(channel.port1, installed(manifest()), () => SESSION);
 
     publishPlan(null);
-    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // No payload. One would be a second copy of the narrowing in `day` - the
-    // same fields, filtered the same way, in a second place to get wrong.
-    expect(heard).toEqual([{ event: "day" }]);
+    // Wait for delivery, not an unrelated zero-delay timer. No payload: the
+    // narrowing still belongs to day(), rather than a second event schema.
+    await vi.waitFor(() => expect(heard).toEqual([{ event: "day" }]));
     stop();
   });
 

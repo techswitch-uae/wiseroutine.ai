@@ -1,6 +1,7 @@
 import {
   type AddonCapability,
   canAddon,
+  canonicalJSON,
   coveredBy,
   isAddonId,
   isGrantable,
@@ -18,6 +19,7 @@ import {
   createActivity,
   createReminder,
   deleteConnection,
+  dependentsOf,
   directoryTransaction,
   forgetStoredTitles,
   getAddon,
@@ -79,7 +81,14 @@ import {
 } from "@wiseroutine/scheduler";
 import { Hono, type MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { bundledEntries, entryFor, registry } from "../addons/registry";
+import {
+  bundledEntries,
+  entryFor,
+  isApproved,
+  registry,
+  releaseFor,
+  releaseWithHash,
+} from "../addons/registry";
 import {
   type App,
   type Ctx,
@@ -95,9 +104,11 @@ import {
   resolveRange,
 } from "../dayRanges";
 import { planAndSchedule, scheduleGrace } from "../planning/commands";
+import { validatePlacement } from "../planning/placement";
 import { detectConflicts } from "../planning/planDay";
 import { accessTokenFor, type SyncDeps } from "../sync/engine";
 import { ensureWatch, stopWatch, type WatchDeps } from "../sync/watch";
+import { captureRoutes, updateTodoStatus } from "./capture";
 
 export const app = new Hono<App>();
 /**
@@ -238,16 +249,40 @@ const asAddon: MiddlewareHandler<App> = async (c, next) => {
   }
   if (!isAddonId(id))
     throw new HTTPException(400, { message: "Not an addon id" });
-  const row = await getAddon(c.get("db"), id);
-  if (!row?.isEnabled || entryFor(id)?.revoked) {
-    throw new HTTPException(403, { message: "That addon is not running" });
-  }
-  const granted = parseCapabilities(JSON.parse(row.grantedJson));
-  if (granted === null) {
-    throw new HTTPException(403, { message: "That addon has no valid grant" });
-  }
-  c.set("addon", { id, granted });
-  await next();
+  const outerDb = c.get("db");
+  await userTransaction(outerDb, async (db) => {
+    c.set("db", db);
+    const row = await getAddon(db, id);
+    const release = row ? releaseFor(id, row.version) : undefined;
+    if (
+      !row?.isEnabled ||
+      !release ||
+      !(await isApproved(release)) ||
+      row.bundleHash !== release.bundleHash ||
+      canonicalJSON(parseManifest(JSON.parse(row.manifestJson))) !==
+        canonicalJSON(release.manifest)
+    ) {
+      throw new HTTPException(403, { message: "That addon is not running" });
+    }
+    const granted = parseCapabilities(JSON.parse(row.grantedJson));
+    if (granted === null) {
+      throw new HTTPException(403, {
+        message: "That addon has no valid grant",
+      });
+    }
+    const allowed =
+      (c.req.method === "POST" &&
+        /^\/slots(?:\/[^/]+\/(?:complete|skip))?$/.test(c.req.path)) ||
+      (["GET", "POST"].includes(c.req.method) && c.req.path === "/todos") ||
+      (c.req.method === "PATCH" && /^\/todos\/[^/]+$/.test(c.req.path));
+    if (!allowed)
+      throw new HTTPException(403, {
+        message: "This endpoint is not part of the addon API",
+      });
+    c.set("addon", { id, granted });
+    await next();
+    if (c.error) throw c.error;
+  }).finally(() => c.set("db", outerDb));
 };
 app.use("*", asAddon);
 
@@ -284,10 +319,13 @@ async function ownSlot(c: Ctx, slotId: string) {
  * and it is deliberately left open, so the policy is a one-line change on the
  * day it is decided rather than a thing to unpick.
  */
-app.get("/addons/available", (c) =>
-  c.json({
-    addons: registry()
-      .filter((entry) => !entry.revoked)
+app.get("/addons/available", async (c) => {
+  const approved = await Promise.all(
+    registry().map(async (entry) => ((await isApproved(entry)) ? entry : null)),
+  );
+  return c.json({
+    addons: approved
+      .filter((entry) => entry !== null)
       .map((entry) => ({
         id: entry.id,
         version: entry.version,
@@ -295,9 +333,30 @@ app.get("/addons/available", (c) =>
         bundleUrl: entry.bundleUrl,
         bundleHash: entry.bundleHash,
         manifest: entry.manifest,
+        approval: entry.approval,
       })),
-  }),
-);
+  });
+});
+
+app.get("/addons/bundles/:hash", async (c) => {
+  const entry = releaseWithHash(c.req.param("hash"));
+  if (!entry || !(await isApproved(entry))) throw new HTTPException(404);
+  const bucket = c.env.ADDON_BUNDLES;
+  if (!bucket)
+    throw new HTTPException(503, {
+      message: "Addon distribution is not configured",
+    });
+  const object = await bucket.get(`${entry.bundleHash}.js`);
+  if (!object) throw new HTTPException(404);
+  if (object.size > 2 * 1024 * 1024) throw new HTTPException(413);
+  return new Response(object.body, {
+    headers: {
+      "content-type": "application/javascript; charset=utf-8",
+      "x-content-type-options": "nosniff",
+      "cache-control": "private, max-age=3600",
+    },
+  });
+});
 
 /**
  * What this user has installed.
@@ -310,19 +369,41 @@ app.get("/addons/available", (c) =>
 app.get("/addons", async (c) => {
   await ensureBundled(c);
 
-  const installed = await listAddons(c.get("db"));
+  let installed = await listAddons(c.get("db"));
+  let reconciled = false;
+  for (const row of installed) {
+    if (!row.isEnabled || (await isApproved(releaseFor(row.id, row.version))))
+      continue;
+    await userTransaction(c.get("db"), async (db) => {
+      const current = await getAddon(db, row.id);
+      if (
+        !current?.isEnabled ||
+        (await isApproved(releaseFor(current.id, current.version)))
+      )
+        return;
+      await setAddonEnabled(db, current.id, false);
+      await pauseDependents(db, current.id, c.get("now"), newId);
+      reconciled = true;
+    });
+  }
+  if (reconciled) installed = await listAddons(c.get("db"));
   return c.json({
-    addons: installed.map((row) => ({
-      id: row.id,
-      version: row.version,
-      isEnabled: row.isEnabled,
-      installedAt: row.installedAt,
-      granted: JSON.parse(row.grantedJson) as unknown,
-      manifest: JSON.parse(row.manifestJson) as unknown,
-      settings: JSON.parse(row.settingsJson) as unknown,
-      revoked: entryFor(row.id)?.revoked === true,
-      bundled: entryFor(row.id)?.bundled === true,
-    })),
+    addons: await Promise.all(
+      installed.map(async (row) => ({
+        bundleUrl: releaseFor(row.id, row.version)?.bundleUrl,
+        bundleHash: row.bundleHash,
+        approval: releaseFor(row.id, row.version)?.approval,
+        id: row.id,
+        version: row.version,
+        isEnabled: row.isEnabled,
+        installedAt: row.installedAt,
+        granted: JSON.parse(row.grantedJson) as unknown,
+        manifest: JSON.parse(row.manifestJson) as unknown,
+        settings: JSON.parse(row.settingsJson) as unknown,
+        revoked: !(await isApproved(releaseFor(row.id, row.version))),
+        bundled: entryFor(row.id)?.bundled === true,
+      })),
+    ),
   });
 });
 
@@ -342,7 +423,7 @@ async function ensureBundled(c: Ctx): Promise<void> {
 
   for (const entry of bundledEntries()) {
     const existing = known.get(entry.id);
-    if (existing?.version === entry.version) continue;
+    if (existing) continue; // Versions change only through explicit installation, never a background read.
 
     // The same policy gate as the install route. Ours is not exempt.
     if (entry.manifest.capabilities.some((cap) => !isGrantable(cap).ok)) {
@@ -355,8 +436,7 @@ async function ensureBundled(c: Ctx): Promise<void> {
         id: entry.id,
         version: entry.version,
         manifestJson: JSON.stringify(entry.manifest),
-        grantedJson:
-          existing?.grantedJson ?? JSON.stringify(entry.manifest.capabilities),
+        grantedJson: JSON.stringify(entry.manifest.capabilities),
         bundleHash: entry.bundleHash,
       },
       c.get("now"),
@@ -390,55 +470,85 @@ app.get("/addons/:id/impact", async (c) => {
  * grant it already had. Every capability also passes `isGrantable`, the
  * policy gate.
  */
-app.post("/addons/:id/install", async (c) => {
-  const entry = entryFor(c.req.param("id"));
-  if (!entry || entry.revoked) {
-    throw new HTTPException(404, { message: "No such addon" });
-  }
+app.post("/addons/:id/install", async (c) =>
+  userTransaction(c.get("db"), async (db) => {
+    const body = await c.req
+      .json<{ granted?: unknown; version?: string }>()
+      .catch(() => ({}) as { granted?: unknown; version?: string });
+    const entry = body.version
+      ? releaseFor(c.req.param("id"), body.version)
+      : entryFor(c.req.param("id"));
+    if (!entry || !(await isApproved(entry))) {
+      throw new HTTPException(404, { message: "No such addon" });
+    }
 
-  const body = await c.req
-    .json<{ granted?: unknown }>()
-    .catch(() => ({}) as { granted?: unknown });
-
-  let granted: readonly AddonCapability[];
-  if (body.granted !== undefined) {
-    const parsed = parseCapabilities(body.granted);
-    if (parsed === null) {
+    if (!entry.bundled && !body.version)
+      throw new HTTPException(409, {
+        message: "Choose the reviewed version explicitly",
+      });
+    const prior = await getAddon(db, entry.id);
+    if (!prior && (await db.addon.count()) >= 32)
       throw new HTTPException(400, {
-        message: "granted is not a capability list",
+        message: "At most 32 addons can be installed",
+      });
+    if (
+      prior &&
+      prior.version !== entry.version &&
+      (await db.slot.count({
+        where: {
+          status: "started",
+          activity: { presetKey: { startsWith: `${entry.id}/` } },
+        },
+      }))
+    ) {
+      throw new HTTPException(409, {
+        message: "Finish the running session before changing addon versions",
       });
     }
-    const covered = coveredBy(parsed, entry.manifest.capabilities);
-    if (!covered.ok) throw new HTTPException(400, { message: covered.reason });
-    granted = parsed;
-  } else {
-    const existing = await getAddon(c.get("db"), entry.id);
-    granted = existing
-      ? (parseCapabilities(JSON.parse(existing.grantedJson)) ?? [])
-      : entry.manifest.capabilities;
-  }
 
-  for (const capability of granted) {
-    const decision = isGrantable(capability);
-    if (!decision.ok) {
-      throw new HTTPException(400, { message: decision.reason });
+    let granted: readonly AddonCapability[];
+    if (body.granted !== undefined) {
+      const parsed = parseCapabilities(body.granted);
+      if (parsed === null) {
+        throw new HTTPException(400, {
+          message: "granted is not a capability list",
+        });
+      }
+      const covered = coveredBy(parsed, entry.manifest.capabilities);
+      if (!covered.ok)
+        throw new HTTPException(400, { message: covered.reason });
+      granted = parsed;
+    } else {
+      const existing = prior;
+      granted = existing
+        ? (parseCapabilities(JSON.parse(existing.grantedJson)) ?? []).filter(
+            (cap) => canAddon(entry.manifest.capabilities, cap).ok,
+          )
+        : entry.manifest.capabilities;
     }
-  }
 
-  const row = await installAddon(
-    c.get("db"),
-    {
-      id: entry.id,
-      version: entry.version,
-      manifestJson: JSON.stringify(entry.manifest),
-      grantedJson: JSON.stringify(granted),
-      bundleHash: entry.bundleHash,
-    },
-    c.get("now"),
-  );
+    for (const capability of granted) {
+      const decision = isGrantable(capability);
+      if (!decision.ok) {
+        throw new HTTPException(400, { message: decision.reason });
+      }
+    }
 
-  return c.json({ id: row.id, version: row.version }, 201);
-});
+    const row = await installAddon(
+      db,
+      {
+        id: entry.id,
+        version: entry.version,
+        manifestJson: JSON.stringify(entry.manifest),
+        grantedJson: JSON.stringify(granted),
+        bundleHash: entry.bundleHash,
+      },
+      c.get("now"),
+    );
+
+    return c.json({ id: row.id, version: row.version }, 201);
+  }),
+);
 
 /**
  * Switched off, or back on.
@@ -459,46 +569,57 @@ app.post("/addons/:id/install", async (c) => {
  * The counts come back so the client can say what happened rather than
  * silently changing the user's day.
  */
-app.patch("/addons/:id", async (c) => {
-  type Body = { isEnabled?: boolean; settings?: unknown };
-  const body = await c.req.json<Body>().catch(() => ({}) as Body);
+app.patch("/addons/:id", async (c) =>
+  userTransaction(c.get("db"), async (db) => {
+    type Body = { isEnabled?: boolean; settings?: unknown };
+    const body = await c.req.json<Body>().catch(() => ({}) as Body);
 
-  const existing = await getAddon(c.get("db"), c.req.param("id"));
-  if (!existing) throw new HTTPException(404, { message: "Not installed" });
+    const existing = await getAddon(db, c.req.param("id"));
+    if (!existing) throw new HTTPException(404, { message: "Not installed" });
 
-  // Settings, checked against the manifest's schema. Secrets never arrive
-  // here; the schema has no value for them, so `parseConfig` drops any.
-  if (body.settings !== undefined) {
-    const manifest = parseManifest(JSON.parse(existing.manifestJson));
-    if (!manifest) throw new HTTPException(500, { message: "Bad manifest" });
-    const settings = parseConfig(manifest, body.settings);
-    await setAddonSettings(c.get("db"), existing.id, JSON.stringify(settings));
-    if (typeof body.isEnabled !== "boolean") return c.body(null, 204);
-  }
+    // Settings, checked against the manifest's schema. Secrets never arrive
+    // here; the schema has no value for them, so `parseConfig` drops any.
+    if (body.settings !== undefined) {
+      const manifest = parseManifest(JSON.parse(existing.manifestJson));
+      if (!manifest) throw new HTTPException(500, { message: "Bad manifest" });
+      const settings = parseConfig(manifest, body.settings);
+      await setAddonSettings(db, existing.id, JSON.stringify(settings));
+      if (typeof body.isEnabled !== "boolean") return c.body(null, 204);
+    }
 
-  if (typeof body.isEnabled !== "boolean") {
-    throw new HTTPException(400, { message: "isEnabled must be a boolean" });
-  }
+    if (typeof body.isEnabled !== "boolean") {
+      throw new HTTPException(400, { message: "isEnabled must be a boolean" });
+    }
 
-  // The flag first. If the pausing below fails halfway, the addon is off and
-  // some of its activities are still on - which is visible and fixable by
-  // switching it off again. The other order leaves activities paused by an
-  // addon that is still switched on, which nothing would ever undo.
-  await setAddonEnabled(c.get("db"), existing.id, body.isEnabled);
+    if (body.isEnabled) {
+      if (!(await isApproved(releaseFor(existing.id, existing.version))))
+        throw new HTTPException(403, {
+          message: "This addon release is no longer approved",
+        });
+      const returning = await db.activity.count({
+        where: {
+          ...dependentsOf(existing.id),
+          isActive: false,
+          pausedByAddonAt: { not: null },
+        },
+      });
+      if (returning > 0)
+        enforce(c, {
+          kind: "activity.create",
+          activeCount: (await countActiveActivities(db)) + returning - 1,
+        });
+    }
+    await setAddonEnabled(db, existing.id, body.isEnabled);
 
-  if (body.isEnabled) {
-    const { resumed } = await resumeDependents(c.get("db"), existing.id);
-    return c.json({ paused: 0, cancelled: 0, resumed });
-  }
+    if (body.isEnabled) {
+      const { resumed } = await resumeDependents(db, existing.id);
+      return c.json({ paused: 0, cancelled: 0, resumed });
+    }
 
-  const result = await pauseDependents(
-    c.get("db"),
-    existing.id,
-    c.get("now"),
-    newId,
-  );
-  return c.json({ ...result, resumed: 0 });
-});
+    const result = await pauseDependents(db, existing.id, c.get("now"), newId);
+    return c.json({ ...result, resumed: 0 });
+  }),
+);
 
 /**
  * Take the future it claimed, leave the past. See `removeAddon`.
@@ -1320,6 +1441,7 @@ app.get("/today", async (c) => {
           isLocked: s.isLocked,
           conflictEventId: s.conflictEventId,
           ownerAddonId: s.ownerAddonId,
+          reminderId: s.reminderId,
           // Null when the activity has no module, and also when its session is
           // switched off - the slot then behaves like any other timed slot, and
           // the client needs no second field to work that out.
@@ -1732,6 +1854,12 @@ app.post("/slots", async (c) => {
       message: "activityId or todoId, and startsAt, are required",
     });
   }
+  if (
+    [Boolean(body.activityId), Boolean(body.todoId), Boolean(own)].filter(
+      Boolean,
+    ).length !== 1
+  )
+    throw new HTTPException(400, { message: "Choose one activity or todo" });
   if (addon && body.activityId) {
     throw new HTTPException(403, {
       message: "An addon may not place the user's activities.",
@@ -1773,11 +1901,18 @@ app.post("/slots", async (c) => {
         message: "That todo is already on the day, or done.",
       });
     }
+    const linked = todo.activityId
+      ? await db.activity.findUnique({ where: { id: todo.activityId } })
+      : null;
     subject = {
-      activityId: null,
+      activityId: todo.activityId,
       reminderId: todo.id,
       title: todo.title,
-      kind: todo.needsFocus ? "focus" : "task",
+      kind: linked
+        ? (linked.kind as "focus" | "recovery" | "task")
+        : todo.needsFocus
+          ? "focus"
+          : "task",
       // ponytail: a todo with no length gets a quarter hour. Refusing would
       // leave it stuck in the list; a length is one keypress to fix.
       minutes: todo.estimatedMinutes ?? 15,
@@ -1809,26 +1944,47 @@ app.post("/slots", async (c) => {
     throw new HTTPException(400, { message: "endsAt must be after startsAt" });
   }
 
-  const date = localDateOf(body.startsAt, user.timeZone);
-  const wholeDay = dayBounds(date, user.timeZone, 0, FULL_DAY_MINUTES);
-  const events = await listEventsInRange(db, wholeDay.start, wholeDay.end);
-  const clash = toBusyBlocks(events).find(
-    (b) => body.startsAt < b.end && b.start < endsAt,
-  );
-  if (clash) {
-    throw new HTTPException(409, {
-      message: "Something is already booked then. Pick another gap.",
-    });
-  }
-
   await scheduleGrace(c);
   const slot = await userTransaction(db, async (tx) => {
+    await validatePlacement(tx, body.startsAt, endsAt, now);
+    if (subject.activityId) {
+      const current = await tx.activity.findUnique({
+        where: { id: subject.activityId },
+      });
+      if (!current?.isActive || current.archivedAt)
+        throw new HTTPException(409, {
+          message: "This activity is no longer active",
+        });
+    }
     if (subject.reminderId) {
       const current = await getReminder(tx, subject.reminderId);
       if (current?.status !== "open")
         throw new HTTPException(409, {
           message: "That todo is already on the day, or done.",
         });
+      const previous = current.slotId
+        ? await getSlot(tx, current.slotId)
+        : null;
+      if (
+        previous?.status === "bucketed" &&
+        previous.reminderId === current.id
+      ) {
+        await moveSlot(
+          tx,
+          {
+            slotId: previous.id,
+            startsAt: body.startsAt,
+            endsAt,
+            actor: addon ? "addon" : "user",
+            reasonCode: "planned_from_inbox",
+          },
+          now,
+          newId,
+        );
+        const restored = await getSlot(tx, previous.id);
+        if (!restored) throw new Error("Restored slot disappeared");
+        return restored;
+      }
     }
     const placed = await placeSlot(
       tx,
@@ -1847,7 +2003,13 @@ app.post("/slots", async (c) => {
     );
 
     if (subject.reminderId) {
-      await setReminderStatus(tx, subject.reminderId, "slotted", placed.id);
+      await setReminderStatus(
+        tx,
+        subject.reminderId,
+        "slotted",
+        placed.id,
+        Math.ceil((endsAt - body.startsAt) / 60_000),
+      );
     }
     return placed;
   });
@@ -1937,7 +2099,13 @@ app.patch("/todos/:id", async (c) => {
   }
   const todo = await getReminder(db, c.req.param("id"));
   if (!todo) throw new HTTPException(404, { message: "No such todo" });
-  await setReminderStatus(db, todo.id, body.status, todo.slotId);
+  await updateTodoStatus(
+    db,
+    todo.id,
+    body.status,
+    c.get("now"),
+    c.get("addon") ? "addon" : "user",
+  );
   return c.body(null, 204);
 });
 
@@ -1968,12 +2136,42 @@ app.post("/slots/:id/cancel", async (c) => {
 
 /** The way back from the above, for as long as the toast offering it is up. */
 app.post("/slots/:id/restore", async (c) => {
-  await setSlotStatus(
-    c.get("db"),
-    { slotId: c.req.param("id"), status: "planned", actor: "user" },
-    c.get("now"),
-    newId,
-  );
+  await scheduleGrace(c);
+  await userTransaction(c.get("db"), async (db) => {
+    const slot = await getSlot(db, c.req.param("id"));
+    if (!slot) throw new HTTPException(404);
+    if (slot.status !== "cancelled")
+      throw new HTTPException(409, {
+        message: "Only a removed slot can be restored",
+      });
+    await validatePlacement(
+      db,
+      slot.startsAt,
+      slot.endsAt,
+      c.get("now"),
+      slot.id,
+    );
+    if (slot.reminderId) {
+      const todo = await getReminder(db, slot.reminderId);
+      if (todo?.status !== "open" || todo.slotId)
+        throw new HTTPException(409, {
+          message: "This todo has changed since removal",
+        });
+      await setReminderStatus(
+        db,
+        todo.id,
+        "slotted",
+        slot.id,
+        Math.ceil((slot.endsAt - slot.startsAt) / 60_000),
+      );
+    }
+    await setSlotStatus(
+      db,
+      { slotId: slot.id, status: "planned", actor: "user" },
+      c.get("now"),
+      newId,
+    );
+  });
   return c.body(null, 204);
 });
 
@@ -1988,18 +2186,34 @@ app.post("/slots/:id/move", async (c) => {
     throw new HTTPException(400, { message: "endsAt must be after startsAt" });
   }
 
-  await moveSlot(
-    c.get("db"),
-    {
-      slotId: c.req.param("id"),
-      startsAt: body.startsAt,
-      endsAt: body.endsAt,
-      actor: "user",
-      reasonCode: "user_choice",
-    },
-    c.get("now"),
-    newId,
-  );
+  await scheduleGrace(c);
+  await userTransaction(c.get("db"), async (db) => {
+    const slot = await getSlot(db, c.req.param("id"));
+    if (!slot) throw new HTTPException(404);
+    if (!["planned", "live", "bucketed"].includes(slot.status))
+      throw new HTTPException(409, {
+        message: "Use Postpone to keep the history of this slot.",
+      });
+    await validatePlacement(
+      db,
+      body.startsAt,
+      body.endsAt,
+      c.get("now"),
+      slot.id,
+    );
+    await moveSlot(
+      db,
+      {
+        slotId: slot.id,
+        startsAt: body.startsAt,
+        endsAt: body.endsAt,
+        actor: "user",
+        reasonCode: "user_choice",
+      },
+      c.get("now"),
+      newId,
+    );
+  });
   return c.body(null, 204);
 });
 
@@ -2066,7 +2280,9 @@ app.get("/bucket", async (c) => {
   const date = localDateOf(at, user.timeZone);
   const bounds = dayBounds(date, user.timeZone, 0, 24 * 60);
 
-  const slots = await listBucket(db, bounds.start, bounds.end);
+  const slots = c.req.query("at")
+    ? await listBucket(db, bounds.start, bounds.end)
+    : await listBucket(db);
   const events = await listSlotEvents(
     db,
     slots.map((s) => s.id),
@@ -2084,6 +2300,9 @@ app.get("/bucket", async (c) => {
         kind: slot.kind,
         /** The hour it was due at before the day moved under it. */
         wasAt: slot.startsAt,
+        startsAt: slot.startsAt,
+        endsAt: slot.endsAt,
+        reminderId: slot.reminderId,
         reasonCode: last?.reasonCode ?? null,
         /**
          * Where we would have put it, ready to hand straight to
@@ -2101,6 +2320,8 @@ app.get("/bucket", async (c) => {
     }),
   );
 });
+
+app.route("/", captureRoutes);
 
 app.get("/conflicts", async (c) => {
   const user = c.get("user");

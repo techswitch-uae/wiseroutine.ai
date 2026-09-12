@@ -6,9 +6,21 @@ import stretch from "@wiseroutine/addon-stretch/manifest";
 import todos from "@wiseroutine/addon-todos/manifest";
 import {
   type AddonManifest,
+  type ApprovalKeys,
+  type ApprovedRelease,
+  isDigest,
   isReservedId,
   parseManifest,
+  parseRelease,
+  verifyRelease,
 } from "@wiseroutine/addons";
+import bundledHistory from "../../../../addon-registry/bundled-history.json" with {
+  type: "json",
+};
+import catalog from "../../../../addon-registry/catalog.json" with {
+  type: "json",
+};
+import trust from "../../../../addon-registry/trust.json" with { type: "json" };
 
 /**
  * The addons this app will serve, and the only ones it will.
@@ -26,6 +38,7 @@ import {
 export interface RegistryEntry {
   id: string;
   version: string;
+  approval?: ApprovedRelease;
   /** Where the bundle is. Relative for a bundled one. A community entry
    *  uses an absolute URL with the version in the path, so a published
    *  bundle never changes under its URL. */
@@ -66,7 +79,7 @@ const BUNDLED: readonly unknown[] = [
  */
 export const isListable = (entry: RegistryEntry): boolean =>
   entry.bundled === true ||
-  (entry.bundleHash.length === 64 && !isReservedId(entry.id));
+  (isDigest(entry.bundleHash) && !isReservedId(entry.id));
 
 /** Every entry, parsed the same way the client parses it. */
 export function registry(): RegistryEntry[] {
@@ -87,11 +100,91 @@ export function registry(): RegistryEntry[] {
     });
   }
 
+  for (const [id, version] of Object.entries(catalog.current)) {
+    const entry = communityRelease(id, String(version));
+    if (entry) listed.push(entry);
+  }
   return listed.filter(isListable);
 }
 
 export const entryFor = (id: string): RegistryEntry | undefined =>
   registry().find((entry) => entry.id === id);
+
+function communityRelease(
+  id: string,
+  version: string,
+): RegistryEntry | undefined {
+  const release = (catalog.releases as unknown[])
+    .map(parseRelease)
+    .find(
+      (entry) => entry?.payload.id === id && entry.payload.version === version,
+    );
+  if (!release) return undefined;
+  const p = release.payload;
+  const manifest = parseManifest(p.manifest);
+  if (!manifest) return undefined;
+  return {
+    id,
+    version,
+    manifest,
+    author: p.author,
+    bundleHash: p.bundleHash,
+    bundleUrl: `/addons/bundles/${p.bundleHash}`,
+    approval: release,
+    revoked:
+      (catalog.revoked as string[]).includes(id) ||
+      (catalog.revoked as string[]).includes(`${id}@${version}`),
+  };
+}
+export function releaseFor(
+  id: string,
+  version: string,
+): RegistryEntry | undefined {
+  const builtin = registry().find(
+    (entry) => entry.bundled && entry.id === id && entry.version === version,
+  );
+  if (builtin) return builtin;
+  const archived = bundledHistory
+    .map(parseManifest)
+    .find((manifest) => manifest?.id === id && manifest.version === version);
+  if (archived && BUNDLED.some((raw) => parseManifest(raw)?.id === id))
+    return {
+      id,
+      version,
+      manifest: archived,
+      bundled: true,
+      bundleHash: "",
+      bundleUrl: `/addons/${id}/addon.js`,
+      author: "Wise Routine",
+    };
+  return communityRelease(id, version);
+}
+const approvals = new Map<string, Promise<boolean>>();
+export function isApproved(entry: RegistryEntry | undefined): Promise<boolean> {
+  if (
+    !entry ||
+    entry.revoked ||
+    (catalog.revoked as string[]).includes(entry.id) ||
+    (catalog.revoked as string[]).includes(`${entry.id}@${entry.version}`)
+  )
+    return Promise.resolve(false);
+  if (entry.bundled) return Promise.resolve(true);
+  const key = JSON.stringify(entry.approval);
+  let result = approvals.get(key);
+  if (!result) {
+    result = verifyRelease(entry.approval, trust as ApprovalKeys);
+    approvals.set(key, result);
+  }
+  return result;
+}
+export function releaseWithHash(hash: string): RegistryEntry | undefined {
+  for (const raw of catalog.releases as unknown[]) {
+    const release = parseRelease(raw);
+    if (release?.payload.bundleHash === hash)
+      return communityRelease(release.payload.id, release.payload.version);
+  }
+  return undefined;
+}
 
 /** The ones that ship with the app, and so are switched rather than installed. */
 export const bundledEntries = (): RegistryEntry[] =>

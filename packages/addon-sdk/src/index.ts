@@ -48,6 +48,8 @@ export interface SessionSlot {
 /** Your session. `config` is the activity's settings, parsed against the
  *  schema in your manifest. */
 export interface Session<Config = unknown> {
+  /** Bare manifest activity-type key. Older API-1 hosts may omit it. */
+  activityTypeKey?: string;
   slot: SessionSlot;
   config: Config;
 }
@@ -115,7 +117,11 @@ export interface QuickAddRequest {
 }
 
 /** Answers a Quick add request. A returned string is shown to the user. */
-export type QuickAddListener = (request: QuickAddRequest) => unknown;
+// biome-ignore lint/suspicious/noConfusingVoidType: Async callbacks are allowed to finish without returning a message.
+type QuickAddResult = string | void;
+export type QuickAddListener = (
+  request: QuickAddRequest,
+) => QuickAddResult | Promise<QuickAddResult>;
 
 /* ── Why you were loaded ────────────────────────────────────────────────── */
 
@@ -130,7 +136,7 @@ export type QuickAddListener = (request: QuickAddRequest) => unknown;
  *   delivered here when this frame exists.
  */
 export type AddonRole =
-  | { kind: "session" }
+  | { kind: "session"; activityTypeKey?: string }
   | { kind: "widget"; widgetKey: string }
   | { kind: "background" };
 
@@ -165,11 +171,15 @@ export class AddonError extends Error {
 /* ── The client ─────────────────────────────────────────────────────────── */
 
 export interface AddonClient {
+  /** Close the connection and reject outstanding calls. Also runs on pagehide. */
+  dispose(): void;
   readonly role: AddonRole;
   readonly theme: AddonTheme;
   /** The SDK contract the host speaks. Compare with your manifest's
    *  `apiVersion`. */
   readonly hostVersion: number;
+  /** Explicit protocol version; hostVersion is the legacy alias. */
+  readonly apiVersion: number;
 
   /** The session you were loaded for. Rejects unless `role.kind` is
    *  `"session"`. */
@@ -283,6 +293,7 @@ interface Handshake {
   role: AddonRole;
   theme: AddonTheme;
   hostVersion?: number;
+  apiVersion?: number;
 }
 
 const isHandshake = (data: unknown): data is Handshake =>
@@ -306,9 +317,18 @@ export function connect(timeoutMs = 10_000): Promise<AddonClient> {
     function onMessage(event: MessageEvent) {
       // The handshake is the only message accepted on the window. Everything
       // after travels on the port.
-      if (!isHandshake(event.data)) return;
+      if (event.source !== globalThis.parent || !isHandshake(event.data))
+        return;
       const port = event.ports[0];
       if (!port) return;
+      const version = event.data.apiVersion ?? event.data.hostVersion ?? 1;
+      if (version !== 1) {
+        clearTimeout(timer);
+        globalThis.removeEventListener("message", onMessage);
+        port.close();
+        reject(new AddonError("Unsupported host API version", "failed"));
+        return;
+      }
 
       clearTimeout(timer);
       globalThis.removeEventListener("message", onMessage);
@@ -321,6 +341,7 @@ export function connect(timeoutMs = 10_000): Promise<AddonClient> {
 
 function clientOver(port: MessagePort, hello: Handshake): AddonClient {
   let nextId = 1;
+  let disposed = false;
   const waiting = new Map<
     number,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
@@ -379,15 +400,65 @@ function clientOver(port: MessagePort, hello: Handshake): AddonClient {
   );
   port.start();
 
-  const call = <T>(method: string, params?: unknown): Promise<T> =>
+  const dispose = () => {
+    disposed = true;
+    for (const pending of waiting.values())
+      pending.reject(new AddonError("Host connection closed", "failed"));
+    port.close();
+    globalThis.removeEventListener("pagehide", dispose);
+  };
+  globalThis.addEventListener("pagehide", dispose);
+  const call = <T>(
+    method: string,
+    params?: unknown,
+    signal?: AbortSignal | null,
+  ): Promise<T> =>
     new Promise<T>((resolve, reject) => {
+      if (disposed || waiting.size >= 64) {
+        reject(
+          new AddonError(
+            "Connection closed or request limit exceeded",
+            "failed",
+          ),
+        );
+        return;
+      }
       const id = nextId++;
+      const cleanup = () => {
+        clearTimeout(timer);
+        waiting.delete(id);
+        signal?.removeEventListener("abort", abort);
+      };
+      const fail = (error: Error) => {
+        cleanup();
+        reject(error);
+      };
+      const abort = () => fail(new AddonError("Request aborted", "failed"));
+      const timer = setTimeout(
+        () => fail(new AddonError("Host request timed out", "failed")),
+        35000,
+      );
       waiting.set(id, {
-        resolve: resolve as (value: unknown) => void,
-        reject,
+        resolve: (value) => {
+          cleanup();
+          resolve(value as T);
+        },
+        reject: fail,
       });
-      const call: RpcCall = { id, method, ...(params ? { params } : {}) };
-      port.postMessage(call);
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
+      signal?.addEventListener("abort", abort, { once: true });
+      try {
+        port.postMessage({
+          id,
+          method,
+          ...(params === undefined ? {} : { params }),
+        } satisfies RpcCall);
+      } catch {
+        fail(new AddonError("Request could not be sent", "failed"));
+      }
     });
 
   const listen =
@@ -400,9 +471,11 @@ function clientOver(port: MessagePort, hello: Handshake): AddonClient {
     };
 
   return {
+    dispose,
     role: hello.role,
     theme: hello.theme,
     hostVersion: hello.hostVersion ?? 1,
+    apiVersion: hello.apiVersion ?? hello.hostVersion ?? 1,
     session: <Config>() => call<Session<Config>>("session"),
     finishSession: () => call<void>("finishSession"),
     card: (card) => call<void>("card", { card }),
@@ -413,22 +486,31 @@ function clientOver(port: MessagePort, hello: Handshake): AddonClient {
     setSlotStatus: (slotId, status) =>
       call<void>("setSlotStatus", { slotId, status }),
     fetch: async (input: string, init?: RequestInit) => {
+      if (init?.body != null && typeof init.body !== "string")
+        throw new AddonError("Host fetch accepts only string bodies");
       const reply = await call<{
         status: number;
         headers: [string, string][];
         body: string;
-      }>("fetch", {
-        input,
-        method: init?.method ?? "GET",
-        // Only what survives a structured clone. A `Headers` instance would
-        // not cross, and a stream cannot be replayed by the host.
-        headers: plainHeaders(init?.headers),
-        body: typeof init?.body === "string" ? init.body : undefined,
-      });
-      return new Response(reply.body, {
-        status: reply.status,
-        headers: reply.headers,
-      });
+      }>(
+        "fetch",
+        {
+          input,
+          method: init?.method ?? "GET",
+          // Only what survives a structured clone. A `Headers` instance would
+          // not cross, and a stream cannot be replayed by the host.
+          headers: plainHeaders(init?.headers),
+          body: typeof init?.body === "string" ? init.body : undefined,
+        },
+        init?.signal,
+      );
+      return new Response(
+        [204, 205, 304].includes(reply.status) ? null : reply.body,
+        {
+          status: reply.status,
+          headers: reply.headers,
+        },
+      );
     },
     openExternal: (url) => call<boolean>("openExternal", { url }),
     notify: (notice) => call<void>("notify", notice),

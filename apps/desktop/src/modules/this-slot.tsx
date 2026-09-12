@@ -13,6 +13,8 @@ import { pick, usePicked } from "../lib/picked";
 import { moveSlotTo, reloadPlan, startSlot, usePlan } from "../lib/plan-store";
 import { slotState } from "../lib/slot-state";
 import { moduleFor } from "./activities";
+import { Reschedule } from "./reschedule";
+import { TodoDetails } from "./todo-details";
 
 /**
  * The block you just pressed, and everything you can do to it.
@@ -181,6 +183,13 @@ const TICK_MS = 30_000;
 export const ThisSlot: React.FC = () => {
   const plan = usePlan();
   const picked = usePicked();
+  const [moving, setMoving] = useState(false);
+  const [details, setDetails] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A new selection closes dialogs for the previous slot, even though the reset value is constant.
+  useEffect(() => {
+    setMoving(false);
+    setDetails(false);
+  }, [picked]);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), TICK_MS);
@@ -284,6 +293,43 @@ export const ThisSlot: React.FC = () => {
       </div>
 
       <Note>{state.note}</Note>
+      {!["completed", "cancelled"].includes(slot.status) ? (
+        <Button
+          variant="secondary"
+          block
+          style={{ marginTop: 12 }}
+          onClick={() => setMoving(true)}
+        >
+          Postpone / change time
+        </Button>
+      ) : null}
+      {slot.reminderId ? (
+        <Button
+          variant="secondary"
+          block
+          style={{ marginTop: 8 }}
+          onClick={() => setDetails(true)}
+        >
+          Open todo, links and files
+        </Button>
+      ) : null}
+      {moving ? (
+        <Reschedule
+          key={slot.id}
+          slot={slot}
+          timeZone={plan.timeZone}
+          onClose={() => setMoving(false)}
+          onSaved={close}
+        />
+      ) : null}
+      {details && slot.reminderId ? (
+        <TodoDetails
+          key={slot.reminderId}
+          id={slot.reminderId}
+          timeZone={plan.timeZone}
+          onClose={() => setDetails(false)}
+        />
+      ) : null}
 
       {/* What pressing Start is actually going to do. A session takes the
           whole window over, and that is worth knowing before you press it. */}
@@ -312,7 +358,10 @@ export const ThisSlot: React.FC = () => {
             the stretch away from the desk, or you did it an hour ago - but the
             session is the thing worth entering, and a Done button as loud as
             Start is an invitation to skip the part that matters. */}
-        {state.startable || state.running || state.unresolved ? (
+        {state.startable ||
+        state.running ||
+        state.unresolved ||
+        ["planned", "live", "missed", "skipped"].includes(slot.status) ? (
           <Button variant="quiet" onClick={() => finish("complete")}>
             Mark it done
           </Button>

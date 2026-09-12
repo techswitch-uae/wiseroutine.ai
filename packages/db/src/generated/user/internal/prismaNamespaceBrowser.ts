@@ -243,6 +243,9 @@ export type SlotEventScalarFieldEnum = (typeof SlotEventScalarFieldEnum)[keyof t
 export const ReminderScalarFieldEnum = {
   id: 'id',
   title: 'title',
+  notes: 'notes',
+  linksJson: 'linksJson',
+  activityId: 'activityId',
   dueWindow: 'dueWindow',
   dueDate: 'dueDate',
   estimatedMinutes: 'estimatedMinutes',

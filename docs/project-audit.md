@@ -1,5 +1,9 @@
 # Wise Routine — project audit
 
+Addon follow-up: [ecosystem review](addon-ecosystem-review.md) and [v1 implementation, monetization and launch gates](addon-launch.md). That work does not close the remaining authentication, native-release or whole-product launch findings below.
+
+Capture follow-up: [core Quick Add, Inbox, files and rescheduling](capture-and-rescheduling.md). This adds transactional capture, explicit postponement, draft recovery and dedicated regressions; it does not close the broader Settings, authentication, native-suspension, accessibility or date/cache findings.
+
 ## Executive assessment
 
 The project has a strong core, but several integration paths undermine its promises. The biggest opportunities are **reliability and trust before additional features**: keeping the schedule current, preserving offline actions, enforcing privacy consistently, and producing a correctly configured release.

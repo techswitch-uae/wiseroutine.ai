@@ -16,6 +16,7 @@
         "title": "Wise Routine",
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
+        "dragDropEnabled": false,
         "width": 1180,
         "height": 820,
         "backgroundColor": "#eee7db"

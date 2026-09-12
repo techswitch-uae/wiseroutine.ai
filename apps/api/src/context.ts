@@ -32,6 +32,7 @@ import {
 export interface Bindings {
   SYNC_QUEUE: Queue<SyncJob>;
   CONFIG: KVNamespace;
+  ADDON_BUNDLES?: R2Bucket;
   /**
    * Named rather than left to the index signature, because CORS runs before
    * `withContext` and so reads these off the raw bindings rather than the

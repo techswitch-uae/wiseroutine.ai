@@ -40,6 +40,7 @@ function host(role: AddonRole = { kind: "session" }): {
     handshake: () =>
       globalThis.dispatchEvent(
         new MessageEvent("message", {
+          source: window.parent,
           data: { type: HANDSHAKE, role, theme: THEME },
           ports: [channel.port2],
         }),
@@ -340,5 +341,100 @@ describe("todos and quick add", () => {
     await wr.todos.place("t1");
     await wr.todos.place("t1", 5);
     expect(seen).toEqual([{ id: "t1" }, { id: "t1", startsAt: 5 }]);
+  });
+});
+
+describe("bounded client lifecycle", () => {
+  test("only the parent can transfer the connection", async () => {
+    const h = host(),
+      foreign = new MessageChannel();
+    let resolved = false;
+    const connecting = connect().then((client) => {
+      resolved = true;
+      return client;
+    });
+    globalThis.dispatchEvent(
+      new MessageEvent("message", {
+        source: null,
+        data: { type: HANDSHAKE, role: { kind: "background" }, theme: THEME },
+        ports: [foreign.port2],
+      }),
+    );
+    await delivered();
+    expect(resolved).toBe(false);
+    h.handshake();
+    const client = await connecting;
+    expect(client.apiVersion).toBe(1);
+    client.dispose();
+    h.port.close();
+    foreign.port1.close();
+    foreign.port2.close();
+  });
+  test("unsupported host protocols fail rather than silently connecting", async () => {
+    const channel = new MessageChannel();
+    const connecting = expect(connect()).rejects.toThrow(
+      "Unsupported host API version",
+    );
+    globalThis.dispatchEvent(
+      new MessageEvent("message", {
+        source: window.parent,
+        data: {
+          type: HANDSHAKE,
+          role: { kind: "background" },
+          theme: THEME,
+          apiVersion: 2,
+        },
+        ports: [channel.port2],
+      }),
+    );
+    await connecting;
+    channel.port1.close();
+  });
+  test.each([204, 205, 304])(
+    "fetch permits a bodyless %s response",
+    async (status) => {
+      const { client, h } = await connected();
+      h.answer((request) => ({
+        id: request.id,
+        result: { status, headers: {}, body: "" },
+      }));
+      const response = await client.fetch("https://example.com");
+      expect(response.status).toBe(status);
+      expect(response.body).toBeNull();
+      client.dispose();
+      h.port.close();
+    },
+  );
+  test("disposal rejects outstanding and future calls", async () => {
+    const { client, h } = await connected();
+    const pending = client.settings();
+    const rejected = expect(pending).rejects.toThrow("closed");
+    client.dispose();
+    await rejected;
+    await expect(client.day()).rejects.toThrow("closed");
+    h.port.close();
+  });
+  test("a disconnected host cannot leave an RPC waiting forever", async () => {
+    vi.useFakeTimers();
+    const { client, h } = await connected();
+    const pending = expect(client.settings()).rejects.toThrow("timed out");
+    await vi.advanceTimersByTimeAsync(35001);
+    await pending;
+    client.dispose();
+    h.port.close();
+  });
+  test("rejects binary bodies and honors local cancellation", async () => {
+    const { client, h } = await connected();
+    await expect(
+      client.fetch("https://example.com", { body: new Uint8Array([1]) }),
+    ).rejects.toThrow("string bodies");
+    const abort = new AbortController();
+    const pending = expect(
+      client.fetch("https://example.com", { signal: abort.signal }),
+    ).rejects.toThrow("aborted");
+    abort.abort();
+    await pending;
+    client.dispose();
+    h.port.close();
   });
 });

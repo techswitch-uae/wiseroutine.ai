@@ -28,7 +28,7 @@ import {
 import { startTodayController, startTodaySlot } from "../lib/today-controller";
 import "../lib/rail";
 import { AddonBackground } from "../addons/background";
-import { loadAddons } from "../addons/installed";
+import { watchAddons } from "../addons/installed";
 import { reloadTodos } from "../lib/todos";
 import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
 import { QuickAdd } from "../modules/quick-add";
@@ -60,6 +60,7 @@ import { TrialPill } from "../modules/trial-pill";
  * entry with no route behind it is a dead click, and this list is the product.
  */
 const NAV = [
+  { key: "inbox", label: "Inbox", to: "/inbox" },
   { key: "activities", label: "Activities", to: "/activities" },
   // The packages, not the cards they contribute - see `_app.addons`. Above
   // Settings because it is a place things are added, and below the two that
@@ -195,9 +196,10 @@ const useMenuBar = (): void => {
   // was open. Idempotent, and a failure leaves the app running without it.
   useEffect(() => {
     if (!identity) return;
-    void loadAddons();
+    const stop = watchAddons();
     // The todos the rail's card and Quick add both read - see `lib/todos`.
     void reloadTodos();
+    return stop;
   }, [identity]);
 };
 
@@ -213,14 +215,19 @@ function useQuickAdd(): [boolean, (open: boolean) => void] {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey)) return;
+      if (event.defaultPrevented || !(event.metaKey || event.ctrlKey)) return;
       if (event.altKey || event.shiftKey) return;
       if (event.key.toLowerCase() !== "k") return;
       event.preventDefault();
-      setOpen((was) => !was);
+      setOpen(true);
     };
+    const open = () => setOpen(true);
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    globalThis.addEventListener("wr:quick-add", open);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      globalThis.removeEventListener("wr:quick-add", open);
+    };
   }, []);
   return [open, setOpen];
 }
@@ -399,8 +406,23 @@ const AppLayout: React.FC = () => {
         <Outlet />
         <AddonBackground />
       </AppFrame>
-      <SessionOverlay />
-      {quickAdd ? <QuickAdd onClose={() => setQuickAdd(false)} /> : null}
+      {/* Keyed by who is signed in, so that signing in as somebody else
+          remounts both rather than handing the next account the previous
+          one's overlay or half-typed capture - the same fence
+          `accountStorageKey` and `assertSessionScope` draw everywhere else.
+
+          Namespaced because they are siblings: keyed on the bare identity,
+          both children of this fragment carried the *same* key whenever Quick
+          add was open, and React is entitled to drop or duplicate one of two
+          siblings that claim one identity. The prefix is what makes each key
+          unique; the identity is what makes it change. */}
+      <SessionOverlay key={`session-overlay/${identity}`} />
+      {quickAdd ? (
+        <QuickAdd
+          key={`quick-add/${identity}`}
+          onClose={() => setQuickAdd(false)}
+        />
+      ) : null}
       <Toasts items={toasts} onDismiss={dismiss} />
     </>
   );

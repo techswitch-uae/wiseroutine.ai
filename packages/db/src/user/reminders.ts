@@ -16,6 +16,9 @@ export type ReminderStatus = "open" | "slotted" | "done" | "dropped";
 export interface ReminderRow {
   id: string;
   title: string;
+  notes: string;
+  links: string[];
+  activityId: string | null;
   /** How long it needs, or null for "no idea yet". */
   estimatedMinutes: number | null;
   needsFocus: boolean;
@@ -27,6 +30,9 @@ export interface ReminderRow {
 const toRow = (row: {
   id: string;
   title: string;
+  notes: string;
+  linksJson: string;
+  activityId: string | null;
   estimatedMinutes: number | null;
   needsFocus: boolean;
   status: string;
@@ -35,6 +41,9 @@ const toRow = (row: {
 }): ReminderRow => ({
   id: row.id,
   title: row.title,
+  notes: row.notes,
+  activityId: row.activityId,
+  links: JSON.parse(row.linksJson) as string[],
   estimatedMinutes: row.estimatedMinutes,
   needsFocus: row.needsFocus,
   status: row.status as ReminderStatus,
@@ -65,6 +74,9 @@ export async function createReminder(
   db: UserDatabase,
   input: {
     title: string;
+    notes?: string;
+    activityId?: string | null;
+    links?: string[];
     estimatedMinutes?: number | null;
     needsFocus?: boolean;
   },
@@ -75,6 +87,9 @@ export async function createReminder(
     data: {
       id: newId(),
       title: input.title,
+      notes: input.notes ?? "",
+      activityId: input.activityId ?? null,
+      linksJson: JSON.stringify(input.links ?? []),
       dueWindow: "none",
       estimatedMinutes: input.estimatedMinutes ?? null,
       needsFocus: input.needsFocus ?? false,
@@ -90,6 +105,14 @@ export async function setReminderStatus(
   id: string,
   status: ReminderStatus,
   slotId: string | null = null,
+  estimatedMinutes?: number,
 ): Promise<void> {
-  await db.reminder.update({ where: { id }, data: { status, slotId } });
+  await db.reminder.update({
+    where: { id },
+    data: {
+      status,
+      slotId,
+      ...(estimatedMinutes !== undefined ? { estimatedMinutes } : {}),
+    },
+  });
 }

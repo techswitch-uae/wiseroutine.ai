@@ -1,162 +1,81 @@
 # Addons
 
-An addon is a package that adds to Wise Routine: a card in the rail, a guided
-session (an activity type), a row in Quick add, or all three. Every session
-and card the app ships is an addon, so the path a community addon takes is
-the path the app runs on every day.
+Addons extend Wise Routine with widgets, guided activity types, Quick Add rows and declarative settings. Six first-party examples use the same host boundary. The app and hosted service remain proprietary/commercial; the SDK, contract, tools and examples are a separately MIT-licensed authoring surface.
 
-This page says what an addon can do today, how the boundary works, and how
-to write one.
+**Start here:** [standalone authoring kit](addon-kit/README.md), [API-1 specification](addon-kit/SPEC.md), [submissions](addon-kit/SUBMISSIONS.md), [security](addon-kit/SECURITY.md). [Launch readiness and monetization](addon-launch.md) distinguishes implemented safeguards from deployment gates. The [ecosystem review](addon-ecosystem-review.md) records the original findings, not current implementation status.
 
-## What an addon can do
+## Supported contributions
 
-| Contribution | Manifest field | What the user sees |
+| Contribution | Manifest field | Host behavior |
 | --- | --- | --- |
-| Card in the rail | `widgets` | A card with the app's own frame. The addon draws the inside and sets the eyebrow and height. |
-| Activity type | `activityTypes` | A guided session the user can add as an activity. Its settings are drawn by the app in the activity form. |
-| Quick add row | `quickAdd` | A "keep it" row in ⌘K. The addon receives the text and answers with a sentence. |
-| Own settings | `settings` | A form on the Addons page. Values reach the addon through `wr.settings()`. Secret fields never do. |
+| Optional card | `widgets` | Host frame, addon contents, bounded eyebrow/height |
+| Guided session | `activityTypes` | Host-controlled timing/Done/Stop; declared settings in the activity form |
+| Quick Add row | `quickAdd` | Receives selected contribution key, title and optional minutes |
+| Addon settings | `settings` | Host-rendered form; values through `wr.settings()` |
 
-What an addon can ask for, and what each grants:
+The initial community preview accepts `ui:widget`, `ui:session`, `read:schedule` for today, `read:todos`, `write:todos`, `write:own`, and `notify`. It **does not** accept network/embedding/external-link/background-wake capabilities or secret fields yet. The full contract still includes those capabilities for first-party/future integrations; their presence in types is not launch approval.
 
-| Capability | Grants |
-| --- | --- |
-| `read:schedule` (scope `today`) | `wr.day()`: today's slots, with `ownedByYou` per slot. Only `today` can be granted for now. |
-| `write:own` | `wr.placeSlot()` and `wr.setSlotStatus()` on slots the addon placed. The server refuses any other slot. |
-| `read:todos`, `write:todos` | `wr.todos.*`. |
-| `ui:widget` | A card, and `wr.card()`. |
-| `ui:session` | An activity type, `wr.session()` and `wr.finishSession()`. |
-| `net:fetch` (origins, optional `auth`) | `fetch` from the frame to those origins, and `wr.fetch()` through the host. With `auth`, the host adds a header from a secret the user entered. |
-| `ui:embed` (origins) | Those origins in an `<iframe>` inside the addon's frame. |
-| `open:external` (origins) | `wr.openExternal()` for https links on those origins. |
-| `notify` | `wr.notify()`. Labelled with the addon's name, at most one every ten seconds. |
-| `background:wake` | A hidden frame kept running while the app is open. Addons with a `quickAdd` row get one without asking. |
+- `wr.day()` reads today's activity/task slots, including titles and `ownedByYou`; not calendar-event details.
+- `wr.placeSlot()` and `wr.setSlotStatus()` act on addon-owned slots. `wr.finishSession()` only finishes the assigned session.
+- `wr.todos.*` permissions concern the user's todo list, not only addon-created records.
+- `wr.card()` presents the selected widget. A session receives its selected `activityTypeKey` in role/context.
+- `wr.store` is account/addon-scoped device JSON storage, not a credential vault: 64 keys, 16 KiB/value, 256 KiB total. It can fail when full/unavailable.
+- Role, theme, host/API versions and change/Quick Add listeners are part of the SDK. Use `dispose()` for teardown; ordinary RPC has a deadline.
 
-Always available: `wr.store` (16 KB per key, on this device, cleared on
-remove), `wr.theme`, `wr.role`, `wr.hostVersion`, `wr.onDayChange`,
-`wr.onTodosChange`, `wr.onQuickAdd`.
+No SDK API creates activities, registers calendar providers, replaces the scheduler, draws outside its frame, accesses Node/filesystem/shell/Tauri or obtains account/provider tokens. Hosted features remain subject to server-side plan limits. Re-enabling addon activities also rechecks the Free activity limit.
 
-## What an addon cannot do
+## Boundary and releases
 
-- Read or change the user's own activities and slots. There is no capability
-  for it.
-- Read the schedule beyond today. The scopes `week`, `range` and `history`
-  exist in the vocabulary and are refused at install.
-- Draw its own settings form, the Done button, or anything outside its frame.
-- Reach any origin it was not granted. The frame's Content-Security-Policy and
-  the host both refuse.
-- See a secret. Secrets go from the Addons page to Rust and are used only by
-  the fetch proxy.
-- Use `wr.fetch()` in the web build. There is no Rust to fetch through. Plain
-  `fetch` still works there, within the granted origins.
-- Create activities. `write:own` covers slots only.
+An opaque-origin `<iframe sandbox="allow-scripts">` gets one parent-owned MessagePort. The native `addon:` document and web `srcdoc` carry restrictive CSP. Never add `allow-same-origin`. Host RPC validates capability, role and payload budgets; backend calls recheck exact approved release, enablement, grant, endpoint and slot ownership inside the mutation transaction.
 
-## How the boundary works
+An iframe is not a CPU/memory/process guarantee. Even with review, read authority reveals data to third-party code. Network/credential authority can enable data egress and destructive remote requests; secret injection is not a guarantee that a remote server cannot reflect the secret.
 
-**The frame.** An addon runs in an `<iframe sandbox="allow-scripts">`. That
-gives it an opaque origin: no storage, no reach into the app, no Tauri IPC,
-and `Origin: null` on requests. The document is fetched over the `addon:`
-scheme in the desktop app, so it carries its own Content-Security-Policy built
-from the grant. The web build falls back to `srcdoc` with a `<meta>` policy.
+Community releases bind manifest, version, digest, source, license and author in an approved P-256 signed descriptor. The client uses the exact installed release, not the latest catalog entry sharing an ID. Downloads use the configured API origin and controlled bucket. Hashes and signatures do not replace source/license/privacy review.
 
-**The port.** At load the host transfers one `MessagePort`. Everything the
-addon does goes through it as a JSON call. Holding the port is the capability.
+Upgrades/rollback are explicit, preserve narrowed grants, drop removed permissions and surface new/auth-routing changes for approval. Active activity sessions block version changes. Ordinary refreshes preserve frame connections; a release/grant/settings change deliberately remounts. Bundled manifests must match local signed-app assets; older retained manifests live in `addon-registry/bundled-history.json`.
 
-**The grant.** What the user approved is stored as `granted_json`, separate
-from the manifest. The desktop host checks every call against the grant. Every
-write the host proxies carries the addon's id in an `x-wr-addon` header, and
-the Worker checks the grant again, plus ownership for slots. The Worker's
-check is the gate.
+Native installation stages complete verified immutable snapshots and atomically publishes a revision directory. Every serve rechecks manifest/grant/bundle identity and a mandatory hash, including locally bundled code. Native activation uses the approved revision in the frame URL plus an expiring in-memory authority lease. Missing hash does not mean trusted.
 
-**Upgrades.** A new version keeps the grant it had. Anything extra it asks for
-is listed on the Addons page with an Allow button and stays off until pressed.
-A user may also grant less than the manifest asks for.
+Approval refresh occurs on startup/focus/online and every 30 seconds; community authority expires after five minutes without verification. Native serve/fetch checks also expire independently. Revocation can stop running sessions; it does not undo already accepted writes. Device safe mode stops all addon frames without deleting account activities. Suspended-webview behavior still requires packaged-native acceptance; no always-running-service promise is made.
 
-**Bundles.** The registry lists each addon with a version, a bundle URL and a
-sha256. The desktop app refuses a bundle that does not hash to it, in
-JavaScript before install and in Rust on install and on every serve. Bundled
-addons ship inside the signed app and carry no hash. Community entries need
-one, and the `wiseroutine.` id prefix is reserved.
+## A minimal community widget
 
-**Revocation.** The server owns the registry. An addon marked revoked stops
-being installable and stops running where it is installed, on the next load.
-
-## Writing one
-
-A manifest beside a single IIFE bundle. See `addons/todos` for a card with a
-Quick add row and `addons/breathing` for a session.
-
-```jsonc
-// manifest.json
+```json
 {
-  "$schema": "https://wiseroutine.ai/schemas/addon-manifest.json",
-  "id": "acme.workouts",
-  "apiVersion": 1,
-  "name": "Acme Workouts",
+  "id": "yourname.pause",
+  "name": "A small pause",
   "version": "1.0.0",
-  "description": "Your next workout, from Acme.",
-  "capabilities": [
-    { "kind": "ui:widget" },
-    { "kind": "read:schedule", "scope": "today" },
-    { "kind": "write:own" },
-    {
-      "kind": "net:fetch",
-      "origins": ["https://api.acme.example"],
-      "auth": { "secret": "apiKey", "header": "Authorization", "prefix": "Bearer " }
-    }
-  ],
-  "settings": [
-    { "key": "apiKey", "label": "Acme API key", "type": "secret" },
-    { "key": "units", "label": "Units", "type": "select", "default": "km", "options": ["km", "mi"] }
-  ],
-  "widgets": [{ "key": "next", "name": "Next workout" }]
+  "apiVersion": 1,
+  "description": "Make room for the next thing.",
+  "capabilities": [{ "kind": "ui:widget" }],
+  "widgets": [{ "key": "pause", "name": "A small pause" }]
 }
 ```
 
 ```ts
-// src/main.ts
 import { connect } from "@wiseroutine/addon-sdk";
-
-const wr = await connect();
-if (wr.role.kind === "widget") {
-  const { units } = await wr.settings<{ units: string }>();
-  const next = await wr.fetch("https://api.acme.example/next").then((r) => r.json());
-  document.body.textContent = `${next.name} · ${next.distance} ${units}`;
-  await wr.card({ eyebrow: "Next workout", height: 64 });
+async function main() {
+  const wr = await connect();
+  if (wr.role.kind !== "widget") return;
+  document.body.textContent = "Breathe. Make room for the next thing.";
+  await wr.card({ eyebrow: "A small pause", height: 160 });
 }
+main().catch(error => { document.body.textContent = error.message; });
 ```
 
-Settings fields: `select`, `number`, `text`, `boolean`, and `secret` (addon
-level only). Each takes `help` and `showWhen: { key, equals }`. The JSON Schema
-is at `packages/addons/manifest.schema.json`.
+Build a self-contained IIFE at `dist/addon.js`. The CLI starter includes Vite configuration. In the private integration checkout:
 
-Build with Vite as the bundled addons do: `formats: ["iife"]`, one
-`addon.js`, manifest copied beside it. The frame cannot load a second file.
-
-### Running a local addon
-
-Set `VITE_ADDON_SIDELOAD` to a URL that serves `manifest.json` and `addon.js`,
-then run `pnpm dev`. The addon is loaded with everything it asks for.
-Development builds only.
-
-```bash
-VITE_ADDON_SIDELOAD=http://localhost:4173 pnpm dev
+```sh
+pnpm addon:verify
+pnpm addon:kit /tmp/wiseroutine-addon-kit  # target must not already exist
 ```
 
-### Publishing
+Then use only the exported directory: `pnpm install --frozen-lockfile --ignore-scripts`, `pnpm build`, `pnpm test`, `pnpm typecheck`, `pnpm addon preview addons/breathing`.
 
-`@wiseroutine/addon-sdk` and `@wiseroutine/addons` (types, parser, JSON
-Schema) build to `dist/` with `pnpm build` and are set up to publish. The
-registry is the list in `apps/api/src/addons/registry.ts`. A community entry
-needs a versioned `bundleUrl` and a `bundleHash`.
+The previous `VITE_ADDON_SIDELOAD` app hook has been removed. It could not authorize real backend writes and was not a standalone developer workflow. Use the synthetic host for iteration and a separately configured **staging app/API, test keys and reviewed catalog** for integration. Never loosen production authorization for development.
 
-## Not yet
+## Publishing is a separate operation
 
-- Signed bundles. Hashes are checked; a signature over the hash with a
-  release key is the next step once CI publishes.
-- Secrets in the OS keychain. Today they are a file with owner-only
-  permissions in the app data directory.
-- OAuth for third-party services. `open:external` plus a callback.
-- Reading beyond today.
-- Addons creating activities, not only slots.
-- Ordering addon cards in the rail.
+No command here publishes to npm, creates a public repository, uploads code or installs production signing keys. `wr-addon package` produces an **unapproved** artifact. Human-reviewed isolated builds and trusted promotion are described in [SUBMISSIONS.md](addon-kit/SUBMISSIONS.md) and [the operator runbook](../addon-registry/README.md).
+
+Third-party OAuth, OS-keychain-backed addon secrets, wider schedule reads, paid-addon checkout/revenue sharing and unrestricted uploads are outside v1. Do not advertise them as available.

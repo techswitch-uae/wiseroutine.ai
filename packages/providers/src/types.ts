@@ -222,10 +222,22 @@ export class ProviderError extends Error {
     return this.status === 429 || this.status >= 500;
   }
 
-  /** The token is dead - surface "reconnect your calendar" rather than
-   *  retrying a revoked grant a hundred times through the queue. */
+  /**
+   * The token is dead - surface "reconnect your calendar" rather than
+   * retrying a revoked grant a hundred times through the queue.
+   *
+   * 401/403 is how the *API* says it. The token endpoint says it with a 400
+   * and `invalid_grant` - which is the shape a revoked or expired refresh
+   * token actually arrives in, and reading only the status missed every one
+   * of them. Matched on the body because a plain 400 from the calendar API is
+   * a malformed request, not a dead grant.
+   */
   get needsReauth(): boolean {
-    return this.status === 401 || this.status === 403;
+    return (
+      this.status === 401 ||
+      this.status === 403 ||
+      (this.status === 400 && this.body.includes("invalid_grant"))
+    );
   }
 }
 

@@ -1,3 +1,4 @@
+import { dayBounds, localDateOf } from "@wiseroutine/scheduler";
 import {
   deviceTimeZone,
   openGaps,
@@ -102,16 +103,27 @@ export function suggestionsFor(
   }
   // `/scope` bounds a day at midnight; the hours worth offering are the ones
   // today is drawn against, so tomorrow is narrowed to the same range.
-  const range = today?.ranges.find((r) => r.key === today.range);
+  const range =
+    today?.ranges.find((r) => r.key === "working") ??
+    today?.ranges.find((r) => r.key === today.range);
+  const bounds =
+    tomorrow && range
+      ? dayBounds(
+          localDateOf(tomorrow.dayStart, tz),
+          tz,
+          range.startMinutes,
+          range.endMinutes,
+        )
+      : null;
   const [morning] =
     tomorrow && range
       ? gapsFor(
           {
             ...tomorrow,
-            dayStart: tomorrow.dayStart + range.startMinutes * 60_000,
-            dayEnd: tomorrow.dayStart + range.endMinutes * 60_000,
+            dayStart: bounds?.start ?? tomorrow.dayStart,
+            dayEnd: bounds?.end ?? tomorrow.dayEnd,
           },
-          tomorrow.dayStart + range.startMinutes * 60_000,
+          bounds?.start ?? tomorrow.dayStart,
           minutes,
         )
       : tomorrow

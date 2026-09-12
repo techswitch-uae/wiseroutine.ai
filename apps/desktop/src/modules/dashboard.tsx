@@ -8,15 +8,19 @@ import {
 } from "@wiseroutine/design";
 import { useEffect, useState } from "react";
 import { AddonWidgets } from "../addons/widget";
+import { useAccount } from "../lib/account";
 import { upNextOf } from "../lib/alerts";
 import {
   type ActivityProgress,
   api,
   type BucketItem,
   type MissedItem,
+  type TodaySlot,
 } from "../lib/api";
+import { refreshCaptured } from "../lib/capture";
 import { notify } from "../lib/notify";
-import { reloadPlan, startSlot, usePlan } from "../lib/plan-store";
+import { startSlot, usePlan } from "../lib/plan-store";
+import { Reschedule } from "./reschedule";
 
 /**
  * The rail's modules, and which of them a plan is allowed.
@@ -82,6 +86,7 @@ function useNow(): number {
  * left says so by not asking.
  */
 const UpNext: React.FC = () => {
+  const [moving, setMoving] = useState(false);
   const plan = usePlan();
   const now = useNow();
 
@@ -117,6 +122,24 @@ const UpNext: React.FC = () => {
         >
           Start now
         </Button>
+      ) : null}
+      {next.slotId ? (
+        <Button
+          variant="secondary"
+          block
+          style={{ marginTop: 8 }}
+          onClick={() => setMoving(true)}
+        >
+          Postpone / change time
+        </Button>
+      ) : null}
+      {moving && next.slotId && plan.slots.find((s) => s.id === next.slotId) ? (
+        <Reschedule
+          key={next.slotId}
+          slot={plan.slots.find((s) => s.id === next.slotId) as TodaySlot}
+          timeZone={plan.timeZone}
+          onClose={() => setMoving(false)}
+        />
       ) : null}
     </Widget>
   );
@@ -205,37 +228,84 @@ function reasonOf(item: MissedItem): string {
  * it has been lost, so it is appended like an addon's card and draws nothing
  * on a day with an empty bucket, which is most days.
  */
-const Bucket: React.FC = () => {
+export const Bucket: React.FC<{ standalone?: boolean; query?: string }> = ({
+  standalone = false,
+  query = "",
+}) => {
   const plan = usePlan();
+  const account = useAccount();
+  const [moving, setMoving] = useState<TodaySlot | null>(null);
   const [items, setItems] = useState<BucketItem[] | null>(null);
-
+  const [error, setError] = useState(false);
   useEffect(() => {
-    if (!plan) return;
-    api
-      .bucket()
-      .then(setItems)
-      // A read that failed is not an empty bucket. Saying nothing is the
-      // honest answer to a question we could not ask.
-      .catch(() => setItems(null));
-  }, [plan]);
+    if (!plan && !standalone) return;
+    let active = true;
+    let sequence = 0;
+    const refresh = () => {
+      const order = ++sequence;
+      void api
+        .bucket()
+        .then((rows) => {
+          if (active && order === sequence) {
+            setItems(standalone ? rows.filter((row) => !row.reminderId) : rows);
+            setError(false);
+          }
+        })
+        .catch(() => {
+          if (active && order === sequence) setError(true);
+        });
+    };
+    refresh();
+    globalThis.addEventListener("wr:inbox-changed", refresh);
+    return () => {
+      active = false;
+      globalThis.removeEventListener("wr:inbox-changed", refresh);
+    };
+  }, [plan, standalone]);
 
-  if (!items || items.length === 0) return null;
+  if (error)
+    return (
+      <p role="alert">
+        Couldn't refresh unscheduled slots. Reopen this page to retry.
+      </p>
+    );
+  const visible = items?.filter((item) =>
+    item.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+  );
+  if (!visible?.length) return null;
+  const clock = new Intl.DateTimeFormat(undefined, {
+    timeZone: account?.timeZone ?? plan?.timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+  }).format;
+  const stamp = new Intl.DateTimeFormat(undefined, {
+    timeZone: account?.timeZone ?? plan?.timeZone,
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format;
 
   // The day is re-read either way: the server decides whether that stretch is
   // still free, and its answer is the plan - not ours.
   const act = (run: Promise<unknown>, failed: string): void => {
-    run.catch(() => notify(failed)).finally(() => reloadPlan());
+    run.catch(() => notify(failed)).finally(() => refreshCaptured());
   };
 
   return (
-    <Widget eyebrow="Nowhere to go" count={items.length}>
-      {items.map((item) => (
+    <Widget eyebrow="Unscheduled slots" count={visible.length}>
+      {moving && (account?.timeZone ?? plan?.timeZone) ? (
+        <Reschedule
+          slot={moving}
+          timeZone={account?.timeZone ?? plan?.timeZone ?? "UTC"}
+          onClose={() => setMoving(null)}
+        />
+      ) : null}
+      {visible.map((item) => (
         <div key={item.id} style={{ marginTop: 8 }}>
           <StateRow
             recessed
             name={item.title}
-            meta={`was ${dueClock(item.wasAt)} · ${bucketReason(item)}`}
-            leading={<Chip variant="static">{dueClock(item.wasAt)}</Chip>}
+            meta={`was ${stamp(item.wasAt)} · ${bucketReason(item)}`}
+            leading={<Chip variant="static">{clock(item.wasAt)}</Chip>}
             trailing={
               <span style={{ display: "flex", gap: 6 }}>
                 {item.suggested ? (
@@ -253,9 +323,20 @@ const Bucket: React.FC = () => {
                       )
                     }
                   >
-                    {dueClock(item.suggested.startsAt)}
+                    {clock(item.suggested.startsAt)}
                   </Button>
                 ) : null}
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    void api
+                      .slotDetails(item.id)
+                      .then(setMoving)
+                      .catch(() => notify("Couldn't read this slot."));
+                  }}
+                >
+                  Choose time
+                </Button>
                 <Button
                   variant="quiet"
                   onClick={() =>
@@ -278,6 +359,8 @@ const Bucket: React.FC = () => {
 function bucketReason(item: BucketItem): string {
   if (item.suggested) return "only fits here";
   switch (item.reasonCode) {
+    case "saved_for_later":
+      return "saved for later";
     case "no_gap":
       return "no gap it would fit in";
     case "too_close":

@@ -372,6 +372,10 @@ model Reminder {
   id String @id
 
   title String
+  notes String @default("")
+  linksJson String @default("[]") @map("links_json")
+  /// Preserve the guided activity when an appointment is skipped or removed.
+  activityId String? @map("activity_id")
   /// "tomorrow" | "this_week" | "date"
   dueWindow String  @map("due_window")
   dueDate   String? @map("due_date")

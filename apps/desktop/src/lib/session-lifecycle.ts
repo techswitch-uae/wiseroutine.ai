@@ -71,6 +71,25 @@ export const useSessionIdentity = (): string | null =>
     sessionIdentity,
     () => null,
   );
+export interface SessionScope {
+  generation: number;
+  token: string | null;
+  identity: string | null;
+}
+export const captureSessionScope = (): SessionScope => ({
+  generation: sessionGeneration(),
+  token: sessionToken(),
+  identity: sessionIdentity(),
+});
+/** Fence a whole workflow, including local-storage waits between requests. */
+export function assertSessionScope(scope: SessionScope): void {
+  if (
+    scope.generation !== sessionGeneration() ||
+    scope.token !== sessionToken() ||
+    scope.identity !== sessionIdentity()
+  )
+    throw new SessionChangedError();
+}
 export class SessionChangedError extends Error {
   constructor() {
     super("The session changed");

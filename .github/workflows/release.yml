@@ -44,6 +44,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: brew install tursodatabase/tap/turso
       - run: pnpm install --frozen-lockfile
+      - run: pnpm addon:verify
       - run: pnpm exec turbo run typecheck test --force
       - run: pnpm test:release
       - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked

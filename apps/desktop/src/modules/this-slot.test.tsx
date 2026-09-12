@@ -183,6 +183,7 @@ test("marking it done is offered, quietly, beside Start", () => {
     b.className,
   ]);
   expect(buttons).toEqual([
+    ["Postpone / change time", expect.stringContaining("wr-btn-secondary")],
     ["Start", expect.stringContaining("wr-btn-primary")],
     ["Mark it done", expect.stringContaining("wr-btn-quiet")],
   ]);

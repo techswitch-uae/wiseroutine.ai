@@ -105,7 +105,7 @@ export function slotState(slot: TodaySlot, now: number): SlotState {
       // meantime promises a session that would begin in the past.
       if (over)
         return {
-          note: "Its time has passed. It will be recorded as missed.",
+          note: "Its time has passed. Postpone it or mark it done if it happened.",
           startable: false,
           running: false,
           movable: false,

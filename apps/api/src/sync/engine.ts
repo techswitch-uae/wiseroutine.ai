@@ -156,10 +156,21 @@ export async function accessTokenFor(
   });
 
   const credentials = deps.clientIds[provider];
-  const refreshed =
-    provider === "google"
-      ? await googleRefresh({ refreshToken, ...credentials })
-      : await microsoftRefresh({ refreshToken, ...credentials });
+  /**
+   * A refresh that fails on the grant itself is the third way a connection
+   * dies, and the commonest: the user removed our access, or the grant aged
+   * out. It reaches here rather than the catch in `syncCalendar`, which begins
+   * after this call - so without this the connection stayed "active" forever
+   * and the only trace was `invalid_grant` in a log the user cannot see.
+   */
+  const refreshed = await (provider === "google"
+    ? googleRefresh({ refreshToken, ...credentials })
+    : microsoftRefresh({ refreshToken, ...credentials })
+  ).catch(async (error: unknown) => {
+    if (error instanceof ProviderError && error.needsReauth)
+      await markNeedsReauth(deps.db, connectionId);
+    throw error;
+  });
 
   const sealedAccess = await seal(
     deps.rootKey,
