@@ -639,6 +639,18 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
   font-variant-numeric: tabular-nums;
 }
 .wr-widget-time-soft { font-weight: 400; color: var(--wr-text-soft); }
+/* The time, when it can be changed, is the control that changes it - one place
+   for "a different time" in every state, instead of a full-width button that
+   outweighed the stepper beside it. A soft pill says it can be pressed; the
+   negative margin keeps the digits on the card's content edge, where they sat
+   as plain text. */
+.wr-widget-time-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-left: -8px; padding: 3px 8px; border: 0; border-radius: 999px;
+  background: var(--color-neutral-200); cursor: pointer; text-align: left;
+}
+.wr-widget-time-btn:hover { background: var(--color-neutral-300); }
+.wr-widget-time-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px var(--color-accent); }
 /* On the dark card the accent brown disappears into the ground. */
 .wr-widget-attention .wr-widget-time { color: var(--color-neutral-100); }
 .wr-widget-attention .wr-widget-time-soft {

@@ -38,10 +38,11 @@ export default defineConfig({
   // meetings.
   workers: 1,
   fullyParallel: false,
+  forbidOnly: !!process.env.CI,
   // A scenario waits on a real sync settling, so the default 5s is too tight.
   timeout: 30_000,
   expect: { timeout: 10_000 },
-  reporter: process.env.CI ? "list" : "line",
+  reporter: [[process.env.CI ? "list" : "line"], ["html", { open: "never" }]],
   use: {
     baseURL: APP_URL,
     timezoneId: TIME_ZONE,

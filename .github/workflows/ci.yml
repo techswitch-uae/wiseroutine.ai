@@ -51,6 +51,45 @@ jobs:
       - run: pnpm exec playwright test --config playwright.addons.config.ts
         working-directory: apps/desktop
       - run: node scripts/assemble-addons.mjs
-      - name: Core capture, rescheduling and session regressions
-        run: pnpm test:core-browser && pnpm test:capture-browser
+      - name: Full-stack app user journeys
+        run: pnpm test:app-browser
+      - name: App browser failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-browser-results
+          path: |
+            apps/desktop/playwright-report/
+            apps/desktop/test-results/
+          retention-days: 7
       # This job verifies only. Never expose publishing/deployment/signing secrets to PR code.
+
+  marketing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm --filter @wiseroutine/web typecheck && pnpm --filter @wiseroutine/web test
+      - run: pnpm exec biome check apps/web
+      - run: pnpm exec playwright install --with-deps chromium firefox webkit
+        working-directory: apps/web
+      - name: Production landing-page user journeys
+        run: pnpm test:web-browser
+      - name: Web browser reports and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-browser-results
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          retention-days: 7

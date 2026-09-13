@@ -1,5 +1,6 @@
 import {
   Button,
+  ChevronDownGlyph,
   Modal,
   RichText,
   TimeStepper,
@@ -267,6 +268,7 @@ export const ThisSlot: React.FC = () => {
 
   const state = slotState(slot, now);
   const minutes = Math.round((slot.endsAt - slot.startsAt) / 60_000);
+  const times = `${clock(slot.startsAt, plan.timeZone)}–${clock(slot.endsAt, plan.timeZone)}`;
   const module = moduleFor(slot.presetKey);
 
   const nudge = (direction: -1 | 1) => {
@@ -325,28 +327,39 @@ export const ThisSlot: React.FC = () => {
   return (
     <Widget eyebrow="This block" leaving={leaving} onClose={close}>
       <h3 className="wr-widget-title">{slot.title}</h3>
-      <div className="wr-widget-time">
-        {clock(slot.startsAt, plan.timeZone)}–
-        {clock(slot.endsAt, plan.timeZone)}
-        <span className="wr-widget-time-soft"> · {minutes} min</span>
-      </div>
-
-      <Note>{state.note}</Note>
+      {/* The time is the way to a different time. It used to be read here and
+          changed by a full-width "Postpone / change time" button further
+          down, which outweighed the stepper doing the everyday version of the
+          same job. Now the small nudge is the stepper and the big jump is the
+          value itself - and a block that can no longer move shows the time as
+          plain text, so nothing looks pressable that is not. */}
       {canPostponeSlot(slot) ? (
-        <Button
-          variant="secondary"
-          block
-          style={{ marginTop: 14 }}
+        <button
+          type="button"
+          className="wr-widget-time wr-widget-time-btn"
+          title="Postpone / change time"
+          aria-label={`Postpone / change time, ${times}`}
           onClick={() => setMoving(true)}
         >
-          Postpone / change time
-        </Button>
-      ) : null}
+          <span>
+            {times}
+            <span className="wr-widget-time-soft"> · {minutes} min</span>
+          </span>
+          <ChevronDownGlyph aria-hidden="true" />
+        </button>
+      ) : (
+        <div className="wr-widget-time">
+          {times}
+          <span className="wr-widget-time-soft"> · {minutes} min</span>
+        </div>
+      )}
+
+      <Note>{state.note}</Note>
       {flags.inbox && slot.reminderId ? (
         <Button
           variant="secondary"
           block
-          style={{ marginTop: 8 }}
+          style={{ marginTop: 14 }}
           onClick={() => setDetails(true)}
         >
           Open todo, links and files

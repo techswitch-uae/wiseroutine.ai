@@ -2,6 +2,26 @@
 
 The supported installer entry point is `pnpm bundle`. It validates release configuration, writes a **public-key-only** Tauri overlay, runs the frontend dependency graph (including tests and addon builds), and packages the app. The GitHub workflow uses the same overlay and frontend gate, with a separate full-workspace/native verification job.
 
+## Marketing site
+
+The launch site lives in [`apps/web`](../apps/web/README.md), independently of
+the desktop installer. Build with
+`pnpm exec turbo run build --filter=@wiseroutine/web...`; deploy its full
+`.output` to a Node host. `pnpm test:web-browser` boots that production server
+and tests the visitor paths across browsers. See [browser testing](testing.md)
+for setup, CI artifacts and coverage boundaries.
+
+`apps/web/src/content/release.json` contains the existing app's `signupUrl`;
+confirm its deployment/DNS and complete the emailed-code signup before publishing.
+All primary CTAs point there. Installer readiness separately defaults to
+**preview**, with no downloads; this never disables account signup.
+Only set it live after platform/provider/installer acceptance, then list each
+validated platform, requirements and HTTPS installer URL. Regenerate the social
+card when availability changes. Do not publish unapproved discounts or infer
+platform support from the build targets. Hosting, legal/support destinations and
+validated installer links remain operational launch work, not completed by the
+landing page.
+
 ## Configuration still required
 
 Set these explicitly; there are no production defaults:

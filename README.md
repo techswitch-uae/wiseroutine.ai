@@ -10,6 +10,7 @@ Cloudflare Workers + Turso (libSQL) on the back.
 ```
 apps/
   desktop/     Tauri 2 + TanStack Start (React 19, Vite)
+  web/         TanStack Start marketing site, SSR + interactive sample day
   api/         Cloudflare Worker - Hono, Queues, cron, webhooks
 packages/
   design/      tokens, CSS and React primitives (the Organic system + our layer)
@@ -27,6 +28,8 @@ packages/
 | --- | --- |
 | `pnpm design` | component gallery at <http://localhost:3100/design> |
 | `pnpm dev` | `tauri dev` - the desktop app |
+| `pnpm web` | marketing site at <http://localhost:42000> |
+| `pnpm test:e2e` | full-stack app journeys + production marketing-site browser tests |
 | `pnpm api` | `wrangler dev` - the Worker |
 | `pnpm build` | web build of every app |
 | `pnpm bundle` | `tauri build` - the desktop binary |
@@ -36,6 +39,17 @@ packages/
 run **in workerd** via `@cloudflare/vitest-pool-workers`, against real D1 and KV
 bindings and the same migrations wrangler applies in production - not a jsdom
 approximation.
+
+## Marketing site and browser coverage
+
+[`apps/web`](apps/web/README.md) is the launch site for **wiseroutine.ai**.
+It reuses the app’s calendar components, fonts and scheduler, with a clearly
+labeled synthetic day. Primary CTAs lead to existing account signup; the demo
+is secondary. Installer availability stays in preview until reviewed platforms
+and download URLs are supplied.
+
+See [browser testing](docs/testing.md) for setup, coverage, isolated test ports,
+CI artifacts and the live-provider/native checks automation does not replace.
 
 ## Product strategy
 

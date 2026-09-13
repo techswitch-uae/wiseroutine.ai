@@ -12,6 +12,16 @@
 
 ---
 
+**Landing page implementation:** [`apps/web`](../apps/web/README.md) is the
+TanStack Start marketing site for wiseroutine.ai. It reuses the app's UI and
+scheduler for a labeled synthetic placement → meeting change → repair demo,
+including the no-space case. **Primary CTAs create a Free account through the
+existing app signup; the sample is secondary.** Installer readiness defaults to
+preview, independently of signup: no unvalidated installers, checkout or
+founding-discount claims. Confirm the signup deployment as well as platform/download
+approval and live-provider acceptance before publishing. [Browser coverage](testing.md) distinguishes the
+marketing suite from full-stack app tests and manual release gates.
+
 # Part I — Strategy
 
 ## 1. Strategy in one page

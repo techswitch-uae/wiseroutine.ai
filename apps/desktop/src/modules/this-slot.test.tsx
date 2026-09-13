@@ -252,10 +252,25 @@ test("marking it done is offered, quietly, beside Start", () => {
     b.className,
   ]);
   expect(buttons).toEqual([
-    ["Postpone / change time", expect.stringContaining("wr-btn-secondary")],
     ["Start", expect.stringContaining("wr-btn-primary")],
     ["Mark it done", expect.stringContaining("wr-btn-quiet")],
   ]);
+});
+
+/**
+ * A different time or day is reached from the time itself, not from a
+ * full-width button that outweighed the stepper. It stays reachable by name.
+ */
+test("the time is the way to postpone a block", () => {
+  show(day());
+  expect(
+    screen.getByRole("button", { name: /^Postpone \/ change time, / }),
+  ).toBeTruthy();
+});
+
+test("the time is plain text once the block cannot move", () => {
+  show(day({ slots: [slot({ status: "completed" })] }));
+  expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
 });
 
 test("nothing is offered for a block that is already over", () => {

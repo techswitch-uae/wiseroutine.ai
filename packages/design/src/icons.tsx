@@ -1,6 +1,7 @@
 import {
   IconAdjustmentsHorizontal,
   IconCheck,
+  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconPlayerPlayFilled,
@@ -103,6 +104,11 @@ export const SettingsGlyph = glyph(IconSettings, "Settings", 14);
 
 /** Onward - the one arrow the kit draws. */
 export const ForwardGlyph = glyph(TablerArrowRight, "Next", 16);
+
+/** Sits after a value that opens a choice about it - the block's time, which
+ *  opens the dialog for a different time or day. Small, because it annotates
+ *  the value rather than competing with it. */
+export const ChevronDownGlyph = glyph(IconChevronDown, "Change", 13);
 
 export const ChevronLeftGlyph = glyph(IconChevronLeft, "Previous", 16);
 export const ChevronRightGlyph = glyph(IconChevronRight, "Next", 16);
