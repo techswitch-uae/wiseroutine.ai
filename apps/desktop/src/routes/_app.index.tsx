@@ -22,6 +22,7 @@ import {
   getSessionToken,
   type TodayResponse,
 } from "../lib/api";
+import { setDayRange, useDayRange } from "../lib/day-range";
 import { setDensity, useDensity } from "../lib/density";
 import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
@@ -36,9 +37,10 @@ import {
 } from "../lib/plan-store";
 import { markStarted } from "../lib/running-slot";
 import { dayOf, todayOf } from "../lib/scope";
+import { sessionGeneration } from "../lib/session-lifecycle";
+import { DAY_HOURS_ANCHOR } from "../lib/settings-sections";
 import { startTodaySlot } from "../lib/today-controller";
 import { TodayRail } from "../modules/today-rail";
-import { DAY_HOURS_ANCHOR } from "./_app.settings";
 
 /** What `api.today()` hands back: the plan plus where it came from. */
 type CachedToday = TodayResponse & { stale: boolean; cachedAt: number };
@@ -90,16 +92,9 @@ const Today: React.FC = () => {
   /** A session being dragged in from the rail - see `modules/to-place`. */
   const placing = usePlacing();
 
-  /**
-   * Which hours are on screen, for as long as this window is open.
-   *
-   * Deliberately not saved. Switching to the evening to check something is
-   * looking, not a preference - the range the day *starts* on is a setting,
-   * and it lives in Settings where it can be seen and changed on purpose.
-   * Null means "whatever the server opens on", which is what the first load
-   * asks for and what the server answers with.
-   */
-  const [range, setRange] = useState<string | null>(null);
+  /** Last explicitly chosen view, remembered locally for this account.
+   * Null keeps the existing default; release gates still constrain requests. */
+  const range = useDayRange();
 
   const today = todayOf();
   const viewed = dayOf(dateParam, today);
@@ -126,7 +121,12 @@ const Today: React.FC = () => {
     });
   };
 
+  const loadSequence = useRef(0);
   const load = useCallback(() => {
+    const request = ++loadSequence.current;
+    const generation = sessionGeneration();
+    const current = () =>
+      request === loadSequence.current && generation === sessionGeneration();
     if (!getSessionToken()) {
       setError("not_connected");
       return;
@@ -134,7 +134,7 @@ const Today: React.FC = () => {
     api
       .today({
         ...(!flags.day_view_options
-          ? { range: "working" }
+          ? { range: range === "full" ? "full" : "working" }
           : range
             ? { range }
             : {}),
@@ -143,11 +143,13 @@ const Today: React.FC = () => {
         ...(dateParam ? { at: middayOn(dayOf(dateParam, new Date())) } : {}),
       })
       .then((response) => {
+        if (!current()) return;
         setData(response);
         setQueued(api.pendingCount());
         setError(null);
       })
       .catch((cause: unknown) => {
+        if (!current()) return;
         setError(
           cause instanceof ApiError && cause.status === 401
             ? "not_connected"
@@ -196,6 +198,7 @@ const Today: React.FC = () => {
   }, [data]);
   useEffect(
     () => () => {
+      loadSequence.current++;
       publishPlan(null);
       pick(null);
     },
@@ -387,14 +390,22 @@ const Today: React.FC = () => {
     // This run opened it, so this run may show its session - see
     // `lib/running-slot`. Marked before the request, because the optimistic
     // status below is what the overlay reads.
-    markStarted(slotId);
+    if (
+      dataRef.current?.slots.find((slot) => slot.id === slotId)?.status ===
+      "started"
+    )
+      return;
+    const startedAt = Date.now();
+    markStarted(slotId, startedAt);
 
     setData(
       (current) =>
         current && {
           ...current,
           slots: current.slots.map((slot) =>
-            slot.id === slotId ? { ...slot, status: "started" as const } : slot,
+            slot.id === slotId
+              ? { ...slot, status: "started" as const, startedAt }
+              : slot,
           ),
         },
     );
@@ -559,19 +570,27 @@ const Today: React.FC = () => {
 
       <DayBar
         hours={
-          flags.day_view_options ? (
-            <HoursMenu
-              ranges={data.ranges}
-              value={data.range}
-              onChange={setRange}
-              densities={DAY_DENSITIES}
-              density={density.key}
-              onDensityChange={setDensity}
-              onEdit={() =>
-                void navigate({ to: "/settings", hash: DAY_HOURS_ANCHOR })
-              }
-            />
-          ) : null
+          <HoursMenu
+            ranges={
+              flags.day_view_options
+                ? data.ranges
+                : data.ranges.filter(
+                    (range) => range.key === "working" || range.key === "full",
+                  )
+            }
+            value={data.range}
+            onChange={setDayRange}
+            {...(flags.day_view_options
+              ? {
+                  densities: DAY_DENSITIES,
+                  density: density.key,
+                  onDensityChange: setDensity,
+                }
+              : {})}
+            onEdit={() =>
+              void navigate({ to: "/settings", hash: DAY_HOURS_ANCHOR })
+            }
+          />
         }
         date={dayLabel}
         span={hoursLabel}
@@ -593,12 +612,12 @@ const Today: React.FC = () => {
       />
 
       <div className="wr-page-scroll">
-        {flags.day_view_options && data.outside.before.length > 0 ? (
+        {data.outside.before.length > 0 ? (
           <OutsideRange
             edge="before"
             count={data.outside.before.length}
             at={active ? clockOf(active.startMinutes) : ""}
-            onExpand={() => setRange("full")}
+            onExpand={() => setDayRange("full")}
           />
         ) : null}
 
@@ -652,7 +671,10 @@ const Today: React.FC = () => {
                 // Enter and Delete, for a block that has focus. A finished slot
                 // offers neither: there is nothing left to start, and taking it
                 // off the day would erase what actually happened.
-                ...(row.slotId && row.done !== true
+                ...(row.slotId &&
+                row.done !== true &&
+                data.slots.find((s) => s.id === row.slotId)?.status !==
+                  "started"
                   ? {
                       onStart: () => row.slotId && start(row.slotId),
                       onRemove: () =>
@@ -684,12 +706,12 @@ const Today: React.FC = () => {
           />
         )}
 
-        {flags.day_view_options && data.outside.after.length > 0 ? (
+        {data.outside.after.length > 0 ? (
           <OutsideRange
             edge="after"
             count={data.outside.after.length}
             at={active ? clockOf(active.endMinutes) : ""}
-            onExpand={() => setRange("full")}
+            onExpand={() => setDayRange("full")}
           />
         ) : null}
       </div>

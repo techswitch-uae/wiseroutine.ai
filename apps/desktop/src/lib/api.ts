@@ -230,6 +230,8 @@ export type SlotStatus =
   | "bucketed";
 
 export interface TodaySlot {
+  /** Actual latest Start from the lifecycle log; absent on older caches. */
+  startedAt?: number | null;
   id: string;
   title: string;
   kind: "recovery" | "focus" | "task";

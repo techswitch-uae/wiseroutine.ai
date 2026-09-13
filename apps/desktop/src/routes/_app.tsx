@@ -67,7 +67,6 @@ const NAV = [
   // Settings because it is a place things are added, and below the two that
   // are the routine itself.
   { key: "addons", label: "Addons", to: "/addons" },
-  { key: "calendars", label: "Calendars", to: "/calendars" },
   { key: "settings", label: "Settings", to: "/settings" },
 ] as const;
 
@@ -257,7 +256,6 @@ const AppLayout: React.FC = () => {
     { key: "today", label: "Today", to: "/" },
     ...NAV.filter(
       (item) =>
-        item.key !== "calendars" &&
         (item.key !== "inbox" || flags.inbox) &&
         (item.key !== "addons" || flags.community_addons),
     ),

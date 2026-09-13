@@ -65,6 +65,7 @@ const slot = (over: Partial<TodaySlot> = {}): TodaySlot => ({
   title: "Workout",
   kind: "recovery",
   startsAt: AT,
+  startedAt: AT,
   endsAt: AT + 5 * 60_000,
   status: "planned",
   isLocked: false,
@@ -156,6 +157,73 @@ test("says which of the two reasons it cannot be moved", () => {
  * that completes a slot lived inside a session that this activity does not
  * have.
  */
+test.each([1, 3, 4, 10])(
+  "a %i-minute block hides Stop at the exact cutoff without a plan refresh",
+  (minutes) => {
+    vi.useFakeTimers({ now: AT, shouldAdvanceTime: false });
+    const duration = minutes * 60_000;
+    show(
+      day({
+        slots: [
+          slot({ status: "started", presetKey: null, endsAt: AT + duration }),
+        ],
+      }),
+    );
+    expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+    const cutoff = Math.min(duration / 2, 120_000);
+    act(() => vi.advanceTimersByTime(cutoff - 1));
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
+    expect(screen.getByText(/stop window has closed/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mark it done" })).toBeTruthy();
+  },
+);
+
+test("an early Stop unlocks postponement only once the plan confirms it", async () => {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  const { api } = await import("../lib/api");
+  show(day({ slots: [slot({ status: "started", presetKey: null })] }));
+  await user.click(screen.getByRole("button", { name: "Stop" }));
+  expect(api.skipSlot).toHaveBeenCalledWith("s1");
+  expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
+  act(() =>
+    publishPlan(day({ slots: [slot({ status: "skipped", presetKey: null })] })),
+  );
+  expect(screen.getByRole("button", { name: /Postpone/ })).toBeTruthy();
+});
+
+test("a newly selected slot uses its actual Start, not the card's old clock or scheduled start", () => {
+  show(
+    day({
+      slots: [
+        slot({ status: "started", presetKey: null, startedAt: AT + 59_000 }),
+      ],
+    }),
+  );
+  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+  act(() => vi.advanceTimersByTime(60_000));
+  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+  act(() => window.dispatchEvent(new Event("focus")));
+  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+});
+
+test("waking after the cutoff removes Stop even before the next interval", () => {
+  show(day({ slots: [slot({ status: "started", presetKey: null })] }));
+  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+  vi.setSystemTime(AT + 180_000);
+  act(() => window.dispatchEvent(new Event("focus")));
+  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+});
+
+test("a reloaded expired session cannot gain another stop window", () => {
+  vi.setSystemTime(AT + 180_000);
+  show(day({ slots: [slot({ status: "started", presetKey: null })] }));
+  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+});
+
 test("a running block with no session of its own can be finished here", async () => {
   const { api } = await import("../lib/api");
   const user = userEvent.setup();

@@ -432,7 +432,7 @@ test("completing, cancelling and restoring synchronize the current todo appointm
   ).toBe(409);
 });
 
-test("postponing a running session keeps history and files; retry and old completion cannot duplicate or finish the new appointment", async () => {
+test("postponing an explicitly stopped session keeps history and files; retry and old completion cannot duplicate or finish the new appointment", async () => {
   const user = await seedUser();
   const startsAt = tomorrowNoon();
   const { todoId, slotId } = (await (
@@ -444,6 +444,10 @@ test("postponing a running session keeps history and files; retry and old comple
     endsAt: startsAt + 86400000 + 1200000,
   };
   const headers = { "idempotency-key": uuid() };
+  expect(
+    (await post(user, `/slots/${slotId}/reschedule`, body, headers)).status,
+  ).toBe(409);
+  expect((await post(user, `/slots/${slotId}/skip`, {})).status).toBe(204);
   const moved = await post(user, `/slots/${slotId}/reschedule`, body, headers);
   expect(moved.status).toBe(200);
   const next = (await moved.json()) as { slotId: string };

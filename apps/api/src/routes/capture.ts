@@ -496,6 +496,11 @@ captureRoutes.post("/slots/:id/reschedule", async (c) => {
       throw new HTTPException(409, {
         message: "Completed or removed history cannot be moved.",
       });
+    if (slot.status === "started")
+      throw new HTTPException(409, {
+        message:
+          "A started slot cannot be postponed. Stop it first while the stop window is open, or create another slot.",
+      });
     // Prevent an old appointment from taking a todo away from its new one.
     if (slot.reminderId) {
       const todo = await getReminder(db, slot.reminderId);
@@ -520,20 +525,7 @@ captureRoutes.post("/slots/:id/reschedule", async (c) => {
     if (!bucket)
       await validatePlacement(db, startsAt, endsAt, c.get("now"), slot.id);
     let target = slot;
-    if (["started", "skipped", "missed"].includes(slot.status)) {
-      if (slot.status === "started")
-        await setSlotStatus(
-          db,
-          {
-            slotId: slot.id,
-            status: "skipped",
-            actor: "user",
-            reasonCode: "postponed",
-            toStartsAt: startsAt,
-          },
-          c.get("now"),
-          newId,
-        );
+    if (["skipped", "missed"].includes(slot.status)) {
       target = await placeSlot(
         db,
         {

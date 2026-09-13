@@ -50,6 +50,24 @@ const plan = (over: Partial<TodayResponse> = {}): TodayResponse => ({
 
 beforeEach(clearOfflineState);
 
+test("offline Start times survive projection, duplicate delivery and a real resume", () => {
+  const start = { id: "start", slotId: "a", kind: "start" as const, at: NOON };
+  const first = withPending(plan(), [start]);
+  expect(first.slots[0]).toMatchObject({ status: "started", startedAt: NOON });
+  expect(
+    withPending(first, [{ ...start, at: NOON + 60_000 }]).slots[0]?.startedAt,
+  ).toBe(NOON);
+  const resumed = withPending(plan(), [
+    start,
+    { id: "stop", slotId: "a", kind: "skip", at: NOON + 30_000 },
+    { ...start, id: "resume", at: NOON + 90_000 },
+  ]);
+  expect(resumed.slots[0]).toMatchObject({
+    status: "started",
+    startedAt: NOON + 90_000,
+  });
+});
+
 describe("cachedPlan", () => {
   test("a plan saved for today comes back", () => {
     cachePlan(plan(), NOON);

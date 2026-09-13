@@ -12,7 +12,7 @@ vi.mock("../lib/api", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   api: { calendars: () => calendars() },
 }));
-vi.mock("../routes/_app.calendars", () => ({
+vi.mock("../lib/calendar-connect", () => ({
   beginConnect: (provider: string) => beginConnect(provider),
 }));
 // The rest of the rail only has to be identifiable here, not rendered: each

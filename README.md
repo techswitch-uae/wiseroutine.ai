@@ -39,13 +39,12 @@ approximation.
 
 ## Product strategy
 
-[Launch and expansion strategy](docs/launch-strategy.md): the free core,
-ordered feature releases, future Free/Pro packaging, founding-user offer,
-milestone communications, and feature-flag rollout process.
-
-[Feature controls and release inventory](docs/feature-releases.md): all-off core
-launch defaults, `pnpm features enable m1 --env local`, per-account previews,
-and built/missing/manual-acceptance checklists for every milestone.
+[Launch: strategy, release controls, and acceptance](docs/launch.md): the free
+core, ordered feature releases, future Free/Pro packaging, founding-user offer,
+milestone communications, all-off launch defaults,
+`pnpm features enable m1 --env local`, per-account previews, and
+built/missing/manual-acceptance status for every milestone. Open M0 and M1 work
+is on the [board](https://github.com/users/techswitch-uae/projects/1/views/1).
 
 ## Addons
 

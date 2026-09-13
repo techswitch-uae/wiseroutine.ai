@@ -12,9 +12,9 @@ import {
   ensureAlertPermission,
 } from "../lib/alerts";
 import { api } from "../lib/api";
+import { beginConnect } from "../lib/calendar-connect";
 import { accountStorageKey } from "../lib/session-lifecycle";
-import { beginConnect } from "../routes/_app.calendars";
-import { DAY_HOURS_ANCHOR } from "../routes/_app.settings";
+import { DAY_HOURS_ANCHOR } from "../lib/settings-sections";
 
 /**
  * The rail's set-up module, and the sheet its one button opens.
@@ -94,6 +94,9 @@ export const SetupRail: React.FC = () => {
   const [seenHours, setSeenHours] = useState(() => remembered(HOURS_SEEN));
   const [finished, setFinished] = useState(() => remembered(DONE));
   const [connecting, setConnecting] = useState(false);
+  const [connectionProblem, setConnectionProblem] = useState<string | null>(
+    null,
+  );
   const [busy, setBusy] = useState<CalendarProvider | null>(null);
   /** Null while unknown, and in a browser it stays null - a step that cannot
    *  exist is never counted rather than being counted as failed. */
@@ -222,14 +225,19 @@ export const SetupRail: React.FC = () => {
             busy={busy}
             onChoose={(provider) => {
               setBusy(provider);
-              void beginConnect(provider).then(() => {
+              setConnectionProblem(null);
+              void beginConnect(provider).then((failure) => {
                 setBusy(null);
-                // Consent carries on in the browser; the sheet has done its
-                // job and the step ticks itself when the account lands.
-                setConnecting(false);
+                if (failure) setConnectionProblem(failure);
+                else setConnecting(false);
               });
             }}
           />
+          {connectionProblem ? (
+            <p className="wr-auth-problem" role="alert">
+              {connectionProblem}
+            </p>
+          ) : null}
         </Modal>
       ) : null}
     </>

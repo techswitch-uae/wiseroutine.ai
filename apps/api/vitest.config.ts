@@ -20,6 +20,10 @@ export default defineConfig({
           // path. Throwaway values - real ones never leave Cloudflare.
           TOKEN_ROOT_KEY: "dGVzdC1yb290LWtleS0zMi1ieXRlcy1sb25nLXh4eHg=",
           SESSION_SECRET: "test-session-secret-at-least-32-chars-long",
+          GOOGLE_CLIENT_ID: "test-google-client",
+          GOOGLE_CLIENT_SECRET: "test-google-secret",
+          MICROSOFT_CLIENT_ID: "test-microsoft-client",
+          MICROSOFT_CLIENT_SECRET: "test-microsoft-secret",
           APP_URL: "http://localhost:41000",
           API_URL: "http://localhost:8787",
           TURSO_DIRECTORY_URL: "http://127.0.0.1:41090",

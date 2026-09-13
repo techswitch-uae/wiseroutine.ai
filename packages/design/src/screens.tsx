@@ -525,7 +525,7 @@ export const DayHoursSection: React.FC<{
       <Card>
         <Block
           title="Working hours"
-          note="Also the hours slots are placed in"
+          note="Activities are scheduled between these times. Changing the hours shown in Today does not change this schedule."
           {...commit(
             "working",
             draft.dayStartMinutes !== saved.dayStartMinutes ||
@@ -553,8 +553,8 @@ export const DayHoursSection: React.FC<{
               title="Custom range"
               note={
                 custom
-                  ? "The label is what appears in the day view picker."
-                  : "A second window to switch the day to - your evenings, or the hours you are on call."
+                  ? "This name appears in Today's hours menu. This changes the view, not your schedule."
+                  : "An extra view of the day, such as evenings. It does not change when activities are scheduled."
               }
               action={
                 <Toggle
@@ -609,7 +609,7 @@ export const DayHoursSection: React.FC<{
 
             <Block
               title="Day opens on"
-              note="The range the timeline shows each morning"
+              note="Choose which hours Today shows when you open it."
               action={
                 <Segmented
                   label="Day opens on"
@@ -622,7 +622,7 @@ export const DayHoursSection: React.FC<{
 
             <Block
               title="Show meetings outside the range"
-              note="Collapsed into a line at the top and bottom of the day"
+              note="Show a small summary of meetings outside the hours you are viewing."
               action={
                 <Toggle
                   label="Show meetings outside the range"
@@ -1089,7 +1089,7 @@ function groupsOf(
  */
 export const ActivityLibrary: React.FC<{
   templates: readonly ActivityTemplate[];
-  /** Shown against the title, e.g. "0 of 2 used". Omit on an unlimited plan. */
+  /** Shown against the title, e.g. "0 of 3 used". Omit on an unlimited plan. */
   used?: string;
   /** Null is "something else" - the caller starts an empty draft. */
   onPick: (template: ActivityTemplate | null) => void;
@@ -1291,9 +1291,8 @@ const stepMinutes = (value: number, direction: -1 | 1): number => {
 /**
  * An activity that exists, in the list of them.
  *
- * Pause rather than delete is the first way out, because the free limit counts
- * active ones - pausing is the swap the plan note talks about, and it keeps
- * the history the missed list reads.
+ * Editing and removing are the user-facing controls. Inactive records can
+ * still exist after an addon is disabled; hiding a control must not erase them.
  */
 export const ActivityRow: React.FC<{
   name: string;
@@ -1301,25 +1300,19 @@ export const ActivityRow: React.FC<{
   meta: string;
   isActive: boolean;
   onEdit?: () => void;
-  onToggle?: () => void;
   onRemove?: () => void;
   busy?: boolean;
-}> = ({ name, meta, isActive, onEdit, onToggle, onRemove, busy }) => (
+}> = ({ name, meta, isActive, onEdit, onRemove, busy }) => (
   <div className="wr-activity-row">
     <span className={isActive ? "wr-rule" : "wr-rule wr-rule-neutral"} />
     <div className="wr-activity-body">
       <div className="wr-slot-name">{name}</div>
       <div className="wr-slot-meta">{meta}</div>
     </div>
-    {isActive ? null : <Chip variant="static">Paused</Chip>}
+    {isActive ? null : <Chip variant="static">Not scheduled</Chip>}
     {onEdit ? (
       <Button variant="quiet" onClick={onEdit}>
         Edit
-      </Button>
-    ) : null}
-    {onToggle ? (
-      <Button variant="secondary" disabled={busy} onClick={onToggle}>
-        {isActive ? "Pause" : "Resume"}
       </Button>
     ) : null}
     {onRemove ? (

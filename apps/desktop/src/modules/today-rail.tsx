@@ -1,5 +1,7 @@
 import { DashboardWidgets } from "./dashboard";
+import { RailFallback } from "./rail-fallback";
 import { ReconnectRail } from "./reconnect-rail";
+import "./today-rail.css";
 import { SetupRail } from "./setup-rail";
 import { ThisSlot } from "./this-slot";
 import { ToPlace } from "./to-place";
@@ -26,11 +28,12 @@ import { ToPlace } from "./to-place";
  * which is nearly always.
  */
 export const TodayRail: React.FC = () => (
-  <>
+  <div className="wr-today-rail">
     <ReconnectRail />
     <ThisSlot />
     <SetupRail />
     <ToPlace />
     <DashboardWidgets />
-  </>
+    <RailFallback />
+  </div>
 );

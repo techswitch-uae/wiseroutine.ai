@@ -55,6 +55,7 @@ export const ModelName = {
   Session: 'Session',
   Account: 'Account',
   Verification: 'Verification',
+  SocialHandoff: 'SocialHandoff',
   RateLimit: 'RateLimit',
   Subscription: 'Subscription',
   PlanGrant: 'PlanGrant',
@@ -152,6 +153,21 @@ export const VerificationScalarFieldEnum = {
 } as const
 
 export type VerificationScalarFieldEnum = (typeof VerificationScalarFieldEnum)[keyof typeof VerificationScalarFieldEnum]
+
+
+export const SocialHandoffScalarFieldEnum = {
+  id: 'id',
+  claimHash: 'claimHash',
+  proofHash: 'proofHash',
+  provider: 'provider',
+  status: 'status',
+  token: 'token',
+  reason: 'reason',
+  expiresAt: 'expiresAt',
+  createdAt: 'createdAt'
+} as const
+
+export type SocialHandoffScalarFieldEnum = (typeof SocialHandoffScalarFieldEnum)[keyof typeof SocialHandoffScalarFieldEnum]
 
 
 export const RateLimitScalarFieldEnum = {

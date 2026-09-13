@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
-import { api, type TodaySlot } from "../lib/api";
+import { canStopSlot } from "@wiseroutine/scheduler";
+import { useEffect, useRef, useState } from "react";
+import { api } from "../lib/api";
+import { captureError } from "../lib/capture";
 import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
 import { reloadPlan, useTodayPlan } from "../lib/plan-store";
 import { runningSlot, sessionEndOf } from "../lib/running-slot";
 import { configFor, moduleFor } from "./activities";
-import { Reschedule } from "./reschedule";
 import { SessionActions } from "./session-actions";
 
 /**
@@ -28,7 +29,7 @@ import { SessionActions } from "./session-actions";
 export const SessionOverlay: React.FC = () => {
   const plan = useTodayPlan();
   const flags = useFeatures();
-  const [moving, setMoving] = useState<TodaySlot | null>(null);
+  const pending = useRef(false);
   /**
    * A session the user has closed, so it does not immediately reopen.
    *
@@ -38,10 +39,6 @@ export const SessionOverlay: React.FC = () => {
    */
   const [dismissed, setDismissed] = useState<string | null>(null);
 
-  // Read at render rather than held on a timer: the only thing this decides
-  // is which of the day's slots is running, and that is re-decided every time
-  // the day changes - which is every time it could have changed. A session
-  // already on screen is ended by its own module, not by this clock.
   const slot = plan ? runningSlot(plan.slots, Date.now()) : undefined;
 
   // Forget the dismissal once the plan agrees the slot is over, so the same
@@ -50,29 +47,26 @@ export const SessionOverlay: React.FC = () => {
     if (dismissed && slot?.id !== dismissed) setDismissed(null);
   }, [dismissed, slot]);
 
-  if (moving && plan)
-    return (
-      <Reschedule
-        slot={moving}
-        timeZone={plan.timeZone}
-        onClose={() => setMoving(null)}
-        onSaved={() => setDismissed(moving.id)}
-      />
-    );
   if (!slot || slot.id === dismissed) return null;
 
   const module = moduleFor(slot.presetKey);
   if (!flags.guided_sessions || !module?.Session) return null;
 
   const finish = (how: "complete" | "skip") => {
+    if (pending.current) return;
+    if (how === "skip" && !canStopSlot(slot, Date.now())) {
+      notify(
+        "The stop window has closed. You can create another slot instead.",
+      );
+      return;
+    }
+    pending.current = true;
     setDismissed(slot.id);
     const action = how === "complete" ? api.completeSlot : api.skipSlot;
     void action(slot.id)
-      .catch(() => {
-        // The queue takes it offline; anything else is worth saying, because a
-        // session that ran and was not recorded is a number quietly going
-        // wrong.
-        notify("Couldn't record that. Please try again.");
+      .catch((error) => {
+        setDismissed(null);
+        notify(captureError(error, "Couldn't record that. Please try again."));
       })
       // Always, and this is what makes a stopped session resumable.
       //
@@ -81,12 +75,15 @@ export const SessionOverlay: React.FC = () => {
       // Start again reloaded a day that already said `started`, found the
       // slot still dismissed, and did nothing at all. The button stayed there
       // looking pressable forever.
-      .finally(() => reloadPlan());
+      .finally(() => {
+        pending.current = false;
+        reloadPlan();
+      });
   };
 
   const Session = module.Session;
   return (
-    <SessionActions.Provider value={{ postpone: () => setMoving(slot) }}>
+    <SessionActions.Provider value={{ slot }}>
       <Session
         slot={{ ...slot, endsAt: sessionEndOf(slot) }}
         config={configFor(module, slot.configJson)}

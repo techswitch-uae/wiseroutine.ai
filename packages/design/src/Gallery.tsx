@@ -1064,7 +1064,7 @@ export const Gallery: React.FC = () => {
         >
           <ActivityLibrary
             templates={ACTIVITY_LIBRARY}
-            used="0 of 2 used"
+            used="0 of 3 used"
             onPick={() => undefined}
           />
         </Row>
@@ -1133,7 +1133,6 @@ export const Gallery: React.FC = () => {
               meta="10 min · 3 × day · any working hour"
               isActive
               onEdit={() => undefined}
-              onToggle={() => undefined}
               onRemove={() => undefined}
             />
             <ActivityRow
@@ -1141,7 +1140,6 @@ export const Gallery: React.FC = () => {
               meta="3 min · 2 × day · mornings"
               isActive={false}
               onEdit={() => undefined}
-              onToggle={() => undefined}
               onRemove={() => undefined}
             />
           </div>

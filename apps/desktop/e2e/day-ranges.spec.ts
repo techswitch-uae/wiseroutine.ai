@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
-import { dayShown, expect, meetingAt, test } from "./support";
+import { dayShown, expect, meetingAt, setFeatures, test } from "./support";
 
 test.use({ features: "all" });
 
@@ -153,11 +153,11 @@ test("the custom range exists the moment the switch is on", async ({
   ).toBeVisible();
 });
 
-test("a custom range reaches the picker and narrows the day", async ({
+test("a custom range reaches the picker, persists, and still respects release availability", async ({
   page,
   signIn,
 }) => {
-  await signIn(CALENDARS);
+  const user = await signIn(CALENDARS);
 
   await openSettings(page);
   const custom = block(page, "Custom range");
@@ -183,6 +183,14 @@ test("a custom range reaches the picker and narrows the day", async ({
   await expect(page.getByText(EVENING.title)).toBeVisible();
   await expect(page.getByText(MIDDAY.title)).toBeHidden();
   await expect(page.getByText(/2 meetings before 18:30/)).toBeVisible();
+  await page.reload();
+  await expect(hoursShown(page)).toHaveText("18:30–22:00");
+  await setFeatures(user, { day_view_options: false });
+  await page.reload();
+  await expect(hoursShown(page)).toHaveText("08:00–18:00");
+  await setFeatures(user, { day_view_options: true });
+  await page.reload();
+  await expect(hoursShown(page)).toHaveText("18:30–22:00");
 });
 
 test("the ranges are still there after a reload", async ({ page, signIn }) => {
@@ -227,7 +235,7 @@ test("the day opens on the range the settings name", async ({
   await expect(page.getByText(EARLY.title)).toBeVisible();
 });
 
-test("the range chosen on the day is looking, not a preference", async ({
+test("the last chosen view persists, while an explicit Settings default supersedes it", async ({
   page,
   signIn,
 }) => {
@@ -238,9 +246,18 @@ test("the range chosen on the day is looking, not a preference", async ({
   await page.getByRole("menuitemradio", { name: /Full day/ }).click();
   await expect(hoursShown(page)).toHaveText("00:00–24:00");
 
-  // Switching to the evening to check something is not a decision about every
-  // morning after it. That decision lives in Settings, and only there.
   await page.reload();
+  await expect(hoursShown(page)).toHaveText("00:00–24:00");
+
+  await openSettings(page);
+  // Today's picker is local-only; it did not rewrite the account default.
+  const working = block(page, "Day opens on").getByRole("button", {
+    name: "Working",
+    exact: true,
+  });
+  await expect(working).toHaveAttribute("aria-pressed", "true");
+  await working.click();
+  await page.goto("/");
   await expect(hoursShown(page)).toHaveText("08:00–18:00");
 });
 

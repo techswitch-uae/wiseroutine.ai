@@ -1,6 +1,6 @@
 import { dayShown, expect, test, todayNoon } from "./support";
 
-test.use({ features: "all" });
+// Calendar settings are core: exercise the default all-off release.
 
 /**
  * The walking skeleton: one scenario, end to end, through every layer.
@@ -18,6 +18,32 @@ const MEETING = {
   startsAt: NOON,
   endsAt: NOON + 3_600_000,
 };
+
+test("old calendar bookmarks land in Settings with the sidebar still selected", async ({
+  page,
+  signIn,
+}) => {
+  await signIn([{ name: "Work", isPrimary: true, events: [MEETING] }]);
+  await page.goto("/calendars");
+  await expect(page).toHaveURL(/\/settings#calendars$/);
+  await expect(
+    page.getByRole("button", { name: "Settings", exact: true }),
+  ).toHaveClass(/wr-navitem-active/);
+  const calendars = page.getByRole("region", { name: "Calendars" });
+  await expect(
+    calendars.getByRole("heading", { name: "Calendars", exact: true }),
+  ).toBeInViewport();
+  await expect(calendars.getByRole("checkbox", { name: "Work" })).toBeChecked();
+  await expect(page.locator(".wr-page-scroll")).toHaveCount(1);
+  await calendars.getByRole("checkbox", { name: "Work" }).uncheck();
+  await calendars.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(calendars.getByRole("checkbox", { name: "Work" })).toBeChecked();
+  await calendars
+    .getByRole("button", { name: "Disconnect", exact: true })
+    .click();
+  await calendars.getByRole("button", { name: "Keep it", exact: true }).click();
+  await expect(calendars.getByRole("checkbox", { name: "Work" })).toBeChecked();
+});
 
 test("a meeting from a connected calendar shows on the day", async ({
   page,
@@ -47,8 +73,13 @@ test("unticking a calendar takes its meetings off the day", async ({
   await page.goto("/");
   await expect(page.getByText(MEETING.title)).toBeVisible();
 
-  await page.goto("/calendars");
-  await page.getByRole("checkbox", { name: "Work" }).uncheck();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(
+    page.getByRole("button", { name: "Settings", exact: true }),
+  ).toHaveClass(/wr-navitem-active/);
+  const calendars = page.getByRole("region", { name: "Calendars" });
+  await calendars.getByRole("checkbox", { name: "Work" }).uncheck();
 
   // Update is what applies the ticks and asks for a sync - the ticks alone
   // change nothing, which is the behaviour being asserted.

@@ -5,13 +5,16 @@ import {
   TimeStepper,
   Widget,
 } from "@wiseroutine/design";
-import { useEffect, useState } from "react";
+import { canPostponeSlot, canStopSlot } from "@wiseroutine/scheduler";
+import { useEffect, useRef, useState } from "react";
 import { api, type TodayResponse } from "../lib/api";
+import { captureError } from "../lib/capture";
 import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
 import { openExternal } from "../lib/open-external";
 import { pick, usePicked } from "../lib/picked";
 import { moveSlotTo, reloadPlan, startSlot, usePlan } from "../lib/plan-store";
+import { useSlotClock } from "../lib/slot-clock";
 import { slotState } from "../lib/slot-state";
 import { moduleFor } from "./activities";
 import { Reschedule } from "./reschedule";
@@ -47,8 +50,34 @@ const clock = (at: number, timeZone: string): string =>
     hourCycle: "h23",
   }).format(new Date(at));
 
-const Row: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+/**
+ * The card's actions.
+ *
+ * `flush` is for a row that holds nothing but quiet buttons. A quiet button is
+ * text with 11x16 of padding around it, and that padding is air rather than
+ * substance: left as-is, "Mark it done" began 35px from the card's edge (19px
+ * of card padding plus its own 16px) while the eyebrow, title, time and note
+ * all began at 19px, and the same 11px below it made the card bottom-heavy
+ * against its own top. The negatives take that padding back out of the layout
+ * without shrinking the target, which still reaches into the card's padding.
+ *
+ * A row with a filled button in it keeps the padding: there the pill's edge is
+ * the thing that has to line up, and it already does.
+ */
+const Row: React.FC<{ children: React.ReactNode; flush?: boolean }> = ({
+  children,
+  flush,
+}) => (
+  <div
+    style={{
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      marginTop: flush ? 4 : 12,
+      marginLeft: flush ? -16 : 0,
+      marginBottom: flush ? -6 : 0,
+    }}
+  >
     {children}
   </div>
 );
@@ -57,9 +86,9 @@ const Note: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <p
     className="wr-body"
     style={{
-      marginTop: 8,
+      marginTop: 10,
       marginBottom: 0,
-      font: "400 12.5px/1.45 var(--font-body)",
+      font: "400 12.5px/1.5 var(--font-body)",
     }}
   >
     {children}
@@ -175,28 +204,19 @@ function joinLabel(url: string): string {
 /** As long as the card takes to collapse - see `useWidgetEntrance`. */
 const LEAVE_MS = 200;
 
-/** How often the card re-reads the clock. What is true of a block changes as
- *  its window closes - see `slotState` - and a card that only re-rendered when
- *  the plan did would go on offering Start for a minute after the moment
- *  passed. */
-const TICK_MS = 30_000;
-
 export const ThisSlot: React.FC = () => {
   const flags = useFeatures();
   const plan = usePlan();
   const picked = usePicked();
   const [moving, setMoving] = useState(false);
   const [details, setDetails] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const pending = useRef(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: A new selection closes dialogs for the previous slot, even though the reset value is constant.
   useEffect(() => {
     setMoving(false);
     setDetails(false);
   }, [picked]);
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const tick = setInterval(() => setNow(Date.now()), TICK_MS);
-    return () => clearInterval(tick);
-  }, []);
   /**
    * Closed, but still on screen.
    *
@@ -224,6 +244,8 @@ export const ThisSlot: React.FC = () => {
   }, [picked, shown]);
 
   const close = () => pick(null);
+  const slot = plan?.slots.find((s) => s.id === shown);
+  const now = useSlotClock(slot);
 
   if (!plan || !shown) return null;
 
@@ -239,7 +261,6 @@ export const ThisSlot: React.FC = () => {
     );
   }
 
-  const slot = plan.slots.find((s) => s.id === shown);
   // Gone: removed, replanned out, or the day rolled over. Saying nothing is
   // the right answer - there is no block to describe any more.
   if (!slot) return null;
@@ -267,6 +288,20 @@ export const ThisSlot: React.FC = () => {
    * button must never have.
    */
   const finish = (how: "complete" | "skip") => {
+    if (pending.current) return;
+    // Recheck on the press too: suspended webviews can wake after the cutoff.
+    if (
+      how === "skip" &&
+      Date.now() < slot.endsAt &&
+      !canStopSlot(slot, Date.now())
+    ) {
+      notify(
+        "The stop window has closed. You can create another slot instead.",
+      );
+      return;
+    }
+    pending.current = true;
+    setSaving(true);
     const action = how === "complete" ? api.completeSlot : api.skipSlot;
     void action(slot.id)
       .then(({ queued }) => {
@@ -277,12 +312,14 @@ export const ThisSlot: React.FC = () => {
               : "Saved offline. It will sync when you reconnect.",
           );
       })
-      .catch(() =>
-        notify(
-          "Couldn't record that just now. It will sync when you reconnect.",
-        ),
+      .catch((error) =>
+        notify(captureError(error, "Couldn't record that. Please try again.")),
       )
-      .finally(() => reloadPlan());
+      .finally(() => {
+        pending.current = false;
+        setSaving(false);
+        reloadPlan();
+      });
   };
 
   return (
@@ -295,11 +332,11 @@ export const ThisSlot: React.FC = () => {
       </div>
 
       <Note>{state.note}</Note>
-      {!["completed", "cancelled"].includes(slot.status) ? (
+      {canPostponeSlot(slot) ? (
         <Button
           variant="secondary"
           block
-          style={{ marginTop: 12 }}
+          style={{ marginTop: 14 }}
           onClick={() => setMoving(true)}
         >
           Postpone / change time
@@ -315,7 +352,7 @@ export const ThisSlot: React.FC = () => {
           Open todo, links and files
         </Button>
       ) : null}
-      {moving ? (
+      {moving && canPostponeSlot(slot) ? (
         <Reschedule
           key={slot.id}
           slot={slot}
@@ -349,7 +386,7 @@ export const ThisSlot: React.FC = () => {
         </div>
       ) : null}
 
-      <Row>
+      <Row flush={!state.startable}>
         {state.startable ? (
           <Button variant="primary" onClick={() => startSlot(slot.id)}>
             {slot.status === "skipped" ? "Resume" : "Start"}
@@ -364,15 +401,23 @@ export const ThisSlot: React.FC = () => {
         state.running ||
         state.unresolved ||
         ["planned", "live", "missed", "skipped"].includes(slot.status) ? (
-          <Button variant="quiet" onClick={() => finish("complete")}>
+          <Button
+            variant="quiet"
+            disabled={saving}
+            onClick={() => finish("complete")}
+          >
             Mark it done
           </Button>
         ) : null}
         {/* Stopping a running block that has no session of its own. One that
             has a session is stopped from inside it, and two ways to end the
             same thing is how "done" and "gave up" start disagreeing. */}
-        {state.running && !module?.Session ? (
-          <Button variant="quiet" onClick={() => finish("skip")}>
+        {canStopSlot(slot, now) && !module?.Session ? (
+          <Button
+            variant="quiet"
+            disabled={saving}
+            onClick={() => finish("skip")}
+          >
             Stop
           </Button>
         ) : null}
@@ -382,7 +427,11 @@ export const ThisSlot: React.FC = () => {
             the day that has already gone. The only honest question left is
             whether it happened. */}
         {state.unresolved ? (
-          <Button variant="quiet" onClick={() => finish("skip")}>
+          <Button
+            variant="quiet"
+            disabled={saving}
+            onClick={() => finish("skip")}
+          >
             It didn't happen
           </Button>
         ) : null}

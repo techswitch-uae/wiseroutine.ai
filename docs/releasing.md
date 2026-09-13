@@ -32,9 +32,9 @@ Use the root build graph (`pnpm build`) rather than invoking Vite directly on a 
 
 ## Database rollout
 
-Apply directory migrations **before deploying the new Worker**, including the writer-lock and scheduled-work revision migrations. Run the project's migration command with the intended environment; see `setup-database.md` before selecting a database.
+Apply directory migrations **before deploying the new Worker**, including the writer-lock, scheduled-work revision, and **`0006_social_handoffs.sql`** migrations. Social login fails closed if its handoff table is missing; do not deploy the Worker first. The new handoff replaces KV redemption with atomic directory claims. In-flight old login attempts must be restarted; existing sessions remain valid. See [social sign-in](social-signin.md) for protocol and acceptance checks. Run the project's migration command with the intended environment; see `setup-database.md` before selecting a database.
 
-Capture/inbox support requires user migration **`0015_capture.sql`** (currently **5 directory / 15 user migrations**). It adds private attachment storage and capture idempotency, preserves guided-activity identity on todos, and repairs stranded todo/slot links. Include the regenerated Prisma client and embedded migrations with the Worker. See [capture and rescheduling](capture-and-rescheduling.md) for storage limits and native acceptance checks.
+Capture/inbox support requires user migration **`0015_capture.sql`** (currently **6 directory / 15 user migrations**). It adds private attachment storage and capture idempotency, preserves guided-activity identity on todos, and repairs stranded todo/slot links. Include the regenerated Prisma client and embedded migrations with the Worker. See [capture and rescheduling](capture-and-rescheduling.md) for storage limits and native acceptance checks.
 
 User databases catch up on authenticated requests and queue consumption. A schema upgrade failure now refuses the operation with a retryable error instead of continuing against an incompatible schema. Each migration commits together with its marker.
 
@@ -43,4 +43,4 @@ User databases catch up on authenticated requests and queue consumption. A schem
 - New offline actions are account-scoped, carry stable idempotency IDs, and survive reauthentication for that same account. Another account cannot drain them.
 - Legacy unscoped addon configuration, setup flags, and native addon secret locations are deliberately not assigned to whichever user signs in next. Installed addons reload from the server; device-local addon secrets may need to be entered again.
 - Legacy unscoped offline queues are not automatically attributed or replayed; sign-in displays a recovery warning when they exist. They are not deleted by the new account-scoped queue code; inspect and verify their ownership before any manual recovery. This matters if deploying over an existing development installation with pending actions.
-- Opting out of meeting-detail storage erases titles, notes, and call links. Opting back in permits subsequent sync writes; erased historical details are not reconstructed automatically.
+- Turning off Settings' **Save meeting details** toggle erases titles, notes, and call links and stops saving new details. Busy times remain and the original provider calendar is unchanged. Opting back in permits subsequent sync writes; erased historical details are not reconstructed automatically.

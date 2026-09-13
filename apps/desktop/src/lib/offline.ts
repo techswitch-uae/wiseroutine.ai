@@ -167,24 +167,23 @@ export function withPending(
 ): TodayResponse {
   if (actions.length === 0) return data;
 
-  const latest = new Map<string, PendingKind>();
-  // Later actions win: start then complete on the same slot is completed.
-  for (const action of actions) latest.set(action.slotId, action.kind);
-
-  return {
-    ...data,
-    slots: data.slots.map((slot) => {
-      const kind = latest.get(slot.id);
-      if (!kind) return slot;
-      return {
-        ...slot,
-        status:
-          kind === "start"
-            ? ("started" as const)
-            : kind === "complete"
-              ? ("completed" as const)
-              : ("skipped" as const),
-      };
-    }),
-  };
+  const slots = new Map(data.slots.map((slot) => [slot.id, slot]));
+  // Replay in order, including actual Start times. Repeated Start delivery
+  // must not renew a running slot's stop window; a real resume gets a new one.
+  for (const action of actions) {
+    const slot = slots.get(action.slotId);
+    if (!slot || (action.kind === "start" && slot.status === "started"))
+      continue;
+    slots.set(slot.id, {
+      ...slot,
+      status:
+        action.kind === "start"
+          ? "started"
+          : action.kind === "complete"
+            ? "completed"
+            : "skipped",
+      startedAt: action.kind === "start" ? action.at : null,
+    });
+  }
+  return { ...data, slots: [...slots.values()] };
 }

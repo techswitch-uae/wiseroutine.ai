@@ -296,7 +296,7 @@ export function enforce(c: Ctx, capability: Capability): void {
           reason: decision.reason,
           upsell: c.get("features").billing_checkout
             ? decision.upsell
-            : "Pause an activity you are not using to make room.",
+            : "Remove an activity you no longer need to make room.",
         },
         { status: 402 },
       ),

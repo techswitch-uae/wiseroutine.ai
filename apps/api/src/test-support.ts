@@ -150,6 +150,7 @@ async function emptyDirectory(): Promise<void> {
   await dir.device.deleteMany();
   await dir.planGrant.deleteMany();
   await dir.subscription.deleteMany();
+  await dir.socialHandoff.deleteMany();
   await dir.session.deleteMany();
   await dir.account.deleteMany();
   await dir.user.deleteMany();

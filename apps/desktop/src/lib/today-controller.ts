@@ -82,11 +82,14 @@ export async function startTodaySlot(slotId: string): Promise<void> {
     !plan.slots.some((slot) => slot.id === slotId)
   )
     return;
-  markStarted(slotId);
+  if (plan.slots.find((slot) => slot.id === slotId)?.status === "started")
+    return;
+  const startedAt = Date.now();
+  markStarted(slotId, startedAt);
   publishTodayPlan({
     ...plan,
     slots: plan.slots.map((slot) =>
-      slot.id === slotId ? { ...slot, status: "started" } : slot,
+      slot.id === slotId ? { ...slot, status: "started", startedAt } : slot,
     ),
   });
   try {

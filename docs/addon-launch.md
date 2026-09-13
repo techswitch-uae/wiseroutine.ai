@@ -6,7 +6,7 @@ Launch **Wise Routine the product**, with a small curated addon developer previe
 
 Monetize the maintained product and hosted service: calendar coordination, supported planning/replanning, reliable account sync, polished native behavior and continuing operation/support. Open SDK code helps developers extend the product; it is not a free license to use the hosted service.
 
-**Existing Free/Pro pricing and capabilities are unchanged.** Free currently allows two active activities and manual planning; Pro enables unlimited active activities, adaptive replanning and ranked rearrangement, plus its existing dashboard capabilities (`packages/plans`). Installing an addon does not upgrade the account. Re-enabling an addon's dependent activities now enforces the same active-activity limit transactionally. SDK-originated calls cannot invoke unrelated application endpoints.
+**Current core packaging:** Free allows three active activities and includes automatic placement/adaptive replanning. Pro's larger allowance, ranked rearrangement and additional dashboard capabilities remain separate from addon installation and release availability (`packages/plans`; see [launch plan](launch.md)). Installing an addon does not upgrade the account. Re-enabling an addon's dependent activities now enforces the same active-activity limit transactionally. SDK-originated calls cannot invoke unrelated application endpoints.
 
 Do not promise that an open extension ecosystem prevents someone from recreating a client-side premium widget or planning idea. Open-source licenses permit forks and commercial reuse. The defensible paid value is the service and product experience; enforce actual hosted entitlements server-side, not by making SDK source hard to obtain.
 

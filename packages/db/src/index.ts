@@ -3,6 +3,7 @@ export * from "./client";
 // coordination table the cron ticker reads.
 export * from "./directory/billing";
 export * from "./directory/schedule";
+export * from "./directory/social-handoffs";
 export * from "./directory/users";
 export * from "./directory/watch";
 export type {

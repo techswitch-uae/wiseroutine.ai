@@ -19,7 +19,7 @@
     "release:config": "node scripts/release-config.mjs",
     "release:frontend": "node scripts/release-config.mjs --check && turbo run typecheck build --filter=@wiseroutine/desktop...",
     "test:release": "node --test scripts/release-config.test.mjs",
-    "test:core-browser": "pnpm --filter @wiseroutine/desktop exec playwright test core-release.spec.ts",
+    "test:core-browser": "pnpm --filter @wiseroutine/desktop exec playwright test core-release.spec.ts slot-actions.spec.ts",
     "test:capture-browser": "pnpm --filter @wiseroutine/desktop exec playwright test quick-capture.spec.ts session-integrity.spec.ts",
     "addon:verify": "pnpm --filter @wiseroutine/addons build && pnpm --filter @wiseroutine/addon-tools test && node --test scripts/addon-launch.test.mjs && node scripts/check-addon-catalog.mjs",
     "addon:kit": "turbo run build --filter='./addons/*' --filter='@wiseroutine/addon-*' --filter=@wiseroutine/addons && node scripts/export-addon-kit.mjs",

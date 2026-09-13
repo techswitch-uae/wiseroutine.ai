@@ -80,6 +80,7 @@ const AddonWidget: React.FC<{
      *   order, which `height: 0` alone would not.
      */
     <div
+      data-rail-hidden={card ? undefined : ""}
       style={
         card
           ? undefined

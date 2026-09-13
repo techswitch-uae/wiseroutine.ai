@@ -42,7 +42,7 @@ import {
  * behind it invited exactly the mistake it looks like it invites: picking a
  * second template halfway through filling in the first.
  *
- * Pausing is core and frees an active-activity allowance without erasing history.
+ * The list offers Edit and Remove. Removing an activity frees its allowance.
  */
 
 /** Where the two named landings aim. Mid-morning and mid-afternoon rather than
@@ -281,24 +281,6 @@ const Activities: React.FC = () => {
       .finally(() => setSaving(false));
   };
 
-  const toggle = (row: ActivityResponse) => {
-    setWorking(row.id);
-    void api
-      .updateActivity(row.id, { isActive: !row.isActive })
-      .then(() => {
-        load();
-        invalidateServerState();
-      })
-      .catch((cause) =>
-        notify(
-          cause instanceof ApiError
-            ? (cause.planLimit?.reason ?? "Couldn't change this activity.")
-            : "Couldn't change this activity.",
-        ),
-      )
-      .finally(() => setWorking(null));
-  };
-
   const remove = (id: string) => {
     setWorking(id);
     api
@@ -393,7 +375,6 @@ const Activities: React.FC = () => {
         <h2 className="wr-settings-title">Activities</h2>
 
         {rows.length > 0 ? (
-          // Pause is core: it preserves history and frees an active allowance.
           <Card
             title="Yours"
             note="Each one is placed into the gaps your calendar leaves, on the days you picked."
@@ -426,7 +407,6 @@ const Activities: React.FC = () => {
                     id: row.id,
                   })
                 }
-                onToggle={() => toggle(row)}
                 onRemove={() => remove(row.id)}
               />
             ))}
@@ -454,7 +434,7 @@ const Activities: React.FC = () => {
         {atLimit ? (
           <div style={{ marginTop: 14 }}>
             <PlanNote title={`Your routine keeps ${limit} active at a time`}>
-              Pause an activity you are not using to make room.
+              Remove an activity you no longer need to make room.
               {flags.billing_checkout && flags.larger_routines
                 ? " Pro supports larger routines."
                 : ""}
@@ -514,7 +494,7 @@ const Activities: React.FC = () => {
               {editing.id ? null : (
                 <span className="wr-activity-note">
                   {Number.isFinite(limit)
-                    ? `You can keep ${limit} activities active. Pause one to make room for another.`
+                    ? `You can keep ${limit} activities active. Remove one to make room for another.`
                     : "A really busy day may still not fit every activity."}
                 </span>
               )}

@@ -2,11 +2,11 @@ import { describe, expect, test } from "vitest";
 import { can, resolvePlan, visibleWidgets } from "./index";
 
 describe("can", () => {
-  test("free stops at two active activities, pro does not", () => {
-    expect(can("free", { kind: "activity.create", activeCount: 1 }).ok).toBe(
+  test("free stops at three active activities, pro does not", () => {
+    expect(can("free", { kind: "activity.create", activeCount: 2 }).ok).toBe(
       true,
     );
-    expect(can("free", { kind: "activity.create", activeCount: 2 }).ok).toBe(
+    expect(can("free", { kind: "activity.create", activeCount: 3 }).ok).toBe(
       false,
     );
     expect(can("pro", { kind: "activity.create", activeCount: 99 }).ok).toBe(
@@ -22,11 +22,11 @@ describe("can", () => {
   });
 
   test("a denial explains itself and offers a way out", () => {
-    const decision = can("free", { kind: "activity.create", activeCount: 2 });
+    const decision = can("free", { kind: "activity.create", activeCount: 3 });
     expect(decision.ok).toBe(false);
     if (!decision.ok) {
-      expect(decision.reason).toContain("2");
-      expect(decision.upsell).toMatch(/pause|Upgrade/i);
+      expect(decision.reason).toContain("3");
+      expect(decision.upsell).toMatch(/remove|Upgrade/i);
     }
   });
 

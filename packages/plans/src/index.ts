@@ -44,7 +44,7 @@ export interface PlanLimits {
 
 export const PLANS: Record<PlanId, PlanLimits> = {
   free: {
-    maxActiveActivities: 2,
+    maxActiveActivities: 3,
     adaptiveReplan: true,
     rankedRearrange: false,
     widgets: DEFAULT_WIDGETS,
@@ -75,9 +75,9 @@ const UPGRADE = "Upgrade to Pro";
 /**
  * Can this plan do this?
  *
- * The free activity limit counts **active** activities, not total. Paused is a
- * first-class state in the designs (3e shows "Breathing · Paused"), and a hard
- * total of two would make the activity library in that screen a trap.
+ * The free allowance counts active definitions, not archived or inactive
+ * records retained for history/addon compatibility. The activity UI offers
+ * Edit and Remove; an internal inactive state is not a public Pause control.
  */
 export function can(plan: PlanId, capability: Capability): Decision {
   const limits = PLANS[plan];
@@ -89,7 +89,7 @@ export function can(plan: PlanId, capability: Capability): Decision {
         : {
             ok: false,
             reason: `The free plan keeps ${limits.maxActiveActivities} activities active at a time.`,
-            upsell: `${UPGRADE} for unlimited activities, or pause one you are not using.`,
+            upsell: `${UPGRADE} for unlimited activities, or remove one you no longer need.`,
           };
 
     case "plan.adaptive":

@@ -1,5 +1,5 @@
 import { Card, Toggle } from "@wiseroutine/design";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api } from "../lib/api";
 import { sessionGeneration } from "../lib/session-lifecycle";
 
@@ -10,6 +10,7 @@ export function PrivacySettings({
   storeDetails: boolean;
   onSaved: (enabled: boolean) => void;
 }) {
+  const descriptionId = useId();
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const save = async (enabled: boolean) => {
@@ -21,30 +22,41 @@ export function PrivacySettings({
       if (generation === sessionGeneration()) onSaved(enabled);
     } catch {
       if (generation === sessionGeneration())
-        setProblem("Couldn't confirm the privacy change. Please try again.");
+        setProblem("Couldn't confirm the change. Please try again.");
     } finally {
-      setSaving(false);
+      if (generation === sessionGeneration()) setSaving(false);
     }
   };
   return (
-    <Card>
-      <fieldset disabled={saving} style={{ border: 0, padding: 0 }}>
-        <legend>Meeting details</legend>
-        <p>Store meeting titles, notes, and call links</p>
-        <Toggle
-          label="Store meeting details"
-          checked={storeDetails}
-          onChange={(enabled) => {
-            void save(enabled);
-          }}
-        />
-        <p>
-          Turning this off erases stored details. Meeting times still block your
-          schedule. Turning it back on allows details from future calendar
-          syncs.
+    <div className="wr-account" aria-busy={saving}>
+      <Card
+        title="Save meeting details"
+        action={
+          <Toggle
+            label="Save meeting details"
+            describedBy={descriptionId}
+            checked={storeDetails}
+            disabled={saving}
+            onChange={(enabled) => void save(enabled)}
+          />
+        }
+        note={
+          storeDetails
+            ? "Wise Routine saves meeting names, notes, and call links."
+            : "Only busy times are saved. Meeting names, notes, and call links are not saved."
+        }
+      >
+        <p id={descriptionId} className="wr-body" style={{ margin: 0 }}>
+          {storeDetails
+            ? "Turning this off removes saved meeting details and stops saving new ones. Busy times stay, so your activities still fit around meetings. Your original calendar will not change."
+            : "Your activities still fit around meetings. Turn this on to save meeting details from future calendar syncs. Your original calendar will not change."}
         </p>
-        {problem ? <p role="alert">{problem}</p> : null}
-      </fieldset>
-    </Card>
+        {problem ? (
+          <p className="wr-auth-problem" role="alert">
+            {problem}
+          </p>
+        ) : null}
+      </Card>
+    </div>
   );
 }

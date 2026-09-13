@@ -11,6 +11,7 @@
  * is how they end up disagreeing about it.
  */
 
+import { canStopSlot } from "@wiseroutine/scheduler";
 import type { TodaySlot } from "./api";
 
 export interface SlotState {
@@ -18,7 +19,7 @@ export interface SlotState {
   note: string;
   /** Can be started, or picked back up after being stopped. */
   startable: boolean;
-  /** Running right now, so it can be finished or stopped. */
+  /** Running right now. Stopping additionally needs the short stop window. */
   running: boolean;
   /** Can still be nudged. */
   movable: boolean;
@@ -59,7 +60,9 @@ export function slotState(slot: TodaySlot, now: number): SlotState {
           unresolved: true,
         };
       return {
-        note: "Running now. It stays where it is until it is finished.",
+        note: canStopSlot(slot, now)
+          ? "Running now. You can stop within the first half of its duration or two minutes, whichever comes first, then postpone it."
+          : "Running now. The stop window has closed, so this block can't be stopped or postponed. You can create another slot.",
         startable: false,
         running: true,
         movable: false,
@@ -85,7 +88,7 @@ export function slotState(slot: TodaySlot, now: number): SlotState {
           unresolved: false,
         };
       return {
-        note: "Stopped before it finished. You can resume it while its time is still running.",
+        note: "Stopped before it finished. You can postpone it, or resume it while its time is still running.",
         startable: true,
         running: false,
         movable: false,

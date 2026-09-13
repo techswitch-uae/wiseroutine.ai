@@ -7,6 +7,7 @@ import {
   IconRefresh,
   IconRotateClockwise2,
   IconSettings,
+  IconX,
   IconArrowRight as TablerArrowRight,
   type IconProps as TablerProps,
 } from "@tabler/icons-react";
@@ -90,6 +91,12 @@ export const RefreshGlyph = glyph(IconRefresh, "Sync", 14);
 /** The day-view hours control: two ruled lines with a handle on each, which
  *  is the range being moved. */
 export const HoursGlyph = glyph(IconAdjustmentsHorizontal, "Hours shown");
+
+/** Puts a card away. The one glyph drawn from the same grid as the rest, in
+ *  place of the `×` character it replaced: a text multiplication sign is a
+ *  different weight and a different optical centre from every other mark in
+ *  the kit, and at 16px it sat visibly low beside a 9.5px eyebrow. */
+export const CloseGlyph = glyph(IconX, "Close");
 
 /** Opens whatever configures the thing beside it. */
 export const SettingsGlyph = glyph(IconSettings, "Settings", 14);

@@ -27,6 +27,30 @@ const call = (user: TestUser, path: string, method = "GET", body?: unknown) =>
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 
+test.each(["free", "pro"] as const)(
+  "core allows three activities on %s, refuses a fourth, and removal frees a place",
+  async (plan) => {
+    const user = await seedUser({ plan });
+    let first = "";
+    for (let i = 0; i < 3; i++) {
+      const response = await call(user, "/activities", "POST", {
+        name: `Activity ${i}`,
+        sessionMinutes: 10,
+      });
+      expect(response.status).toBe(201);
+      const row = (await response.json()) as { id: string };
+      if (i === 0) first = row.id;
+    }
+    const fourth = () =>
+      call(user, "/activities", "POST", { name: "Fourth", sessionMinutes: 10 });
+    expect((await fourth()).status).toBe(402);
+    expect((await call(user, `/activities/${first}`, "DELETE")).status).toBe(
+      200,
+    );
+    expect((await fourth()).status).toBe(201);
+  },
+);
+
 test("missing configuration gives every account the real all-off defaults", async () => {
   const user = await seedUser({ plan: "pro" });
   const response = await call(user, "/features");

@@ -11,6 +11,10 @@ import { emailOTP } from "better-auth/plugins/email-otp";
 import { Resend } from "resend";
 import type { ServerEnv } from "./env";
 import { provisionUserDatabase } from "./provisioning";
+import {
+  type SocialHandoffAttempt,
+  socialHandoffHooks,
+} from "./social-handoff";
 
 /**
  * Authentication.
@@ -282,7 +286,11 @@ export function trustedOrigins(env: {
   ];
 }
 
-export function createAuth(directory: Directory, env: ServerEnv) {
+export function createAuth(
+  directory: Directory,
+  env: ServerEnv,
+  handoff?: SocialHandoffAttempt,
+) {
   return betterAuth({
     database: prismaAdapter(directory, { provider: "sqlite" }),
     baseURL: env.API_URL,
@@ -318,6 +326,7 @@ export function createAuth(directory: Directory, env: ServerEnv) {
     session: { expiresIn: SESSION_DAYS * 86_400 },
 
     socialProviders: configuredProviders(env),
+    hooks: socialHandoffHooks(directory, env.APP_URL, handoff),
 
     /**
      * Which identities are allowed to become the same account.

@@ -6,4 +6,5 @@ export * from "./plan";
 export * from "./rearrange";
 export * from "./replay";
 export * from "./scenarios";
+export * from "./slot-actions";
 export * from "./types";

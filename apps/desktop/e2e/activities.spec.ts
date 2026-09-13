@@ -141,11 +141,11 @@ test("a new account starts with nothing, and the counter says so", async ({
 
   // Six starter activities used to be written into every new database, which
   // made this counter a lie the first time anyone read it.
-  await expect(page.getByText("0 of 2 used")).toBeVisible();
+  await expect(page.getByText("0 of 3 used")).toBeVisible();
   await expect(page.locator(".wr-activity-row")).toHaveCount(0);
 });
 
-test("free keeps two, and removing one makes room for another", async ({
+test("free keeps three, and removing one makes room for another", async ({
   page,
   signIn,
 }) => {
@@ -154,23 +154,24 @@ test("free keeps two, and removing one makes room for another", async ({
 
   await add(page, "Stretch");
   await add(page, "Eye rest");
-  await expect(page.getByText("2 of 2 used")).toBeVisible();
+  await add(page, "Walk");
+  await expect(page.getByText("3 of 3 used")).toBeVisible();
 
   // At the limit the whole palette is refused, not each chip in turn.
-  await expect(libraryChip(page, "Walk")).toBeDisabled();
+  await expect(libraryChip(page, "Water")).toBeDisabled();
   await expect(
-    page.getByText("Your routine keeps 2 active at a time"),
+    page.getByText("Your routine keeps 3 active at a time"),
   ).toBeVisible();
 
-  // Removal frees a place; core-release.spec also covers non-destructive pause.
+  // Removal frees a place without adding a separate Pause control.
   await activity(page, "Eye rest")
     .getByRole("button", { name: "Remove" })
     .click();
   await expect(activity(page, "Eye rest")).toHaveCount(0);
-  await expect(page.getByText("1 of 2 used")).toBeVisible();
+  await expect(page.getByText("2 of 3 used")).toBeVisible();
 
-  await add(page, "Walk");
-  await expect(page.getByText("2 of 2 used")).toBeVisible();
+  await add(page, "Water");
+  await expect(page.getByText("3 of 3 used")).toBeVisible();
 });
 
 test("an edit survives a reload, and says Update rather than Add", async ({

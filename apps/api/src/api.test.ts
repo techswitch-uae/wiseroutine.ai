@@ -501,6 +501,7 @@ describe("an addon's own requests", () => {
     expect((await change(false)).status).toBe(200);
     await seedActivity();
     await seedActivity();
+    await seedActivity();
     expect((await change(true)).status).toBe(402);
     expect(
       (await userDb().addon.findUnique({ where: { id: BREATHING } }))
@@ -872,15 +873,16 @@ describe("authentication", () => {
 describe("plan gating", () => {
   // The point of the test: the SERVER refuses. A gate that only exists in the
   // UI is not a gate.
-  test("free is refused a third active activity", async () => {
+  test("free is refused a fourth active activity", async () => {
     const user = await seedUser({ plan: "free" });
     await seedActivity({ name: "One" });
     await seedActivity({ name: "Two" });
+    await seedActivity({ name: "Three" });
 
     const response = await worker.default.fetch("http://api/activities", {
       method: "POST",
       headers: { ...user.headers, "content-type": "application/json" },
-      body: JSON.stringify({ name: "Three", sessionMinutes: 10 }),
+      body: JSON.stringify({ name: "Four", sessionMinutes: 10 }),
     });
 
     expect(response.status).toBe(402);
@@ -892,12 +894,13 @@ describe("plan gating", () => {
   test("a paused activity does not count against the limit", async () => {
     const user = await seedUser({ plan: "free" });
     await seedActivity({ name: "One" });
+    await seedActivity({ name: "Two" });
     await seedActivity({ name: "Paused", isActive: false });
 
     const response = await worker.default.fetch("http://api/activities", {
       method: "POST",
       headers: { ...user.headers, "content-type": "application/json" },
-      body: JSON.stringify({ name: "Two", sessionMinutes: 10 }),
+      body: JSON.stringify({ name: "Three", sessionMinutes: 10 }),
     });
 
     expect(response.status).toBe(201);
@@ -1258,12 +1261,12 @@ describe("a grant running out", () => {
   test("an expired trial is refused on the very next request", async () => {
     const user = await seedUser({ plan: "free" });
     await grant(user.userId, Date.now() - 1);
-    for (let i = 0; i < 2; i++) await seedActivity({ name: `A${i}` });
+    for (let i = 0; i < 3; i++) await seedActivity({ name: `A${i}` });
 
     const response = await worker.default.fetch("http://api/activities", {
       method: "POST",
       headers: { ...user.headers, "content-type": "application/json" },
-      body: JSON.stringify({ name: "Third", kind: "recovery" }),
+      body: JSON.stringify({ name: "Fourth", kind: "recovery" }),
     });
     expect(response.status).toBe(402);
 

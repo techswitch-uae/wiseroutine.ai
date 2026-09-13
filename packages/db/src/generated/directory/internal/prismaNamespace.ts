@@ -401,6 +401,7 @@ export const ModelName = {
   Session: 'Session',
   Account: 'Account',
   Verification: 'Verification',
+  SocialHandoff: 'SocialHandoff',
   RateLimit: 'RateLimit',
   Subscription: 'Subscription',
   PlanGrant: 'PlanGrant',
@@ -423,7 +424,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "session" | "account" | "verification" | "rateLimit" | "subscription" | "planGrant" | "scheduledWork" | "watchChannel" | "device" | "processedEvent"
+    modelProps: "user" | "session" | "account" | "verification" | "socialHandoff" | "rateLimit" | "subscription" | "planGrant" | "scheduledWork" | "watchChannel" | "device" | "processedEvent"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -720,6 +721,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.VerificationCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.VerificationCountAggregateOutputType> | number
+        }
+      }
+    }
+    SocialHandoff: {
+      payload: Prisma.$SocialHandoffPayload<ExtArgs>
+      fields: Prisma.SocialHandoffFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.SocialHandoffFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SocialHandoffPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.SocialHandoffFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SocialHandoffPayload>
+        }
+        findFirst: {
+          args: Prisma.SocialHandoffFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SocialHandoffPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.SocialHandoffFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SocialHandoffPayload>
+        }
+        findMany: {
+          args: Prisma.SocialHandoffFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SocialHandoffPayload>[]
+        }
+        create: {
+          args: Prisma.SocialHandoffCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SocialHandoffPayload>
+        }
+        createMany: {
+          args: Prisma.SocialHandoffCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.SocialHandoffCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SocialHandoffPayload>[]
+        }
+        delete: {
+          args: Prisma.SocialHandoffDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SocialHandoffPayload>
+        }
+        update: {
+          args: Prisma.SocialHandoffUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SocialHandoffPayload>
+        }
+        deleteMany: {
+          args: Prisma.SocialHandoffDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.SocialHandoffUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.SocialHandoffUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SocialHandoffPayload>[]
+        }
+        upsert: {
+          args: Prisma.SocialHandoffUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$SocialHandoffPayload>
+        }
+        aggregate: {
+          args: Prisma.SocialHandoffAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateSocialHandoff>
+        }
+        groupBy: {
+          args: Prisma.SocialHandoffGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.SocialHandoffGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.SocialHandoffCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.SocialHandoffCountAggregateOutputType> | number
         }
       }
     }
@@ -1354,6 +1429,21 @@ export const VerificationScalarFieldEnum = {
 export type VerificationScalarFieldEnum = (typeof VerificationScalarFieldEnum)[keyof typeof VerificationScalarFieldEnum]
 
 
+export const SocialHandoffScalarFieldEnum = {
+  id: 'id',
+  claimHash: 'claimHash',
+  proofHash: 'proofHash',
+  provider: 'provider',
+  status: 'status',
+  token: 'token',
+  reason: 'reason',
+  expiresAt: 'expiresAt',
+  createdAt: 'createdAt'
+} as const
+
+export type SocialHandoffScalarFieldEnum = (typeof SocialHandoffScalarFieldEnum)[keyof typeof SocialHandoffScalarFieldEnum]
+
+
 export const RateLimitScalarFieldEnum = {
   id: 'id',
   key: 'key',
@@ -1660,6 +1750,7 @@ export type GlobalOmitConfig = {
   session?: Prisma.SessionOmit
   account?: Prisma.AccountOmit
   verification?: Prisma.VerificationOmit
+  socialHandoff?: Prisma.SocialHandoffOmit
   rateLimit?: Prisma.RateLimitOmit
   subscription?: Prisma.SubscriptionOmit
   planGrant?: Prisma.PlanGrantOmit

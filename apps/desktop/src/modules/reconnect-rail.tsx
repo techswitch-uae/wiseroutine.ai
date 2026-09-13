@@ -1,7 +1,7 @@
 import { Button, Widget } from "@wiseroutine/design";
 import { useCallback, useEffect, useState } from "react";
 import { api, type CalendarConnection } from "../lib/api";
-import { beginConnect } from "../routes/_app.calendars";
+import { beginConnect } from "../lib/calendar-connect";
 
 const PROVIDER_NAME: Record<string, string> = {
   google: "Google",
@@ -12,7 +12,7 @@ const PROVIDER_NAME: Record<string, string> = {
  * "This account needs reconnecting", at the top of the rail.
  *
  * A revoked or aged-out grant is silent: the day simply stops filling in, and
- * the only other place that says so is the connection's own card on Calendars
+ * the only other place that says so is the connection's own card in Settings
  * - the page nobody opens precisely because they have no reason to think
  * anything is wrong. So it comes to them instead, in the one column that is
  * already where they look when the day is not what they expected.
@@ -22,7 +22,7 @@ const PROVIDER_NAME: Record<string, string> = {
  * underneath what it corrects is a correction nobody reads.
  *
  * The button starts consent for that connection's own provider rather than
- * sending the user to Calendars to find the same button - signing in again is
+ * sending the user to Settings to find the same button - signing in again is
  * the whole repair, and the connection upserts back to active on the callback.
  *
  * ponytail: reuses `api.calendars()` rather than adding a status endpoint. If

@@ -1,0 +1,20 @@
+.wr-today-rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--wr-rail-gap);
+}
+
+/* React components returning null leave no elements. Use actual rendered
+   content instead of duplicating every widget's eligibility/fetch state in
+   the parent. This also covers new widgets and visible error messages. */
+.wr-today-rail:has(> :not(.wr-rail-fallback):not([data-rail-hidden])) > .wr-rail-fallback {
+  display: none;
+}
+
+/* A hidden addon must keep its real width for measurement, but must not leave
+   phantom flex gaps or suppress the fallback while it has nothing to show. */
+.wr-today-rail > [data-rail-hidden] {
+  position: absolute;
+  width: 100%;
+}

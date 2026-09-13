@@ -12,6 +12,25 @@ vi.mock("../lib/capture", async (original) => ({
   ...(await original<Record<string, unknown>>()),
   refreshCaptured: vi.fn(),
 }));
+test("a stale reschedule dialog cannot postpone a now-started slot", () => {
+  render(
+    <Reschedule
+      slot={{
+        id: "running",
+        title: "Reading",
+        status: "started",
+        startsAt: Date.now(),
+        endsAt: Date.now() + 600_000,
+      }}
+      timeZone="UTC"
+      onClose={() => undefined}
+    />,
+  );
+  expect(screen.queryByRole("button", { name: "Move slot" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "30 minutes later" })).toBeNull();
+  expect(screen.getByText(/must be stopped first/)).toBeTruthy();
+});
+
 test("changing the time after an unconfirmed reschedule keeps its idempotency key", async () => {
   const user = userEvent.setup(),
     close = vi.fn(),
@@ -24,7 +43,7 @@ test("changing the time after an unconfirmed reschedule keeps its idempotency ke
       slot={{
         id: "slot",
         title: "Reading",
-        status: "started",
+        status: "skipped",
         startsAt,
         endsAt: startsAt + 1200000,
       }}

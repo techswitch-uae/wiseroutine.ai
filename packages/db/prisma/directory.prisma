@@ -182,6 +182,23 @@ model Verification {
   @@map("verifications")
 }
 
+/// Short-lived desktop OAuth handoffs. Claims are consumed in a directory
+/// write transaction, never read/delete through eventually consistent KV.
+model SocialHandoff {
+  id String @id
+  claimHash String @unique(map: "social_handoffs_claim") @map("claim_hash")
+  proofHash String? @map("proof_hash")
+  provider String
+  status String @default("pending")
+  token String?
+  reason String?
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @map("created_at")
+
+  @@index([expiresAt], map: "social_handoffs_expiry")
+  @@map("social_handoffs")
+}
+
 /// Better Auth's rate-limit counters.
 ///
 /// Stored here rather than in memory because a Worker isolate is per-colo and

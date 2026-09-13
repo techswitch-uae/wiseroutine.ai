@@ -1,3 +1,4 @@
+import { canPostponeSlot } from "@wiseroutine/scheduler";
 import { useRef, useState } from "react";
 import { api, type TodaySlot } from "../lib/api";
 import {
@@ -46,7 +47,7 @@ export function Reschedule({
   const [error, setError] = useState("");
   const intent = useRef(crypto.randomUUID());
   const save = async (at?: number) => {
-    if (locked.current) return;
+    if (locked.current || !canPostponeSlot(slot)) return;
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > 480) {
       setError("Choose 1–480 minutes.");
       return;
@@ -86,6 +87,15 @@ export function Reschedule({
       setError(cause instanceof Error ? cause.message : "Choose a valid time");
     }
   };
+  if (!canPostponeSlot(slot))
+    return (
+      <CaptureModal title={`Postpone · ${slot.title}`} onClose={onClose}>
+        <p>
+          This block can't be postponed. A started block must be stopped first
+          while its stop window is open, or you can create another slot.
+        </p>
+      </CaptureModal>
+    );
   return (
     <CaptureModal
       title={`Postpone · ${slot.title}`}
@@ -104,7 +114,7 @@ export function Reschedule({
           {timeZone}. Choose another time
           {flags.inbox ? " or keep it in the inbox without a date" : ""}.
         </p>
-        {["started", "missed", "skipped"].includes(slot.status) ? (
+        {["missed", "skipped"].includes(slot.status) ? (
           <p>
             The original session stays in history. This creates a new
             appointment

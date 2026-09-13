@@ -52,20 +52,6 @@ Deployment and local-data compatibility requirements are in [`releasing.md`](./r
 
 The descriptions preserve the original audit evidence. Status notes distinguish completed sub-work from what remains open.
 
-### 1. P0 — Social sign-in completion can publish a session under an unverified ticket
-
-**Evidence:** `apps/api/src/routes/signin.ts:173–249`.
-
-`/social/go` checks that a ticket was issued and is pending. `/social/finish` does not perform the equivalent check: it accepts any nonempty `ticket`, resolves the current browser session, and writes that session token under the supplied ticket. The unauthenticated `/social/claim` endpoint then returns the parked token.
-
-This appears to create a session-exfiltration path when a signed-in browser is navigated to the completion endpoint with a ticket known to another party. The completion handler does not itself establish that this navigation followed the matching, successfully verified OAuth callback.
-
-**Confidence:** high-confidence code-review concern, **not an end-to-end verified exploit**. Cookie behavior and the exact deployed auth flow still need controlled security validation.
-
-**Recommendation:** bind handoff completion to the verified OAuth attempt and initiating browser, reject unknown/expired/consumed tickets, and require a one-time flow-bound completion proof. Merely checking that a ticket exists is insufficient if another party can mint a ticket and induce completion in a different browser. Use an atomic consume operation for redemption rather than KV read-then-delete, which does not guarantee single use under concurrency/eventual consistency.
-
-**Regression tests:** direct completion without OAuth, unknown tickets, cross-browser tickets, expired tickets, and simultaneous claims.
-
 ### 3. P1 — The release path is not ready to produce a dependable installer
 
 **Status: partially addressed; remains open.** Added the Node version file, fail-closed production configuration checks, public-key overlay, workspace/native release verification, package-local addon outputs, explicit desktop dependencies/assembly, and cache invalidation for API URLs/build scripts. A clean frontend build and release-config regression tests pass. **Still required:** select/provision the intended release environment and signing credentials, then validate actual signed installers and updates. No credentials were invented, and installer readiness is not claimed.
@@ -146,6 +132,8 @@ The shared modal announces `aria-modal`, but does not trap focus, make the backg
 **Recommendation:** a shared, tested accessible dialog primitive, preferably using native dialog behavior or a mature headless implementation. Preserve normal Tab/Shift+Tab navigation and offer a different shortcut for cycling duration. Add keyboard-only and screen-reader checks; ARIA labels alone do not establish accessibility.
 
 ### 17. P2 — Error states sometimes look like empty schedules or successful actions
+
+**Partially addressed:** setup now keeps the connection dialog open with a retryable error when browser consent cannot be opened. The remaining week/month, sync, and sign-in-copy findings below are still open.
 
 **Evidence:** `apps/desktop/src/routes/_app.week.tsx:60–80`; `_app.month.tsx`; `_app.index.tsx`, `load` and `refresh`; `modules/setup-rail.tsx:226–235`; `routes/signin.tsx:117–119`.
 
@@ -329,7 +317,17 @@ This is the original delivery outline; completed P1 items are tracked in Done be
 
 ## Done
 
-Only addressed and regression-verified findings are listed here. Release readiness (#3), suspended-native freshness (#7), and the remaining P0/P2 work stay open.
+Only addressed and regression-verified findings are listed here. Release readiness (#3), suspended-native freshness (#7), and the remaining P2 work stay open.
+
+### 1. P0 — Social sign-in completion can publish a session under an unverified ticket
+
+**Resolved:** the old `/social/finish` endpoint no longer reads or publishes browser sessions. A server-owned, browser-bound OAuth proof completes only its matching unexpired attempt, using the session newly created by the verified callback. Claim secrets are separate from browser-visible IDs and hashed at rest. Terminal claims are consumed atomically in the directory, not through KV read/delete.
+
+**Original evidence:** the completion route accepted arbitrary tickets and copied an existing browser session to them; the original audit was a high-confidence source finding, not a verified live exploit.
+
+**Implementation:** `apps/api/src/social-handoff.ts`, `routes/signin.ts`, `auth.ts`, and `packages/db/src/directory/social-handoffs.ts`. **Deployment requires directory migration `0006_social_handoffs.sql` first.**
+
+**Verified by:** real Better Auth state-cookie/session/hook regressions for direct completion from an authenticated browser, missing/cross-browser cookies, context injection, expiry, callback replay, invalid codes, provider refusal and simultaneous claims. Provider token exchange/profile responses are test fixtures. Live Google/Microsoft and packaged-browser acceptance remain required; see [social sign-in](social-signin.md).
 
 ### 2. P1 — Privacy mode leaves sensitive meeting data behind
 

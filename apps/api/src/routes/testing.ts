@@ -83,6 +83,7 @@ testing.post("/reset", async (c) => {
   await directory.device.deleteMany();
   await directory.planGrant.deleteMany();
   await directory.subscription.deleteMany();
+  await directory.socialHandoff.deleteMany();
   await directory.session.deleteMany();
   await directory.account.deleteMany();
   await directory.user.deleteMany();

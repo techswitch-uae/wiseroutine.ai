@@ -46,6 +46,7 @@ const slot = (status: TodaySlot["status"]): TodaySlot => ({
   title: "Eye rest",
   kind: "recovery",
   startsAt: AT,
+  startedAt: AT,
   endsAt: AT + 5 * 60_000,
   status,
   isLocked: false,
@@ -80,6 +81,27 @@ beforeEach(() => {
 afterEach(() => {
   publishPlan(null);
   publishReload(() => undefined);
+  vi.useRealTimers();
+});
+
+test("a running session never offers Postpone and loses Stop at the cutoff", () => {
+  publishPlan(day("started"));
+  render(<SessionOverlay />);
+  expect(screen.queryByRole("button", { name: "Postpone" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+  act(() => vi.advanceTimersByTime(120_000));
+  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Done early" })).toBeTruthy();
+});
+
+test("a refused Stop restores the overlay rather than abandoning the running session", async () => {
+  const { api } = await import("../lib/api");
+  vi.mocked(api.skipSlot).mockRejectedValueOnce(new Error("Stop refused"));
+  publishPlan(day("started"));
+  render(<SessionOverlay />);
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  await user.click(screen.getByRole("button", { name: "Stop" }));
+  expect(await screen.findByRole("dialog")).toBeTruthy();
 });
 
 test("a stopped session can be started again", async () => {

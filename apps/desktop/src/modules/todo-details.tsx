@@ -1,3 +1,4 @@
+import { canPostponeSlot } from "@wiseroutine/scheduler";
 import { useEffect, useRef, useState } from "react";
 import { api, type TodoDetails as Details } from "../lib/api";
 import {
@@ -125,7 +126,7 @@ export function TodoDetails({
         setPending((p) => p.filter((f) => f.id !== item.id));
       }
     });
-  if (moving && todo?.slot)
+  if (moving && todo?.slot && canPostponeSlot(todo.slot))
     return (
       <Reschedule
         slot={todo.slot}
@@ -241,7 +242,9 @@ export function TodoDetails({
               onChange={(e) => setMinutes(Number(e.target.value))}
             />
           </label>
-          {todo.status === "slotted" ? (
+          {todo.status === "slotted" &&
+          todo.slot &&
+          canPostponeSlot(todo.slot) ? (
             <small>
               Use Postpone / change time to change the scheduled duration.
             </small>
@@ -426,7 +429,7 @@ export function TodoDetails({
             </button>
             {todo.status === "open" || todo.status === "slotted" ? (
               <>
-                {todo.slot ? (
+                {todo.slot && canPostponeSlot(todo.slot) ? (
                   <button
                     type="button"
                     className="wr-palette-pill"
@@ -435,7 +438,7 @@ export function TodoDetails({
                   >
                     Postpone / change time
                   </button>
-                ) : flags.quick_capture ? (
+                ) : !todo.slot && flags.quick_capture ? (
                   <PlanTodo
                     todo={todo}
                     scope={scope}
@@ -463,7 +466,11 @@ export function TodoDetails({
                 <button
                   type="button"
                   className="wr-palette-pill"
-                  disabled={busy || pending.length > 0}
+                  disabled={
+                    busy ||
+                    pending.length > 0 ||
+                    todo.slot?.status === "started"
+                  }
                   onClick={() =>
                     void act(async () => {
                       await api.setTodo(id, "dropped", undefined, scope);

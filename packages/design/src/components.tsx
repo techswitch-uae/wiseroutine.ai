@@ -12,6 +12,7 @@ import {
 } from "./daygrid";
 import {
   CheckGlyph,
+  CloseGlyph,
   HoursGlyph,
   IconArrowRight,
   PlayGlyph,
@@ -535,14 +536,24 @@ export type ToggleProps = {
   checked: boolean;
   onChange?: (next: boolean) => void;
   label: string;
+  disabled?: boolean;
+  describedBy?: string;
 };
 
-export const Toggle: React.FC<ToggleProps> = ({ checked, onChange, label }) => (
+export const Toggle: React.FC<ToggleProps> = ({
+  checked,
+  onChange,
+  label,
+  disabled,
+  describedBy,
+}) => (
   <button
     type="button"
     role="switch"
     aria-checked={checked}
     aria-label={label}
+    aria-describedby={describedBy}
+    disabled={disabled}
     className="wr-toggle"
     onClick={() => onChange?.(!checked)}
   />
@@ -1718,7 +1729,7 @@ export const Widget: React.FC<WidgetProps> = ({
               aria-label="Close"
               onClick={onClose}
             >
-              ×
+              <CloseGlyph aria-hidden="true" />
             </button>
           ) : null}
         </div>
@@ -2266,14 +2277,12 @@ export const ProviderChoice: React.FC<{
     </ul>
 
     <div className="wr-provider-terms">
-      <div className="wr-provider-terms-title">
-        What we take, in plain terms
-      </div>
+      <div className="wr-provider-terms-title">Read-only access</div>
       <p>
-        Event titles, times and busy status - that is all we read. We never
-        write to your calendar, never open attachments, notes or attendee lists,
-        and nothing leaves your machine except the times we need to schedule
-        around.
+        Wise Routine saves busy times on its servers to plan your activities. If
+        saving meeting details is enabled, it also saves names, notes, and call
+        links. We never change your calendar or open its attachments. You can
+        remove saved meeting details in Settings.
       </p>
     </div>
   </>

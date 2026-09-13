@@ -1,3 +1,4 @@
+import { canStopSlot } from "@wiseroutine/scheduler";
 import {
   at,
   atOrNull,
@@ -376,6 +377,10 @@ export async function moveSlot(
     return userTransaction(db, (tx) => moveSlot(tx, params, now, newId));
   const current = await getSlot(db, params.slotId);
   if (!current) return;
+  if (current.status === "started")
+    throw new ActionConflict(
+      "A started slot cannot be moved. Stop it first while the stop window is open.",
+    );
 
   await db.slot.update({
     where: { id: params.slotId },
@@ -483,6 +488,25 @@ export async function setSlotStatus(
   if (!slot) throw new ActionConflict("Slot no longer exists");
   if (slot.status === "completed" && params.status !== "completed")
     throw new ActionConflict("Completed history cannot be changed");
+  // A repeated Start must not reset the stop window, even with a new action id.
+  if (slot.status === "started" && params.status === "started") return;
+  if (slot.status === "started" && params.actor !== "system") {
+    if (["cancelled", "bucketed", "planned", "live"].includes(params.status))
+      throw new ActionConflict(
+        "A started slot cannot be moved or removed. Stop it first while the stop window is open.",
+      );
+    // After its scheduled end, the existing recovery action can still record
+    // that it didn't happen. That is history, not stopping a running session.
+    if (params.status === "skipped" && now < slot.endsAt) {
+      const starts = await slotStartTimes(db, [slot.id]);
+      if (
+        !canStopSlot({ ...slot, startedAt: starts.get(slot.id) ?? null }, now)
+      )
+        throw new ActionConflict(
+          "The stop window has closed. You can create another slot instead.",
+        );
+    }
+  }
   if (params.status === "started" && slot.reminderId) {
     const todo = await db.reminder.findUnique({
       where: { id: slot.reminderId },
@@ -841,6 +865,20 @@ export async function listMissed(
     orderBy: { startsAt: "asc" },
   });
   return rows.map(toSlot);
+}
+
+/** Latest actual Start per slot, from the durable lifecycle log (also on reload). */
+export async function slotStartTimes(
+  db: UserDatabase,
+  slotIds: readonly string[],
+): Promise<Map<string, number>> {
+  if (slotIds.length === 0) return new Map();
+  const rows = await db.slotEvent.findMany({
+    where: { slotId: { in: [...slotIds] }, type: "started" },
+    select: { slotId: true, at: true },
+    orderBy: { at: "asc" },
+  });
+  return new Map(rows.map((row) => [row.slotId, ms(row.at)]));
 }
 
 export async function listSlotEvents(

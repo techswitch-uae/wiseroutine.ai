@@ -55,6 +55,7 @@ import {
   setEventPrivacy,
   setReminderStatus,
   setSlotStatus,
+  slotStartTimes,
   toSchedulerActivity,
   touchLastSeen,
   type UserDatabase,
@@ -1481,6 +1482,10 @@ app.get("/today", async (c) => {
       scheduledForRange(db, wholeDay.start, wholeDay.end),
     ]);
 
+  const starts = await slotStartTimes(
+    db,
+    slots.filter((s) => s.status === "started").map((s) => s.id),
+  );
   const busy = toBusyBlocks(events);
 
   // Only what the timeline needs to draw meetings; nothing extra leaves here.
@@ -1531,6 +1536,7 @@ app.get("/today", async (c) => {
           startsAt: s.startsAt,
           endsAt: s.endsAt,
           status: s.status,
+          startedAt: starts.get(s.id) ?? null,
           isLocked: s.isLocked,
           conflictEventId: s.conflictEventId,
           ownerAddonId: s.ownerAddonId,
@@ -2296,7 +2302,10 @@ app.post("/slots/:id/move", async (c) => {
     if (!slot) throw new HTTPException(404);
     if (!["planned", "live", "bucketed"].includes(slot.status))
       throw new HTTPException(409, {
-        message: "Use Postpone to keep the history of this slot.",
+        message:
+          slot.status === "started"
+            ? "A started slot cannot be moved. Stop it first while the stop window is open, or create another slot."
+            : "Use Postpone to keep the history of this slot.",
       });
     await validatePlacement(
       db,

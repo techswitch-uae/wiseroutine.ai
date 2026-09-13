@@ -1,249 +1,124 @@
+import {
+  beginSocialHandoff,
+  claimSocialHandoff,
+  completeSocialHandoff,
+  createSocialHandoff,
+} from "@wiseroutine/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { createAuth } from "../auth";
 import type { App } from "../context";
 import { generateToken } from "../crypto";
+import { handoffHash } from "../social-handoff";
 
-/**
- * Social sign-in, for a client that has no cookie jar.
- *
- * Better Auth's own `/auth/sign-in/social` is mounted and works unchanged in a
- * browser: it redirects, the provider redirects back, and the session lands in
- * a cookie. The desktop app is the problem. Consent has to happen in the
- * *system* browser - a provider will not render its consent screen inside an
- * embedded webview, and Google actively blocks it - so the session is created
- * in a browser that is not the app, and the cookie it sets is worthless to us.
- *
- * So the app is handed a claim ticket before the browser ever opens. The
- * ticket is minted here, travels out in the callback URL, and the session
- * token is parked against it when consent completes; the app then exchanges
- * the ticket it has been holding all along. Nothing has to find its way back
- * into the app process, which is what makes this work without a deep link,
- * a loopback listener or a custom URL scheme registration per platform.
- *
- * The ticket is minted server-side on purpose. If the app chose it, someone
- * who could get a victim to start a sign-in with an attacker-chosen ticket
- * could then claim the victim's session - the same reason `routes/connect.ts`
- * keeps its OAuth state out of the caller's hands.
- */
+/** Desktop sign-in uses a separate system-browser OAuth flow. The app retains
+ * a private claim secret; only an unrelated attempt ID goes into browser URLs.
+ * Better Auth's verified callback publishes its newly created session through
+ * a server-owned proof, and a directory transaction redeems it once. */
 export const signin = new Hono<App>();
+signin.use("*", async (c, next) => {
+  await next();
+  c.header("cache-control", "no-store");
+  c.header("referrer-policy", "no-referrer");
+});
 
-/** Long enough to read an email and pick an account, short enough that an
- *  abandoned attempt is not a token sitting in KV all day. */
-const TICKET_TTL_SECONDS = 600;
-
-/** Once consent lands, the app is already polling. This only has to survive
- *  the gap until its next poll. */
-const TOKEN_TTL_SECONDS = 120;
-
-const ticketKey = (ticket: string) => `signin_handoff:${ticket}`;
-
-type Parked =
-  | { status: "pending"; provider: Provider }
-  | { status: "ready"; token: string }
-  | { status: "failed"; reason: string };
-
-type Provider = "google" | "microsoft";
-
-function parseProvider(value: unknown): Provider {
-  if (value !== "google" && value !== "microsoft") {
-    throw new HTTPException(400, { message: "Unknown provider" });
-  }
-  return value;
-}
-
-/**
- * Begin. Mints the ticket and says where to send the browser.
- *
- * Note what this does *not* do: talk to the provider. The consent URL is
- * produced by `/social/go` below, during the browser's own navigation, and the
- * reason is the OAuth `state`.
- *
- * Better Auth binds `state` to the browser that started the flow with a signed
- * cookie, and checks it on the callback. Minting the URL here would set that
- * cookie on the response to *this* fetch - a cross-origin XHR from the app,
- * whose cookies the browser discards - so the browser that then performs
- * consent would arrive at the callback carrying no state at all. Better Auth
- * calls that `state_mismatch`, and it is right to: it cannot tell our missing
- * cookie from an attacker replaying somebody else's callback.
- *
- * Unauthenticated by definition - this is how someone with no account gets
- * one. Signing up and signing in are the same call: whether the address is
- * new is Better Auth's business, and the account it creates is provisioned by
- * the same `user.create` hook the emailed code goes through.
- */
 signin.post("/social/start", async (c) => {
-  const env = c.get("env");
-  const body: { provider?: unknown } = await c.req
+  const { provider } = await c.req
     .json<{ provider?: unknown }>()
-    .catch(() => ({}));
-  const provider = parseProvider(body.provider);
-
+    .catch(() => ({ provider: undefined }));
+  if (provider !== "google" && provider !== "microsoft")
+    throw new HTTPException(400, { message: "Unknown provider" });
+  const id = generateToken();
   const ticket = generateToken();
-  await c.env.CONFIG.put(
-    ticketKey(ticket),
-    JSON.stringify({ status: "pending", provider } satisfies Parked),
-    { expirationTtl: TICKET_TTL_SECONDS },
-  );
-
+  await createSocialHandoff(c.get("directory"), {
+    id,
+    claimHash: await handoffHash(ticket),
+    provider,
+    now: c.get("now"),
+  });
   return c.json({
-    url: `${env.API_URL}/signin/social/go?ticket=${ticket}`,
+    url: `${c.get("env").API_URL}/signin/social/go?attempt=${id}`,
     ticket,
   });
 });
 
-/**
- * The browser's first stop, and the reason this route exists.
- *
- * A top-level navigation, so every cookie Better Auth sets while building the
- * consent URL is set on *the browser that will complete the flow* - which is
- * the whole point. We then forward it on to the provider ourselves rather than
- * letting Better Auth redirect, because the callback and error URLs have to
- * carry our ticket.
- */
+/** Top-level browser navigation is where the OAuth state cookie must be set.
+ * No claim secret, completion proof or session token is put in this URL. */
 signin.get("/social/go", async (c) => {
   const env = c.get("env");
-  const ticket = c.req.query("ticket") ?? "";
-  const done = new URL(`${env.APP_URL}/auth/complete`);
+  const id = c.req.query("attempt") ?? "";
+  const proof = generateToken();
+  const proofHash = await handoffHash(proof);
+  const row =
+    id.length <= 128
+      ? await beginSocialHandoff(
+          c.get("directory"),
+          id,
+          proofHash,
+          c.get("now"),
+        )
+      : null;
+  const failure = (reason: string) =>
+    c.redirect(`${env.APP_URL}/auth/complete?signin=failed&reason=${reason}`);
+  if (!row || (row.provider !== "google" && row.provider !== "microsoft"))
+    return failure("expired");
 
-  const stored = ticket ? await c.env.CONFIG.get(ticketKey(ticket)) : null;
-  const parked = stored ? (JSON.parse(stored) as Parked) : null;
-
-  // Only a ticket we minted, and only one that has not been used. Without this
-  // the endpoint would start a consent flow for any string at all.
-  if (!parked || parked.status !== "pending") {
-    done.searchParams.set("signin", "failed");
-    done.searchParams.set("reason", "expired");
-    return c.redirect(done.toString());
-  }
-
-  const finish = `${env.API_URL}/signin/social/finish?ticket=${ticket}`;
-
-  // `asResponse` because the headers are the payload here: the signed state
-  // cookie rides on them, and dropping it is exactly the bug this route fixes.
-  const response = await c
-    .get("auth")
-    .api.signInSocial({
+  // This instance's server-only before hook attaches the completion proof.
+  // No public /auth/sign-in/social body or header can set it.
+  const auth = createAuth(c.get("directory"), env, {
+    id,
+    proof,
+    provider: row.provider,
+  });
+  const response = await auth.api
+    .signInSocial({
       body: {
-        provider: parked.provider,
-        callbackURL: finish,
-        // A refusal has to reach the same place a success does, or the app
-        // polls a ticket that will never be filled until it times out - and
-        // the user watches a spinner instead of reading why it failed.
-        errorCallbackURL: finish,
-        // We do the redirecting, so that the cookies come back to us first.
+        provider: row.provider,
+        callbackURL: `${env.APP_URL}/auth/complete?signin=ok`,
+        errorCallbackURL: `${env.APP_URL}/auth/complete?signin=failed`,
         disableRedirect: true,
       },
       asResponse: true,
     })
-    .catch((error: unknown) => {
-      // A provider with no credentials in this environment is not an error the
-      // user made, and Better Auth signals it by throwing.
-      console.error("social sign-in unavailable", parked.provider, error);
-      return null;
+    .catch(() => null);
+  const result = response
+    ? ((await response.json().catch(() => null)) as { url?: unknown } | null)
+    : null;
+  if (!response?.ok || typeof result?.url !== "string") {
+    await completeSocialHandoff(c.get("directory"), {
+      id,
+      proofHash,
+      provider: row.provider,
+      now: Date.now(),
+      result: { status: "failed", reason: "provider_unavailable" },
     });
-
-  const url = response
-    ? ((await response.json().catch(() => ({}))) as { url?: string }).url
-    : undefined;
-
-  if (!response || !url) {
-    done.searchParams.set("signin", "failed");
-    done.searchParams.set("reason", "provider_unavailable");
-    return c.redirect(done.toString());
+    return failure("provider_unavailable");
   }
-
-  const headers = new Headers({ location: url });
-  // `getSetCookie` keeps multiple cookies separate; `get` would join them into
-  // one malformed header and the state would be lost a second time.
-  for (const cookie of response.headers.getSetCookie()) {
+  const headers = new Headers({ location: result.url });
+  for (const cookie of response.headers.getSetCookie())
     headers.append("set-cookie", cookie);
-  }
   return new Response(null, { status: 302, headers });
 });
 
-/**
- * Where consent lands, in the browser.
- *
- * Better Auth has already created the session and set its cookie on the
- * redirect that got us here, so reading it back is just `getSession` - the
- * token that comes out is the same value the bearer plugin returns as
- * `set-auth-token` after an emailed code, which is why the app can use it
- * without knowing which way it signed in.
- */
-signin.get("/social/finish", async (c) => {
-  const env = c.get("env");
-  const ticket = c.req.query("ticket");
-  const done = new URL(`${env.APP_URL}/auth/complete`);
+/** Retire the insecure cookie-session landing. Old URLs fail closed and never
+ * read a browser session, create a handoff, or mutate an existing attempt. */
+signin.get("/social/finish", (c) =>
+  c.redirect(
+    `${c.get("env").APP_URL}/auth/complete?signin=failed&reason=expired`,
+  ),
+);
 
-  // No ticket means this URL was not one we minted. Nothing to park a token
-  // against, so there is nothing useful to do but say so.
-  if (!ticket) {
-    done.searchParams.set("signin", "failed");
-    return c.redirect(done.toString());
-  }
-
-  const park = async (value: Parked, ttl: number) => {
-    await c.env.CONFIG.put(ticketKey(ticket), JSON.stringify(value), {
-      expirationTtl: ttl,
-    });
-  };
-
-  // Better Auth appends its own `error` to the callback when consent fails or
-  // the identity is refused.
-  const refusal = c.req.query("error");
-  if (refusal) {
-    await park({ status: "failed", reason: refusal }, TOKEN_TTL_SECONDS);
-    done.searchParams.set("signin", "failed");
-    done.searchParams.set("reason", refusal);
-    return c.redirect(done.toString());
-  }
-
-  const session = await c
-    .get("auth")
-    .api.getSession({ headers: c.req.raw.headers });
-
-  if (!session) {
-    await park({ status: "failed", reason: "no_session" }, TOKEN_TTL_SECONDS);
-    done.searchParams.set("signin", "failed");
-    return c.redirect(done.toString());
-  }
-
-  await park(
-    { status: "ready", token: session.session.token },
-    TOKEN_TTL_SECONDS,
-  );
-
-  done.searchParams.set("signin", "ok");
-  return c.redirect(done.toString());
-});
-
-/**
- * Redeem the ticket for the session token.
- *
- * Single use: the token is deleted as it is handed over, so a ticket that
- * leaks after the fact is worth nothing. `pending` is the normal answer while
- * the user is still choosing an account, and the app keeps asking.
- */
 signin.post("/social/claim", async (c) => {
-  const body: { ticket?: unknown } = await c.req
+  const { ticket } = await c.req
     .json<{ ticket?: unknown }>()
-    .catch(() => ({}));
-  if (typeof body.ticket !== "string" || !body.ticket) {
-    throw new HTTPException(400, { message: "Missing ticket" });
-  }
-
-  const stored = await c.env.CONFIG.get(ticketKey(body.ticket));
-  // Expired, already redeemed, or never existed - all the same answer, so a
-  // wrong guess learns nothing from the difference.
-  if (!stored) return c.json({ status: "expired" });
-
-  const parked = JSON.parse(stored) as Parked;
-  if (parked.status === "pending") return c.json({ status: "pending" });
-
-  await c.env.CONFIG.delete(ticketKey(body.ticket));
-
-  if (parked.status === "failed") {
-    return c.json({ status: "failed", reason: parked.reason });
-  }
-  return c.json({ status: "ready", token: parked.token });
+    .catch(() => ({ ticket: undefined }));
+  if (typeof ticket !== "string" || !ticket || ticket.length > 128)
+    throw new HTTPException(400, { message: "Missing or invalid ticket" });
+  return c.json(
+    await claimSocialHandoff(
+      c.get("directory"),
+      await handoffHash(ticket),
+      c.get("now"),
+    ),
+  );
 });
