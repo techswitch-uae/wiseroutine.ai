@@ -396,7 +396,7 @@ export const ThisSlot: React.FC = () => {
         <Note>When it starts, {module.blurb}.</Note>
       ) : null}
 
-      {state.movable ? (
+      {state.movable && !["missed", "skipped"].includes(slot.status) ? (
         <div style={{ marginTop: 12 }}>
           <TimeStepper
             value={clock(slot.startsAt, plan.timeZone)}

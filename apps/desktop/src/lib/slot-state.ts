@@ -30,9 +30,9 @@ export function slotState(slot: TodaySlot, now: number): SlotState {
     case "completed":
       return { ...inactive, label: "Done" };
     case "skipped":
-      return { ...inactive, label: "Stopped", startable: !over };
+      return { ...inactive, label: "Stopped", startable: !over, movable: true };
     case "missed":
-      return { ...inactive, label: "Missed" };
+      return { ...inactive, label: "Missed", movable: true };
     case "cancelled":
     case "bucketed":
       return { ...inactive, label: null };

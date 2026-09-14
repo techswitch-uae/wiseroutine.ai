@@ -135,9 +135,8 @@ describe("owedToday", () => {
  *
  * Dragging is how a slot is rescheduled, so it has to stop being offered the
  * moment there is nothing left to reschedule. A slot that has started is
- * happening now; a completed, skipped or missed one is the record that it
- * happened - or did not - at a particular time, and both the missed list and
- * every progress number are read back out of those rows.
+ * happening now; a completed one is fixed history. Dragging stopped/missed
+ * work creates a new appointment through Postpone, retaining that history.
  */
 describe("buildTimeline", () => {
   const status = (value: string) =>
@@ -153,10 +152,15 @@ describe("buildTimeline", () => {
     expect(status("live")?.movable).toBe(true);
   });
 
-  it("pins one that has begun or is over", () => {
-    for (const value of ["started", "completed", "skipped", "missed"]) {
+  it("pins started and completed work", () => {
+    for (const value of ["started", "completed"]) {
       expect(status(value)?.movable).toBe(false);
     }
+  });
+
+  it("lets stopped and missed blocks be dragged into a new appointment", () => {
+    for (const value of ["skipped", "missed"])
+      expect(status(value)?.movable).toBe(true);
   });
 
   it("distinguishes approaching, due, running and done instead of treating them all as startable", () => {
@@ -196,7 +200,7 @@ describe("buildTimeline", () => {
     });
     expect(row("planned", H(11))).toMatchObject({
       startable: false,
-      movable: false,
+      movable: true,
     });
   });
 

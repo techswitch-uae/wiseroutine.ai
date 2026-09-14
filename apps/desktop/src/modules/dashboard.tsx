@@ -21,6 +21,7 @@ import {
 import { refreshCaptured } from "../lib/capture";
 import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
+import { setPlacing } from "../lib/placing";
 import { startSlot, usePlan } from "../lib/plan-store";
 import { Reschedule } from "./reschedule";
 
@@ -275,6 +276,21 @@ export const Bucket: React.FC<{ standalone?: boolean; query?: string }> = ({
     item.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
   );
   if (!visible?.length) return null;
+  /**
+   * One row per activity, however many of its sessions are here.
+   *
+   * Three "Evening stretch" rows say the same thing three times and take the
+   * rail to do it. One row with a count says it once; dragging it onto the
+   * day takes one session out, the row stays until the last is gone, and the
+   * buttons act on one at a time the same way.
+   */
+  const groups: { key: string; item: BucketItem; more: number }[] = [];
+  for (const item of visible) {
+    const key = item.activityId ?? item.id;
+    const found = groups.find((group) => group.key === key);
+    if (found) found.more += 1;
+    else groups.push({ key, item, more: 0 });
+  }
   const clock = new Intl.DateTimeFormat(undefined, {
     timeZone: account?.timeZone ?? plan?.timeZone,
     hour: "numeric",
@@ -301,15 +317,53 @@ export const Bucket: React.FC<{ standalone?: boolean; query?: string }> = ({
           onClose={() => setMoving(null)}
         />
       ) : null}
-      {visible.map((item) => (
-        <div key={item.id} style={{ marginTop: 8 }}>
+      {groups.map(({ key, item, more }) => (
+        <div key={key} style={{ marginTop: 8 }}>
           <StateRow
             recessed
             name={item.title}
             meta={`${item.initiallyUnplaced ? "Not placed" : `was ${stamp(item.wasAt)}`} · ${bucketReason(item)}`}
-            leading={<Chip variant="static">{item.initiallyUnplaced ? `${Math.round((item.endsAt - item.startsAt) / 60_000)} min` : clock(item.wasAt)}</Chip>}
+            leading={
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {standalone ? null : (
+                  // The same grip as "To place": the one place a row is
+                  // picked up rather than pressed. Not on the inbox page,
+                  // where there is no day to drop it on.
+                  <span
+                    className="wr-grip"
+                    style={{ cursor: "grab", touchAction: "none" }}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.preventDefault();
+                      setPlacing({
+                        activityId: item.activityId ?? "",
+                        slotId: item.id,
+                        name: item.title,
+                        kind: item.kind,
+                        minutes: Math.round(
+                          (item.endsAt - item.startsAt) / 60_000,
+                        ),
+                        startsAt: null,
+                        x: event.clientX,
+                        y: event.clientY,
+                      });
+                    }}
+                  >
+                    ⋮⋮
+                  </span>
+                )}
+                <Chip variant="static">
+                  {item.initiallyUnplaced
+                    ? `${Math.round((item.endsAt - item.startsAt) / 60_000)} min`
+                    : clock(item.wasAt)}
+                </Chip>
+              </span>
+            }
             trailing={
-              <span style={{ display: "flex", gap: 6 }}>
+              more > 0 ? <Chip variant="static">{more + 1}</Chip> : null
+            }
+            actions={
+              <>
                 {item.suggested ? (
                   <Button
                     variant="primary"
@@ -347,7 +401,7 @@ export const Bucket: React.FC<{ standalone?: boolean; query?: string }> = ({
                 >
                   Drop
                 </Button>
-              </span>
+              </>
             }
           />
         </div>

@@ -1,3 +1,4 @@
+import { Loading } from "@wiseroutine/design";
 import { canPostponeSlot } from "@wiseroutine/scheduler";
 import { useEffect, useRef, useState } from "react";
 import { api, type TodoDetails as Details } from "../lib/api";
@@ -177,7 +178,7 @@ export function TodoDetails({
         </div>
       ) : null}
       {!todo ? (
-        <p>Loading…</p>
+        <Loading inline>Loading…</Loading>
       ) : editing ? (
         <form
           className="wr-capture-form"

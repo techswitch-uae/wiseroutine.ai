@@ -294,9 +294,10 @@ all 60 go through the real path and the two suites cannot drift.
 
 ### What the integration does not carry yet
 
-- **No windows, no spread.** `ANYWHERE` for every activity — see the note in
-  `repair.ts`. The schema change below is what unblocks it, and until then
-  drift is the only rule that fires, which makes `outside_window` unreachable.
+- **No hard windows.** Stored anchors remain soft preferences, so
+  `outside_window` is unreachable in the integration. Repeated activities now
+  always use spread spacing; no opt-in column is needed. Initial placement
+  and repair share `siblingGap()` in `routine.ts`.
 - **The breather is the default.** No settings column, so nothing to read.
 - **The inferring busy reading**, matching `planDay`. Two solvers disagreeing
   about what counts as busy is worse than either answer, so `literal` stays a
@@ -314,10 +315,10 @@ all 60 go through the real path and the two suites cannot drift.
   pinning are corpus-level decisions so far. If they are the product's answer,
   `planDay` should adopt both — it currently infers busy-ness and honours
   `isLocked`.
-- **The DB has no policy.** `ActivityWindow` stores `anchorMinutes` (a point)
-  where `PlacementPolicy` wants a region, and there is no `spread` column.
-  Wiring it up means adding `start_minutes`/`end_minutes` to `activity_windows`
-  and `spread` to `activities`, then mapping in `planDay`.
+- **The DB has no hard windows.** `ActivityWindow` stores `anchorMinutes`
+  (a point) where `PlacementPolicy` wants a region. Hard-window support would
+  require `start_minutes`/`end_minutes` in `activity_windows`. Spread is now
+  automatic for repeated activities and does not need a stored flag.
 
 ## The simulator
 

@@ -335,10 +335,15 @@ export async function cancelUnstartedSlots(
   const rows = await db.slot.findMany({
     where: {
       activityId: params.activityId,
-      // Including the bucket: an entry there is a session still waiting for an
-      // answer, and archiving the activity is one.
-      status: { in: ["planned", "live", "bucketed"] },
-      startsAt: { gte: at(params.from) },
+      // Bucket timestamps are day keys, not appointments. Even an older
+      // bucket entry must leave when its activity is archived.
+      OR: [
+        { status: "bucketed" },
+        {
+          status: { in: ["planned", "live"] },
+          startsAt: { gte: at(params.from) },
+        },
+      ],
     },
     select: { id: true },
   });
@@ -806,6 +811,29 @@ export async function nextGraceDeadline(
  * already sitting on the timeline* - counting only completions would leave the
  * placement tray asking for three more the moment three were placed.
  */
+/** Explicit "not today" choices consume demand, but pauses/archives do not.
+ * Inspect the last cancellation, so an earlier Undo cannot mask a later pause. */
+export async function userDismissedSlots(
+  db: UserDatabase,
+  from: number,
+  to: number,
+): Promise<{ id: string; activityId: string | null }[]> {
+  const rows = await db.slot.findMany({
+    where: { status: "cancelled", startsAt: { gte: at(from), lt: at(to) } },
+    select: {
+      id: true,
+      activityId: true,
+      events: {
+        where: { type: "cancelled" },
+        orderBy: { at: "desc" },
+        take: 1,
+        select: { reasonCode: true },
+      },
+    },
+  });
+  return rows.filter((row) => row.events[0]?.reasonCode === "user_choice");
+}
+
 export async function scheduledForRange(
   db: UserDatabase,
   from: number,
@@ -822,7 +850,7 @@ export async function scheduledForRange(
   });
 
   const byActivity = new Map<string, number>();
-  for (const row of rows) {
+  for (const row of [...rows, ...(await userDismissedSlots(db, from, to))]) {
     if (!row.activityId) continue;
     byActivity.set(row.activityId, (byActivity.get(row.activityId) ?? 0) + 1);
   }

@@ -20,6 +20,9 @@ onSessionReset(() => setPlacing(null));
 export interface Placement {
   /** The activity being placed, and what it is called on the day. */
   activityId: string;
+  /** Set when what is being dragged already exists as a slot - one out of
+   *  Unscheduled slots - so the drop moves it rather than making another. */
+  slotId?: string;
   name: string;
   kind: "recovery" | "focus" | "task";
   minutes: number;

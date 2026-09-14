@@ -1219,7 +1219,10 @@ export const ActivityForm: React.FC<{
   ) => {
     const next = { ...draft, [key]: value };
     if (showFrequency)
-      next.perDay = Math.min(next.perDay, maxDailySessions(next.sessionMinutes));
+      next.perDay = Math.min(
+        next.perDay,
+        maxDailySessions(next.sessionMinutes),
+      );
     onChange(next);
   };
   const maxPerDay = maxDailySessions(draft.sessionMinutes);

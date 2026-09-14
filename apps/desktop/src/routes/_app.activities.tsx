@@ -77,7 +77,10 @@ const draftOf = (row: ActivityResponse): ActivityDraft => ({
   name: row.name,
   kind: row.kind,
   sessionMinutes: row.sessionMinutes,
-  perDay: row.minimum.type === "countPerDay" ? Math.min(row.minimum.value, maxDailySessions(row.sessionMinutes)) : 1,
+  perDay:
+    row.minimum.type === "countPerDay"
+      ? Math.min(row.minimum.value, maxDailySessions(row.sessionMinutes))
+      : 1,
   days: row.daysOfWeek,
   land: landingOf(row.preferredWindows),
 });

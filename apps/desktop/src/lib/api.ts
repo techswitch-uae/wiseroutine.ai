@@ -579,6 +579,8 @@ export interface BucketItem {
   /** No previous appointment: the initial planner could not place it. */
   initiallyUnplaced?: boolean;
   id: string;
+  /** Absent from a server that predates it; then each slot is its own row. */
+  activityId?: string | null;
   title: string;
   kind: "recovery" | "focus" | "task";
   /** The hour it was due at before the day moved under it. */
@@ -1106,13 +1108,14 @@ export const api = {
    * Thursday quietly filled today instead.
    */
   plan: (trigger = "user_request", at?: number) =>
-    request<{ planRunId: string; placed: number; unplaced: unknown[] }>(
-      "/plan",
-      {
-        method: "POST",
-        body: JSON.stringify({ trigger, ...(at !== undefined ? { at } : {}) }),
-      },
-    ),
+    request<{
+      planRunId: string | null;
+      placed: number;
+      unplaced: { activityId: string; sessions: number; reason: string }[];
+    }>("/plan", {
+      method: "POST",
+      body: JSON.stringify({ trigger, ...(at !== undefined ? { at } : {}) }),
+    }),
   /**
    * 5c - place an activity at a time you chose.
    *

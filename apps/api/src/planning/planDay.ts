@@ -8,6 +8,7 @@ import {
   replacePlannedSlots,
   toSchedulerActivity,
   type UserDatabase,
+  userDismissedSlots,
   userTransaction,
 } from "@wiseroutine/db";
 import {
@@ -90,11 +91,13 @@ export async function planDay(
   );
   const dayStart = Math.max(bounds.start, params.from ?? bounds.start);
 
-  const [events, activities, slots] = await Promise.all([
+  const [events, activities, slots, dismissed] = await Promise.all([
     listEventsInRange(db, bounds.start, bounds.end),
     listActivities(db),
     listSlotsForRange(db, bounds.start, bounds.end),
+    userDismissedSlots(db, bounds.start, bounds.end),
   ]);
+  const dismissedIds = new Set(dismissed.map((slot) => slot.id));
 
   const busy = toBusyBlocks(events);
 
@@ -124,8 +127,8 @@ export async function planDay(
    * more on top of it is how "place the rest for me" placed the lot again.
    *
    * Completed slots are left out on purpose: they are already counted, in
-   * `completedToday`. So are the ones that will not happen - skipped, missed,
-   * cancelled - because a day that lost one still owes it.
+   * `completedToday`. Skipped/missed work is still owed. A user dismissal,
+   * unlike a pause/archive, means "not today" and must not be recreated.
    *
    * ponytail: sessions, not minutes. A duration minimum whose kept slot was
    * cut short by hand is a session short of its target, and the day says so
@@ -136,7 +139,8 @@ export async function planDay(
     const keeps =
       slot.status === "planned"
         ? slot.isLocked || params.preservePlanned || slot.startsAt < dayStart
-        : ["live", "started", "bucketed"].includes(slot.status);
+        : ["live", "started", "bucketed"].includes(slot.status) ||
+          dismissedIds.has(slot.id);
     if (!keeps || !slot.activityId) continue;
     keptToday.set(slot.activityId, (keptToday.get(slot.activityId) ?? 0) + 1);
   }
@@ -175,7 +179,14 @@ export async function planDay(
     });
   }
 
-  const result = solve({ dayStart, spreadStart: bounds.start, dayEnd: bounds.end, busy, locked, demands });
+  const result = solve({
+    dayStart,
+    spreadStart: bounds.start,
+    dayEnd: bounds.end,
+    busy,
+    locked,
+    demands,
+  });
 
   const activityById = new Map(activities.map((a) => [a.row.id, a.row]));
   const planned = result.placed
@@ -211,7 +222,10 @@ export async function planDay(
         locked,
       }),
       placedCount: planned.length,
-      unplacedCount: result.unplaced.reduce((sum, item) => sum + item.sessions, 0),
+      unplacedCount: result.unplaced.reduce(
+        (sum, item) => sum + item.sessions,
+        0,
+      ),
       durationMs: Date.now() - started,
     },
     now,
@@ -253,10 +267,16 @@ export async function planDay(
           status: "bucketed",
           planRunId,
           createdAt: new Date(now),
-          events: { create: {
-            id: newId(), at: new Date(now), type: "bucketed", actor: "system",
-            reasonCode: missing.reason, reasonText: "initial_placement",
-          } },
+          events: {
+            create: {
+              id: newId(),
+              at: new Date(now),
+              type: "bucketed",
+              actor: "system",
+              reasonCode: missing.reason,
+              reasonText: "initial_placement",
+            },
+          },
         },
       });
     }

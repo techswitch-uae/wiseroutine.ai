@@ -14,7 +14,11 @@ export const SPREAD_TOLERANCE = 0.6;
 
 /** Clear time between the end of one session and the next. Shared by initial
  * placement and repair so a calendar change cannot bunch a daily routine. */
-export function siblingGap(span: number, sessions: number, spread = true): number {
+export function siblingGap(
+  span: number,
+  sessions: number,
+  spread = true,
+): number {
   return Math.max(
     MIN_SIBLING_GAP_MS,
     spread && sessions > 1 ? (span / sessions) * SPREAD_TOLERANCE : 0,

@@ -1,6 +1,7 @@
 import { DashboardWidgets } from "./dashboard";
 import { RailFallback } from "./rail-fallback";
 import { ReconnectRail } from "./reconnect-rail";
+import { SavedPlan } from "./saved-plan";
 import "./today-rail.css";
 import { SetupRail } from "./setup-rail";
 import { ThisSlot } from "./this-slot";
@@ -30,6 +31,7 @@ import { ToPlace } from "./to-place";
 export const TodayRail: React.FC = () => (
   <div className="wr-today-rail">
     <ReconnectRail />
+    <SavedPlan />
     <ThisSlot />
     <SetupRail />
     <ToPlace />

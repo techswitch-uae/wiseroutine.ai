@@ -85,7 +85,6 @@ const Today: React.FC = () => {
   /** How much room an hour gets. Remembered between launches - see
    *  `lib/density.ts`. */
   const density = useDensity();
-  const [queued, setQueued] = useState(() => api.pendingCount());
   const [syncing, setSyncing] = useState(false);
   /** The block the rail is describing - see `lib/picked`. Held there rather
    *  than here because the rail is mounted by the shell, not by this page. */
@@ -170,7 +169,6 @@ const Today: React.FC = () => {
                 }),
               };
         });
-        setQueued(api.pendingCount());
         setError(null);
       })
       .catch((cause: unknown) => {
@@ -298,7 +296,6 @@ const Today: React.FC = () => {
   useEffect(() => {
     const drain = () => {
       void flushPending().then((sent) => {
-        setQueued(api.pendingCount());
         if (sent > 0) load();
       });
     };
@@ -383,6 +380,15 @@ const Today: React.FC = () => {
       return;
     }
     if (!slot || !slotState(slot, Date.now()).movable) return;
+    if (slot.status === "skipped" || slot.status === "missed") {
+      // Dragging history makes a new appointment, just like Postpone. Never
+      // erase the original outcome by moving its timestamps optimistically.
+      void api
+        .rescheduleSlot(key, { startsAt, endsAt })
+        .catch(() => notify("Couldn't move that. Try another time."))
+        .finally(() => latest.current());
+      return;
+    }
     setData(
       (current) =>
         current && {
@@ -486,7 +492,6 @@ const Today: React.FC = () => {
     api
       .startSlot(slotId)
       .then(({ queued: waiting }) => {
-        setQueued(api.pendingCount());
         // Offline there is nothing to reload from, and the queue is projected
         // onto every later read - so the optimistic status above is not a
         // guess, it is what the next answer will say too.
@@ -637,10 +642,6 @@ const Today: React.FC = () => {
 
   return (
     <>
-      {data.stale ? (
-        <SavedPlanNotice cachedAt={data.cachedAt} queued={queued} />
-      ) : null}
-
       <DayBar
         hours={
           <HoursMenu
@@ -803,41 +804,6 @@ const Today: React.FC = () => {
     </>
   );
 };
-
-/**
- * Shown only when the plan on screen came from storage rather than the server.
- *
- * A stale plan presented as current is worse than an error - someone would
- * follow a routine that has since been replanned around a meeting they cannot
- * see. Saying when it was saved lets them judge that themselves.
- */
-const SavedPlanNotice: React.FC<{ cachedAt: number; queued: number }> = ({
-  cachedAt,
-  queued,
-}) => (
-  <div
-    role="status"
-    style={{
-      background: "var(--wr-recessed)",
-      border: "1px solid var(--wr-hairline)",
-      borderRadius: 12,
-      padding: "9px 12px",
-      marginBottom: 12,
-      font: "500 12.5px var(--font-body)",
-      color: "var(--wr-text-muted)",
-    }}
-  >
-    Offline - showing the plan saved at{" "}
-    {new Intl.DateTimeFormat("en-GB", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }).format(new Date(cachedAt))}
-    {queued > 0
-      ? `. ${queued} ${queued === 1 ? "change" : "changes"} will sync when you reconnect.`
-      : "."}
-  </div>
-);
 
 export const Route = createFileRoute("/_app/")({
   /** The day being read, as `YYYY-MM-DD`. Absent is today, and today is never

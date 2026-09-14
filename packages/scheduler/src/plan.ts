@@ -150,7 +150,11 @@ export function plan(input: PlanInput): PlanResult {
     }
   }
   const spreadStart = input.spreadStart ?? input.dayStart;
-  if (!Number.isFinite(spreadStart) || spreadStart > input.dayStart || input.dayEnd - spreadStart > 48 * 60 * MINUTE)
+  if (
+    !Number.isFinite(spreadStart) ||
+    spreadStart > input.dayStart ||
+    input.dayEnd - spreadStart > 48 * 60 * MINUTE
+  )
     throw new RangeError("Invalid spread bounds");
   const bounds = { start: input.dayStart, end: input.dayEnd };
   const lockedIntervals = input.locked.map((s) => ({
@@ -183,45 +187,88 @@ export function plan(input: PlanInput): PlanResult {
     const count = siblings.length + demand.sessionsNeeded;
     const span = input.dayEnd - spreadStart;
     const separation = siblingGap(span, count);
-    // One target per occurrence, centred in equal parts of the working day.
+    // If the spacing floor needs more room than equal cells leave, borrow
+    // from the day edges before declaring a shortfall (e.g. four 30-minute
+    // sessions in a four-hour day). Do not sacrifice a session to padding.
+    const step = Math.max(span / Math.max(1, count), duration + separation);
+    const padding = Math.max(0, (span - duration - (count - 1) * step) / 2);
+    // One target per occurrence, distributed across the working day.
     // A kept/manual/completed occurrence consumes its nearest target first.
-    const targets = count > 1
-      ? Array.from({ length: count }, (_, i) => {
-          const from = spreadStart + (span * i) / count;
-          const to = spreadStart + (span * (i + 1)) / count - duration;
-          const preferred = demand.preferredAt.length
-            ? demand.preferredAt.reduce((best, at) => Math.abs(at - (from + to) / 2) < Math.abs(best - (from + to) / 2) ? at : best)
-            : (from + to) / 2;
-          return Math.round(Math.max(from, Math.min(to, preferred)) / MINUTE) * MINUTE;
-        })
-      : [];
+    const targets =
+      count > 1
+        ? Array.from({ length: count }, (_, i) => {
+            const from = spreadStart + (span * i) / count;
+            const to = spreadStart + (span * (i + 1)) / count - duration;
+            const preferred = demand.preferredAt.length
+              ? demand.preferredAt.reduce((best, at) =>
+                  Math.abs(at - (from + to) / 2) <
+                  Math.abs(best - (from + to) / 2)
+                    ? at
+                    : best,
+                )
+              : spreadStart + padding + i * step;
+            const target = demand.preferredAt.length
+              ? Math.max(from, Math.min(to, preferred))
+              : preferred;
+            return Math.round(target / MINUTE) * MINUTE;
+          })
+        : [];
     for (const slot of siblings) {
-      const nearest = targets.reduce((best, at, i) => Math.abs(at - slot.start) < Math.abs((targets[best] ?? Infinity) - slot.start) ? i : best, 0);
+      const nearest = targets.reduce(
+        (best, at, i) =>
+          Math.abs(at - slot.start) <
+          Math.abs((targets[best] ?? Infinity) - slot.start)
+            ? i
+            : best,
+        0,
+      );
       targets.splice(nearest, 1);
     }
 
     for (let session = 0; session < demand.sessionsNeeded; session++) {
       let best: Placement | undefined;
 
-      const preferred = targets[session] === undefined ? demand.preferredAt : [targets[session] as number];
-      const excluded = siblings.map((slot) => ({ start: slot.start - separation, end: slot.end + separation }));
+      const preferred =
+        targets[session] === undefined
+          ? demand.preferredAt
+          : [targets[session] as number];
+      const excluded = siblings.map((slot) => ({
+        start: slot.start - separation,
+        end: slot.end + separation,
+      }));
       for (const [index, gap] of gaps.entries()) {
         budget -= Math.max(1, siblings.length);
         if (budget < 0) throw new RangeError("Plan exceeds work bounds");
         for (const available of freeGaps(gap, excluded)) {
           budget -= Math.max(1, preferred.length);
           if (budget < 0) throw new RangeError("Plan exceeds work bounds");
-          const fit = fitInGap({ ...available, endsAtMeeting: gap.endsAtMeeting && available.end === gap.end }, duration, bufferMs, preferred);
+          const fit = fitInGap(
+            {
+              ...available,
+              endsAtMeeting: gap.endsAtMeeting && available.end === gap.end,
+            },
+            duration,
+            bufferMs,
+            preferred,
+          );
           if (!fit) continue;
-          if (!best || fit.cost < best.cost || (fit.cost === best.cost && fit.start < best.start))
+          if (
+            !best ||
+            fit.cost < best.cost ||
+            (fit.cost === best.cost && fit.start < best.start)
+          )
             best = { gapIndex: index, start: fit.start, cost: fit.cost };
         }
       }
 
       if (!best) {
-        const reason: UnplacedReason = gaps.some((gap) => fitInGap(gap, duration, bufferMs, []))
+        const reason: UnplacedReason = gaps.some((gap) =>
+          fitInGap(gap, duration, bufferMs, []),
+        )
           ? "spacing_blocked"
-          : fitsIgnoringBuffer(gaps, duration) ? "buffer_blocked" : "no_gap";
+          : fitsIgnoringBuffer(gaps, duration)
+            ? "buffer_blocked"
+            : "no_gap";
         const existing = shortfall.get(activity.id);
         shortfall.set(activity.id, {
           sessions:

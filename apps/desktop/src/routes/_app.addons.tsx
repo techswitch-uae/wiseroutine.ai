@@ -7,7 +7,7 @@ import {
   parseManifest,
   ungranted,
 } from "@wiseroutine/addons";
-import { Button, Card, Modal, Toggle } from "@wiseroutine/design";
+import { Button, Card, Loading, Modal, Toggle } from "@wiseroutine/design";
 import { useCallback, useEffect, useState } from "react";
 import {
   addonSafeMode,
@@ -433,7 +433,7 @@ const Addons: React.FC = () => {
         </p>
         <div style={{ display: "grid", gap: 14 }}>
           {available === null ? (
-            <p className="wr-body">Loading…</p>
+            <Loading inline>Loading…</Loading>
           ) : rows.length === 0 ? (
             <p className="wr-body">
               Nothing here yet. Addons appear once they have been reviewed.

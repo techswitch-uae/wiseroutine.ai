@@ -360,7 +360,7 @@ const AppLayout: React.FC = () => {
   // after the user has moved to Today, and the message has to survive that.
   const toasts = useToasts();
 
-  if (!identity) return <Loading>Opening your account…</Loading>;
+  if (!identity) return <Loading size={40}>Opening your account…</Loading>;
   return (
     <>
       <AppFrame

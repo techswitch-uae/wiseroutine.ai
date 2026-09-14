@@ -22,12 +22,15 @@ const DAY_START = Date.UTC(2026, 8, 1, 8, 0);
 const DAY_END = Date.UTC(2026, 8, 1, 18, 0);
 
 const placeSlot = vi.fn(async () => undefined);
+const moveSlot = vi.fn(async () => undefined);
 const plan = vi.fn(async () => ({ placed: 1, unplaced: [] }));
 
+vi.mock("../lib/capture", () => ({ refreshCaptured: () => undefined }));
 vi.mock("../lib/api", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   api: {
     placeSlot: (...args: unknown[]) => placeSlot(...(args as [])),
+    moveSlot: (...args: unknown[]) => moveSlot(...(args as [])),
     plan: (...args: unknown[]) => plan(...(args as [])),
   },
 }));
@@ -116,20 +119,18 @@ test("places a session where it was dropped", () => {
   act(() => {
     handle.dispatchEvent(at("pointerdown", 100, 100));
   });
-  // 128px down the grid. The default density draws a quarter hour in 64px, so
-  // that is half an hour past the day's start - and on the ruler, not between
-  // two lines of it.
+  // 384px down the grid: 09:30, safely ahead of the 09:00 clock.
   act(() => {
-    globalThis.dispatchEvent(at("pointermove", 500, 228));
+    globalThis.dispatchEvent(at("pointermove", 500, 484));
   });
   act(() => {
-    globalThis.dispatchEvent(at("pointerup", 500, 228));
+    globalThis.dispatchEvent(at("pointerup", 500, 484));
   });
 
   expect(placeSlot).toHaveBeenCalledWith(
     "a1",
-    DAY_START + 30 * 60_000,
-    DAY_START + 40 * 60_000,
+    DAY_START + 90 * 60_000,
+    DAY_START + 100 * 60_000,
   );
 });
 
@@ -202,4 +203,36 @@ test("auto-placing fills the day on screen, not the day it is", async () => {
   const [, at] = plan.mock.calls[0] as unknown as [string, number];
   expect(at).toBeGreaterThanOrEqual(DAY_START);
   expect(at).toBeLessThanOrEqual(DAY_END);
+});
+
+test("a slot dragged out of Unscheduled slots is moved, not placed again", () => {
+  publishPlan(day());
+  render(<ToPlace />);
+  grid();
+
+  act(() => {
+    setPlacing({
+      activityId: "a1",
+      slotId: "s9",
+      name: "Shoulder stretch",
+      kind: "recovery",
+      minutes: 10,
+      startsAt: null,
+      x: 100,
+      y: 100,
+    });
+  });
+  act(() => {
+    globalThis.dispatchEvent(at("pointermove", 500, 484));
+  });
+  act(() => {
+    globalThis.dispatchEvent(at("pointerup", 500, 484));
+  });
+
+  expect(moveSlot).toHaveBeenCalledWith(
+    "s9",
+    DAY_START + 90 * 60_000,
+    DAY_START + 100 * 60_000,
+  );
+  expect(placeSlot).not.toHaveBeenCalled();
 });

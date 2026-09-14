@@ -1004,14 +1004,29 @@ function activityBody(value: unknown): Record<string, unknown> {
 }
 
 /** Check the merged configuration, not a duration or frequency in isolation. */
-function validateDailyFrequency(body: Record<string, unknown>, previous?: { minimumType: string; minimumValue: number; sessionMinutes: number }): void {
-  if (previous && !["minimumType", "minimumValue", "sessionMinutes"].some((key) => body[key] !== undefined)) return;
+function validateDailyFrequency(
+  body: Record<string, unknown>,
+  previous?: {
+    minimumType: string;
+    minimumValue: number;
+    sessionMinutes: number;
+  },
+): void {
+  if (
+    previous &&
+    !["minimumType", "minimumValue", "sessionMinutes"].some(
+      (key) => body[key] !== undefined,
+    )
+  )
+    return;
   const type = body.minimumType ?? previous?.minimumType ?? "countPerDay";
   const minutes = Number(body.sessionMinutes ?? previous?.sessionMinutes ?? 10);
   const count = Number(body.minimumValue ?? previous?.minimumValue ?? 1);
   const max = maxDailySessions(minutes);
   if (type === "countPerDay" && count > max)
-    throw new HTTPException(400, { message: `At ${minutes} minutes, choose up to ${max} times a day (two hours per activity).` });
+    throw new HTTPException(400, {
+      message: `At ${minutes} minutes, choose up to ${max} times a day (two hours per activity).`,
+    });
 }
 
 /** New/resumed activities get room without evicting the accepted routine. */
@@ -2267,7 +2282,9 @@ app.post("/slots/:id/restore", async (c) => {
       db,
       slot.startsAt,
       slot.endsAt,
-      c.get("now"),
+      // Undo restores the same appointment; keep its one-minute grace.
+      // New placements, moves and reschedules always use the strict clock.
+      c.get("now") - 60_000,
       slot.id,
     );
     if (slot.reminderId) {
@@ -2316,6 +2333,15 @@ app.post("/slots/:id/move", async (c) => {
             ? "A started slot cannot be moved. Stop it first while the stop window is open, or create another slot."
             : "Use Postpone to keep the history of this slot.",
       });
+    if (slot.activityId) {
+      const activity = await db.activity.findUnique({
+        where: { id: slot.activityId },
+      });
+      if (!activity?.isActive || activity.archivedAt)
+        throw new HTTPException(409, {
+          message: "Enable this activity before moving it.",
+        });
+    }
     await validatePlacement(
       db,
       body.startsAt,
@@ -2418,6 +2444,9 @@ app.get("/bucket", async (c) => {
       const length = slot.endsAt - slot.startsAt;
       return {
         id: slot.id,
+        /** So the rail can fold several sessions of one activity into one
+         *  row, and drag them onto the day one at a time. */
+        activityId: slot.activityId,
         title: slot.title,
         kind: slot.kind,
         /** The hour it was due at before the day moved under it. */

@@ -537,7 +537,7 @@ body.wr-dragging { user-select: none; -webkit-user-select: none; cursor: grabbin
 
 /* A Paused / Off / owed row. It fills whatever it is put in rather than
    carrying a width of its own - see `StateRow`. */
-.wr-staterow { width: 100%; flex: none; border-radius: 15px; }
+.wr-staterow { width: 100%; flex: none; border-radius: 15px; flex-wrap: wrap; }
 /* `min-width: 0` is what lets the name give way. A flex item's floor is its
    content, so without it a long activity name cannot shrink and pushes the
    count and the duration out through the side of the card instead. */
@@ -548,6 +548,17 @@ body.wr-dragging { user-select: none; -webkit-user-select: none; cursor: grabbin
 /* The two ends are short and fixed; only the middle is negotiable. */
 .wr-staterow > :first-child,
 .wr-staterow > :last-child { flex: none; white-space: nowrap; }
+/* Restated after the rule above: with no trailing element the name IS the
+   last child, and a fixed, unwrapping name pushed out of the row. */
+.wr-staterow > .wr-staterow-name { flex: 1; min-width: 0; white-space: normal; }
+/* The row's buttons, on their own full line, wrapping when three do not fit. */
+.wr-staterow > .wr-staterow-actions {
+  flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: 6px;
+  margin-top: 2px; white-space: normal;
+}
+/* One size down: three of the standard pills stack one per line in a rail. */
+.wr-staterow-actions .wr-btn { padding: 8px 14px; font-size: 12px; }
+.wr-staterow-actions .wr-btn-quiet { padding: 8px 10px; }
 
 .wr-slot-meeting {          /* the app does not own it, so it must not compete */
   min-height: 56px; justify-content: space-between;
@@ -1827,23 +1838,23 @@ img.wr-avatar { object-fit: cover; }
   font: 400 11.5px/1.5 var(--font-body); color: var(--wr-text-muted); flex: 1; min-width: 180px;
 }
 
-/* Seven of the same thing, so seven equal columns rather than a wrapping row -
-   a picker whose last two days fall onto a second line stops reading as a
-   week. */
-.wr-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+/* Seven discs in a row, one letter each. A chosen day is an ink disc with a
+   light letter; an unchosen one is sand with a hairline, so the week reads as
+   a row of coins with some turned over. Fixed at 40px rather than a seventh
+   of the column: a disc has to be round, and a column-width one is not. */
+.wr-days { display: flex; gap: 10px; }
 .wr-day {
-  border: 0; cursor: pointer; padding: 9px 0; border-radius: 11px;
-  background: var(--wr-recessed); box-shadow: var(--wr-inset);
-  font: 600 12px var(--font-body); color: var(--wr-text-muted);
+  flex: none; width: 40px; height: 40px; padding: 0; border: 0; cursor: pointer;
+  border-radius: 999px;
+  background: var(--wr-recessed); box-shadow: inset 0 0 0 1px var(--wr-hairline);
+  font: 700 13px var(--font-body); color: var(--wr-text-muted);
 }
-.wr-day:hover { color: var(--color-text); }
-/* The same accent a chosen segment carries - a day is on or it is not, and
-   this is the kit's one word for chosen. */
+.wr-day:hover { color: var(--color-text); background: var(--wr-track); }
 .wr-day-on {
-  background: var(--color-accent-700); color: var(--color-neutral-100);
+  background: var(--color-text); color: var(--color-neutral-100);
   box-shadow: 0 1px 3px rgba(46, 43, 37, 0.25);
 }
-.wr-day-on:hover { color: var(--color-neutral-100); }
+.wr-day-on:hover { color: var(--color-neutral-100); background: var(--color-neutral-800); }
 
 .wr-activity-row {
   display: flex; align-items: center; gap: 12px;
@@ -1887,20 +1898,21 @@ img.wr-avatar { object-fit: cover; }
   align-items: center; justify-content: center; gap: 13px;
   color: var(--wr-text-muted);
 }
-/* A ring with one lit arc, reusing the same rotation the sync button spins by.
-   Track in the sand the disabled surfaces use, so it reads as furniture until
-   the accent arc passes. */
-.wr-loading-spin {
-  width: 24px; height: 24px; border-radius: 999px; box-sizing: border-box;
-  border: 2.5px solid var(--wr-track);
-  border-top-color: var(--color-accent);
-  animation: wr-spin 0.85s linear infinite;
+/* The mark itself, arcs turning: see `.wr-mark-spin`. */
+.wr-loading-inline {
+  flex: none; align-self: auto; flex-direction: row; gap: 8px;
+  justify-content: flex-start; padding: 9px 10px;
 }
 .wr-loading-text { font: 600 12.5px var(--font-body); }
-/* Slowed rather than stopped: a still ring says "stuck", which is the one
+/* The brand mark as a loader: its two arcs turn about the disc's centre. The
+   turn starts from -90 because that is where the ring rests - see BrandMark -
+   and a CSS transform replaces the SVG one, so it has to carry that itself. */
+.wr-mark-spin { transform-origin: 60px 60px; animation: wr-mark-spin 1.1s linear infinite; }
+@keyframes wr-mark-spin { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
+/* Slowed rather than stopped: a still mark says "stuck", which is the one
    thing this is not. */
 @media (prefers-reduced-motion: reduce) {
-  .wr-loading-spin { animation-duration: 2.4s; }
+  .wr-mark-spin { animation-duration: 2.8s; }
 }
 
 /* An invitation's own words: line breaks kept, links and emphasis rendered as

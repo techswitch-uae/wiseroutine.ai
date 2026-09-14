@@ -1121,7 +1121,13 @@ export const DayGrid: React.FC<DayGridProps> = ({
     const from = items.find((item) => item.key === key);
     // A press that never moved is a press, and must not spend a write saying
     // nothing changed.
-    if (from && canMove(from) && startsAt >= moveFrom && from.startsAt !== startsAt) onMove?.(key, startsAt, endsAt);
+    if (
+      from &&
+      canMove(from) &&
+      startsAt >= moveFrom &&
+      from.startsAt !== startsAt
+    )
+      onMove?.(key, startsAt, endsAt);
   };
 
   const handles = (item: DayGridItem) => ({
@@ -1275,19 +1281,34 @@ export const DayGrid: React.FC<DayGridProps> = ({
           live,
           x: event.clientX,
           y: event.clientY,
-          ...dropAt(topOf(event.clientY, current.grabY), current, at, end, latest.current.moveFrom),
+          ...dropAt(
+            topOf(event.clientY, current.grabY),
+            current,
+            at,
+            end,
+            latest.current.moveFrom,
+          ),
         };
       });
     };
 
     const onPointerUp = () => {
-      const { drag: current, items: shown, onMove: move, moveFrom: floor } = latest.current;
+      const {
+        drag: current,
+        items: shown,
+        onMove: move,
+        moveFrom: floor,
+      } = latest.current;
       setDrag(null);
       if (!current?.live) return;
       const from = shown.find((item) => item.key === current.key);
       // Permissions can change during a drag. Commit outside a React updater
       // so StrictMode cannot issue the same move twice.
-      if (from?.movable && current.startsAt >= floor && from.startsAt !== current.startsAt)
+      if (
+        from?.movable &&
+        current.startsAt >= floor &&
+        from.startsAt !== current.startsAt
+      )
         move?.(current.key, current.startsAt, current.endsAt);
     };
 
@@ -1333,7 +1354,13 @@ export const DayGrid: React.FC<DayGridProps> = ({
         const { scale: at, dayEnd: end } = latest.current;
         return {
           ...held,
-          ...dropAt(topOf(held.y, held.grabY), held, at, end, latest.current.moveFrom),
+          ...dropAt(
+            topOf(held.y, held.grabY),
+            held,
+            at,
+            end,
+            latest.current.moveFrom,
+          ),
         };
       });
     });
@@ -1847,7 +1874,11 @@ const markStroke = (size: number): number =>
  * Colours are literal rather than tokens on purpose. A logo that changes
  * because someone retuned the interface palette is not a logo.
  */
-export const BrandMark: React.FC<{ size?: number }> = ({ size = 28 }) => (
+export const BrandMark: React.FC<{
+  size?: number;
+  /** The arcs turn about the disc's centre - the mark as a loader. */
+  spin?: boolean;
+}> = ({ size = 28, spin }) => (
   <svg
     width={size}
     height={size}
@@ -1859,6 +1890,7 @@ export const BrandMark: React.FC<{ size?: number }> = ({ size = 28 }) => (
   >
     <circle cx="60" cy="60" r="58" fill="#c67139" />
     <g
+      className={spin ? "wr-mark-spin" : undefined}
       transform="rotate(-90 60 60)"
       fill="none"
       strokeWidth={markStroke(size)}
@@ -2009,11 +2041,18 @@ export const Toasts: React.FC<{
  * `role="status"` rather than `alert`: a screen reader should hear this when
  * it gets to it, not have the current sentence interrupted for it.
  */
-export const Loading: React.FC<{ children?: React.ReactNode }> = ({
-  children,
-}) => (
-  <div className="wr-loading" role="status">
-    <span className="wr-loading-spin" aria-hidden="true" />
+export const Loading: React.FC<{
+  children?: React.ReactNode;
+  /** The mark's size: 24 for a page, 40 for the first open, 16 inline. */
+  size?: number;
+  /** A row in the flow of a list or panel, rather than centred in a page. */
+  inline?: boolean;
+}> = ({ children, inline, size = inline ? 16 : 24 }) => (
+  <div
+    className={cx("wr-loading", inline && "wr-loading-inline")}
+    role="status"
+  >
+    <BrandMark size={size} spin />
     {children ? <span className="wr-loading-text">{children}</span> : null}
   </div>
 );
@@ -2466,7 +2505,10 @@ export const StateRow: React.FC<{
   /** A second line under the name - a length, a count, what it costs. Absent
    *  leaves the row exactly as tall as it was. */
   meta?: string;
-}> = ({ name, leading, trailing, recessed, meta }) => (
+  /** Buttons for this row, on a line of their own under the name. In a 250px
+   *  rail, actions beside the name left the name no room at all. */
+  actions?: React.ReactNode;
+}> = ({ name, leading, trailing, recessed, meta, actions }) => (
   // Fluid, not 236px. It was a fixed width taken from the widget it was first
   // drawn in, which is 250px wide and spends 38 of them on padding - so every
   // row in "To place today" hung 24px out of the card it was inside. A row
@@ -2478,6 +2520,7 @@ export const StateRow: React.FC<{
       {meta ? <div className="wr-slot-meta">{meta}</div> : null}
     </div>
     {trailing}
+    {actions ? <div className="wr-staterow-actions">{actions}</div> : null}
   </div>
 );
 

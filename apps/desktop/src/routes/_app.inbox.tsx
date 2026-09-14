@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Loading } from "@wiseroutine/design";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount } from "../lib/account";
 import { api, type InboxItem } from "../lib/api";
@@ -132,7 +133,7 @@ function Inbox() {
         ))}
       </ul>
       {loading ? (
-        <p role="status">Loading…</p>
+        <Loading inline>Loading…</Loading>
       ) : !items.length && !error ? (
         <p>
           {query

@@ -2,7 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { TodayResponse, TodaySlot } from "../lib/api";
 import { publishPlan } from "../lib/plan-store";
-import { DashboardWidgets } from "./dashboard";
+import { Bucket, DashboardWidgets } from "./dashboard";
 
 /**
  * "Up next", and when it is there at all.
@@ -15,9 +15,15 @@ import { DashboardWidgets } from "./dashboard";
 
 const AT = Date.UTC(2026, 7, 11, 9, 0);
 
+const bucket = vi.fn(async (): Promise<unknown[]> => []);
+const placing = vi.fn();
+vi.mock("../lib/placing", () => ({ setPlacing: (p: unknown) => placing(p) }));
 vi.mock("../lib/api", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  api: { missed: vi.fn(async () => []), bucket: vi.fn(async () => []) },
+  api: {
+    missed: vi.fn(async () => []),
+    bucket: (...a: unknown[]) => bucket(...(a as [])),
+  },
 }));
 
 const slot = (over: Partial<TodaySlot> = {}): TodaySlot => ({
@@ -123,3 +129,37 @@ test("stands down entirely when the day is done", () => {
  * of those - it is on screen because the user switched that addon on - so
  * nothing here can assert it without mounting a frame jsdom will not run.
  */
+
+test("Unscheduled slots folds one activity's sessions into one draggable row", async () => {
+  const unplaced = (id: string) => ({
+    id,
+    activityId: "a1",
+    title: "Evening stretch",
+    kind: "recovery",
+    wasAt: AT,
+    startsAt: AT,
+    endsAt: AT + 10 * 60_000,
+    reasonCode: "no_gap",
+    suggested: null,
+    initiallyUnplaced: true,
+  });
+  bucket.mockResolvedValue([unplaced("s1"), unplaced("s2"), unplaced("s3")]);
+  publishPlan(day());
+  const { container } = render(<Bucket />);
+
+  expect(await screen.findByText("Evening stretch")).toBeTruthy();
+  expect(screen.getAllByText("Evening stretch")).toHaveLength(1);
+  // Once in the widget head (three slots), once on the row (three of this).
+  expect(screen.getAllByText("3")).toHaveLength(2);
+
+  const handle = container.querySelector(".wr-grip");
+  if (!handle) throw new Error("no drag handle");
+  act(() => {
+    handle.dispatchEvent(
+      new PointerEvent("pointerdown", { button: 0, bubbles: true }),
+    );
+  });
+  expect(placing).toHaveBeenCalledWith(
+    expect.objectContaining({ slotId: "s1", activityId: "a1", minutes: 10 }),
+  );
+});

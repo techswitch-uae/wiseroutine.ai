@@ -42,8 +42,9 @@
 
 import { freeGaps } from "./busy";
 import { siblingGap } from "./routine";
-export { MIN_SIBLING_GAP_MS, SPREAD_TOLERANCE } from "./routine";
 import type { Activity, BusyBlock, Instant, Interval, Minutes } from "./types";
+
+export { MIN_SIBLING_GAP_MS, SPREAD_TOLERANCE } from "./routine";
 
 const MINUTE = 60_000;
 

@@ -65,7 +65,7 @@ describe("slotState", () => {
       label: "Stopped",
       startable: true,
       running: false,
-      movable: false,
+      movable: true,
     });
     expect(slotState(slot({ status: "skipped" }), END).startable).toBe(false);
   });
@@ -94,7 +94,16 @@ describe("slotState", () => {
     },
   );
 
-  it.each(["completed", "missed", "cancelled", "bucketed"] as const)(
+  it("allows stopped and missed work to be dragged into a new appointment", () => {
+    for (const status of ["skipped", "missed"] as const)
+      expect(slotState(slot({ status }), END)).toMatchObject({
+        movable: true,
+        running: false,
+        startable: false,
+      });
+  });
+
+  it.each(["completed", "cancelled", "bucketed"] as const)(
     "never starts or moves %s work, regardless of the clock",
     (status) => {
       for (const now of [AT - 60_000, AT, END, AT + 24 * 3_600_000]) {

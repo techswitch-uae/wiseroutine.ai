@@ -7,6 +7,7 @@ import {
 } from "@wiseroutine/design";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { refreshCaptured } from "../lib/capture";
 import { useDensity } from "../lib/density";
 import { dropTimeOf } from "../lib/drop-time";
 import { notify } from "../lib/notify";
@@ -48,8 +49,15 @@ const GRID = ".wr-daygrid";
  *  plan - not ours. */
 function place(at: Placement): void {
   if (at.startsAt === null || at.startsAt < Date.now()) return;
-  api
-    .placeSlot(at.activityId, at.startsAt, at.startsAt + at.minutes * 60_000)
+  const endsAt = at.startsAt + at.minutes * 60_000;
+  // The rail's one drag engine lives here - this module is always mounted in
+  // the rail, whether or not it draws anything - so a slot dragged out of
+  // Unscheduled slots lands through the same pointer handling as a session
+  // that does not exist yet. Only the request differs.
+  (at.slotId
+    ? api.moveSlot(at.slotId, at.startsAt, endsAt).then(refreshCaptured)
+    : api.placeSlot(at.activityId, at.startsAt, endsAt)
+  )
     .catch(() => notify(`Couldn't put ${at.name} there.`))
     .finally(() => reloadPlan());
 }
@@ -172,11 +180,15 @@ export const ToPlace: React.FC = () => {
         // Said out loud when the day could not take everything. Silence here
         // reads as "done", and the tray still standing there afterwards with
         // two items left in it reads as the button not working.
-        if (unplaced.length > 0) {
+        const remaining = unplaced.reduce(
+          (sum, item) => sum + item.sessions,
+          0,
+        );
+        if (remaining > 0) {
           notify(
             placed > 0
-              ? `Placed ${placed}. No room today for ${unplaced.length} more.`
-              : "No gaps big enough today.",
+              ? `Placed ${placed}. ${remaining} more in Unscheduled slots.`
+              : "No room today. Your activities are in Unscheduled slots.",
           );
         }
       })

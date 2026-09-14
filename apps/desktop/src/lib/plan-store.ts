@@ -21,6 +21,13 @@ import type { TodayResponse } from "./api";
 import { onPrivacyRestricted, redactPlan } from "./privacy";
 import { onSessionReset } from "./session-lifecycle";
 
+/** The day as Today publishes it, plus where it came from: `stale` when it
+ *  was read back from storage rather than the server, `cachedAt` when. */
+export type PublishedPlan = TodayResponse & {
+  stale?: boolean;
+  cachedAt?: number;
+};
+
 onPrivacyRestricted(() => {
   if (plan) plan = redactPlan(plan);
   if (todayPlan) todayPlan = redactPlan(todayPlan);
@@ -35,12 +42,12 @@ export function manageToday(): () => void {
     operationalOwner = false;
   };
 }
-export function publishTodayPlan(next: TodayResponse | null): void {
+export function publishTodayPlan(next: PublishedPlan | null): void {
   todayPlan = next;
   for (const listen of listeners) listen();
 }
 
-let plan: TodayResponse | null = null;
+let plan: PublishedPlan | null = null;
 /**
  * The last plan that was actually about today, kept alongside the one on
  * screen.
@@ -53,7 +60,7 @@ let plan: TodayResponse | null = null;
  * one thing that answers "what now" without switching apps, and it has to keep
  * answering while you read next week.
  */
-let todayPlan: TodayResponse | null = null;
+let todayPlan: PublishedPlan | null = null;
 const listeners = new Set<() => void>();
 
 /**
@@ -94,7 +101,7 @@ let start: (slotId: string) => void = () => undefined;
 
 /** Called by Today whenever it has a new answer. */
 export function publishPlan(
-  next: TodayResponse | null,
+  next: PublishedPlan | null,
   now: number = Date.now(),
 ): void {
   plan = next;
@@ -186,16 +193,16 @@ function subscribe(listen: () => void): () => void {
  */
 export const subscribePlan = subscribe;
 
-const snapshot = (): TodayResponse | null => plan ?? todayPlan;
+const snapshot = (): PublishedPlan | null => plan ?? todayPlan;
 
 /** The day as Today last saw it, or null before the first load. The server
  *  snapshot is null too: nothing has been fetched during a render. */
-export const usePlan = (): TodayResponse | null =>
+export const usePlan = (): PublishedPlan | null =>
   useSyncExternalStore(subscribe, snapshot, () => null);
 
 /** Today's plan, read outside React - which is where the menu bar's own
  *  bookkeeping and every test of it live. */
-export const todaySnapshot = (): TodayResponse | null => todayPlan;
+export const todaySnapshot = (): PublishedPlan | null => todayPlan;
 
 /**
  * Today's plan, whatever day is on screen.
@@ -205,7 +212,7 @@ export const todaySnapshot = (): TodayResponse | null => todayPlan;
  * happening", and after the day view learned to page forward those stopped
  * being the same question.
  */
-export const useTodayPlan = (): TodayResponse | null =>
+export const useTodayPlan = (): PublishedPlan | null =>
   useSyncExternalStore(subscribe, todaySnapshot, () => null);
 
 /** Test seam. Module state has to outlive every page, which means a test

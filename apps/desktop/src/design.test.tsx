@@ -71,6 +71,29 @@ const handle = (container: HTMLElement, name: string): Element => {
   return el;
 };
 
+test("keyboard moves clamp ahead of the clock and an elapsed day accepts no drop", () => {
+  const moves: number[] = [];
+  const draw = (moveFrom: number) => (
+    <DayGrid
+      dayStart={at(9)}
+      dayEnd={at(17)}
+      timeZone="UTC"
+      moveFrom={moveFrom}
+      onMove={(_key, start) => moves.push(start)}
+      items={[block("Stretch", at(10), at(10, 10), true)]}
+    />
+  );
+  const { container, rerender } = render(draw(at(9, 58)));
+  fireEvent.keyDown(handle(container, "Stretch"), { key: "ArrowUp" });
+  // Snaps up to 10:00, not down into the past. Same position = no write.
+  expect(moves).toEqual([]);
+  fireEvent.keyDown(handle(container, "Stretch"), { key: "ArrowDown" });
+  expect(moves).toEqual([at(10, 5)]);
+  rerender(draw(at(17)));
+  fireEvent.keyDown(handle(container, "Stretch"), { key: "ArrowDown" });
+  expect(moves).toEqual([at(10, 5)]);
+});
+
 test("everything happening at once gets its own column, shortest first", () => {
   const { container } = render(
     <DayGrid

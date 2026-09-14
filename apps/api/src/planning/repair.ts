@@ -94,7 +94,12 @@ export function repair(input: RepairInput): Repair {
           activity: toSchedulerActivity(row),
           policy: {
             windows: [],
-            spread: input.slots.filter((slot) => slot.activityId === row.id && !["cancelled", "bucketed"].includes(slot.status)).length > 1,
+            spread:
+              input.slots.filter(
+                (slot) =>
+                  slot.activityId === row.id &&
+                  !["cancelled", "bucketed"].includes(slot.status),
+              ).length > 1,
           },
         },
       ]),
