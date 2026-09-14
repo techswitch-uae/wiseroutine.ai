@@ -44,8 +44,8 @@ approximation.
 
 [`apps/web`](apps/web/README.md) is the launch site for **wiseroutine.ai**.
 It reuses the app’s calendar components, fonts and scheduler, with a clearly
-labeled synthetic day. Primary CTAs lead to existing account signup; the demo
-is secondary. Installer availability stays in preview until reviewed platforms
+labeled synthetic day. The page leads with the sample and offers a quiet path
+to existing account signup. Installer availability stays in preview until reviewed platforms
 and download URLs are supplied.
 
 See [browser testing](docs/testing.md) for setup, coverage, isolated test ports,

@@ -17,8 +17,8 @@ button, a, summary { -webkit-tap-highlight-color: transparent; }
 .site-button { display: inline-flex; align-items: center; justify-content: center; gap: 24px; min-height: 52px; padding: 14px 24px; border: 1px solid transparent; border-radius: 100px; background: var(--color-text); color: #f9f4ed; font-weight: 650; font-size: 15px; text-decoration: none; box-shadow: var(--wr-lift-1); transition: background .15s, transform .15s; }
 .site-button:hover { background: var(--color-accent-800); transform: translateY(-1px); }
 .site-button.small { min-height: 44px; padding: 10px 20px; font-size: 13px; gap: 16px; }
-.site-button.light { background: #f6f1e8; color: var(--color-text); box-shadow: none; }
-.site-button.light:hover { background: #e9ddc8; }
+.site-button.subtle { background: transparent; color: var(--color-text); border-color: var(--site-rule); box-shadow: none; }
+.site-button.subtle:hover { background: var(--wr-recessed); transform: none; }
 .site-button span { font-size: 20px; line-height: 1; }
 .skip-link { position: absolute; top: -100px; left: 20px; z-index: 10; background: var(--color-text); color: white; padding: 12px 20px; border-radius: 8px; }
 .skip-link:focus { top: 12px; }
@@ -181,7 +181,6 @@ h1 span { color: var(--color-accent-700); }
   .demo-grid .wr-slot-meta { font-size: 9px; }
   .demo-feedback, .demo-controls { padding-inline: 16px; }
   .free-card { padding: 28px 23px; border-radius: 18px; }
-  .free-card .site-button { padding-inline: 16px; gap: 14px; font-size: 13px; }
   .free-inclusions ul { font-size: 13px; }
   .free-price { gap: 16px; }
   .site-footer > a:last-child { margin-left: 0; }

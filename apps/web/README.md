@@ -19,7 +19,8 @@ pnpm test:web-browser            # builds and boots its own production server
 - The approved free boundary: **3 active activities**, automatic placement and
   basic adaptation. No card, trial, checkout or speculative discount.
 - Read-only calendar and meeting-detail privacy explanations.
-- Primary **Create free account** CTAs, reusing the existing app signup.
+- A sample-first introduction, a quiet account link beside it, and one closing
+  signup invitation. No repeated “Start free” prompts.
 - Installer availability stays in preview until validated builds are supplied;
   that does not turn off account signup.
 
@@ -30,9 +31,14 @@ connects to a calendar, saves a routine or demonstrates provider sync speed.
 The initial plan and all copy render without JavaScript; controls enable only
 after hydration. No analytics, remote fonts or third-party embeds.
 
-## Account acquisition comes first
+## Demonstrate the value, then invite signup
 
-Every primary CTA uses `signupUrl` in **`src/content/release.json`**. The initial
+The hero leads with **Try a sample day**. “No signup needed” explicitly applies
+only to that sample, not to using the app. Keep the copy concise and neutral:
+show scheduling behavior, explain what’s included, and offer a clear next step.
+The inclusion section explains Free without adding another signup button.
+
+Account links use `signupUrl` in **`src/content/release.json`**. The initial
 value, `https://app.wiseroutine.ai/signin`, follows the production `APP_URL` in
 `apps/api/wrangler.jsonc`. **Confirm/deploy that host before publishing**; a
 configured origin is not evidence of a live signup deployment.
@@ -41,10 +47,11 @@ The existing `apps/desktop/src/routes/signin.tsx` handles both new accounts and
 returning users. It sends the emailed code through the existing Better Auth API,
 then verifies it to create/sign in to the same Free account. No second mailing
 list, duplicate account system, automatic trial or paid enrollment is added.
-The demo is secondary; it is not the acquisition outcome. Signup does not by
-itself establish consent to unrelated marketing emails or discount eligibility.
+The sample lets visitors evaluate the product before creating an account; it is
+not counted as account activation. Signup does not by itself establish consent
+to unrelated marketing emails or discount eligibility.
 
-The web E2E suite tests each CTA's navigation to that configured destination,
+The web E2E suite tests each account link's navigation to that destination,
 intercepting the destination **without pretending to complete registration**.
 Actual email delivery, verification and account creation still require the app's
 signup acceptance against the intended deployment.

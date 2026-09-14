@@ -18,13 +18,12 @@ try {
       body { overflow: hidden; }
       .page-width { width: 1112px; }
       .site-header { min-height: 90px; }
-      .site-header nav, .hero-actions, .calendar-note, .product-demo figcaption,
+      .site-header nav, .hero-actions, .hero-reassurance, .calendar-note, .product-demo figcaption,
       .how-section, .free-section, .faq-section, .download-section, .site-footer { display: none; }
       .hero { grid-template-columns: 500px 532px; gap: 80px; padding: 0; align-items: start; }
       .hero-copy { padding-top: 70px; }
       .hero-copy h1 { font-size: 57px; }
       .hero-description { font-size: 20px; max-width: 460px; }
-      .hero-reassurance { font-size: 14px; }
       .product-demo { width: 760px; transform: scale(.7); transform-origin: top left; }
     `,
   });

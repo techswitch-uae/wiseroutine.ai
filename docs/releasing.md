@@ -13,7 +13,8 @@ for setup, CI artifacts and coverage boundaries.
 
 `apps/web/src/content/release.json` contains the existing app's `signupUrl`;
 confirm its deployment/DNS and complete the emailed-code signup before publishing.
-All primary CTAs point there. Installer readiness separately defaults to
+Account links point there; the primary hero action opens the sample day.
+Installer readiness separately defaults to
 **preview**, with no downloads; this never disables account signup.
 Only set it live after platform/provider/installer acceptance, then list each
 validated platform, requirements and HTTPS installer URL. Regenerate the social

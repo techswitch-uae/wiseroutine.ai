@@ -38,9 +38,9 @@ export const Route = createFileRoute("/")({
 
 const questions = [
   {
-    question: "Is this a free trial?",
+    question: "Is it free?",
     answer:
-      "No. The free core includes 3 active activities, automatic placement and basic rearrangement. No credit card. No trial countdown. Optional paid features will come later; upgrading will be your choice.",
+      "Yes. Three active activities, automatic placement and basic rearrangement are included free, with no credit card or trial countdown. Optional paid features are planned for later; upgrading will be your choice.",
   },
   {
     question: "What counts as one activity?",
@@ -66,7 +66,7 @@ const questions = [
     question: "Where can I use it?",
     answer:
       release.status === "preview"
-        ? "Create your free account now. Wise Routine is preparing for its desktop launch with Google Calendar and Outlook; supported platforms and downloads will be listed here after validation. The sample above is a preview, not the full app."
+        ? "Wise Routine is preparing for its desktop launch with Google Calendar and Outlook. Supported platforms and downloads will be listed here after validation. You can explore the sample day in your browser; it isn’t the full app."
         : "Choose a validated desktop download below. Each lists its platform and requirements. The sample above is a browser preview, not the full app.",
   },
 ];
@@ -85,9 +85,8 @@ function LandingPage() {
         <nav aria-label="Main navigation">
           <a href="#how-it-works">How it works</a>
           <a href="#free">What’s free</a>
-          <a href={release.signupUrl}>Sign in</a>
-          <a className="site-button small" href={release.signupUrl}>
-            Start free <span aria-hidden="true">↗</span>
+          <a className="site-button small subtle" href={release.signupUrl}>
+            Sign in <span aria-hidden="true">↗</span>
           </a>
         </nav>
       </header>
@@ -109,15 +108,15 @@ function LandingPage() {
               them around your meetings—and adapts when plans change.
             </p>
             <div className="hero-actions">
-              <a className="site-button" href={release.signupUrl}>
-                Create free account <span aria-hidden="true">↗</span>
+              <a className="site-button" href="#demo">
+                Try a sample day <span aria-hidden="true">↗</span>
               </a>
-              <a className="text-link" href="#demo">
-                See how it works <span aria-hidden="true">↓</span>
+              <a className="text-link" href={release.signupUrl}>
+                Create an account
               </a>
             </div>
             <p className="hero-reassurance">
-              3 active activities. No credit card. Not a trial.
+              No signup needed for the sample day.
             </p>
             <div className="calendar-note">
               <span>Built around the calendar you have</span>
@@ -193,16 +192,16 @@ function LandingPage() {
         >
           <div className="free-card">
             <div className="free-intro">
-              <p className="eyebrow">A small routine. A real difference.</p>
+              <p className="eyebrow">Start with the essentials</p>
               <h2 id="free-heading">
                 The important part
                 <br />
                 is free.
               </h2>
-              <p>Not a trial. Not a manual-only version.</p>
-              <a className="site-button light" href={release.signupUrl}>
-                Create free account <span aria-hidden="true">↗</span>
-              </a>
+              <p>
+                A small routine, with placement and everyday adjustments
+                included.
+              </p>
             </div>
             <div className="free-inclusions">
               <div className="free-price">
@@ -227,8 +226,8 @@ function LandingPage() {
                 </li>
               </ul>
               <p>
-                Later: optional paid features for larger routines and more
-                control. No automatic paid enrollment.
+                Optional paid features for larger routines and more control will
+                come later.
               </p>
             </div>
           </div>
@@ -240,11 +239,11 @@ function LandingPage() {
           aria-labelledby="faq-heading"
         >
           <div className="section-heading">
-            <p className="eyebrow">A few good questions</p>
+            <p className="eyebrow">Before you begin</p>
             <h2 id="faq-heading">
-              No fine-print
+              A few things
               <br />
-              surprises.
+              to know.
             </h2>
           </div>
           <div className="faq-list">
@@ -271,11 +270,10 @@ function LandingPage() {
             Your routine deserves
             <br />a place in your day.
           </h2>
-          <p>Create your free account. Make room for what matters.</p>
+          <p>Start with one activity. See how it fits your day.</p>
           <a className="site-button" href={release.signupUrl}>
-            Create free account <span aria-hidden="true">↗</span>
+            Create an account <span aria-hidden="true">↗</span>
           </a>
-          <small>Free core now. Optional paid features later.</small>
           {release.status === "preview" ? (
             <p className="download-availability">
               Desktop downloads are getting ready. Validated platforms will be

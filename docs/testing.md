@@ -42,7 +42,7 @@ pnpm --filter @wiseroutine/desktop exec playwright test calendars.spec.ts
 
 | Layer | User-perspective coverage | Boundary |
 | --- | --- | --- |
-| Web, production build | Value/free/availability copy, all primary CTA handoffs to existing signup, download link configuration, meeting change → repair → unaffected walk, no-space work → recovery, FAQ, anchors, reload, 404 | Chromium, Firefox, WebKit, mobile Safari emulation; server-rendered HTML with JS off |
+| Web, production build | Value/free/availability copy, sample-first navigation, account-link handoffs to existing signup, download link configuration, meeting change → repair → unaffected walk, no-space work → recovery, FAQ, anchors, reload, 404 | Chromium, Firefox, WebKit, mobile Safari emulation; server-rendered HTML with JS off |
 | Web accessibility/layout | Real keyboard navigation and skip link, native FAQ controls, axe WCAG A/AA checks in demo states, reduced motion, widths 320/390/640/800/1280 | Screenshots saved for review; automated checks are not a substitute for screen-reader or real-device acceptance |
 | Web unit tests | Actual scheduler placement/repair, duration preservation, bounds/conflicts, no false confirmed placement, deterministic replay, fail-closed release configuration | No provider or app API mocks masquerading as integration coverage |
 | App full stack | First activity/setup, free limit and removal, edit persistence, daily availability, auto-placement and accepted-slot stability, drag/skip/undo, calendar selection, privacy opt-out, view/settings persistence | Real React app → Worker → migrated libSQL; sign-in and provider data are seeded |
@@ -68,7 +68,7 @@ Counts will change as coverage grows; the actual run/report is authoritative.
 - Web tests use semantic locators, web-first assertions and no arbitrary sleeps.
   Browser/console errors fail the interaction suite. Safari keyboard checks use
   the platform's link-navigation gesture. Buttons remain disabled until hydration.
-- Account CTA tests intercept the external signup destination to avoid touching
+- Account-link tests intercept the external signup destination to avoid touching
   production. They prove navigation, **not email delivery or account creation**.
   The existing app's emailed-code signup remains a live acceptance check.
 - Shared scheduler unit tests cover the algorithm more broadly. The landing

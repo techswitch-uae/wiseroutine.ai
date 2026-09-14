@@ -30,20 +30,31 @@ test.afterEach(async ({ page }) => {
   expect(browserErrors.get(page) ?? []).toEqual([]);
 });
 
-test("the promise, free boundary and honest availability are clear before signup", async ({
+test("the sample leads, signup stays available and free limits are clear", async ({
   page,
 }) => {
   await expect(page).toHaveTitle(/Wise Routine.*Make room for what matters/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(
     "Your day changes.Your routine comes with it.",
   );
+  const hero = page.locator(".hero");
   await expect(
-    page.getByText("3 active activities. No credit card. Not a trial."),
+    hero.getByRole("link", { name: "Try a sample day" }),
+  ).toHaveAttribute("href", "#demo");
+  await expect(
+    hero.getByText("No signup needed for the sample day."),
   ).toBeVisible();
-  await expect(page.getByText(/no signup needed/i)).toHaveCount(0);
   await expect(
-    page.locator(".hero").getByRole("link", { name: "Create free account" }),
+    hero.getByRole("link", { name: "Create an account" }),
   ).toHaveAttribute("href", release.signupUrl);
+  await expect(hero.locator(".site-button")).toHaveAttribute("href", "#demo");
+  await expect(page.locator("#free")).toContainText(
+    "3 active activities, with daily repeats",
+  );
+  await expect(page.locator("#free")).toContainText("No credit card required");
+  await expect(
+    page.locator(`#free a[href="${release.signupUrl}"]`),
+  ).toHaveCount(0);
   await page.getByRole("link", { name: "Desktop availability" }).click();
   await expect(page).toHaveURL(/#get-the-app$/);
   const downloads = page.locator("#get-the-app");
@@ -53,7 +64,7 @@ test("the promise, free boundary and honest availability are clear before signup
       "Desktop downloads are getting ready.",
     );
     await expect(
-      downloads.getByRole("link", { name: "Create free account" }),
+      downloads.getByRole("link", { name: "Create an account" }),
     ).toHaveAttribute("href", release.signupUrl);
     await expect(page.getByRole("link", { name: /^Download for/ })).toHaveCount(
       0,
@@ -74,7 +85,7 @@ test("the promise, free boundary and honest availability are clear before signup
   await expect(page.getByRole("textbox")).toHaveCount(0);
 });
 
-test("every primary CTA hands off to the existing account signup, even before downloads launch", async ({
+test("account links hand off to existing signup without making the sample require an account", async ({
   page,
 }) => {
   // Test the navigation boundary without contacting production or pretending
@@ -88,24 +99,16 @@ test("every primary CTA hands off to the existing account signup, even before do
     }),
   );
   for (const [section, label] of [
-    ["header", "Start free"],
-    [".hero", "Create free account"],
-    ["#free", "Create free account"],
-    ["#get-the-app", "Create free account"],
     ["header", "Sign in"],
+    [".hero", "Create an account"],
+    ["#get-the-app", "Create an account"],
   ] as const) {
     await page.goto("/");
     const link = page
       .locator(section)
-      .getByRole("link", {
-        name: label,
-        exact: true,
-        includeHidden: label === "Sign in",
-      });
+      .getByRole("link", { name: label, exact: true });
     await expect(link).toHaveAttribute("href", release.signupUrl);
-    // The narrow header intentionally hides secondary nav; signup is still
-    // visible there, and its destination is the same for returning accounts.
-    if (label === "Sign in" && !(await link.isVisible())) continue;
+    await expect(link).toBeVisible();
     await link.click();
     await expect(page).toHaveURL(release.signupUrl);
   }
@@ -176,7 +179,7 @@ test("FAQs disclose repeat limits, read-only calendars, and meeting privacy", as
       "Do I have to share meeting details?",
       "removes previously saved meeting details",
     ],
-    ["Is this a free trial?", "upgrading will be your choice"],
+    ["Is it free?", "upgrading will be your choice"],
   ] as const) {
     const summary = page.locator("summary", { hasText: question });
     await summary.click();
@@ -293,7 +296,7 @@ test("all on-page CTAs resolve and demo interaction sends no data away", async (
     );
   for (const id of targets)
     await expect(page.locator(`[id="${id}"]`)).toHaveCount(1);
-  await page.getByRole("link", { name: "See how it works" }).click();
+  await page.getByRole("link", { name: "Try a sample day" }).click();
   await expect(page).toHaveURL(/#demo$/);
   await page.getByRole("button", { name: "Extend team check-in" }).click();
   await expect(page.getByRole("status")).toContainText("Your walk stays");
