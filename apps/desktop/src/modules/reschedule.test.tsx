@@ -27,7 +27,7 @@ test("a stale reschedule dialog cannot postpone a now-started slot", () => {
     />,
   );
   expect(screen.queryByRole("button", { name: "Move slot" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "30 minutes later" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Back to inbox" })).toBeNull();
   expect(screen.getByText(/must be stopped first/)).toBeTruthy();
 });
 
@@ -51,7 +51,7 @@ test("changing the time after an unconfirmed reschedule keeps its idempotency ke
       onClose={close}
     />,
   );
-  await user.click(screen.getByRole("button", { name: "30 minutes later" }));
+  await user.click(screen.getByRole("button", { name: "Move slot" }));
   await screen.findByText("Response lost");
   await user.click(screen.getByRole("button", { name: "Tomorrow" }));
   await user.click(screen.getByRole("button", { name: "Move slot" }));
@@ -60,4 +60,25 @@ test("changing the time after an unconfirmed reschedule keeps its idempotency ke
   expect(move.mock.calls[0]?.[1]).not.toEqual(move.mock.calls[1]?.[1]);
   expect(move.mock.calls[0]?.[2]).toBe(move.mock.calls[1]?.[2]);
   expect(move.mock.calls[0]?.[3]).toBe(move.mock.calls[1]?.[3]);
+});
+
+test("the length steps by the activity rule, never past eight hours", async () => {
+  const user = userEvent.setup();
+  render(
+    <Reschedule
+      slot={{
+        id: "slot",
+        title: "Walk",
+        status: "planned",
+        startsAt: Date.now() + 3600000,
+        endsAt: Date.now() + 3600000 + 15 * 60000,
+      }}
+      timeZone="UTC"
+      onClose={() => undefined}
+    />,
+  );
+  expect(screen.getByText("15 min")).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "How long: more" }));
+  expect(screen.getByText("20 min")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "30 minutes later" })).toBeNull();
 });

@@ -52,7 +52,7 @@ function describe(capability: AddonCapability): string {
         ? "Read today's activity and task titles and times (not calendar-event details)"
         : `Read your schedule (${capability.scope})`;
     case "write:own":
-      return "Place blocks of its own on your day, and finish or skip them - never yours";
+      return "Place slots of its own on your day, and finish or skip them - never yours";
     case "ui:widget":
       return "Show a card in the rail";
     case "ui:session":
@@ -285,11 +285,11 @@ const count = (n: number, one: string, many: string): string =>
 function consequence(asking: Asking): string {
   const { activities, futureSlots } = asking.impact;
   if (activities.length === 0)
-    return `${count(futureSlots, "block", "blocks")} placed by this addon will come off your future schedule. Anything already started or done stays in your history.`;
+    return `${count(futureSlots, "slot", "slots")} placed by this addon will come off your future schedule. Anything already started or done stays in your history.`;
   const named = activities.map((activity) => activity.name).join(", ");
   const slots =
     futureSlots > 0
-      ? `, and ${count(futureSlots, "block", "blocks")} still ahead on your day will come off it`
+      ? `, and ${count(futureSlots, "slot", "slots")} still ahead on your day will come off it`
       : "";
 
   return `${named} ${activities.length === 1 ? "runs" : "run"} on this addon, so ${activities.length === 1 ? "it" : "they"} will be paused${slots}. Anything already done stays done.`;
@@ -338,7 +338,7 @@ const Addons: React.FC = () => {
       api.setAddonEnabled(row.id, false).then((result) => {
         if (result.cancelled > 0 || result.paused > 0) {
           notify(
-            `${row.name} is off. ${count(result.paused, "activity", "activities")} paused, ${count(result.cancelled, "block", "blocks")} taken off today.`,
+            `${row.name} is off. ${count(result.paused, "activity", "activities")} paused, ${count(result.cancelled, "slot", "slots")} taken off today.`,
           );
         }
       }),

@@ -144,7 +144,7 @@ export function SampleDay({ id }: { id: string }) {
             ) : null}
             {state === "changed" && moved ? (
               <p>
-                Team check-in now ends at 09:50. Only the affected block moves.
+                Team check-in now ends at 09:50. Only the affected slot moves.
               </p>
             ) : null}
             {day.repair.blocked.length > 0 ? (

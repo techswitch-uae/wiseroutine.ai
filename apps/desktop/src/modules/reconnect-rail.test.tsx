@@ -20,7 +20,7 @@ vi.mock("../lib/calendar-connect", () => ({
 // up just to prove what sits above them.
 vi.mock("./this-slot", () => ({ ThisSlot: () => <div>this slot</div> }));
 vi.mock("./setup-rail", () => ({ SetupRail: () => <div>setup</div> }));
-vi.mock("./to-place", () => ({ ToPlace: () => <div>to place</div> }));
+vi.mock("./not-placed", () => ({ NotPlaced: () => <div>not placed</div> }));
 vi.mock("./dashboard", () => ({ DashboardWidgets: () => <div>widgets</div> }));
 
 const connection = (status: string) => ({

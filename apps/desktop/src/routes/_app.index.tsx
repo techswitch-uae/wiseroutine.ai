@@ -614,7 +614,9 @@ const Today: React.FC = () => {
               />
             ),
           },
-          cursor: { key: PLACING_KEY, x: placing.x, y: placing.y },
+          cursor: placing.keyboard
+            ? null
+            : { key: PLACING_KEY, x: placing.x, y: placing.y },
         }
       : null;
 

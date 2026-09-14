@@ -144,7 +144,15 @@ export function plan(input: PlanInput): PlanResult {
       !Number.isFinite(demand.activity.bufferBeforeMeetingMinutes) ||
       demand.activity.bufferBeforeMeetingMinutes < 0 ||
       demand.preferredAt.length > 48 ||
-      demand.preferredAt.some((at) => !Number.isFinite(at))
+      demand.preferredAt.some((at) => !Number.isFinite(at)) ||
+      (demand.occurrences?.length ?? 0) > demand.sessionsNeeded ||
+      demand.occurrences?.some(
+        (slot) =>
+          !slot.id ||
+          !Number.isFinite(slot.minutes) ||
+          slot.minutes < 1 ||
+          slot.minutes > 1440,
+      )
     ) {
       throw new RangeError("Invalid or excessive placement demand");
     }
@@ -181,7 +189,11 @@ export function plan(input: PlanInput): PlanResult {
 
   for (const demand of orderDemands(input.demands, initialGaps)) {
     const { activity } = demand;
-    const duration = activity.sessionMinutes * MINUTE;
+    const duration =
+      Math.max(
+        activity.sessionMinutes,
+        ...(demand.occurrences ?? []).map((slot) => slot.minutes),
+      ) * MINUTE;
     const bufferMs = activity.bufferBeforeMeetingMinutes * MINUTE;
     const siblings = placed.filter((slot) => slot.activityId === activity.id);
     const count = siblings.length + demand.sessionsNeeded;
@@ -226,6 +238,10 @@ export function plan(input: PlanInput): PlanResult {
     }
 
     for (let session = 0; session < demand.sessionsNeeded; session++) {
+      if (--budget < 0) throw new RangeError("Plan exceeds work bounds");
+      const occurrence = demand.occurrences?.[session];
+      const duration =
+        (occurrence?.minutes ?? activity.sessionMinutes) * MINUTE;
       let best: Placement | undefined;
 
       const preferred =
@@ -271,15 +287,20 @@ export function plan(input: PlanInput): PlanResult {
             : "no_gap";
         const existing = shortfall.get(activity.id);
         shortfall.set(activity.id, {
-          sessions:
-            (existing?.sessions ?? 0) + (demand.sessionsNeeded - session),
+          sessions: (existing?.sessions ?? 0) + 1,
           reason: existing?.reason ?? reason,
         });
-        break;
+        // A longer saved occurrence may fail while the next, shorter one fits.
+        continue;
       }
 
       const end = best.start + duration;
-      const slot = { activityId: activity.id, start: best.start, end };
+      const slot = {
+        activityId: activity.id,
+        start: best.start,
+        end,
+        ...(occurrence ? { id: occurrence.id } : {}),
+      };
       placed.push(slot);
       siblings.push(slot);
 

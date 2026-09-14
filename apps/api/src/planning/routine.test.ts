@@ -1,6 +1,7 @@
 import { exports as worker } from "cloudflare:workers";
 import { beforeEach, expect, test } from "vitest";
 import {
+  directory,
   resetDatabases,
   seedActivity,
   seedCalendar,
@@ -118,6 +119,103 @@ test("initial shortfalls persist once, do not double-count demand, and can be ma
     await request(user, `/today?at=${start}`)
   ).json()) as { progress: { scheduled: number }[] };
   expect(afterDrop.progress[0]?.scheduled).toBe(3);
+});
+
+test("Place them for me restores saved slots once and leaves accepted placements alone", async () => {
+  const user = await seedUser({ timeZone: "UTC" });
+  await seedActivity({ minimumValue: 3 });
+  await solve(start + 9 * 60 * M); // no room: three saved occurrences
+  const db = userDb();
+  const before = await db.slot.findMany({ orderBy: { id: "asc" } });
+  const response = await request(user, "/plan", { at: start });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    placed: 3,
+    removed: 0,
+    unplaced: [],
+  });
+  const placed = await db.slot.findMany({ orderBy: { id: "asc" } });
+  expect(placed.map((slot) => slot.id)).toEqual(before.map((slot) => slot.id));
+  expect(placed.every((slot) => slot.status === "planned")).toBe(true);
+  expect(
+    await (await request(user, "/plan", { at: start })).json(),
+  ).toMatchObject({ placed: 0, removed: 0, unplaced: [] });
+  expect(await db.slot.findMany({ orderBy: { id: "asc" } })).toEqual(placed);
+});
+
+test("retrying preserves different saved durations and can fit a shorter slot after a longer one fails", async () => {
+  const user = await seedUser({ timeZone: "UTC" });
+  await directory().user.update({
+    where: { id: user.userId },
+    data: { dayStartMinutes: 540, dayEndMinutes: 1020 },
+  });
+  const id = await seedActivity({ minimumValue: 2, sessionMinutes: 10 });
+  const db = userDb();
+  for (const [slotId, minutes] of [
+    ["long", 30],
+    ["short", 10],
+  ] as const)
+    await db.slot.create({
+      data: {
+        id: slotId,
+        activityId: id,
+        title: "Stretch",
+        kind: "recovery",
+        status: "bucketed",
+        startsAt: new Date(start),
+        endsAt: new Date(start + minutes * M),
+        timeZone: "UTC",
+        createdAt: new Date(),
+      },
+    });
+  const { calendarId } = await seedCalendar();
+  await db.externalEvent.create({
+    data: {
+      id: "busy",
+      calendarId,
+      providerEventId: "busy",
+      startsAt: new Date(start + 20 * M),
+      endsAt: new Date(start + 8 * 60 * M),
+      updatedAt: new Date(),
+    },
+  });
+  const run = await (await request(user, "/plan", { at: start })).json();
+  expect(run).toMatchObject({ placed: 1, unplaced: [{ sessions: 1 }] });
+  expect(await db.slot.findUnique({ where: { id: "long" } })).toMatchObject({
+    status: "bucketed",
+    startsAt: new Date(start),
+    endsAt: new Date(start + 30 * M),
+  });
+  const short = await db.slot.findUnique({ where: { id: "short" } });
+  expect(short?.status).toBe("planned");
+  expect(Number(short?.endsAt) - Number(short?.startsAt)).toBe(10 * M);
+  await request(user, "/plan", { at: start });
+  expect(await db.slot.count()).toBe(2);
+  expect(await db.slot.count({ where: { status: "bucketed" } })).toBe(1);
+});
+
+test("an unplaced one-off slot can also be placed automatically without a new identity", async () => {
+  const user = await seedUser({ timeZone: "UTC" });
+  await userDb().slot.create({
+    data: {
+      id: "one-off",
+      activityId: null,
+      title: "Read notes",
+      kind: "task",
+      status: "bucketed",
+      startsAt: new Date(start),
+      endsAt: new Date(start + 15 * M),
+      timeZone: "UTC",
+      createdAt: new Date(),
+    },
+  });
+  expect(
+    await (await request(user, "/plan", { at: start })).json(),
+  ).toMatchObject({ placed: 1, unplaced: [] });
+  expect(
+    await userDb().slot.findUnique({ where: { id: "one-off" } }),
+  ).toMatchObject({ status: "planned", title: "Read notes", activityId: null });
+  expect(await userDb().slot.count()).toBe(1);
 });
 
 test("late and after-hours planning accounts for every occurrence without placing anything in the past", async () => {

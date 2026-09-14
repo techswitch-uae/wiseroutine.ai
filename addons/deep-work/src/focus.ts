@@ -103,7 +103,7 @@ export function markup(
 ): string {
   const player = music
     ? `<div class="music">
-  <iframe title="Music for this block" src="${music.embed}" width="100%" height="152"
+  <iframe title="Music for this slot" src="${music.embed}" width="100%" height="152"
     allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
     loading="lazy"></iframe>
   <button type="button" class="out">Open in Spotify for the full tracks</button>

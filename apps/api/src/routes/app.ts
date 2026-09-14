@@ -1854,7 +1854,15 @@ app.post("/plan", async (c) => {
     return c.json({ planRunId: null, placed: 0, removed: 0, unplaced: [] });
   }
 
-  const result = await planAndSchedule(c, { user, onDay, trigger, from: now });
+  const result = await planAndSchedule(c, {
+    user,
+    onDay,
+    trigger,
+    from: now,
+    // Filling what is not placed must never rearrange accepted placements.
+    preservePlanned: trigger === "user_request",
+    retryUnplaced: trigger === "user_request",
+  });
 
   return c.json({
     planRunId: result.planRunId,

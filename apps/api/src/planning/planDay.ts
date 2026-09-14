@@ -2,8 +2,10 @@ import {
   createPlanRun,
   isTransaction,
   listActivities,
+  listBucket,
   listEventsInRange,
   listSlotsForRange,
+  moveSlot,
   progressForRange,
   replacePlannedSlots,
   toSchedulerActivity,
@@ -74,6 +76,8 @@ export async function planDay(
     from?: number;
     /** Adding a new activity must not reshuffle accepted placements. */
     preservePlanned?: boolean;
+    /** Explicit "Place them for me": retry saved occurrences, never recreate them. */
+    retryUnplaced?: boolean;
   },
   now: number,
   newId: () => string,
@@ -91,12 +95,14 @@ export async function planDay(
   );
   const dayStart = Math.max(bounds.start, params.from ?? bounds.start);
 
-  const [events, activities, slots, dismissed] = await Promise.all([
-    listEventsInRange(db, bounds.start, bounds.end),
-    listActivities(db),
-    listSlotsForRange(db, bounds.start, bounds.end),
-    userDismissedSlots(db, bounds.start, bounds.end),
-  ]);
+  const [events, activities, slots, dismissed, unplacedSlots] =
+    await Promise.all([
+      listEventsInRange(db, bounds.start, bounds.end),
+      listActivities(db),
+      listSlotsForRange(db, bounds.start, bounds.end),
+      userDismissedSlots(db, bounds.start, bounds.end),
+      params.retryUnplaced ? listBucket(db) : Promise.resolve([]),
+    ]);
   const dismissedIds = new Set(dismissed.map((slot) => slot.id));
 
   const busy = toBusyBlocks(events);
@@ -158,7 +164,10 @@ export async function planDay(
     const today = todayProgress.get(row.id) ?? { count: 0, minutes: 0 };
     const week = weekProgress.get(row.id) ?? { count: 0, minutes: 0 };
 
-    const sessionsNeeded =
+    const occurrences = unplacedSlots.filter(
+      (slot) => slot.activityId === row.id,
+    );
+    const freshNeeded =
       sessionsNeededToday(
         activity,
         {
@@ -168,14 +177,41 @@ export async function planDay(
         },
         weekday,
       ) - (keptToday.get(row.id) ?? 0);
+    if (!activity.isActive) continue;
+    const sessionsNeeded = Math.max(0, freshNeeded) + occurrences.length;
     if (sessionsNeeded <= 0) continue;
 
     demands.push({
       activity,
       sessionsNeeded,
+      occurrences: occurrences.map((slot) => ({
+        id: slot.id,
+        minutes: (slot.endsAt - slot.startsAt) / 60_000,
+      })),
       preferredAt: anchorMinutes.map((minutes) =>
         preferredInstant(date, zone, minutes),
       ),
+    });
+  }
+
+  // One-off slots have no activity definition but are still placeable.
+  for (const slot of unplacedSlots.filter((slot) => !slot.activityId)) {
+    const minutes = (slot.endsAt - slot.startsAt) / 60_000;
+    demands.push({
+      activity: {
+        id: slot.id,
+        name: slot.title,
+        kind: slot.kind as "focus" | "recovery" | "task",
+        isActive: true,
+        minimum: { type: "countPerDay", value: 1 },
+        sessionMinutes: minutes,
+        importance: "normal",
+        bufferBeforeMeetingMinutes: 0,
+        daysOfWeek: 127,
+      },
+      sessionsNeeded: 1,
+      preferredAt: [],
+      occurrences: [{ id: slot.id, minutes }],
     });
   }
 
@@ -193,6 +229,7 @@ export async function planDay(
     // Locked slots came in as input and already exist; only persist new ones.
     .filter(
       (slot) =>
+        !slot.id &&
         !locked.some((l) => l.start === slot.start && l.end === slot.end),
     )
     .map((slot) => {
@@ -221,7 +258,8 @@ export async function planDay(
         dayEnd: bounds.end,
         locked,
       }),
-      placedCount: planned.length,
+      placedCount:
+        planned.length + result.placed.filter((slot) => slot.id).length,
       unplacedCount: result.unplaced.reduce(
         (sum, item) => sum + item.sessions,
         0,
@@ -247,12 +285,34 @@ export async function planDay(
     newId,
   );
 
+  const restored = result.placed.filter((slot) => slot.id);
+  for (const slot of restored) {
+    if (!slot.id) continue;
+    await moveSlot(
+      db,
+      {
+        slotId: slot.id,
+        startsAt: slot.start,
+        endsAt: slot.end,
+        actor: "system",
+        reasonCode: "placed_from_unplaced",
+      },
+      now,
+      newId,
+    );
+  }
+  const restoredIds = new Set(restored.map((slot) => slot.id));
+
   // A shortfall is a real, recoverable occurrence, not just a number on a
   // plan run. Bucket rows consume demand on later plans but never hold time.
   for (const missing of result.unplaced) {
     const activity = activityById.get(missing.activityId);
     if (!activity) continue;
-    for (let i = 0; i < missing.sessions; i++) {
+    const alreadySaved = unplacedSlots.filter(
+      (slot) =>
+        slot.activityId === missing.activityId && !restoredIds.has(slot.id),
+    ).length;
+    for (let i = 0; i < missing.sessions - alreadySaved; i++) {
       await db.slot.create({
         data: {
           id: newId(),
@@ -282,7 +342,12 @@ export async function planDay(
     }
   }
 
-  return { ...result, planRunId, ...written };
+  return {
+    ...result,
+    planRunId,
+    ...written,
+    created: written.created + restored.length,
+  };
 }
 
 /**

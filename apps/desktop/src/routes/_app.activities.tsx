@@ -334,7 +334,7 @@ const Activities: React.FC = () => {
     // groups answer the question somebody actually has in front of this list:
     // does picking this bring something with it, or does it just put the time
     // aside.
-    if (!addonId) return { group: "Just a block of time" };
+    if (!addonId) return { group: "A simple slot" };
 
     const installed = addons.has(addonId);
     return {

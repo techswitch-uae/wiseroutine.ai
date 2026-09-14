@@ -31,6 +31,7 @@ import {
 } from "./components";
 import { SettingsGlyph } from "./icons";
 import { AppFrame, AuthFrame, PageHead, Sidebar, UserMenu } from "./layout";
+import { stepMinutes } from "./time";
 
 /**
  * The collection: whole screens, composed only from the kit.
@@ -842,7 +843,7 @@ export const TodayScreen: React.FC<{
         <Widget variant="attention" eyebrow="Up next · 11:00">
           <div className="wr-display-21">Back &amp; shoulder stretch</div>
           <div className="wr-slot-meta" style={{ marginTop: 5 }}>
-            10 min, guided. Ends before your 11:25 focus block.
+            10 min, guided. Ends before your 11:25 focus slot.
           </div>
           <Button variant="primary" block style={{ marginTop: 14 }}>
             Start now
@@ -1296,13 +1297,6 @@ export const ActivityForm: React.FC<{
       {children}
     </div>
   );
-};
-
-/** One minute at a time under five, then five - so "1 min" is reachable and
- *  an hour is not forty presses away. */
-const stepMinutes = (value: number, direction: -1 | 1): number => {
-  const step = value < 5 || (direction === -1 && value <= 5) ? 1 : 5;
-  return Math.min(120, Math.max(1, value + step * direction));
 };
 
 /**

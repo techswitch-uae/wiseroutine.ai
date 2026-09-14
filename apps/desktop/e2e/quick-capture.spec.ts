@@ -213,7 +213,15 @@ test("Quick Add plans a calendar slot and its card can postpone it without losin
     .first()
     .click();
   const move = page.getByRole("dialog", { name: /Postpone/ });
-  await move.getByRole("button", { name: "30 minutes later" }).click();
+  // Half an hour on, typed into the time pill: the runner's clock is the
+  // seeded user's zone - see e2e/environment.ts.
+  const later = new Date(todo.startsAt + 1800000);
+  await move
+    .getByLabel("Time")
+    .fill(
+      `${String(later.getHours()).padStart(2, "0")}:${String(later.getMinutes()).padStart(2, "0")}`,
+    );
+  await move.getByRole("button", { name: "Move slot" }).click();
   await expect(move).toBeHidden();
   const detail = await (
     await page.request.get(`${API_URL}/todos/${todo.id}/details`, { headers })

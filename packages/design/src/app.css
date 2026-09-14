@@ -792,6 +792,9 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
   padding: 11px 15px; display: flex; align-items: center; gap: 11px;
 }
 .wr-grip { font: 400 12px var(--font-body); color: var(--wr-text-soft); letter-spacing: 2px; }
+.wr-placement-grip { border: 0; background: transparent; padding: 8px 4px; cursor: grab; touch-action: none; }
+.wr-placement-grip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 4px; }
+.wr-placement-grip:disabled { cursor: default; opacity: .5; }
 
 .wr-stepper-row { display: flex; align-items: center; gap: 8px; }
 .wr-stepper {

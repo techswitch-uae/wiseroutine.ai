@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAccount } from "../lib/account";
 import { api, type InboxItem } from "../lib/api";
 import { useFeatures } from "../lib/features";
-import { Bucket } from "../modules/dashboard";
 import { FeaturePage } from "../modules/feature-page";
+import { NotPlaced } from "../modules/not-placed";
 import { TodoDetails } from "../modules/todo-details";
 import "../modules/capture.css";
 
@@ -155,7 +155,7 @@ function Inbox() {
           Load more
         </button>
       ) : null}
-      {!done ? <Bucket standalone query={query} /> : null}
+      {!done ? <NotPlaced standalone query={query} /> : null}
       {selected && account?.timeZone ? (
         <TodoDetails
           key={selected}

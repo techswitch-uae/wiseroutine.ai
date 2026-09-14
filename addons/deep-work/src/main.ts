@@ -59,5 +59,5 @@ async function main(): Promise<void> {
 
 void main().catch((error: unknown) => {
   document.body.textContent =
-    error instanceof Error ? error.message : "The block could not start.";
+    error instanceof Error ? error.message : "The slot could not start.";
 });

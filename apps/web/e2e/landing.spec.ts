@@ -135,7 +135,7 @@ test("meeting change → automatic repair → unaffected walk stays put → repl
     "Your walk stays at 10:15.",
   );
   await expect(page.getByRole("status")).toContainText(
-    "Only the affected block moves.",
+    "Only the affected slot moves.",
   );
   await page.getByRole("button", { name: "Restore sample day" }).click();
   await expect(focus).toHaveAttribute("aria-label", "Deep work, 09:30–10:15");

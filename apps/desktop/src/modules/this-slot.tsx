@@ -109,7 +109,7 @@ const Meeting: React.FC<{
   const when = `${clock(meeting.startsAt, timeZone)}–${clock(meeting.endsAt, timeZone)}`;
 
   return (
-    <Widget eyebrow="This block" leaving={leaving} onClose={onClose}>
+    <Widget eyebrow="Meeting" leaving={leaving} onClose={onClose}>
       <h3 className="wr-widget-title">{meeting.title ?? "Busy"}</h3>
       <div className="wr-widget-time">
         {clock(meeting.startsAt, timeZone)}–{clock(meeting.endsAt, timeZone)}
@@ -323,7 +323,7 @@ export const ThisSlot: React.FC = () => {
   };
 
   return (
-    <Widget eyebrow="This block" leaving={leaving} onClose={close}>
+    <Widget eyebrow="This slot" leaving={leaving} onClose={close}>
       <div className="wr-widget-title-row">
         <h3 className="wr-widget-title">{slot.title}</h3>
         {slot.status === "completed" || state.running ? (

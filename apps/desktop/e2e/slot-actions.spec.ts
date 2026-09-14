@@ -23,7 +23,7 @@ async function prepare(page: Page, user: SeededUser, minutes: number) {
     .first()
     .click();
   const card = page.locator(".wr-widget", {
-    has: page.getByText("This block", { exact: true }),
+    has: page.getByText("This slot", { exact: true }),
   });
   await expect(card.getByRole("button", { name: /Postpone/ })).toBeVisible();
   return { card, headers };
@@ -219,7 +219,7 @@ test("a core slot must be stopped early before it can be postponed, keeping its 
   await expect(card.getByRole("button", { name: /Postpone/ })).toBeVisible();
   await card.getByRole("button", { name: /Postpone/ }).click();
   const dialog = page.getByRole("dialog", { name: /Postpone/ });
-  await dialog.getByRole("button", { name: "30 minutes later" }).click();
+  await dialog.getByRole("button", { name: "Move slot" }).click();
   await expect(dialog).toBeHidden();
   const after = await (
     await page.request.get(`${API_URL}/today?range=full`, { headers })

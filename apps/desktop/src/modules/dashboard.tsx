@@ -9,19 +9,14 @@ import {
 import { releasedWidgets } from "@wiseroutine/plans/features";
 import { useEffect, useState } from "react";
 import { AddonWidgets } from "../addons/widget";
-import { useAccount } from "../lib/account";
 import { upNextOf } from "../lib/alerts";
 import {
   type ActivityProgress,
   api,
-  type BucketItem,
   type MissedItem,
   type TodaySlot,
 } from "../lib/api";
-import { refreshCaptured } from "../lib/capture";
 import { useFeatures } from "../lib/features";
-import { notify } from "../lib/notify";
-import { setPlacing } from "../lib/placing";
 import { startSlot, usePlan } from "../lib/plan-store";
 import { Reschedule } from "./reschedule";
 
@@ -210,227 +205,6 @@ function reasonOf(item: MissedItem): string {
   return "No gap it would fit in";
 }
 
-/**
- * What a moved meeting left with nowhere to go.
- *
- * Two kinds of row, and the difference is the whole card. One carries the
- * position `rearrange` would have used but would not apply on its own -
- * because it leaves the activity's window, or moves far enough to be a
- * different plan rather than a nudge - and that row is a question with its
- * answer already in it: one press and it lands there. The other had no
- * position at all, so the only honest offer is to drop it; putting it back
- * needs a time, and the timeline is where a time is chosen.
- *
- * Never a count of what "failed". A session here is one the day genuinely has
- * no room for, and the app saying so is the alternative to it quietly sitting
- * underneath a meeting.
- *
- * Not in `plan.widgets`, on purpose. That list is the four keys the server
- * grants by plan and the user may reorder - and this is not a card anyone
- * chooses to see. A session that has lost its place must be said out loud or
- * it has been lost, so it is appended like an addon's card and draws nothing
- * on a day with an empty bucket, which is most days.
- */
-export const Bucket: React.FC<{ standalone?: boolean; query?: string }> = ({
-  standalone = false,
-  query = "",
-}) => {
-  const plan = usePlan();
-  const account = useAccount();
-  const [moving, setMoving] = useState<TodaySlot | null>(null);
-  const [items, setItems] = useState<BucketItem[] | null>(null);
-  const [error, setError] = useState(false);
-  useEffect(() => {
-    if (!plan && !standalone) return;
-    let active = true;
-    let sequence = 0;
-    const refresh = () => {
-      const order = ++sequence;
-      void api
-        .bucket()
-        .then((rows) => {
-          if (active && order === sequence) {
-            setItems(standalone ? rows.filter((row) => !row.reminderId) : rows);
-            setError(false);
-          }
-        })
-        .catch(() => {
-          if (active && order === sequence) setError(true);
-        });
-    };
-    refresh();
-    globalThis.addEventListener("wr:inbox-changed", refresh);
-    return () => {
-      active = false;
-      globalThis.removeEventListener("wr:inbox-changed", refresh);
-    };
-  }, [plan, standalone]);
-
-  if (error)
-    return (
-      <p role="alert">
-        Couldn't refresh unscheduled slots. Reopen this page to retry.
-      </p>
-    );
-  const visible = items?.filter((item) =>
-    item.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
-  );
-  if (!visible?.length) return null;
-  /**
-   * One row per activity, however many of its sessions are here.
-   *
-   * Three "Evening stretch" rows say the same thing three times and take the
-   * rail to do it. One row with a count says it once; dragging it onto the
-   * day takes one session out, the row stays until the last is gone, and the
-   * buttons act on one at a time the same way.
-   */
-  const groups: { key: string; item: BucketItem; more: number }[] = [];
-  for (const item of visible) {
-    const key = item.activityId ?? item.id;
-    const found = groups.find((group) => group.key === key);
-    if (found) found.more += 1;
-    else groups.push({ key, item, more: 0 });
-  }
-  const clock = new Intl.DateTimeFormat(undefined, {
-    timeZone: account?.timeZone ?? plan?.timeZone,
-    hour: "numeric",
-    minute: "2-digit",
-  }).format;
-  const stamp = new Intl.DateTimeFormat(undefined, {
-    timeZone: account?.timeZone ?? plan?.timeZone,
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format;
-
-  // The day is re-read either way: the server decides whether that stretch is
-  // still free, and its answer is the plan - not ours.
-  const act = (run: Promise<unknown>, failed: string): void => {
-    run.catch(() => notify(failed)).finally(() => refreshCaptured());
-  };
-
-  return (
-    <Widget eyebrow="Unscheduled slots" count={visible.length}>
-      {moving && (account?.timeZone ?? plan?.timeZone) ? (
-        <Reschedule
-          slot={moving}
-          timeZone={account?.timeZone ?? plan?.timeZone ?? "UTC"}
-          onClose={() => setMoving(null)}
-        />
-      ) : null}
-      {groups.map(({ key, item, more }) => (
-        <div key={key} style={{ marginTop: 8 }}>
-          <StateRow
-            recessed
-            name={item.title}
-            meta={`${item.initiallyUnplaced ? "Not placed" : `was ${stamp(item.wasAt)}`} · ${bucketReason(item)}`}
-            leading={
-              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {standalone ? null : (
-                  // The same grip as "To place": the one place a row is
-                  // picked up rather than pressed. Not on the inbox page,
-                  // where there is no day to drop it on.
-                  <span
-                    className="wr-grip"
-                    style={{ cursor: "grab", touchAction: "none" }}
-                    onPointerDown={(event) => {
-                      if (event.button !== 0) return;
-                      event.preventDefault();
-                      setPlacing({
-                        activityId: item.activityId ?? "",
-                        slotId: item.id,
-                        name: item.title,
-                        kind: item.kind,
-                        minutes: Math.round(
-                          (item.endsAt - item.startsAt) / 60_000,
-                        ),
-                        startsAt: null,
-                        x: event.clientX,
-                        y: event.clientY,
-                      });
-                    }}
-                  >
-                    ⋮⋮
-                  </span>
-                )}
-                <Chip variant="static">
-                  {item.initiallyUnplaced
-                    ? `${Math.round((item.endsAt - item.startsAt) / 60_000)} min`
-                    : clock(item.wasAt)}
-                </Chip>
-              </span>
-            }
-            trailing={
-              more > 0 ? <Chip variant="static">{more + 1}</Chip> : null
-            }
-            actions={
-              <>
-                {item.suggested ? (
-                  <Button
-                    variant="primary"
-                    onClick={() =>
-                      item.suggested &&
-                      act(
-                        api.moveSlot(
-                          item.id,
-                          item.suggested.startsAt,
-                          item.suggested.endsAt,
-                        ),
-                        `Couldn't move ${item.title} there.`,
-                      )
-                    }
-                  >
-                    {clock(item.suggested.startsAt)}
-                  </Button>
-                ) : null}
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    void api
-                      .slotDetails(item.id)
-                      .then(setMoving)
-                      .catch(() => notify("Couldn't read this slot."));
-                  }}
-                >
-                  Choose time
-                </Button>
-                <Button
-                  variant="quiet"
-                  onClick={() =>
-                    act(api.cancelSlot(item.id), `Couldn't drop ${item.title}.`)
-                  }
-                >
-                  Drop
-                </Button>
-              </>
-            }
-          />
-        </div>
-      ))}
-    </Widget>
-  );
-};
-
-/** Why it is here, in one phrase. The codes are the engine's own; an
- *  unrecognised one still reads as a sentence rather than as a token. */
-function bucketReason(item: BucketItem): string {
-  if (item.suggested) return "only fits here";
-  switch (item.reasonCode) {
-    case "saved_for_later":
-      return "saved for later";
-    case "no_gap":
-      return "no gap it would fit in";
-    case "buffer_blocked":
-      return "needs room before a meeting";
-    case "spacing_blocked":
-    case "too_close":
-      return "too close to another one";
-    case "day_over":
-      return "the day was over";
-    default:
-      return "no room left";
-  }
-}
-
 /** 3a: progress against your minimums. Never a streak, never a goal. */
 const TodaySoFar: React.FC = () => {
   const plan = usePlan();
@@ -494,10 +268,6 @@ export const DashboardWidgets: React.FC = () => {
 
           See the note on `AddonWidgets` for why they are appended rather than
           ordered with the rest. */}
-      {/* Before the addons and outside `plan.widgets` - see the note on
-          `Bucket`. A session with nowhere to go outranks anything optional in
-          the rail, and nothing chooses whether to see it. */}
-      <Bucket />
       <AddonWidgets />
     </>
   );

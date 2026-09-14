@@ -23,6 +23,8 @@ export interface Placement {
   /** Set when what is being dragged already exists as a slot - one out of
    *  Unscheduled slots - so the drop moves it rather than making another. */
   slotId?: string;
+  /** Keyboard pickup draws a timeline preview without a floating cursor. */
+  keyboard?: boolean;
   name: string;
   kind: "recovery" | "focus" | "task";
   minutes: number;

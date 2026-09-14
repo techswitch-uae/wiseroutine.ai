@@ -147,7 +147,7 @@ test("dragging stopped work makes a new appointment without rewriting its histor
   });
 });
 
-test("a full day puts every shortfall in the bucket once, with a working manual recovery action", async ({
+test("Not placed combines shortfalls, retries without duplicates, and supports manual then automatic placement", async ({
   page,
   signIn,
 }) => {
@@ -170,37 +170,118 @@ test("a full day puts every shortfall in the bucket once, with a working manual 
   await expect(
     page.locator(".wr-daygrid-item", { hasText: "Stretch" }),
   ).toHaveCount(0);
-  const bucket = page.locator(".wr-widget", { hasText: "Unscheduled slots" });
-  const count = bucket.locator(".wr-widget-head .wr-chip");
+  const widget = page.locator(".wr-widget", { hasText: "Not placed" });
+  const count = widget.locator(".wr-widget-head .wr-chip");
+  await expect(widget).toHaveCount(1);
   await expect(count).toHaveText("3");
-  await expect(bucket.getByText(/Not placed · no gap/).first()).toBeVisible();
+  await expect(widget.getByText("10 min · 3 slots")).toBeVisible();
   await expect(page.getByText("To place", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByText("Unscheduled slots", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    widget.getByRole("button", { name: /Drop|Choose time/ }),
+  ).toHaveCount(0);
+  const headers = {
+    authorization: `Bearer ${user.token}`,
+    "content-type": "application/json",
+  };
+  const savedIds = async () =>
+    (
+      (await (await fetch(`${API_URL}/bucket`, { headers })).json()) as {
+        id: string;
+      }[]
+    )
+      .map((slot) => slot.id)
+      .sort();
+  const ids = await savedIds();
+  const blocked = page.waitForResponse(
+    (r) => r.url().endsWith("/plan") && r.request().method() === "POST",
+  );
+  await widget.getByRole("button", { name: "Place them for me" }).click();
+  expect((await blocked).status()).toBe(200);
+  await expect(
+    page.getByText(
+      "No space on this day. Your slots are still in Not placed.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(count).toHaveText("3");
+  expect(await savedIds()).toEqual(ids);
   await page.reload();
   await dayShown(page);
   await expect(count).toHaveText("3");
-  await page
-    .getByRole("button", { name: "Choose time", exact: true })
-    .first()
-    .click();
-  const form = page.getByRole("dialog");
-  await expect(form).toBeVisible();
-  // An elapsed time is rejected before a mutation, even though the bucket is movable.
-  await form.getByLabel("Time", { exact: true }).fill("08:00");
-  await form.getByRole("button", { name: "Move slot" }).click();
-  await expect(form.getByRole("alert")).toBeVisible();
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const date = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
-  await form.getByLabel("Day", { exact: true }).fill(date);
-  await form.getByLabel("Time", { exact: true }).fill("10:00");
-  const save = page.waitForResponse(
-    (r) => r.url().endsWith("/reschedule") && r.request().method() === "POST",
-  );
-  await form.getByRole("button", { name: "Move slot" }).click();
-  expect((await save).status()).toBe(200);
-  await expect(form).toBeHidden();
-  await expect(count).toHaveText("2");
+
+  // Free the calendar without asking the app to place anything yet.
+  const calendars = (await (
+    await fetch(`${API_URL}/calendars`, { headers })
+  ).json()) as { calendars: { id: string }[] };
+  const calendar = calendars.calendars[0];
+  if (!calendar) throw new Error("Missing seeded calendar");
+  expect(
+    (
+      await fetch(`${API_URL}/calendars/${calendar.id}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ isSelected: false }),
+      })
+    ).ok,
+  ).toBe(true);
   await page.reload();
   await dayShown(page);
+  await expect(count).toHaveText("3");
+  const grip = widget.getByRole("button", { name: /^Place Stretch\./ });
+  await expect(grip).toBeEnabled();
+  await grip.focus();
+  await page.keyboard.press("Enter");
+  await expect(widget.getByRole("status")).toContainText("Stretch at");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Escape");
+  await expect(widget.getByRole("status")).toHaveCount(0);
+  await expect(count).toHaveText("3");
+  await grip.scrollIntoViewIfNeeded();
+  const source = await grip.boundingBox();
+  const grid = await page.locator(".wr-daygrid").boundingBox();
+  if (!source || !grid) throw new Error("Missing placement controls");
+  const moved = page.waitForResponse(
+    (r) => r.url().endsWith("/move") && r.request().method() === "POST",
+  );
+  await page.mouse.move(
+    source.x + source.width / 2,
+    source.y + source.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(grid.x + 100, Math.max(150, grid.y) + 150, {
+    steps: 8,
+  });
+  await page.mouse.up();
+  expect((await moved).status()).toBe(204);
   await expect(count).toHaveText("2");
+  await expect(
+    page.locator(".wr-daygrid-item", { hasText: "Stretch" }),
+  ).toHaveCount(1);
+  const before = (await (
+    await fetch(`${API_URL}/today`, { headers })
+  ).json()) as { slots: { id: string; startsAt: number }[] };
+
+  const filled = page.waitForResponse(
+    (r) => r.url().endsWith("/plan") && r.request().method() === "POST",
+  );
+  await widget.getByRole("button", { name: "Place them for me" }).click();
+  expect(await (await filled).json()).toMatchObject({ placed: 2, removed: 0 });
+  await expect(widget).toHaveCount(0);
+  await expect(
+    page.locator(".wr-daygrid-item", { hasText: "Stretch" }),
+  ).toHaveCount(3);
+  const after = (await (
+    await fetch(`${API_URL}/today`, { headers })
+  ).json()) as { slots: { id: string; startsAt: number }[] };
+  expect(after.slots.map((slot) => slot.id).sort()).toEqual(ids);
+  expect(
+    after.slots.find((slot) => slot.id === before.slots[0]?.id)?.startsAt,
+  ).toBe(before.slots[0]?.startsAt);
+  await page.reload();
+  await dayShown(page);
+  await expect(widget).toHaveCount(0);
+  expect(await savedIds()).toEqual([]);
 });

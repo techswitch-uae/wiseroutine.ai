@@ -78,12 +78,17 @@ export interface Demand {
   activity: Activity;
   sessionsNeeded: number;
   preferredAt: Instant[];
+  /** Existing unplaced occurrences come first, retaining identity and length.
+   * Remaining demand uses the activity's configured session length. */
+  occurrences?: readonly { id: string; minutes: number }[];
 }
 
 /* ── Output ──────────────────────────────────────────────────────────────── */
 
 export interface PlacedSlot extends Interval {
   activityId: string;
+  /** An existing occurrence restored by an explicit placement request. */
+  id?: string;
   /** Set on input for user-pinned slots; the planner never moves these. */
   isLocked?: boolean;
 }

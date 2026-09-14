@@ -15,7 +15,7 @@ export const RailFallback: React.FC = () => {
         </p>
         <p className="wr-body">
           Your next activity and anything needing attention will appear here.
-          Select a block on your day to see its controls.
+          Select a slot on your day to see its controls.
         </p>
         <Button
           block
