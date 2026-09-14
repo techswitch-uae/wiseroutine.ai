@@ -45,6 +45,31 @@ beforeEach(async () => {
   await testFeatures("all");
 });
 
+test("an unplanned morning waits for manual placement or Place them for me", async () => {
+  const offset = ((9 - new Date().getUTCHours() + 36) % 24) - 12;
+  const timeZone = `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
+  const user = await seedUser({ timeZone });
+  const activityId = await seedActivity({ minimumValue: 3 });
+  const morning = (await (await request(user, "/today")).json()) as {
+    slots: unknown[];
+    progress: { scheduled: number; minimumValue: number }[];
+  };
+  expect(morning.slots).toEqual([]);
+  expect(morning.progress[0]).toMatchObject({ minimumValue: 3, scheduled: 0 });
+  expect(await userDb().planRun.count()).toBe(0);
+  const startsAt = Math.ceil(Date.now() / (5 * M)) * 5 * M + 10 * M;
+  expect((await request(user, "/slots", { activityId, startsAt })).status).toBe(
+    201,
+  );
+  expect(await (await request(user, "/plan", {})).json()).toMatchObject({
+    placed: 2,
+    removed: 0,
+  });
+  expect(await userDb().slot.count({ where: { status: "planned" } })).toBe(3);
+  await request(user, "/today");
+  expect(await userDb().slot.count()).toBe(3);
+});
+
 test("initial shortfalls persist once, do not double-count demand, and can be manually placed", async () => {
   const user = await seedUser({ timeZone: "UTC" });
   const id = await seedActivity({ name: "Stretch", minimumValue: 3 });
@@ -192,6 +217,34 @@ test("retrying preserves different saved durations and can fit a shorter slot af
   await request(user, "/plan", { at: start });
   expect(await db.slot.count()).toBe(2);
   expect(await db.slot.count({ where: { status: "bucketed" } })).toBe(1);
+});
+
+test("a paused activity's saved slots are reported as unavailable, not revived", async () => {
+  const user = await seedUser({ timeZone: "UTC" });
+  const activityId = await seedActivity({ isActive: false });
+  await userDb().slot.create({
+    data: {
+      id: "paused",
+      activityId,
+      title: "Stretch",
+      kind: "recovery",
+      status: "bucketed",
+      startsAt: new Date(start),
+      endsAt: new Date(start + 10 * M),
+      timeZone: "UTC",
+      createdAt: new Date(),
+    },
+  });
+  expect(
+    await (await request(user, "/plan", { at: start })).json(),
+  ).toMatchObject({
+    placed: 0,
+    unplaced: [{ activityId, sessions: 1, reason: "not_scheduled_today" }],
+  });
+  expect(
+    await userDb().slot.findUnique({ where: { id: "paused" } }),
+  ).toMatchObject({ status: "bucketed" });
+  expect(await userDb().slot.count()).toBe(1);
 });
 
 test("an unplaced one-off slot can also be placed automatically without a new identity", async () => {

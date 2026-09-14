@@ -14,7 +14,7 @@ pnpm test:web-browser            # builds and boots its own production server
 ## What visitors see
 
 - The promise: activities fit around meetings and adapt when plans change.
-- An interactive sample: placement → longer meeting → affected block moves,
+- An interactive sample: placement → longer meeting → affected slot moves,
   walk stays put → full day → visible unplaced work → restore.
 - The approved free boundary: **3 active activities**, automatic placement and
   basic adaptation. No card, trial, checkout or speculative discount.

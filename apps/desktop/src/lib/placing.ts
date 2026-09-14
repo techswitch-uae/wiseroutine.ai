@@ -3,12 +3,12 @@
  *
  * Here for the same reason the picked block is - see `lib/picked`. The rail is
  * mounted by the shell and the timeline by the page, so the module doing the
- * dragging cannot hand the grid anything: `ToPlace` writes where the cursor is
+ * dragging cannot hand the grid anything: `NotPlaced` writes where the cursor is
  * and what it would place, and Today reads it back and draws the block the
  * drop would produce.
  *
  * It is deliberately the *drag*, not the placement. Nothing here writes
- * anything - `ToPlace` still owns the pointer and the request - so a window
+ * anything - `NotPlaced` still owns the pointer and the request - so a window
  * that never sees a drop simply forgets it.
  */
 
@@ -21,7 +21,7 @@ export interface Placement {
   /** The activity being placed, and what it is called on the day. */
   activityId: string;
   /** Set when what is being dragged already exists as a slot - one out of
-   *  Unscheduled slots - so the drop moves it rather than making another. */
+   *  Not placed - so the drop moves it rather than making another. */
   slotId?: string;
   /** Keyboard pickup draws a timeline preview without a floating cursor. */
   keyboard?: boolean;

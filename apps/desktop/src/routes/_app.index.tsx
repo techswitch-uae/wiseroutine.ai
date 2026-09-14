@@ -89,7 +89,7 @@ const Today: React.FC = () => {
   /** The block the rail is describing - see `lib/picked`. Held there rather
    *  than here because the rail is mounted by the shell, not by this page. */
   const picked = usePicked();
-  /** A session being dragged in from the rail - see `modules/to-place`. */
+  /** A session being dragged in from the rail - see `modules/not-placed`. */
   const placing = usePlacing();
 
   /** Last explicitly chosen view, remembered locally for this account.
@@ -697,102 +697,93 @@ const Today: React.FC = () => {
           />
         ) : null}
 
-        {rows.length === 0 ? (
-          // The only empty day left: nothing has been added to place. Anything
-          // that exists is placed the moment this page is opened - see
-          // `fillDay` on the Worker - so there is no "press to plan" here to
-          // press.
+        {rows.length === 0 && !data.progress?.length ? (
+          // Keep the ruler available even on an empty day: it is the drop
+          // target for Not placed, including one-off slots without activities.
           <DashedRow
             gutter={false}
             onClick={() => void navigate({ to: "/activities" })}
           >
             Nothing on today yet - add an activity
           </DashedRow>
-        ) : (
-          <DayGrid
-            dayStart={data.dayStart}
-            dayEnd={data.dayEnd}
-            timeZone={data.timeZone}
-            // Open the day where the day has got to. Unconditional because the
-            // now line is only drawn on a day that contains now, so this asks
-            // for nothing on any other date.
-            revealNow
-            // Pressing the day itself puts the rail's card away. The blocks
-            // stop the press before it gets here, so this is only ever the
-            // empty parts of the grid.
-            onBackdrop={() => pick(null)}
-            // Both halves of the density, never one. The scale and the floor
-            // are the same decision, and splitting them is how a day ends up
-            // with every block drawn at the same lie - see `DayDensity`.
-            quarterStep={density.quarterStep}
-            minBlockHeight={density.minBlockHeight}
-            onMove={move}
-            moveFrom={now}
-            /* The block the drop would produce, handed to the grid as a block
+        ) : null}
+        <DayGrid
+          dayStart={data.dayStart}
+          dayEnd={data.dayEnd}
+          timeZone={data.timeZone}
+          // Open the day where the day has got to. Unconditional because the
+          // now line is only drawn on a day that contains now, so this asks
+          // for nothing on any other date.
+          revealNow
+          // Pressing the day itself puts the rail's card away. The blocks
+          // stop the press before it gets here, so this is only ever the
+          // empty parts of the grid.
+          onBackdrop={() => pick(null)}
+          // Both halves of the density, never one. The scale and the floor
+          // are the same decision, and splitting them is how a day ends up
+          // with every block drawn at the same lie - see `DayDensity`.
+          quarterStep={density.quarterStep}
+          minBlockHeight={density.minBlockHeight}
+          onMove={move}
+          moveFrom={now}
+          /* The block the drop would produce, handed to the grid as a block
                like any other so it is laid out - lane, column and all - by
                exactly the rules that will apply once it exists. */
-            placing={ghost?.cursor ?? null}
-            items={[
-              ...(ghost ? [ghost.block] : []),
-              ...rows.map((row) => ({
-                key: row.key,
-                startsAt: row.startsAt,
-                endsAt: row.endsAt,
-                movable: row.movable === true,
-                title: row.title,
-                // Every block, meetings included: "what is this and what can I
-                // do about it" is a fair question to ask of a block you cannot
-                // move, and the answer is worth giving.
-                onSelect: () => pick(row.key),
-                selected: row.key === picked,
-                // Starting follows the same clock-aware rule as the widget.
-                ...(row.slotId && row.startable
-                  ? { onStart: () => row.slotId && start(row.slotId) }
-                  : {}),
-                // Removing is separate: elapsed work may be dismissed, but
-                // started/completed history must not be erased.
-                ...(row.slotId &&
-                row.done !== true &&
-                data.slots.find((s) => s.id === row.slotId)?.status !==
-                  "started"
-                  ? {
-                      onRemove: () =>
-                        row.slotId && remove(row.slotId, row.title),
-                    }
-                  : {}),
-                node: (
-                  <Slot
-                    variant={row.variant}
-                    // The gutter already says when this is; repeating it inside
-                    // the card is noise the grid was built to remove.
-                    time=""
-                    name={row.title}
-                    meta={row.meta ?? ""}
-                    done={row.done ?? false}
-                    running={row.running ?? false}
-                    action={
-                      row.startable
-                        ? row.resumable
-                          ? "resume"
-                          : "start"
-                        : null
-                    }
-                    // No grace bar or "moves itself" line inside the grid: those
-                    // are list-row affordances, and here they make a 25-minute
-                    // block draw twice its own height and collide with the next.
-                    onStart={
-                      row.startable
-                        ? () => {
-                            if (row.slotId) start(row.slotId);
-                          }
-                        : undefined
-                    }
-                  />
-                ),
-              })),
-            ]}
-          />
-        )}
+          placing={ghost?.cursor ?? null}
+          items={[
+            ...(ghost ? [ghost.block] : []),
+            ...rows.map((row) => ({
+              key: row.key,
+              startsAt: row.startsAt,
+              endsAt: row.endsAt,
+              movable: row.movable === true,
+              title: row.title,
+              // Every block, meetings included: "what is this and what can I
+              // do about it" is a fair question to ask of a block you cannot
+              // move, and the answer is worth giving.
+              onSelect: () => pick(row.key),
+              selected: row.key === picked,
+              // Starting follows the same clock-aware rule as the widget.
+              ...(row.slotId && row.startable
+                ? { onStart: () => row.slotId && start(row.slotId) }
+                : {}),
+              // Removing is separate: elapsed work may be dismissed, but
+              // started/completed history must not be erased.
+              ...(row.slotId &&
+              row.done !== true &&
+              data.slots.find((s) => s.id === row.slotId)?.status !== "started"
+                ? {
+                    onRemove: () => row.slotId && remove(row.slotId, row.title),
+                  }
+                : {}),
+              node: (
+                <Slot
+                  variant={row.variant}
+                  // The gutter already says when this is; repeating it inside
+                  // the card is noise the grid was built to remove.
+                  time=""
+                  name={row.title}
+                  meta={row.meta ?? ""}
+                  done={row.done ?? false}
+                  running={row.running ?? false}
+                  action={
+                    row.startable ? (row.resumable ? "resume" : "start") : null
+                  }
+                  // No grace bar or "moves itself" line inside the grid: those
+                  // are list-row affordances, and here they make a 25-minute
+                  // block draw twice its own height and collide with the next.
+                  onStart={
+                    row.startable
+                      ? () => {
+                          if (row.slotId) start(row.slotId);
+                        }
+                      : undefined
+                  }
+                />
+              ),
+            })),
+          ]}
+        />
 
         {data.outside.after.length > 0 ? (
           <OutsideRange

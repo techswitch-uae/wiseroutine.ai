@@ -736,7 +736,7 @@ export const Gallery: React.FC = () => {
                 marginTop: 5,
               }}
             >
-              10 min, guided. Ends before your 11:25 focus block.
+              10 min, guided. Ends before your 11:25 focus slot.
             </div>
             <Button variant="primary" block style={{ marginTop: 14 }}>
               <PlayGlyph />

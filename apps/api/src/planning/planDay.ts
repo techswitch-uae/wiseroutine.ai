@@ -26,7 +26,7 @@ import {
   toBusyBlocks,
 } from "@wiseroutine/scheduler";
 
-export const ENGINE_VERSION = "1.1.0";
+export const ENGINE_VERSION = "1.2.0";
 
 /** The key a plan run is filed under. Spelled once, because `GET /today` asks
  *  "has this day been planned?" with it and this module answers with it. */
@@ -223,6 +223,27 @@ export async function planDay(
     locked,
     demands,
   });
+
+  // Paused/deleted definitions may still have legacy saved slots. Report
+  // them without reviving them or pretending the entire request succeeded.
+  const offered = new Set(
+    demands.flatMap(
+      (demand) => demand.occurrences?.map((slot) => slot.id) ?? [],
+    ),
+  );
+  for (const slot of unplacedSlots.filter((slot) => !offered.has(slot.id))) {
+    const activityId = slot.activityId ?? slot.id;
+    const existing = result.unplaced.find(
+      (item) => item.activityId === activityId,
+    );
+    if (existing) existing.sessions++;
+    else
+      result.unplaced.push({
+        activityId,
+        sessions: 1,
+        reason: "not_scheduled_today",
+      });
+  }
 
   const activityById = new Map(activities.map((a) => [a.row.id, a.row]));
   const planned = result.placed

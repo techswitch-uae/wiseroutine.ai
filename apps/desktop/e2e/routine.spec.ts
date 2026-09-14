@@ -67,11 +67,15 @@ test("three stretches spread across Today, remain movable, and dragging toward t
   const first = slots.first();
   await expect(first).toHaveClass(/wr-daygrid-item-movable/);
   await first.focus();
-  const keyboardMove = page.waitForResponse(
-    (r) => r.url().endsWith("/move") && r.request().method() === "POST",
-  );
-  await page.keyboard.press("ArrowDown");
-  expect((await keyboardMove).status()).toBe(204);
+  // Two steps guarantee the slot is beyond the next future grid point,
+  // even when the first step only snaps a just-created due slot upward.
+  for (let i = 0; i < 2; i++) {
+    const keyboardMove = page.waitForResponse(
+      (r) => r.url().endsWith("/move") && r.request().method() === "POST",
+    );
+    await page.keyboard.press("ArrowDown");
+    expect((await keyboardMove).status()).toBe(204);
+  }
   await page.locator(".wr-page-scroll").evaluate((el) => el.scrollTo(0, 0));
   const box = await first.boundingBox();
   const grid = await page.locator(".wr-daygrid").boundingBox();
@@ -230,6 +234,10 @@ test("Not placed combines shortfalls, retries without duplicates, and supports m
   await page.reload();
   await dayShown(page);
   await expect(count).toHaveText("3");
+  await page.screenshot({
+    path: test.info().outputPath("not-placed.png"),
+    animations: "disabled",
+  });
   const grip = widget.getByRole("button", { name: /^Place Stretch\./ });
   await expect(grip).toBeEnabled();
   await grip.focus();

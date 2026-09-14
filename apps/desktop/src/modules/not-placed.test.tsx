@@ -206,6 +206,28 @@ test("Place them for me uses the viewed day and toasts when no space remains", a
   expect(screen.getByText("Stretch")).toBeVisible();
 });
 
+test("another tab already placing slots is not reported as a lack of space", async () => {
+  plan.mockResolvedValue({ placed: 0, unplaced: [] });
+  publishPlan(day());
+  render(<NotPlaced />);
+  await userEvent.click(await ready());
+  await waitFor(() => expect(plan).toHaveBeenCalledTimes(1));
+  expect(notify).not.toHaveBeenCalled();
+});
+
+test("a failed automatic placement keeps slots available", async () => {
+  plan.mockRejectedValueOnce(new Error("offline"));
+  publishPlan(day());
+  render(<NotPlaced />);
+  await userEvent.click(await ready());
+  await waitFor(() =>
+    expect(notify).toHaveBeenCalledWith(
+      "Couldn't place your slots just now. They're still here.",
+    ),
+  );
+  expect(screen.getByText("10 min · 2 slots")).toBeVisible();
+});
+
 test("a failed read is recoverable, not an empty widget or fresh duplicate demand", async () => {
   bucket.mockRejectedValueOnce(new Error("offline"));
   publishPlan(day());

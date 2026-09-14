@@ -661,7 +661,7 @@ Enable weekly planning later: `pnpm features enable weekly_planning --env local`
 Enable recap foundation: `pnpm features enable insights --env local`
 Enable customization work: `pnpm features enable dashboard_customization --env local`
 
-**Built:** Day progress aggregates, completion/scheduled counters, Today-so-far widget, bundled day-so-far addon, widget capability keys and ordering helpers. Core progress data still supports “To place” even when recap UI is hidden.
+**Built:** Day progress aggregates, completion/scheduled counters, Today-so-far widget, bundled day-so-far addon, widget capability keys and ordering helpers. Core progress data feeds **Not placed**, merged with saved unplaced slots, even when recap UI is hidden.
 
 **Missing / unfinished:**
 

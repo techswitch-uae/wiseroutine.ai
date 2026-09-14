@@ -31,38 +31,51 @@ Placement borrows edge padding when necessary to fit that spacing. It never
 shortens a session or bunches several together just to empty the bucket.
 
 Mid-day planning starts at now, while spacing still uses the full working day.
-Adding an activity preserves accepted blocks. These changes do not silently
-redistribute a routine already on Today; manual moves and explicit replanning
-remain available, and newly planned days use the new rules.
+Adding an activity preserves accepted slots. Opening an unplanned Today does
+not place the routine as a side effect: it appears in **Not placed**, ready for
+manual placement or **Place them for me**. That button preserves existing
+placements. The gated future-day planning preview remains separate.
 
 ## Manual movement
 
-- Planned blocks remain movable, including pinned blocks and unstarted blocks
+- Planned slots remain movable, including pinned slots and unstarted slots
   whose original time has passed.
-- Started and completed blocks cannot be moved. Dragging stopped/missed work
+- Started and completed slots cannot be moved. Dragging stopped/missed work
   uses Postpone to create a new appointment while retaining the original record.
 - Pointer and keyboard movement clamp to a future five-minute grid point.
   If no room remains in the visible day, no move is submitted.
 - The route rechecks lifecycle permissions and the real clock before its
   optimistic update. The server rejects past starts and occupied intervals.
 - Manual choices may override **automatic spacing**, not meetings or other
-  occupied slots. Moving a block pins it against a full replan.
+  occupied slots. Moving a slot pins it against a full replan.
 - Undo restores the original appointment with its existing one-minute grace;
   it is not a way to submit a new past timestamp.
 
-## Unscheduled slots (the bucket)
+## Not placed
 
-Both initial planning shortfalls and rearrangement failures become persisted
-bucket rows, with their activity, full duration, and reason. Initial shortfalls
-say **Not placed**, never pretend to have had a previous appointment.
+One widget combines the day's fresh demand with persisted placement shortfalls
+and slots displaced by rearrangement. Equal-duration occurrences of one
+activity share a row. Saved slots already count against fresh demand, so there
+is no duplicate list or double count. Different saved durations stay separate.
 
-Bucket rows do not occupy calendar time. They do consume the day's outstanding
-demand, so refresh/replan neither duplicates them nor lists them again in
-**To place**. Freeing time does not silently schedule them. **Choose time**
-places the same row; **Drop** dismisses it for that day, including subsequent
-replans. Archiving an activity also clears its older bucket entries.
-Rearrangement suggestions still carry
-the proposed time and use the same move validation.
+The widget keeps the simple draggable-row design. There is no **Drop** or
+**Choose time** action: leaving slots here is fine. Drag one onto the timeline,
+or use the same grip with Enter → arrow keys → Enter (Escape cancels). The
+ruler remains available even when no slots or meetings have been placed yet.
+
+**Place them for me** explicitly retries saved occurrences and fresh demand
+without moving accepted placements. Saved IDs and durations survive. A longer
+slot that fails does not prevent a shorter one being tried. When space runs
+out, a toast explains it and remaining slots stay here, unchanged across reload
+or retry. Freeing calendar time alone does not pull saved slots onto Today.
+
+The internal `bucketed` state/API remain storage details, not another widget.
+Archiving an activity clears older saved entries too. Inbox uses the same list
+with a link to Today, where the timeline is available for placement.
+
+User-facing terminology is **slot** for a Wise Routine activity occurrence and
+**meeting** for a calendar event. Internal layout `Block` components are not
+renamed: those describe UI geometry, not a second product concept.
 
 ## Coverage
 
@@ -70,7 +83,7 @@ the proposed time and use the same move validation.
   anchors, kept slots, short/late/crowded days, spacing and demand conservation.
 - `apps/api/src/planning/routine.test.ts`: real database persistence, repeated
   plans, bucket/manual recovery, merged validation, past/running/done refusals.
-- Desktop unit tests: live form limits, timeline permissions, keyboard bounds,
-  and placement drag behaviour.
+- Desktop unit tests: live form limits, timeline permissions, merged counts,
+  read failures, keyboard placement/cancellation, and pointer placement.
 - `apps/desktop/e2e/routine.spec.ts`: configuration/save/reload, actual pointer
   and keyboard moves, full-day bucket recovery through the real app and API.

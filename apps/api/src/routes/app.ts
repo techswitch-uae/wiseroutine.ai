@@ -1488,11 +1488,12 @@ app.get("/today", async (c) => {
    */
   const wholeDay = dayBounds(date, user.timeZone, 0, FULL_DAY_MINUTES);
 
-  // Before the read, not after: the whole point is that the slots this answer
-  // carries are the ones this call just decided on.
+  // An unplanned Today is a choice: show its routine in Not placed until the
+  // user drags slots or asks us to place them. Keep the future-day planning
+  // preview's existing behaviour separate from opening the current day.
   if (
-    (c.get("now") >= wholeDay.start && c.get("now") < wholeDay.end) ||
-    c.get("features").weekly_planning
+    c.get("features").weekly_planning &&
+    !(c.get("now") >= wholeDay.start && c.get("now") < wholeDay.end)
   )
     await fillDay(c, wholeDay);
 

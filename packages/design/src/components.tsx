@@ -852,7 +852,7 @@ export type DayGridProps = {
    * Anything else would teach two placements for one gesture.
    *
    * The grid still owns none of it: what is dragged, what happens on release
-   * and when this clears are all the caller's - see `modules/to-place`.
+   * and when this clears are all the caller's - see `modules/not-placed`.
    */
   placing?: { key: string; x: number; y: number } | null;
   /** A press on the day itself rather than on anything in it. What "click

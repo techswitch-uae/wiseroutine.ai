@@ -6,7 +6,7 @@ import {
   Widget,
 } from "@wiseroutine/design";
 import { useEffect, useRef, useState } from "react";
-import { api, type BucketItem } from "../lib/api";
+import { ApiError, api, type BucketItem } from "../lib/api";
 import { refreshCaptured } from "../lib/capture";
 import { useDensity } from "../lib/density";
 import { dropTimeOf } from "../lib/drop-time";
@@ -43,6 +43,7 @@ export function NotPlaced({
     dayEnd: plan?.dayEnd ?? 0,
   };
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: revision explicitly retries the read after an error or mutation
   useEffect(() => {
     if (!plan && !standalone) return;
     let active = true;
@@ -94,9 +95,11 @@ export function NotPlaced({
         ? api.moveSlot(at.slotId, at.startsAt, end)
         : api.placeSlot(at.activityId, at.startsAt, end)
     )
-      .catch(() =>
+      .catch((cause: unknown) =>
         notify(
-          "Couldn't place that slot there. Check for space and try again.",
+          cause instanceof ApiError && cause.detail
+            ? cause.detail
+            : "Couldn't place that slot there. Check for space and try again.",
         ),
       )
       .finally(settle);
@@ -217,20 +220,27 @@ export function NotPlaced({
   };
   const fill = () => {
     if (!plan || disabled || working.current) return;
+    if (Date.now() >= plan.dayEnd) {
+      notify("No space left on this day. Your slots are still in Not placed.");
+      return;
+    }
     working.current = true;
     setBusy(true);
     void api
       .plan("user_request", Math.round((plan.dayStart + plan.dayEnd) / 2))
       .then(({ placed, unplaced }) => {
-        const remaining = Math.max(
-          total - placed,
-          unplaced.reduce((sum, slot) => sum + slot.sessions, 0),
+        // Another tab may already have placed slots since this count was read.
+        const remaining = unplaced.reduce(
+          (sum, slot) => sum + slot.sessions,
+          0,
         );
         if (remaining > 0)
           notify(
-            placed > 0
-              ? `Placed ${placed}. No space for ${remaining} more; they're still in Not placed.`
-              : "No space on this day. Your slots are still in Not placed.",
+            unplaced.some((slot) => slot.reason === "not_scheduled_today")
+              ? "Some slots aren't available to place. They're still in Not placed."
+              : placed > 0
+                ? `Placed ${placed}. No space for ${remaining} more; they're still in Not placed.`
+                : "No space on this day. Your slots are still in Not placed.",
           );
       })
       .catch(() =>
