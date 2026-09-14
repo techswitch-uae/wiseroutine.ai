@@ -71,6 +71,7 @@ import {
   microsoftListCalendars,
 } from "@wiseroutine/providers";
 import {
+  canPostponeSlot,
   dayBounds,
   isBusy,
   type LocalDate,
@@ -2335,12 +2336,10 @@ app.post("/slots/:id/move", async (c) => {
   await userTransaction(c.get("db"), async (db) => {
     const slot = await getSlot(db, c.req.param("id"));
     if (!slot) throw new HTTPException(404);
-    if (!["planned", "live", "bucketed"].includes(slot.status))
+    if (!canPostponeSlot(slot, c.get("now")))
       throw new HTTPException(409, {
         message:
-          slot.status === "started"
-            ? "A started slot cannot be moved. Stop it first while the stop window is open, or create another slot."
-            : "Use Postpone to keep the history of this slot.",
+          "This slot can no longer be moved. You can still mark it done.",
       });
     if (slot.activityId) {
       const activity = await db.activity.findUnique({

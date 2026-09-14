@@ -338,13 +338,15 @@ export const ThisSlot: React.FC = () => {
           same job. Now the small nudge is the stepper and the big jump is the
           value itself - and a block that can no longer move shows the time as
           plain text, so nothing looks pressable that is not. */}
-      {canPostponeSlot(slot) ? (
+      {canPostponeSlot(slot, now) ? (
         <button
           type="button"
           className="wr-widget-time wr-widget-time-btn"
           title="Postpone / change time"
           aria-label={`Postpone / change time, ${times}`}
-          onClick={() => setMoving(true)}
+          onClick={() => {
+            if (canPostponeSlot(slot, Date.now())) setMoving(true);
+          }}
         >
           <span>
             {times}
@@ -372,7 +374,7 @@ export const ThisSlot: React.FC = () => {
           Open todo, links and files
         </Button>
       ) : null}
-      {moving && canPostponeSlot(slot) ? (
+      {moving && canPostponeSlot(slot, now) ? (
         <Reschedule
           key={slot.id}
           slot={slot}
@@ -396,7 +398,7 @@ export const ThisSlot: React.FC = () => {
         <Note>When it starts, {module.blurb}.</Note>
       ) : null}
 
-      {state.movable && !["missed", "skipped"].includes(slot.status) ? (
+      {state.movable ? (
         <div style={{ marginTop: 12 }}>
           <TimeStepper
             value={clock(slot.startsAt, plan.timeZone)}

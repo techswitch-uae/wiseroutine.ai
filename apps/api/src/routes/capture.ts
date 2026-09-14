@@ -20,6 +20,7 @@ import {
   type UserDatabase,
   userTransaction,
 } from "@wiseroutine/db";
+import { canPostponeSlot } from "@wiseroutine/scheduler";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { type App, type Ctx, newId } from "../context";
@@ -492,14 +493,10 @@ captureRoutes.post("/slots/:id/reschedule", async (c) => {
     }
     const slot = await getSlot(db, c.req.param("id"));
     if (!slot) throw new HTTPException(404);
-    if (["completed", "cancelled"].includes(slot.status))
-      throw new HTTPException(409, {
-        message: "Completed or removed history cannot be moved.",
-      });
-    if (slot.status === "started")
+    if (!canPostponeSlot(slot, c.get("now")))
       throw new HTTPException(409, {
         message:
-          "A started slot cannot be postponed. Stop it first while the stop window is open, or create another slot.",
+          "This slot can no longer be moved. You can still mark it done.",
       });
     // Prevent an old appointment from taking a todo away from its new one.
     if (slot.reminderId) {
@@ -524,24 +521,7 @@ captureRoutes.post("/slots/:id/reschedule", async (c) => {
     }
     if (!bucket)
       await validatePlacement(db, startsAt, endsAt, c.get("now"), slot.id);
-    let target = slot;
-    if (["skipped", "missed"].includes(slot.status)) {
-      target = await placeSlot(
-        db,
-        {
-          activityId: slot.activityId,
-          reminderId: slot.reminderId,
-          title: slot.title,
-          kind: slot.kind,
-          startsAt,
-          endsAt,
-          timeZone: c.get("user").timeZone,
-          ownerAddonId: slot.ownerAddonId,
-        },
-        c.get("now"),
-        newId,
-      );
-    } else if (!bucket)
+    if (!bucket)
       await moveSlot(
         db,
         {
@@ -559,14 +539,14 @@ captureRoutes.post("/slots/:id/reschedule", async (c) => {
         db,
         slot.reminderId,
         "slotted",
-        target.id,
+        slot.id,
         Math.ceil((endsAt - startsAt) / 60_000),
       );
     if (bucket)
       await setSlotStatus(
         db,
         {
-          slotId: target.id,
+          slotId: slot.id,
           status: "bucketed",
           actor: "user",
           reasonCode: "saved_for_later",
@@ -574,7 +554,7 @@ captureRoutes.post("/slots/:id/reschedule", async (c) => {
         c.get("now"),
         newId,
       );
-    const response = { slotId: target.id };
+    const response = { slotId: slot.id };
     if (actionId)
       await db.$executeRawUnsafe(
         "INSERT INTO _captures(id,fingerprint,response) VALUES (?,?,?)",

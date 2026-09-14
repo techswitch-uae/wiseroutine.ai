@@ -88,6 +88,15 @@ test("offers a start only once the block is actually due", () => {
   expect(screen.getByRole("button", { name: "Start now" })).toBeTruthy();
 });
 
+test("Up next expires Start and Postpone at the exact scheduled cutoff", () => {
+  vi.useFakeTimers({ now: AT + 120_000 - 1 });
+  show(day({ slots: [slot({ startsAt: AT, endsAt: AT + 600_000 })] }));
+  expect(screen.getByRole("button", { name: "Start now" })).toBeTruthy();
+  act(() => vi.advanceTimersByTime(1));
+  expect(screen.queryByRole("button", { name: "Start now" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
+});
+
 test("Up next withdraws Start as soon as the slot starts, then follows the next activity", () => {
   const current = slot({ startsAt: AT, endsAt: AT + 10 * 60_000 });
   const later = slot({ id: "s2", title: "Walk" });

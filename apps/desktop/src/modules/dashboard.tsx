@@ -18,6 +18,7 @@ import {
 } from "../lib/api";
 import { useFeatures } from "../lib/features";
 import { startSlot, usePlan } from "../lib/plan-store";
+import { useSlotClock } from "../lib/slot-clock";
 import { Reschedule } from "./reschedule";
 
 /**
@@ -57,23 +58,6 @@ function progressOf(row: ActivityProgress): { value: string; ratio: number } {
 }
 
 /**
- * A clock of its own, for the two modules that read the day against one.
- *
- * A countdown - or a "still to go" - that only moved when the timeline
- * re-rendered would sit still for up to a minute at a time, and a block whose
- * window closed would go on being counted as ahead until something else on the
- * page happened to change.
- */
-function useNow(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
-}
-
-/**
  * 3a: the one slot you can start right now.
  *
  * It used to stay pinned on every plan and say "Nothing left today" - the
@@ -86,7 +70,8 @@ function useNow(): number {
 const UpNext: React.FC = () => {
   const [moving, setMoving] = useState(false);
   const plan = usePlan();
-  const now = useNow();
+  const nextId = plan ? upNextOf(plan.slots, Date.now()).slotId : undefined;
+  const now = useSlotClock(plan?.slots.find((slot) => slot.id === nextId));
 
   if (!plan) return null;
   const next = upNextOf(plan.slots, now);

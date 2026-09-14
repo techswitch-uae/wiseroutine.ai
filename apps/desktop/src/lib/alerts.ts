@@ -23,6 +23,7 @@
  * still asks the webview, which is what "Start now" starts.
  */
 
+import { canStartSlot } from "@wiseroutine/scheduler";
 import type { TodaySlot } from "./api";
 import { onSessionReset, sessionGeneration } from "./session-lifecycle";
 
@@ -74,7 +75,7 @@ const minutesOf = (slot: TodaySlot): number =>
 
 export function upNextOf(slots: readonly TodaySlot[], now: number): UpNext {
   const next = slots
-    .filter((slot) => PENDING.has(slot.status) && slot.endsAt > now)
+    .filter((slot) => PENDING.has(slot.status) && canStartSlot(slot, now))
     .sort((a, b) => a.startsAt - b.startsAt)[0];
 
   if (!next) return {};

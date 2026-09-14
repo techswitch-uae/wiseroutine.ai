@@ -1,4 +1,8 @@
-import { canStopSlot } from "@wiseroutine/scheduler";
+import {
+  canPostponeSlot,
+  canStartSlot,
+  canStopSlot,
+} from "@wiseroutine/scheduler";
 import {
   at,
   atOrNull,
@@ -382,10 +386,23 @@ export async function moveSlot(
     return userTransaction(db, (tx) => moveSlot(tx, params, now, newId));
   const current = await getSlot(db, params.slotId);
   if (!current) return;
-  if (current.status === "started")
+  if (
+    params.actor === "system"
+      ? !["planned", "live", "bucketed"].includes(current.status)
+      : !canPostponeSlot(current, now)
+  )
     throw new ActionConflict(
-      "A started slot cannot be moved. Stop it first while the stop window is open.",
+      "This slot can no longer be moved. You can still mark it done.",
     );
+  if (current.reminderId) {
+    const todo = await db.reminder.findUnique({
+      where: { id: current.reminderId },
+    });
+    if (todo?.status === "done" || (todo?.slotId && todo.slotId !== current.id))
+      throw new ActionConflict(
+        "This todo has a newer appointment or is already done.",
+      );
+  }
 
   await db.slot.update({
     where: { id: params.slotId },
@@ -399,10 +416,9 @@ export async function moveSlot(
         params.actor === "system"
           ? current.autoMoveCount + 1
           : current.autoMoveCount,
-      // Giving a bucketed slot a time is what takes it out of the bucket -
-      // that is the whole meaning of the status, so accepting a suggestion is
-      // this call and nothing else. Every other status is left alone.
-      status: ["bucketed", "live"].includes(current.status)
+      // A stopped slot moved inside its start window is the same occurrence.
+      // Its earlier Start/Stop events remain in the log, not a duplicate row.
+      status: ["bucketed", "live", "skipped"].includes(current.status)
         ? "planned"
         : current.status,
       // Wherever it has gone, it is not under the meeting it was under. The
@@ -416,8 +432,9 @@ export async function moveSlot(
 
   if (current.reminderId)
     await db.reminder.updateMany({
-      where: { id: current.reminderId, slotId: current.id },
+      where: { id: current.reminderId },
       data: {
+        slotId: current.id,
         status: "slotted",
         estimatedMinutes: Math.ceil((params.endsAt - params.startsAt) / 60_000),
       },
@@ -512,18 +529,33 @@ export async function setSlotStatus(
         );
     }
   }
+  if (
+    params.status === "started" &&
+    params.actor !== "system" &&
+    !canStartSlot(slot, now)
+  )
+    throw new ActionConflict(
+      "This slot can no longer be started or resumed. You can still mark it done.",
+    );
   if (params.status === "started" && slot.reminderId) {
     const todo = await db.reminder.findUnique({
       where: { id: slot.reminderId },
     });
-    if (todo?.slotId && todo.slotId !== slot.id)
-      throw new ActionConflict("This todo has a newer appointment");
+    if (todo?.status === "done" || (todo?.slotId && todo.slotId !== slot.id))
+      throw new ActionConflict(
+        "This todo is already done or has a newer appointment",
+      );
+    // An early Stop detaches the todo. Resume still belongs to this slot.
+    await db.reminder.updateMany({
+      where: { id: slot.reminderId, slotId: null, status: "open" },
+      data: { slotId: slot.id },
+    });
   }
   if (
     params.status === "started" &&
     ["completed", "cancelled", "missed", "bucketed"].includes(slot.status)
   )
-    throw new ActionConflict("Reschedule this slot before starting it");
+    throw new ActionConflict("This slot cannot be started");
   await db.slot.updateMany({
     where: { id: params.slotId },
     data: { status: params.status },

@@ -18,7 +18,7 @@ const slot = (over: Partial<TodaySlot> = {}): TodaySlot => ({
 
 describe("slotState", () => {
   it("leaves ordinary planned slots quiet, with their controls available", () => {
-    for (const now of [AT - 60_000, AT, END - 1]) {
+    for (const now of [AT - 60_000, AT, AT + 120_000 - 1]) {
       expect(slotState(slot(), now)).toEqual({
         label: null,
         startable: true,
@@ -60,14 +60,19 @@ describe("slotState", () => {
     });
   });
 
-  it("offers resume only while a stopped slot still has time", () => {
-    expect(slotState(slot({ status: "skipped" }), END - 1)).toMatchObject({
+  it("offers resume only before the scheduled start cutoff", () => {
+    expect(
+      slotState(slot({ status: "skipped" }), AT + 120_000 - 1),
+    ).toMatchObject({
       label: "Stopped",
       startable: true,
       running: false,
       movable: true,
     });
-    expect(slotState(slot({ status: "skipped" }), END).startable).toBe(false);
+    expect(slotState(slot({ status: "skipped" }), AT + 120_000)).toMatchObject({
+      startable: false,
+      movable: false,
+    });
   });
 
   it("asks for the outcome at the end without guessing why it was not recorded", () => {
@@ -83,21 +88,21 @@ describe("slotState", () => {
   });
 
   it.each(["planned", "live"] as const)(
-    "can move elapsed unstarted %s work to a future time, but cannot start it",
+    "elapsed unstarted %s work can neither move nor start",
     (status) => {
       expect(slotState(slot({ status }), END)).toMatchObject({
         label: "Time passed",
         startable: false,
-        movable: true,
+        movable: false,
         running: false,
       });
     },
   );
 
-  it("allows stopped and missed work to be dragged into a new appointment", () => {
+  it("keeps elapsed stopped and missed work in history, without a new appointment", () => {
     for (const status of ["skipped", "missed"] as const)
       expect(slotState(slot({ status }), END)).toMatchObject({
-        movable: true,
+        movable: false,
         running: false,
         startable: false,
       });

@@ -42,6 +42,12 @@ describe("upNextOf", () => {
     expect(next.slotId).toBe("a");
   });
 
+  it("withdraws Start at the scheduled cutoff even with time left in the slot", () => {
+    const day = [slot({ id: "a" })];
+    expect(upNextOf(day, AT + 120_000 - 1).slotId).toBe("a");
+    expect(upNextOf(day, AT + 120_000)).toEqual({});
+  });
+
   it("skips a slot whose time has wholly passed", () => {
     const day = [
       slot({ id: "over", startsAt: AT - 30 * MIN, endsAt: AT - 20 * MIN }),

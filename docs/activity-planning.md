@@ -38,14 +38,23 @@ placements. The gated future-day planning preview remains separate.
 
 ## Manual movement
 
-- Planned slots remain movable, including pinned slots and unstarted slots
-  whose original time has passed.
-- Started and completed slots cannot be moved. Dragging stopped/missed work
-  uses Postpone to create a new appointment while retaining the original record.
+- Start, Resume, dragging and Postpone share one cutoff: **two minutes after
+  the scheduled start**, or the slot's end if sooner. This applies to pinned
+  slots too. An early Start/Stop does not renew that window.
+- Before the cutoff, moving an early-stopped slot updates the **same slot**
+  and returns it to planned. Its Start/Stop events remain in the action log;
+  there is no replacement appointment or duplicate occurrence.
+- Once the cutoff passes, no Start/Resume, movement or Postpone is offered.
+  **Mark it done** remains available to record what actually happened.
+- Started, completed and missed slots cannot be moved. Not placed has no
+  appointment to expire and remains available for future placement.
 - Pointer and keyboard movement clamp to a future five-minute grid point.
   If no room remains in the visible day, no move is submitted.
-- The route rechecks lifecycle permissions and the real clock before its
-  optimistic update. The server rejects past starts and occupied intervals.
+- Timeline, detail widgets, open dialogs and Up next update at the cutoff,
+  including after waking from sleep. The route rechecks the real clock before
+  optimistic updates; the server enforces the same source-slot cutoff and
+  rejects past destinations and occupied intervals. Offline Start/Resume uses
+  the recorded action time, not a fresh window at replay.
 - Manual choices may override **automatic spacing**, not meetings or other
   occupied slots. Moving a slot pins it against a full replan.
 - Undo restores the original appointment with its existing one-minute grace;

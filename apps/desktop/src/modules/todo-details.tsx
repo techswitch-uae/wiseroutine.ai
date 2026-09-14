@@ -18,6 +18,7 @@ import {
   captureSessionScope,
   type SessionScope,
 } from "../lib/session-lifecycle";
+import { useSlotClock } from "../lib/slot-clock";
 import { CaptureModal } from "./capture-modal";
 import { Reschedule } from "./reschedule";
 import "./capture.css";
@@ -34,6 +35,7 @@ export function TodoDetails({
   const flags = useFeatures();
   const scope = useRef(captureSessionScope()).current;
   const [todo, setTodo] = useState<Details | null>(null);
+  const now = useSlotClock(todo?.slot ?? undefined);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const locked = useRef(false);
@@ -127,7 +129,7 @@ export function TodoDetails({
         setPending((p) => p.filter((f) => f.id !== item.id));
       }
     });
-  if (moving && todo?.slot && canPostponeSlot(todo.slot))
+  if (moving && todo?.slot && canPostponeSlot(todo.slot, now))
     return (
       <Reschedule
         slot={todo.slot}
@@ -245,7 +247,7 @@ export function TodoDetails({
           </label>
           {todo.status === "slotted" &&
           todo.slot &&
-          canPostponeSlot(todo.slot) ? (
+          canPostponeSlot(todo.slot, now) ? (
             <small>
               Use Postpone / change time to change the scheduled duration.
             </small>
@@ -430,7 +432,7 @@ export function TodoDetails({
             </button>
             {todo.status === "open" || todo.status === "slotted" ? (
               <>
-                {todo.slot && canPostponeSlot(todo.slot) ? (
+                {todo.slot && canPostponeSlot(todo.slot, now) ? (
                   <button
                     type="button"
                     className="wr-palette-pill"

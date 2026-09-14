@@ -189,7 +189,7 @@ test("an approaching slot gains a play action when due, not a false Running cue"
   ).toHaveCount(0);
 });
 
-test("a core slot must be stopped early before it can be postponed, keeping its history", async ({
+test("a core slot must be stopped early before moving the same slot, without a copy", async ({
   page,
   signIn,
 }) => {
@@ -226,15 +226,10 @@ test("a core slot must be stopped early before it can be postponed, keeping its 
   ).json();
   expect(
     after.slots.find((s: { id: string }) => s.id === original.id).status,
-  ).toBe("skipped");
+  ).toBe("planned");
   expect(
-    after.slots.some(
-      (s: { id: string; status: string; title: string }) =>
-        s.id !== original.id &&
-        s.status === "planned" &&
-        s.title === "Read a little",
-    ),
-  ).toBe(true);
+    after.slots.filter((s: { title: string }) => s.title === "Read a little"),
+  ).toHaveLength(1);
 });
 
 test("the stop cutoff survives a reload and the core widget updates without a refresh", async ({
@@ -307,4 +302,73 @@ test("the stop cutoff survives a reload and the core widget updates without a re
   await page.setViewportSize({ width: 800, height: 650 });
   await expect(card).toBeVisible();
   await page.screenshot({ path: "/tmp/wr-slot-cutoff.png" });
+});
+
+test("early Start then Stop expires at the scheduled cutoff, closes Postpone, and only permits recording Done", async ({
+  page,
+  signIn,
+}) => {
+  const user = await signIn();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const { card, headers } = await prepare(page, user, 10);
+  await card.getByRole("button", { name: "Start", exact: true }).click();
+  await card.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(
+    card.getByRole("button", { name: "Resume", exact: true }),
+  ).toBeVisible();
+  const before = await (
+    await page.request.get(`${API_URL}/today?range=full`, { headers })
+  ).json();
+  const original = before.slots.find(
+    (s: { title: string }) => s.title === "Read a little",
+  );
+  expect(original.status).toBe("skipped");
+  // The real server retains the stopped slot; only the browser clock advances.
+  // API tests separately assert server refusal at and beyond this boundary.
+  const edge = original.startsAt + 120_000;
+  await page.clock.install({ time: edge - 2_000 });
+  await page.clock.pauseAt(edge - 1_000);
+  await page.reload();
+  await dayShown(page);
+  const block = page.locator(".wr-daygrid-item", { hasText: "Read a little" });
+  await block.getByText("Read a little", { exact: true }).click();
+  await expect(
+    card.getByRole("button", { name: "Resume", exact: true }),
+  ).toBeVisible();
+  await expect(block).toHaveClass(/wr-daygrid-item-movable/);
+  await card.getByRole("button", { name: /Postpone/ }).click();
+  const dialog = page.getByRole("dialog", { name: /Postpone/ });
+  await expect(
+    dialog.getByText(/creates a new|original session stays/),
+  ).toHaveCount(0);
+  await page.clock.fastForward(1_000);
+  await expect(dialog).toBeHidden();
+  await expect(
+    card.getByRole("button", { name: /^(Start|Resume|Earlier|Later)$/ }),
+  ).toHaveCount(0);
+  await expect(card.getByRole("button", { name: /Postpone/ })).toHaveCount(0);
+  await expect(block).not.toHaveClass(/wr-daygrid-item-movable/);
+  await expect(block.getByRole("button")).toHaveCount(0);
+  await page.reload();
+  await dayShown(page);
+  await block.getByText("Read a little", { exact: true }).click();
+  await expect(
+    card.getByRole("button", { name: /Resume|Postpone/ }),
+  ).toHaveCount(0);
+  await card.getByRole("button", { name: "Mark it done" }).click();
+  await expect(
+    block.getByRole("img", { name: "Done", exact: true }),
+  ).toBeVisible();
+  const after = await (
+    await page.request.get(`${API_URL}/today?range=full`, { headers })
+  ).json();
+  const slots = after.slots.filter(
+    (s: { title: string }) => s.title === "Read a little",
+  );
+  expect(slots).toHaveLength(1);
+  expect(slots[0]).toMatchObject({
+    id: original.id,
+    startsAt: original.startsAt,
+    status: "completed",
+  });
 });

@@ -135,8 +135,8 @@ describe("owedToday", () => {
  *
  * Dragging is how a slot is rescheduled, so it has to stop being offered the
  * moment there is nothing left to reschedule. A slot that has started is
- * happening now; a completed one is fixed history. Dragging stopped/missed
- * work creates a new appointment through Postpone, retaining that history.
+ * happening now; a completed one is fixed history. Early-stopped slots move
+ * in place only before the scheduled start cutoff; missed history never moves.
  */
 describe("buildTimeline", () => {
   const status = (value: string) =>
@@ -158,9 +158,9 @@ describe("buildTimeline", () => {
     }
   });
 
-  it("lets stopped and missed blocks be dragged into a new appointment", () => {
-    for (const value of ["skipped", "missed"])
-      expect(status(value)?.movable).toBe(true);
+  it("lets early-stopped slots move in place, but never moves missed history", () => {
+    expect(status("skipped")?.movable).toBe(true);
+    expect(status("missed")?.movable).toBe(false);
   });
 
   it("distinguishes approaching, due, running and done instead of treating them all as startable", () => {
@@ -198,13 +198,13 @@ describe("buildTimeline", () => {
       startable: false,
       running: false,
     });
-    expect(row("planned", H(11))).toMatchObject({
+    expect(row("planned", H(10) + 120_000)).toMatchObject({
       startable: false,
-      movable: true,
+      movable: false,
     });
   });
 
-  it("offers resume only before the stopped slot ends, and never starts missed work", () => {
+  it("offers resume only before the scheduled cutoff, and never starts missed work", () => {
     const stopped = (now: number) =>
       buildTimeline(
         day({ slots: [{ ...slot(H(10), H(11)), status: "skipped" }] }),
@@ -216,7 +216,8 @@ describe("buildTimeline", () => {
       startable: true,
       running: false,
     });
-    expect(stopped(H(11))).toMatchObject({
+    expect(stopped(H(10) + 120_000)).toMatchObject({
+      movable: false,
       resumable: false,
       startable: false,
       running: false,

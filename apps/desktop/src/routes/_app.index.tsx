@@ -13,6 +13,7 @@ import {
   ScopeNav,
   Slot,
 } from "@wiseroutine/design";
+import { slotActionDeadline } from "@wiseroutine/scheduler";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
@@ -362,6 +363,23 @@ const Today: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
+  // The ruler must lose its controls at the same instant as This slot,
+  // including appointments that don't start on a whole minute.
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    const timers = (data?.slots ?? [])
+      .map(slotActionDeadline)
+      .filter((at): at is number => at !== null && at > Date.now())
+      .map((at) => setTimeout(tick, Math.min(at - Date.now(), 2_147_483_647)));
+    window.addEventListener("focus", tick);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      for (const timer of timers) clearTimeout(timer);
+      window.removeEventListener("focus", tick);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [data]);
+
   /**
    * Put a slot somewhere else, by hand.
    *
@@ -380,22 +398,19 @@ const Today: React.FC = () => {
       return;
     }
     if (!slot || !slotState(slot, Date.now()).movable) return;
-    if (slot.status === "skipped" || slot.status === "missed") {
-      // Dragging history makes a new appointment, just like Postpone. Never
-      // erase the original outcome by moving its timestamps optimistically.
-      void api
-        .rescheduleSlot(key, { startsAt, endsAt })
-        .catch(() => notify("Couldn't move that. Try another time."))
-        .finally(() => latest.current());
-      return;
-    }
     setData(
       (current) =>
         current && {
           ...current,
           slots: current.slots.map((slot) =>
             slot.id === key
-              ? { ...slot, startsAt, endsAt, isLocked: true }
+              ? {
+                  ...slot,
+                  startsAt,
+                  endsAt,
+                  isLocked: true,
+                  status: "planned" as const,
+                }
               : slot,
           ),
         },

@@ -1,3 +1,4 @@
+import { canStartSlot } from "@wiseroutine/scheduler";
 import { api, flushPending } from "./api";
 import { notify } from "./notify";
 import {
@@ -83,8 +84,9 @@ export async function startTodaySlot(slotId: string): Promise<boolean> {
     !plan.slots.some((slot) => slot.id === slotId)
   )
     return false;
-  if (plan.slots.find((slot) => slot.id === slotId)?.status === "started")
-    return true;
+  const slot = plan.slots.find((slot) => slot.id === slotId);
+  if (slot?.status === "started") return true;
+  if (!slot || !canStartSlot(slot, Date.now())) return false;
   const startedAt = Date.now();
   markStarted(slotId, startedAt);
   publishTodayPlan({

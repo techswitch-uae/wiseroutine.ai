@@ -227,6 +227,48 @@ test("an early Stop unlocks postponement only once the plan confirms it", async 
   expect(screen.getByRole("button", { name: /Postpone/ })).toBeTruthy();
 });
 
+test.each(["planned", "live", "skipped"] as const)(
+  "%s loses Start/Resume and all movement at the scheduled cutoff, but keeps Done",
+  (status) => {
+    vi.useFakeTimers({ now: AT + 119_999, shouldAdvanceTime: false });
+    show(
+      day({
+        slots: [slot({ status, presetKey: null, startedAt: AT - 300_000 })],
+      }),
+    );
+    expect(
+      screen.getByRole("button", {
+        name: status === "skipped" ? "Resume" : "Start",
+      }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Postpone/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Later" })).toBeTruthy();
+    act(() => vi.advanceTimersByTime(1));
+    expect(
+      screen.queryByRole("button", { name: /^(Start|Resume|Earlier|Later)$/ }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Mark it done" })).toBeTruthy();
+  },
+);
+
+test("waking after an early-stopped slot's start cutoff cannot renew Resume or Postpone", () => {
+  vi.useFakeTimers({ now: AT - 300_000, shouldAdvanceTime: false });
+  show(
+    day({
+      slots: [
+        slot({ status: "skipped", presetKey: null, startedAt: AT - 600_000 }),
+      ],
+    }),
+  );
+  expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+  vi.setSystemTime(AT + 120_000);
+  act(() => window.dispatchEvent(new Event("focus")));
+  expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "Mark it done" })).toBeTruthy();
+});
+
 test("a newly selected slot uses its actual Start, not the card's old clock or scheduled start", () => {
   show(
     day({

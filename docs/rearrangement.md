@@ -133,8 +133,10 @@ There is no `isLocked`. A slot the user dragged into place is still a slot the
 day has to make room around. Frozen means *running or already begun by the
 clock*, nothing else. (`planDay` still honours `isLocked` — see Follow-ups.)
 
-`skipped` and `missed` are past tense by definition. `cancelled` is the one
-not-happening status that can sit in the future, and it frees its space.
+`skipped` and `missed` are excluded from automatic placement. A user may resume
+or move an early-stopped slot only before its scheduled start cutoff (see
+[activity planning](activity-planning.md)); that updates the same occurrence.
+`cancelled` frees its space without inviting another placement that day.
 
 ### What counts as busy
 

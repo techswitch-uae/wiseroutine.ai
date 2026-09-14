@@ -17,6 +17,7 @@ import {
   assertSessionScope,
   captureSessionScope,
 } from "../lib/session-lifecycle";
+import { useSlotClock } from "../lib/slot-clock";
 import { CaptureModal } from "./capture-modal";
 import "./capture.css";
 
@@ -32,6 +33,7 @@ export function Reschedule({
   onSaved?: () => void;
 }) {
   const flags = useFeatures();
+  const now = useSlotClock(slot);
   const scope = useRef(captureSessionScope()).current;
   const initial = Math.max(
     slot.startsAt,
@@ -48,7 +50,11 @@ export function Reschedule({
   const [error, setError] = useState("");
   const intent = useRef(crypto.randomUUID());
   const save = async (at?: number) => {
-    if (locked.current || !canPostponeSlot(slot)) return;
+    if (locked.current) return;
+    if (!canPostponeSlot(slot, Date.now())) {
+      setError("This slot can no longer be moved. You can still mark it done.");
+      return;
+    }
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > 480) {
       setError("Choose 1–480 minutes.");
       return;
@@ -60,7 +66,7 @@ export function Reschedule({
       at === undefined
         ? { bucket: true as const }
         : { startsAt: at, endsAt: at + minutes * 60000 };
-    // An edited retry must not duplicate an appointment after a lost response.
+    // An edited retry must not move an already-saved slot a second time.
     try {
       assertSessionScope(scope);
       await api.rescheduleSlot(slot.id, payload, intent.current, scope);
@@ -88,13 +94,10 @@ export function Reschedule({
       setError(cause instanceof Error ? cause.message : "Choose a valid time");
     }
   };
-  if (!canPostponeSlot(slot))
+  if (!canPostponeSlot(slot, now))
     return (
       <CaptureModal title={`Postpone · ${slot.title}`} onClose={onClose}>
-        <p>
-          This slot can't be postponed. A started slot must be stopped first
-          while its stop window is open, or you can create another slot.
-        </p>
+        <p>This slot can no longer be moved. You can still mark it done.</p>
       </CaptureModal>
     );
   const intro = `${timeZone}. Choose another time${
@@ -127,16 +130,6 @@ export function Reschedule({
           submit();
         }}
       >
-        {["missed", "skipped"].includes(slot.status) ? (
-          <p className="wr-body" style={{ margin: 0 }}>
-            The original session stays in history. This creates a new
-            appointment
-            {flags.inbox
-              ? " with the same todo and files"
-              : " for this activity"}
-            .
-          </p>
-        ) : null}
         {error ? (
           <p role="alert" className="wr-auth-problem" style={{ margin: 0 }}>
             {error}

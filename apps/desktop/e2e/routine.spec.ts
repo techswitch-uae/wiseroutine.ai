@@ -99,7 +99,7 @@ test("three stretches spread across Today, remain movable, and dragging toward t
   await expect(slots.first()).toHaveAttribute("aria-label", label!);
 });
 
-test("dragging stopped work makes a new appointment without rewriting its history", async ({
+test("dragging an early-stopped slot moves the same occurrence without a copy", async ({
   page,
   signIn,
 }) => {
@@ -134,21 +134,26 @@ test("dragging stopped work makes a new appointment without rewriting its histor
   await expect(slots.first()).toHaveClass(/wr-daygrid-item-movable/);
   await slots.first().focus();
   const moved = page.waitForResponse(
-    (r) => r.url().endsWith("/reschedule") && r.request().method() === "POST",
+    (r) => r.url().endsWith("/move") && r.request().method() === "POST",
   );
   await page.keyboard.press("ArrowDown");
-  expect((await moved).status()).toBe(200);
-  await expect(slots).toHaveCount(2);
+  const response = await moved;
+  expect(response.status()).toBe(204);
+  const destination = response.request().postDataJSON() as {
+    startsAt: number;
+    endsAt: number;
+  };
+  expect(destination.startsAt).toBeGreaterThan(original.startsAt);
+  expect(destination.startsAt % (5 * 60_000)).toBe(0);
+  await expect(slots).toHaveCount(1);
   const after = (await (
     await fetch(`${API_URL}/today`, { headers })
   ).json()) as { slots: { id: string; startsAt: number; status: string }[] };
   expect(after.slots.find((slot) => slot.id === original.id)).toMatchObject({
-    startsAt: original.startsAt,
-    status: "skipped",
-  });
-  expect(after.slots.find((slot) => slot.id !== original.id)).toMatchObject({
+    ...destination,
     status: "planned",
   });
+  expect(after.slots).toHaveLength(1);
 });
 
 test("Not placed combines shortfalls, retries without duplicates, and supports manual then automatic placement", async ({

@@ -1,5 +1,11 @@
 import { expect, test } from "vitest";
-import { canPostponeSlot, canStopSlot, slotStopDeadline } from "./slot-actions";
+import {
+  canPostponeSlot,
+  canStartSlot,
+  canStopSlot,
+  slotActionDeadline,
+  slotStopDeadline,
+} from "./slot-actions";
 
 const AT = 1_700_000_000_000;
 const slot = (minutes: number, startedAt = AT) => ({
@@ -50,8 +56,56 @@ test.each([
   "cancelled",
 ])("%s has explicit postpone/stop rules", (status) => {
   const s = { ...slot(10), status };
-  expect(canPostponeSlot(s)).toBe(
-    ["planned", "live", "skipped", "missed", "bucketed"].includes(status),
+  expect(canPostponeSlot(s, AT)).toBe(
+    ["planned", "live", "skipped", "bucketed"].includes(status),
   );
   expect(canStopSlot(s, AT)).toBe(status === "started");
+});
+
+test.each([1, 2, 3, 10])(
+  "Start, Resume and moving share the scheduled cutoff for a %i-minute slot",
+  (minutes) => {
+    for (const status of ["planned", "live", "skipped"]) {
+      const s = { ...slot(minutes, AT - 600_000), status };
+      const deadline = AT + Math.min(minutes * 60_000, 120_000);
+      expect(slotActionDeadline(s)).toBe(deadline);
+      for (const now of [AT - 3_600_000, AT, deadline - 1]) {
+        expect(canStartSlot(s, now)).toBe(true);
+        expect(canPostponeSlot(s, now)).toBe(true);
+      }
+      for (const now of [deadline, deadline + 1, s.endsAt, AT + 86_400_000]) {
+        expect(canStartSlot(s, now)).toBe(false);
+        expect(canPostponeSlot(s, now)).toBe(false);
+      }
+    }
+  },
+);
+
+test("Not placed has no scheduled cutoff, while final history never moves or starts", () => {
+  for (const now of [AT - 600_000, AT, AT + 86_400_000]) {
+    for (const status of [
+      "started",
+      "missed",
+      "completed",
+      "cancelled",
+      "bucketed",
+    ]) {
+      const s = { ...slot(10), status };
+      expect(canStartSlot(s, now)).toBe(false);
+      expect(canPostponeSlot(s, now)).toBe(status === "bucketed");
+    }
+  }
+});
+
+test("invalid appointment bounds cannot grant action permissions", () => {
+  for (const s of [
+    slot(0),
+    slot(-1),
+    { ...slot(10), startsAt: NaN },
+    { ...slot(10), endsAt: Infinity },
+  ]) {
+    expect(slotActionDeadline(s)).toBeNull();
+    expect(canStartSlot({ ...s, status: "planned" }, AT)).toBe(false);
+    expect(canPostponeSlot({ ...s, status: "skipped" }, AT)).toBe(false);
+  }
 });

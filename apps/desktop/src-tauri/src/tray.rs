@@ -118,15 +118,13 @@ fn countdown(ms: i64) -> String {
   }
 }
 
-/// The one slot worth naming: the earliest that has not finished yet.
-///
-/// Note `ends_at > now` rather than `starts_at > now`. Something running right
-/// now *is* what is up next - dropping it the moment it began would leave the
-/// menu bar naming the thing after it while you were still in this one.
+/// Pending slots only: the webview removes started/stopped work on refresh.
+/// Mirror scheduler/slot-actions.ts: Start closes two minutes after the
+/// scheduled start (or the end of a shorter slot), not at the end of long work.
 fn up_next(entries: &[Entry], now: i64) -> UpNext {
   let Some(entry) = entries
     .iter()
-    .filter(|entry| entry.ends_at > now)
+    .filter(|entry| entry.ends_at > now && entry.starts_at.saturating_add(120_000) > now)
     .min_by_key(|entry| entry.starts_at)
   else {
     return UpNext::default();
@@ -425,18 +423,24 @@ mod tests {
   /// menu bar, and it must leave on the clock alone - no new push from the
   /// webview, which is the thing that had stopped arriving.
   #[test]
-  fn drops_a_slot_once_it_has_finished() {
+  fn drops_a_slot_at_its_start_cutoff() {
     let day = [entry("a", AT, AT + 10 * MIN)];
 
-    let during = up_next(&day, AT + 5 * MIN);
+    let during = up_next(&day, AT + 2 * MIN - 1);
     assert_eq!(during.title.as_deref(), Some("Breathing"));
     assert_eq!(during.badge.as_deref(), Some("now"));
 
     // Same schedule, later clock. Nothing else changed.
-    let after = up_next(&day, AT + 11 * MIN);
+    let after = up_next(&day, AT + 2 * MIN);
     assert_eq!(after.title, None);
     assert_eq!(after.badge, None);
     assert_eq!(menu_bar_title(&after), None);
+    let short = [entry("short", AT, AT + MIN)];
+    assert_eq!(
+      up_next(&short, AT + MIN - 1).slot_id.as_deref(),
+      Some("short")
+    );
+    assert_eq!(up_next(&short, AT + MIN).slot_id, None);
   }
 
   #[test]

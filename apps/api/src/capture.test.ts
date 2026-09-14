@@ -432,7 +432,7 @@ test("completing, cancelling and restoring synchronize the current todo appointm
   ).toBe(409);
 });
 
-test("postponing an explicitly stopped session keeps history and files; retry and old completion cannot duplicate or finish the new appointment", async () => {
+test("postponing an early-stopped slot keeps its identity, todo and action log without a copy", async () => {
   const user = await seedUser();
   const startsAt = tomorrowNoon();
   const { todoId, slotId } = (await (
@@ -448,26 +448,37 @@ test("postponing an explicitly stopped session keeps history and files; retry an
     (await post(user, `/slots/${slotId}/reschedule`, body, headers)).status,
   ).toBe(409);
   expect((await post(user, `/slots/${slotId}/skip`, {})).status).toBe(204);
+  expect((await post(user, `/slots/${slotId}/start`, {})).status).toBe(204);
+  expect(
+    await userDb().reminder.findUnique({ where: { id: todoId } }),
+  ).toMatchObject({ status: "slotted", slotId });
+  expect((await post(user, `/slots/${slotId}/skip`, {})).status).toBe(204);
   const moved = await post(user, `/slots/${slotId}/reschedule`, body, headers);
   expect(moved.status).toBe(200);
   const next = (await moved.json()) as { slotId: string };
-  expect(next.slotId).not.toBe(slotId);
+  expect(next.slotId).toBe(slotId);
   expect(
     await (
       await post(user, `/slots/${slotId}/reschedule`, body, headers)
     ).json(),
   ).toEqual(next);
-  expect(await userDb().slot.count()).toBe(2);
+  expect(await userDb().slot.count()).toBe(1);
   expect(
-    (await userDb().slot.findUnique({ where: { id: slotId } }))?.status,
-  ).toBe("skipped");
-  await post(user, `/slots/${slotId}/complete`, {});
+    await userDb().slotEvent.count({ where: { slotId, type: "skipped" } }),
+  ).toBe(2);
+  expect(
+    await userDb().slotEvent.count({ where: { slotId, type: "user_moved" } }),
+  ).toBe(1);
   const todo = await userDb().reminder.findUnique({ where: { id: todoId } });
   expect(todo?.status).toBe("slotted");
   expect(todo?.slotId).toBe(next.slotId);
   expect(
     (await userDb().slot.findUnique({ where: { id: next.slotId } }))?.status,
   ).toBe("planned");
+  await post(user, `/slots/${slotId}/complete`, {});
+  expect(
+    (await userDb().reminder.findUnique({ where: { id: todoId } }))?.status,
+  ).toBe("done");
 });
 
 test("bucket is a durable queue across days and re-planning keeps the same unstarted slot", async () => {
