@@ -83,12 +83,12 @@ describe("slotState", () => {
   });
 
   it.each(["planned", "live"] as const)(
-    "does not start or drag elapsed %s work",
+    "can move elapsed unstarted %s work to a future time, but cannot start it",
     (status) => {
       expect(slotState(slot({ status }), END)).toMatchObject({
         label: "Time passed",
         startable: false,
-        movable: false,
+        movable: true,
         running: false,
       });
     },

@@ -37,7 +37,7 @@ export function slotState(slot: TodaySlot, now: number): SlotState {
     case "bucketed":
       return { ...inactive, label: null };
     default:
-      if (over) return { ...inactive, label: "Time passed" };
+      if (over) return { ...inactive, label: "Time passed", movable: true };
       return {
         ...inactive,
         label: slot.isLocked ? "Placed by you" : null,

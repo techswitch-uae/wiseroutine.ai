@@ -1,3 +1,4 @@
+import { maxDailySessions } from "@wiseroutine/scheduler";
 import type React from "react";
 import {
   Avatar,
@@ -1215,7 +1216,13 @@ export const ActivityForm: React.FC<{
   const set = <K extends keyof ActivityDraft>(
     key: K,
     value: ActivityDraft[K],
-  ) => onChange({ ...draft, [key]: value });
+  ) => {
+    const next = { ...draft, [key]: value };
+    if (showFrequency)
+      next.perDay = Math.min(next.perDay, maxDailySessions(next.sessionMinutes));
+    onChange(next);
+  };
+  const maxPerDay = maxDailySessions(draft.sessionMinutes);
 
   // One stack with one gap, rather than each field remembering to space itself
   // off the one above it. That is how the day picker ended up flush against
@@ -1248,11 +1255,18 @@ export const ActivityForm: React.FC<{
             label="How often"
             value={`${draft.perDay} × day`}
             canDecrease={draft.perDay > 1}
-            canIncrease={draft.perDay < 12}
+            canIncrease={draft.perDay < maxPerDay}
             onStep={(direction) => set("perDay", draft.perDay + direction)}
           />
         ) : null}
       </div>
+
+      {showFrequency ? (
+        <p className="wr-activity-hint" aria-live="polite">
+          Up to {maxPerDay} × day at this length · 2 h per activity.
+          {draft.perDay > 1 ? " Spread across your working day." : ""}
+        </p>
+      ) : null}
 
       <DayPicker
         label="Which days"

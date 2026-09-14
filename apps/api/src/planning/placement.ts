@@ -14,7 +14,7 @@ export async function validatePlacement(
   if (
     !Number.isSafeInteger(startsAt) ||
     !Number.isSafeInteger(endsAt) ||
-    startsAt < now - 60_000 ||
+    startsAt < now ||
     startsAt > now + 366 * 24 * 60 * 60_000 ||
     endsAt - startsAt < 60_000 ||
     endsAt - startsAt > 480 * 60_000

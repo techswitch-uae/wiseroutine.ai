@@ -23,7 +23,7 @@ import {
   toBusyBlocks,
 } from "@wiseroutine/scheduler";
 
-export const ENGINE_VERSION = "1.0.0";
+export const ENGINE_VERSION = "1.1.0";
 
 /** The key a plan run is filed under. Spelled once, because `GET /today` asks
  *  "has this day been planned?" with it and this module answers with it. */
@@ -136,7 +136,7 @@ export async function planDay(
     const keeps =
       slot.status === "planned"
         ? slot.isLocked || params.preservePlanned || slot.startsAt < dayStart
-        : slot.status === "live" || slot.status === "started";
+        : ["live", "started", "bucketed"].includes(slot.status);
     if (!keeps || !slot.activityId) continue;
     keptToday.set(slot.activityId, (keptToday.get(slot.activityId) ?? 0) + 1);
   }
@@ -175,7 +175,7 @@ export async function planDay(
     });
   }
 
-  const result = solve({ dayStart, dayEnd: bounds.end, busy, locked, demands });
+  const result = solve({ dayStart, spreadStart: bounds.start, dayEnd: bounds.end, busy, locked, demands });
 
   const activityById = new Map(activities.map((a) => [a.row.id, a.row]));
   const planned = result.placed
@@ -206,10 +206,12 @@ export async function planDay(
         busy,
         demands,
         dayStart,
+        spreadStart: bounds.start,
         dayEnd: bounds.end,
+        locked,
       }),
       placedCount: planned.length,
-      unplacedCount: result.unplaced.length,
+      unplacedCount: result.unplaced.reduce((sum, item) => sum + item.sessions, 0),
       durationMs: Date.now() - started,
     },
     now,
@@ -230,6 +232,35 @@ export async function planDay(
     now,
     newId,
   );
+
+  // A shortfall is a real, recoverable occurrence, not just a number on a
+  // plan run. Bucket rows consume demand on later plans but never hold time.
+  for (const missing of result.unplaced) {
+    const activity = activityById.get(missing.activityId);
+    if (!activity) continue;
+    for (let i = 0; i < missing.sessions; i++) {
+      await db.slot.create({
+        data: {
+          id: newId(),
+          activityId: activity.id,
+          title: activity.name,
+          kind: activity.kind,
+          // A day key and duration only, not a pretend appointment. The UI
+          // labels initial shortfalls "Not placed" rather than "was 09:00".
+          startsAt: new Date(bounds.start),
+          endsAt: new Date(bounds.start + activity.sessionMinutes * 60_000),
+          timeZone: zone,
+          status: "bucketed",
+          planRunId,
+          createdAt: new Date(now),
+          events: { create: {
+            id: newId(), at: new Date(now), type: "bucketed", actor: "system",
+            reasonCode: missing.reason, reasonText: "initial_placement",
+          } },
+        },
+      });
+    }
+  }
 
   return { ...result, planRunId, ...written };
 }

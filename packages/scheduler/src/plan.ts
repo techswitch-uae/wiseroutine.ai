@@ -1,4 +1,5 @@
 import { freeGaps } from "./busy";
+import { siblingGap } from "./routine";
 import type {
   Demand,
   Importance,
@@ -148,6 +149,9 @@ export function plan(input: PlanInput): PlanResult {
       throw new RangeError("Invalid or excessive placement demand");
     }
   }
+  const spreadStart = input.spreadStart ?? input.dayStart;
+  if (!Number.isFinite(spreadStart) || spreadStart > input.dayStart || input.dayEnd - spreadStart > 48 * 60 * MINUTE)
+    throw new RangeError("Invalid spread bounds");
   const bounds = { start: input.dayStart, end: input.dayEnd };
   const lockedIntervals = input.locked.map((s) => ({
     start: s.start,
@@ -175,28 +179,49 @@ export function plan(input: PlanInput): PlanResult {
     const { activity } = demand;
     const duration = activity.sessionMinutes * MINUTE;
     const bufferMs = activity.bufferBeforeMeetingMinutes * MINUTE;
+    const siblings = placed.filter((slot) => slot.activityId === activity.id);
+    const count = siblings.length + demand.sessionsNeeded;
+    const span = input.dayEnd - spreadStart;
+    const separation = siblingGap(span, count);
+    // One target per occurrence, centred in equal parts of the working day.
+    // A kept/manual/completed occurrence consumes its nearest target first.
+    const targets = count > 1
+      ? Array.from({ length: count }, (_, i) => {
+          const from = spreadStart + (span * i) / count;
+          const to = spreadStart + (span * (i + 1)) / count - duration;
+          const preferred = demand.preferredAt.length
+            ? demand.preferredAt.reduce((best, at) => Math.abs(at - (from + to) / 2) < Math.abs(best - (from + to) / 2) ? at : best)
+            : (from + to) / 2;
+          return Math.round(Math.max(from, Math.min(to, preferred)) / MINUTE) * MINUTE;
+        })
+      : [];
+    for (const slot of siblings) {
+      const nearest = targets.reduce((best, at, i) => Math.abs(at - slot.start) < Math.abs((targets[best] ?? Infinity) - slot.start) ? i : best, 0);
+      targets.splice(nearest, 1);
+    }
 
     for (let session = 0; session < demand.sessionsNeeded; session++) {
       let best: Placement | undefined;
 
+      const preferred = targets[session] === undefined ? demand.preferredAt : [targets[session] as number];
+      const excluded = siblings.map((slot) => ({ start: slot.start - separation, end: slot.end + separation }));
       for (const [index, gap] of gaps.entries()) {
-        budget -= Math.max(1, demand.preferredAt.length);
+        budget -= Math.max(1, siblings.length);
         if (budget < 0) throw new RangeError("Plan exceeds work bounds");
-        const fit = fitInGap(gap, duration, bufferMs, demand.preferredAt);
-        if (!fit) continue;
-        if (
-          !best ||
-          fit.cost < best.cost ||
-          (fit.cost === best.cost && fit.start < best.start)
-        ) {
-          best = { gapIndex: index, start: fit.start, cost: fit.cost };
+        for (const available of freeGaps(gap, excluded)) {
+          budget -= Math.max(1, preferred.length);
+          if (budget < 0) throw new RangeError("Plan exceeds work bounds");
+          const fit = fitInGap({ ...available, endsAtMeeting: gap.endsAtMeeting && available.end === gap.end }, duration, bufferMs, preferred);
+          if (!fit) continue;
+          if (!best || fit.cost < best.cost || (fit.cost === best.cost && fit.start < best.start))
+            best = { gapIndex: index, start: fit.start, cost: fit.cost };
         }
       }
 
       if (!best) {
-        const reason: UnplacedReason = fitsIgnoringBuffer(gaps, duration)
-          ? "buffer_blocked"
-          : "no_gap";
+        const reason: UnplacedReason = gaps.some((gap) => fitInGap(gap, duration, bufferMs, []))
+          ? "spacing_blocked"
+          : fitsIgnoringBuffer(gaps, duration) ? "buffer_blocked" : "no_gap";
         const existing = shortfall.get(activity.id);
         shortfall.set(activity.id, {
           sessions:
@@ -207,7 +232,9 @@ export function plan(input: PlanInput): PlanResult {
       }
 
       const end = best.start + duration;
-      placed.push({ activityId: activity.id, start: best.start, end });
+      const slot = { activityId: activity.id, start: best.start, end };
+      placed.push(slot);
+      siblings.push(slot);
 
       // Split the consumed gap into whatever is left either side.
       const gap = gaps[best.gapIndex] as Gap;

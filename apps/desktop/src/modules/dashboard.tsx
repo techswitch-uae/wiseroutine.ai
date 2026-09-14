@@ -306,8 +306,8 @@ export const Bucket: React.FC<{ standalone?: boolean; query?: string }> = ({
           <StateRow
             recessed
             name={item.title}
-            meta={`was ${stamp(item.wasAt)} · ${bucketReason(item)}`}
-            leading={<Chip variant="static">{clock(item.wasAt)}</Chip>}
+            meta={`${item.initiallyUnplaced ? "Not placed" : `was ${stamp(item.wasAt)}`} · ${bucketReason(item)}`}
+            leading={<Chip variant="static">{item.initiallyUnplaced ? `${Math.round((item.endsAt - item.startsAt) / 60_000)} min` : clock(item.wasAt)}</Chip>}
             trailing={
               <span style={{ display: "flex", gap: 6 }}>
                 {item.suggested ? (
@@ -365,6 +365,9 @@ function bucketReason(item: BucketItem): string {
       return "saved for later";
     case "no_gap":
       return "no gap it would fit in";
+    case "buffer_blocked":
+      return "needs room before a meeting";
+    case "spacing_blocked":
     case "too_close":
       return "too close to another one";
     case "day_over":

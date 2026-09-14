@@ -840,6 +840,8 @@ export type DayGridProps = {
   /** Fires once, on drop, with instants already snapped to the ruler. Without
    *  it nothing is draggable however the items are marked. */
   onMove?: (key: string, startsAt: number, endsAt: number) => void;
+  /** Earliest manual drop, normally now. Past days cannot accept a move. */
+  moveFrom?: number;
   /**
    * A block being dragged in from outside the grid, and where the cursor is.
    *
@@ -1034,6 +1036,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
   quarterStep = 64,
   minBlockHeight = 46,
   onMove,
+  moveFrom = dayStart,
   onBackdrop,
   placing,
 }) => {
@@ -1118,7 +1121,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
     const from = items.find((item) => item.key === key);
     // A press that never moved is a press, and must not spend a write saying
     // nothing changed.
-    if (from && from.startsAt !== startsAt) onMove?.(key, startsAt, endsAt);
+    if (from && canMove(from) && startsAt >= moveFrom && from.startsAt !== startsAt) onMove?.(key, startsAt, endsAt);
   };
 
   const handles = (item: DayGridItem) => ({
@@ -1213,6 +1216,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
         item,
         scale,
         dayEnd,
+        moveFrom,
       );
       commit(item.key, moved.startsAt, moved.endsAt);
     },
@@ -1227,9 +1231,9 @@ export const DayGrid: React.FC<DayGridProps> = ({
    * every render it causes - so they cannot close over props. A ref updated on
    * every render is the smallest thing that keeps them current.
    */
-  const latest = useRef({ items, scale, dayEnd, onMove, drag });
+  const latest = useRef({ items, scale, dayEnd, onMove, moveFrom, drag });
   useEffect(() => {
-    latest.current = { items, scale, dayEnd, onMove, drag };
+    latest.current = { items, scale, dayEnd, onMove, moveFrom, drag };
   });
 
   /**
@@ -1271,24 +1275,20 @@ export const DayGrid: React.FC<DayGridProps> = ({
           live,
           x: event.clientX,
           y: event.clientY,
-          ...dropAt(topOf(event.clientY, current.grabY), current, at, end),
+          ...dropAt(topOf(event.clientY, current.grabY), current, at, end, latest.current.moveFrom),
         };
       });
     };
 
     const onPointerUp = () => {
-      setDrag((current) => {
-        if (current?.live === true) {
-          const { items: shown, onMove: move } = latest.current;
-          const from = shown.find((item) => item.key === current.key);
-          // A press that never moved is a press, and must not spend a write
-          // saying nothing changed.
-          if (from && from.startsAt !== current.startsAt) {
-            move?.(current.key, current.startsAt, current.endsAt);
-          }
-        }
-        return null;
-      });
+      const { drag: current, items: shown, onMove: move, moveFrom: floor } = latest.current;
+      setDrag(null);
+      if (!current?.live) return;
+      const from = shown.find((item) => item.key === current.key);
+      // Permissions can change during a drag. Commit outside a React updater
+      // so StrictMode cannot issue the same move twice.
+      if (from?.movable && current.startsAt >= floor && from.startsAt !== current.startsAt)
+        move?.(current.key, current.startsAt, current.endsAt);
     };
 
     // Losing the pointer - a system gesture, a window switch - is not a drop.
@@ -1333,7 +1333,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
         const { scale: at, dayEnd: end } = latest.current;
         return {
           ...held,
-          ...dropAt(topOf(held.y, held.grabY), held, at, end),
+          ...dropAt(topOf(held.y, held.grabY), held, at, end, latest.current.moveFrom),
         };
       });
     });

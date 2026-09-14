@@ -41,6 +41,8 @@
  */
 
 import { freeGaps } from "./busy";
+import { siblingGap } from "./routine";
+export { MIN_SIBLING_GAP_MS, SPREAD_TOLERANCE } from "./routine";
 import type { Activity, BusyBlock, Instant, Interval, Minutes } from "./types";
 
 const MINUTE = 60_000;
@@ -167,11 +169,7 @@ export const breatherFor = (rule: BreatherRule, neighbourMs: number): number =>
  * it the user wants - so a session with nowhere far enough from its siblings
  * goes to the bucket rather than being offered.
  */
-export const MIN_SIBLING_GAP_MS = 30 * MINUTE;
-
-/** A spread activity wants `span / sessions` between sessions; landing at less
- *  than this fraction of that is bunched. */
-export const SPREAD_TOLERANCE = 0.6;
+// The floor and spread tolerance live in routine.ts, shared with plan().
 
 /* ── Input ───────────────────────────────────────────────────────────────── */
 
@@ -617,12 +615,11 @@ export function rearrange(input: RearrangeInput): RearrangeResult {
     const mine = siblings.get(slot.activityId) ?? [];
     const count = sessionCount.get(slot.activityId) ?? 1;
 
-    const spreadGap =
-      policy.spread && count > 1
-        ? (allowedSpan(policy, { start: input.dayStart, end: input.dayEnd }) /
-            count) *
-          SPREAD_TOLERANCE
-        : 0;
+    const requiredGap = siblingGap(
+      allowedSpan(policy, { start: input.dayStart, end: input.dayEnd }),
+      count,
+      policy.spread,
+    );
 
     const found = search(freeGaps(day, occupied), {
       duration,
@@ -632,7 +629,7 @@ export function rearrange(input: RearrangeInput): RearrangeResult {
       occupied,
       breather,
       siblings: mine,
-      requiredGap: Math.max(MIN_SIBLING_GAP_MS, spreadGap),
+      requiredGap,
     });
 
     if ("failed" in found) {

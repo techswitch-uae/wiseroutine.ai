@@ -814,7 +814,9 @@ export async function scheduledForRange(
   const rows = await db.slot.findMany({
     where: {
       startsAt: { gte: at(from), lt: at(to) },
-      status: { in: ["planned", "live", "started"] },
+      // Bucket occurrences are already accounted for. They must not also
+      // appear as fresh demand in To place or be recreated by another plan.
+      status: { in: ["planned", "live", "started", "bucketed"] },
     },
     select: { activityId: true },
   });

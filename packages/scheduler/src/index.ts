@@ -5,6 +5,7 @@ export * from "./localtime";
 export * from "./plan";
 export * from "./rearrange";
 export * from "./replay";
+export { maxDailySessions, siblingGap } from "./routine";
 export * from "./scenarios";
 export * from "./slot-actions";
 export * from "./types";

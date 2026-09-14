@@ -93,6 +93,8 @@ export type UnplacedReason =
   | "no_gap"
   /** Gaps existed but every one collided with a pre-meeting buffer. */
   | "buffer_blocked"
+  /** There was time, but not enough separation from another occurrence. */
+  | "spacing_blocked"
   /** The activity does not run on this weekday. */
   | "not_scheduled_today";
 
@@ -106,6 +108,8 @@ export interface PlanInput {
   /** The planning window, already resolved from the user's local day. */
   dayStart: Instant;
   dayEnd: Instant;
+  /** Full working-day start when dayStart has been clamped to now. */
+  spreadStart?: Instant;
   busy: BusyBlock[];
   /** Slots the user placed or pinned. Treated as immovable and as busy. */
   locked: PlacedSlot[];

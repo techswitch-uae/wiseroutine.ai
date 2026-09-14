@@ -17,6 +17,7 @@ import {
   type TemplateNote,
 } from "@wiseroutine/design";
 import { PLANS } from "@wiseroutine/plans";
+import { maxDailySessions } from "@wiseroutine/scheduler";
 import { useCallback, useEffect, useState } from "react";
 import { useInstalledAddons } from "../addons/installed";
 import { useAccount } from "../lib/account";
@@ -76,7 +77,7 @@ const draftOf = (row: ActivityResponse): ActivityDraft => ({
   name: row.name,
   kind: row.kind,
   sessionMinutes: row.sessionMinutes,
-  perDay: row.minimum.type === "countPerDay" ? row.minimum.value : 1,
+  perDay: row.minimum.type === "countPerDay" ? Math.min(row.minimum.value, maxDailySessions(row.sessionMinutes)) : 1,
   days: row.daysOfWeek,
   land: landingOf(row.preferredWindows),
 });

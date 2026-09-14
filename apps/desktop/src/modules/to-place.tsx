@@ -47,7 +47,7 @@ const GRID = ".wr-daygrid";
  *  server decides whether that gap was really free, and its answer is the
  *  plan - not ours. */
 function place(at: Placement): void {
-  if (at.startsAt === null) return;
+  if (at.startsAt === null || at.startsAt < Date.now()) return;
   api
     .placeSlot(at.activityId, at.startsAt, at.startsAt + at.minutes * 60_000)
     .catch(() => notify(`Couldn't put ${at.name} there.`))
@@ -109,6 +109,7 @@ export const ToPlace: React.FC = () => {
               scale,
               dayEnd,
               current.minutes,
+              Date.now(),
             )
           : null,
       });

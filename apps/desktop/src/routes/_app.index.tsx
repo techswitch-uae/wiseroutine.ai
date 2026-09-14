@@ -377,6 +377,12 @@ const Today: React.FC = () => {
    * where it was put - see `moveSlot`.
    */
   const move = useCallback((key: string, startsAt: number, endsAt: number) => {
+    const slot = dataRef.current?.slots.find((item) => item.id === key);
+    if (startsAt < Date.now()) {
+      notify("Choose a time ahead of now.");
+      return;
+    }
+    if (!slot || !slotState(slot, Date.now()).movable) return;
     setData(
       (current) =>
         current && {
@@ -718,6 +724,7 @@ const Today: React.FC = () => {
             quarterStep={density.quarterStep}
             minBlockHeight={density.minBlockHeight}
             onMove={move}
+            moveFrom={now}
             /* The block the drop would produce, handed to the grid as a block
                like any other so it is laid out - lane, column and all - by
                exactly the rules that will apply once it exists. */

@@ -23,6 +23,7 @@ export function dropTimeOf(
   scale: DayScale,
   dayEnd: number,
   minutes: number,
+  notBefore = scale.dayStart,
 ): number | null {
   if (!grid) return null;
   const inside =
@@ -32,10 +33,12 @@ export function dropTimeOf(
     point.y <= grid.bottom;
   if (!inside) return null;
 
-  return dropAt(
+  const drop = dropAt(
     point.y - grid.top,
     { key: "", startsAt: 0, endsAt: minutes * 60_000 },
     scale,
     dayEnd,
-  ).startsAt;
+    notBefore,
+  );
+  return drop.startsAt >= notBefore ? drop.startsAt : null;
 }

@@ -576,11 +576,15 @@ export interface ActivityInput {
  * all, and the only answers are a time the user picks or dropping it.
  */
 export interface BucketItem {
+  /** No previous appointment: the initial planner could not place it. */
+  initiallyUnplaced?: boolean;
   id: string;
   title: string;
   kind: "recovery" | "focus" | "task";
   /** The hour it was due at before the day moved under it. */
   wasAt: number;
+  startsAt: number;
+  endsAt: number;
   reminderId?: string | null;
   /** The engine's reason - `no_gap`, `too_close`, `large_drift`,
    *  `outside_window`, `day_over`. Comma-joined when there was more than one. */

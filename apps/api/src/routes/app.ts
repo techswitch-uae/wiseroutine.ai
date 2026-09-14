@@ -76,6 +76,7 @@ import {
   type LocalDate,
   localDateOf,
   localWeekday,
+  maxDailySessions,
   replayedAt,
   runsOn,
   shouldSyncOnForeground,
@@ -1002,17 +1003,22 @@ function activityBody(value: unknown): Record<string, unknown> {
   return parsed.data;
 }
 
+/** Check the merged configuration, not a duration or frequency in isolation. */
+function validateDailyFrequency(body: Record<string, unknown>, previous?: { minimumType: string; minimumValue: number; sessionMinutes: number }): void {
+  if (previous && !["minimumType", "minimumValue", "sessionMinutes"].some((key) => body[key] !== undefined)) return;
+  const type = body.minimumType ?? previous?.minimumType ?? "countPerDay";
+  const minutes = Number(body.sessionMinutes ?? previous?.sessionMinutes ?? 10);
+  const count = Number(body.minimumValue ?? previous?.minimumValue ?? 1);
+  const max = maxDailySessions(minutes);
+  if (type === "countPerDay" && count > max)
+    throw new HTTPException(400, { message: `At ${minutes} minutes, choose up to ${max} times a day (two hours per activity).` });
+}
+
 /** New/resumed activities get room without evicting the accepted routine. */
 async function placeActivityChanges(c: Ctx, db: UserDatabase): Promise<void> {
   const now = c.get("now");
   const user = c.get("user");
-  const bounds = dayBounds(
-    localDateOf(now, user.timeZone),
-    user.timeZone,
-    user.dayStartMinutes,
-    user.dayEndMinutes,
-  );
-  if (now >= bounds.end) return;
+  // After hours, the occurrences still belong in the bucket, not nowhere.
   await scheduleGrace(c);
   await planDay(
     db,
@@ -1036,6 +1042,7 @@ app.post("/activities", async (c) =>
 
     const body = activityBody(await c.req.json().catch(() => null));
     enforceActivityFeatures(c, body);
+    validateDailyFrequency(body);
     const id = await createActivity(
       db,
       {
@@ -1074,6 +1081,8 @@ app.patch("/activities/:id", async (c) =>
       ...previous.row,
       preferredWindows: previous.anchorMinutes,
     });
+
+    validateDailyFrequency(body, previous.row);
 
     // Re-activating counts against the plan limit; pausing never does.
     if (body.isActive === true && !previous.row.isActive) {
@@ -2417,6 +2426,7 @@ app.get("/bucket", async (c) => {
         endsAt: slot.endsAt,
         reminderId: slot.reminderId,
         reasonCode: last?.reasonCode ?? null,
+        initiallyUnplaced: last?.reasonText === "initial_placement",
         /**
          * Where we would have put it, ready to hand straight to
          * `/slots/:id/move` - or null when there was nowhere at all.

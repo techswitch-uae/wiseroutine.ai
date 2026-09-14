@@ -283,10 +283,11 @@ export function dropAt(
   block: DayBlock,
   scale: DayScale,
   dayEnd: number,
+  notBefore = scale.dayStart,
 ): { startsAt: number; endsAt: number } {
   const length = block.endsAt - block.startsAt;
   const startsAt = Math.min(
-    Math.max(snap(atOf(y, scale)), scale.dayStart),
+    Math.max(snap(atOf(y, scale)), scale.dayStart, Math.ceil(notBefore / (SNAP_MINUTES * 60_000)) * SNAP_MINUTES * 60_000),
     dayEnd - length,
   );
   return { startsAt, endsAt: startsAt + length };

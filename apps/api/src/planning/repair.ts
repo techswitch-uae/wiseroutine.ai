@@ -4,7 +4,6 @@ import {
   toSchedulerActivity,
 } from "@wiseroutine/db";
 import {
-  ANYWHERE,
   type BusyBlock,
   type CurrentSlot,
   rearrange,
@@ -86,21 +85,18 @@ export function repair(input: RepairInput): Repair {
         start: s.startsAt,
         end: s.endsAt,
       })),
-    /**
-     * Every activity is placeable anywhere, for now.
-     *
-     * `activity_windows` stores an `anchor_minutes` point, not a region, and
-     * there is no `spread` column - so a window here would be one this file
-     * invented rather than one the user set, and it would be *stricter* than
-     * `planDay`, which reads the same anchors as a soft preference. Until the
-     * schema can express a region, "no stated preference" is the honest
-     * reading, and drift is what decides. See docs/rearrangement.md,
-     * "Follow-ups".
-     */
+    // Anchors are soft preferences, not forbidden regions. Spacing is a
+    // universal rule for repeated activities, not an opt-in database flag.
     activities: Object.fromEntries(
       input.activities.map(({ row }) => [
         row.id,
-        { activity: toSchedulerActivity(row), policy: ANYWHERE },
+        {
+          activity: toSchedulerActivity(row),
+          policy: {
+            windows: [],
+            spread: input.slots.filter((slot) => slot.activityId === row.id && !["cancelled", "bucketed"].includes(slot.status)).length > 1,
+          },
+        },
       ]),
     ),
   });
