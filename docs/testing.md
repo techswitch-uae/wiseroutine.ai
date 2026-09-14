@@ -96,6 +96,23 @@ Web retries once in CI; a retry is not proof of reliability. Investigate flaky
 outcomes rather than adding sleeps or relaxing assertions. App retains its
 zero-retry, serial policy.
 
+## Native tray regression checks
+
+```sh
+cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib tray::tests
+```
+
+These cover clock-only expiry and the native title-write boundary, including
+an hour-old last slot and an empty schedule. The setter model matches the
+pinned macOS tray library: `None` leaves existing text unchanged, while an
+explicit empty string clears it. Selecting no next slot alone is not enough.
+
+For native acceptance, hide the window with one pending slot and let its start
+window expire. After the next native tick (at most 15 seconds), only the tray
+icon should remain; the menu should say **Nothing up next**, with **Start now**
+disabled. Repeat after completing the last slot and signing out. Rust unit tests
+model the setter contract; they do not drive a live AppKit status item.
+
 ## Still manual release gates
 
 Follow [launch acceptance](launch.md), [release preparation](releasing.md), and

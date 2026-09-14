@@ -220,6 +220,17 @@ fn menu_bar_title(next: &UpNext) -> Option<String> {
   Some(format!("{short} · {badge}"))
 }
 
+/// Keep the native write testable without an AppKit event loop.
+fn render_title(
+  next: &UpNext,
+  set_title: impl FnOnce(Option<&str>) -> tauri::Result<()>,
+) -> tauri::Result<()> {
+  let title = menu_bar_title(next);
+  // tray-icon 0.24's macOS setter ignores None, leaving the old text visible.
+  // An explicit empty string clears it while retaining the tray icon.
+  set_title(Some(title.as_deref().unwrap_or_default()))
+}
+
 const TRAY_ID: &str = "menu-bar";
 
 /// Rebuild the menu and the title from the day as it now stands.
@@ -269,7 +280,7 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
     .build()?;
 
   tray.set_menu(Some(menu))?;
-  tray.set_title(menu_bar_title(next).as_deref())?;
+  render_title(next, |title| tray.set_title(title))?;
   Ok(())
 }
 
@@ -441,6 +452,58 @@ mod tests {
       Some("short")
     );
     assert_eq!(up_next(&short, AT + MIN).slot_id, None);
+  }
+
+  // Model the actual tray-icon macOS setter: None is a no-op, not a clear.
+  // Selection-only tests miss this because up_next correctly returns empty.
+  fn native_title(displayed: &mut String, next: &UpNext) {
+    render_title(next, |title| {
+      if let Some(title) = title {
+        *displayed = title.to_string();
+      }
+      Ok(())
+    })
+    .unwrap();
+  }
+
+  #[test]
+  fn clears_the_native_title_when_the_last_slot_expires_without_a_new_schedule() {
+    let mut walk = entry("walk", AT, AT + 20 * MIN);
+    walk.title = "Walk".to_string();
+    let day = [walk];
+    let mut displayed = String::new();
+    native_title(&mut displayed, &up_next(&day, AT));
+    assert_eq!(displayed, "Walk · now");
+
+    for now in [AT + 2 * MIN, AT + 60 * MIN] {
+      let next = up_next(&day, now);
+      native_title(&mut displayed, &next);
+      assert_eq!(displayed, "");
+      assert_eq!(next.slot_id, None);
+    }
+  }
+
+  #[test]
+  fn an_empty_schedule_explicitly_clears_a_previous_native_title() {
+    let mut displayed = "Walk · now".to_string();
+    // Also covers sign-out, completing the last slot, and an empty next day.
+    native_title(&mut displayed, &up_next(&[], AT));
+    assert_eq!(displayed, "");
+  }
+
+  #[test]
+  fn the_native_title_follows_the_next_slot_then_clears() {
+    let day = [
+      entry("a", AT, AT + 10 * MIN),
+      entry("b", AT + 20 * MIN, AT + 30 * MIN),
+    ];
+    let mut displayed = String::new();
+    native_title(&mut displayed, &up_next(&day, AT));
+    assert_eq!(displayed, "Breathing · now");
+    native_title(&mut displayed, &up_next(&day, AT + 2 * MIN));
+    assert_eq!(displayed, "Breathing · 18m");
+    native_title(&mut displayed, &up_next(&day, AT + 22 * MIN));
+    assert_eq!(displayed, "");
   }
 
   #[test]
