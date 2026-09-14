@@ -288,7 +288,7 @@ export const AccountScreen: React.FC<{
         </div>
       </div>
 
-      <Card>
+      <div className="wr-blocks">
         <Block
           title="Name"
           note="Providers give us a name when you sign in with them. This overrides it."
@@ -412,7 +412,7 @@ export const AccountScreen: React.FC<{
             Sign out
           </Button>
         </Block>
-      </Card>
+      </div>
     </div>
   );
 };
@@ -522,7 +522,7 @@ export const DayHoursSection: React.FC<{
 
   return (
     <div className="wr-account">
-      <Card>
+      <div className="wr-blocks">
         <Block
           title="Working hours"
           note="Activities are scheduled between these times. Changing the hours shown in Today does not change this schedule."
@@ -635,7 +635,7 @@ export const DayHoursSection: React.FC<{
             />
           </>
         ) : null}
-      </Card>
+      </div>
     </div>
   );
 };

@@ -17,6 +17,7 @@ import {
   IconArrowRight,
   PlayGlyph,
   ResumeGlyph,
+  RunningGlyph,
 } from "./icons";
 import {
   clockOf,
@@ -620,13 +621,35 @@ export type SlotVariant =
    *  lift. Free shows a `DashedRow` in the same position instead. */
   | "suggested";
 
+/** The same non-interactive state cue on a timeline slot and its detail widget. */
+export const SlotStatusMark: React.FC<{ status: "running" | "done" }> = ({
+  status,
+}) => {
+  const label = status === "done" ? "Done" : "Running";
+  return (
+    <span
+      className={status === "done" ? "wr-done" : "wr-running"}
+      role="img"
+      aria-label={label}
+      title={label}
+    >
+      {status === "done" ? (
+        <CheckGlyph aria-hidden="true" />
+      ) : (
+        <RunningGlyph aria-hidden="true" />
+      )}
+    </span>
+  );
+};
+
 export type SlotProps = {
   variant: SlotVariant;
   time: string;
   name: string;
   meta?: string;
-  /** focus/recovery: the trailing element. Done state is a chip - never dim. */
+  /** Lifecycle cues are independent of the card's visual variant. */
   done?: boolean;
+  running?: boolean;
   /** meeting: the provider mark, e.g. "G" or "O". */
   source?: string;
   /** live: the auto-move sentence and the draining grace bar (0–1). Omit the
@@ -636,13 +659,13 @@ export type SlotProps = {
   grace?: number;
   onStart?: () => void;
   /**
-   * live: what the button offers.
+   * live: what the button offers; null means no start/resume action.
    *
    * "resume" for a block that was started and stopped and whose time is still
    * running. Play means "this has not happened yet", and using it for both
    * offered a start on something already half-done.
    */
-  action?: "start" | "resume";
+  action?: "start" | "resume" | null;
   /** suggested: the trailing label. Defaults to "Suggested". */
   badge?: string;
 };
@@ -653,6 +676,7 @@ export const Slot: React.FC<SlotProps> = ({
   name,
   meta,
   done,
+  running,
   source,
   autoMove,
   grace,
@@ -675,7 +699,7 @@ export const Slot: React.FC<SlotProps> = ({
                 {meta ? <div className="wr-slot-meta">{meta}</div> : null}
               </div>
               <div className="wr-slot-trailing">
-                {autoMove ? (
+                {autoMove && !running && !done ? (
                   <div className="wr-slot-automove">{autoMove}</div>
                 ) : null}
                 {/* The word is a separate element so a narrow home for this
@@ -683,19 +707,27 @@ export const Slot: React.FC<SlotProps> = ({
                     `.wr-daygrid-item` in app.css. `aria-label` carries the
                     name either way, because a hidden word is a button with no
                     name to anyone not looking at it. */}
-                <Button
-                  variant="primary"
-                  aria-label={resuming ? "Resume" : "Start"}
-                  onClick={onStart}
-                >
-                  {resuming ? <ResumeGlyph /> : <PlayGlyph />}
-                  <span className="wr-btn-word">
-                    {resuming ? "Resume" : "Start"}
-                  </span>
-                </Button>
+                {done || running ? (
+                  <SlotStatusMark status={done ? "done" : "running"} />
+                ) : action !== null ? (
+                  <Button
+                    variant="primary"
+                    aria-label={resuming ? "Resume" : "Start"}
+                    onClick={onStart}
+                  >
+                    {resuming ? (
+                      <ResumeGlyph aria-hidden="true" />
+                    ) : (
+                      <PlayGlyph aria-hidden="true" />
+                    )}
+                    <span className="wr-btn-word">
+                      {resuming ? "Resume" : "Start"}
+                    </span>
+                  </Button>
+                ) : null}
               </div>
             </div>
-            {grace === undefined ? null : (
+            {grace === undefined || running || done ? null : (
               <div className="wr-bar" style={{ marginTop: 12 }}>
                 <div
                   className="wr-bar-fill"
@@ -731,15 +763,9 @@ export const Slot: React.FC<SlotProps> = ({
               <span className="wr-slot-trailing">
                 <span className="wr-badge">{badge}</span>
               </span>
-            ) : done ? (
+            ) : done || running ? (
               <span className="wr-slot-trailing">
-                {/* A mark, not a word. It has to read at a glance and fit a
-                    block whose height is its own duration - and a chip
-                    spelling "Done" was the widest thing in the shortest
-                    card. The name is still spoken. */}
-                <span className="wr-done" role="img" aria-label="Done">
-                  <CheckGlyph />
-                </span>
+                <SlotStatusMark status={done ? "done" : "running"} />
               </span>
             ) : null}
           </>

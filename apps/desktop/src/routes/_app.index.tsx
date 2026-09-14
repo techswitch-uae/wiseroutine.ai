@@ -39,6 +39,7 @@ import { markStarted } from "../lib/running-slot";
 import { dayOf, todayOf } from "../lib/scope";
 import { sessionGeneration } from "../lib/session-lifecycle";
 import { DAY_HOURS_ANCHOR } from "../lib/settings-sections";
+import { slotState } from "../lib/slot-state";
 import { startTodaySlot } from "../lib/today-controller";
 import { TodayRail } from "../modules/today-rail";
 
@@ -144,7 +145,31 @@ const Today: React.FC = () => {
       })
       .then((response) => {
         if (!current()) return;
-        setData(response);
+        setData((current) => {
+          // A refresh can finish before an in-flight Start reaches the server.
+          // Keep its local cue/disabled follow-up actions until Start settles.
+          const starting = new Map(
+            current?.slots
+              .filter((slot) => slot.starting)
+              .map((slot) => [slot.id, slot]),
+          );
+          return starting.size === 0
+            ? response
+            : {
+                ...response,
+                slots: response.slots.map((slot) => {
+                  const pending = starting.get(slot.id);
+                  return pending
+                    ? {
+                        ...slot,
+                        status: "started",
+                        startedAt: pending.startedAt,
+                        starting: true,
+                      }
+                    : slot;
+                }),
+              };
+        });
         setQueued(api.pendingCount());
         setError(null);
       })
@@ -383,8 +408,50 @@ const Today: React.FC = () => {
    * day in hand, and the server's answer either confirms it or takes it back.
    */
   const start = useCallback((slotId: string) => {
+    const slot = dataRef.current?.slots.find((item) => item.id === slotId);
+    if (!slot || !slotState(slot, Date.now()).startable) return;
     if (dataRef.current && isToday(dataRef.current, Date.now())) {
-      void startTodaySlot(slotId);
+      // The operational controller updates the tray/session immediately, but
+      // the visible day has its own range-scoped snapshot. Update it too so
+      // neither the grid nor the selected widget offers Start while awaiting
+      // the server. Re-read on settlement to confirm or roll back a refusal.
+      const startedAt = Date.now();
+      setData(
+        (current) =>
+          current && {
+            ...current,
+            slots: current.slots.map((slot) =>
+              slot.id === slotId
+                ? {
+                    ...slot,
+                    status: "started" as const,
+                    startedAt,
+                    starting: true,
+                  }
+                : slot,
+            ),
+          },
+      );
+      void startTodaySlot(slotId).then((started) => {
+        setData(
+          (current) =>
+            current && {
+              ...current,
+              slots: current.slots.map((item) =>
+                item.id === slotId && item.starting
+                  ? {
+                      ...item,
+                      starting: false,
+                      ...(!started
+                        ? { status: slot.status, startedAt: slot.startedAt }
+                        : {}),
+                    }
+                  : item,
+              ),
+            },
+        );
+        latest.current();
+      });
       return;
     }
     // This run opened it, so this run may show its session - see
@@ -668,15 +735,17 @@ const Today: React.FC = () => {
                 // move, and the answer is worth giving.
                 onSelect: () => pick(row.key),
                 selected: row.key === picked,
-                // Enter and Delete, for a block that has focus. A finished slot
-                // offers neither: there is nothing left to start, and taking it
-                // off the day would erase what actually happened.
+                // Starting follows the same clock-aware rule as the widget.
+                ...(row.slotId && row.startable
+                  ? { onStart: () => row.slotId && start(row.slotId) }
+                  : {}),
+                // Removing is separate: elapsed work may be dismissed, but
+                // started/completed history must not be erased.
                 ...(row.slotId &&
                 row.done !== true &&
                 data.slots.find((s) => s.id === row.slotId)?.status !==
                   "started"
                   ? {
-                      onStart: () => row.slotId && start(row.slotId),
                       onRemove: () =>
                         row.slotId && remove(row.slotId, row.title),
                     }
@@ -690,15 +759,24 @@ const Today: React.FC = () => {
                     name={row.title}
                     meta={row.meta ?? ""}
                     done={row.done ?? false}
-                    // Stopped, not unstarted. The rail says the same thing in
-                    // words - see `slotState`.
-                    action={row.resumable === true ? "resume" : "start"}
+                    running={row.running ?? false}
+                    action={
+                      row.startable
+                        ? row.resumable
+                          ? "resume"
+                          : "start"
+                        : null
+                    }
                     // No grace bar or "moves itself" line inside the grid: those
                     // are list-row affordances, and here they make a 25-minute
                     // block draw twice its own height and collide with the next.
-                    onStart={() => {
-                      if (row.slotId) start(row.slotId);
-                    }}
+                    onStart={
+                      row.startable
+                        ? () => {
+                            if (row.slotId) start(row.slotId);
+                          }
+                        : undefined
+                    }
                   />
                 ),
               })),

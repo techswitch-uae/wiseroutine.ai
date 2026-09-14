@@ -38,6 +38,8 @@ import {
   sessionToken,
 } from "./session-lifecycle";
 
+import { slotState } from "./slot-state";
+
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8787";
 export const getSessionToken = sessionToken;
 
@@ -230,6 +232,8 @@ export type SlotStatus =
   | "bucketed";
 
 export interface TodaySlot {
+  /** Client-only: wait for Start to settle before sending completion/stop. */
+  starting?: boolean;
   /** Actual latest Start from the lifecycle log; absent on older caches. */
   startedAt?: number | null;
   id: string;
@@ -1320,6 +1324,8 @@ export interface TimelineRow {
   title: string;
   meta?: string;
   done?: boolean;
+  running?: boolean;
+  startable?: boolean;
   slotId?: string;
   /**
    * Ours, and not yet begun, so it can be moved.
@@ -1407,9 +1413,11 @@ export function buildTimeline(data: TodayResponse, now: number): TimelineRow[] {
   const rows: TimelineRow[] = [];
 
   for (const slot of data.slots) {
-    if (slot.status === "cancelled") continue;
+    if (slot.status === "cancelled" || slot.status === "bucketed") continue;
+    const state = slotState(slot, now);
     const isLive =
-      slot.startsAt <= now && now < slot.endsAt && slot.status !== "completed";
+      state.running ||
+      (state.startable && slot.startsAt <= now && now < slot.endsAt);
 
     rows.push({
       key: slot.id,
@@ -1426,10 +1434,10 @@ export function buildTimeline(data: TodayResponse, now: number): TimelineRow[] {
         ? `${Math.max(1, Math.ceil((slot.endsAt - now) / 60_000))} min left`
         : `${Math.round((slot.endsAt - slot.startsAt) / 60_000)} min`,
       done: slot.status === "completed",
-      // Only while it is still ahead of you. `started` is left out on purpose
-      // as well as the three terminal ones - see `movable` above.
-      movable: slot.status === "planned" || slot.status === "live",
-      resumable: slot.status === "skipped",
+      running: state.running,
+      startable: state.startable,
+      movable: state.movable,
+      resumable: state.startable && slot.status === "skipped",
     });
   }
 

@@ -4,6 +4,7 @@ import {
   IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
+  IconClock,
   IconPlayerPlayFilled,
   IconRefresh,
   IconRotateClockwise2,
@@ -86,6 +87,9 @@ export const CheckGlyph = glyph(IconCheck, "Done", 11);
 export const ResumeGlyph = glyph(IconRotateClockwise2, "Resume", 12);
 
 export const PlayGlyph = glyph(IconPlayerPlayFilled, "Start", 12);
+
+/** A state, not a pause/play action. */
+export const RunningGlyph = glyph(IconClock, "Running", 14);
 
 export const RefreshGlyph = glyph(IconRefresh, "Sync", 14);
 

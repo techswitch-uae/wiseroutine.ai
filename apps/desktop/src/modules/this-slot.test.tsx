@@ -142,13 +142,17 @@ test("a block that has begun or is over offers no nudge", () => {
   }
 });
 
-test("says which of the two reasons it cannot be moved", () => {
+test("shows running and done as accessible cues, not explanatory paragraphs", () => {
   const running = show(day({ slots: [slot({ status: "started" })] }));
-  expect(screen.getByText(/Running now/)).toBeTruthy();
+  expect(screen.getByRole("img", { name: "Running" })).toBeTruthy();
+  expect(screen.queryByText(/Running now/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
   running.unmount();
 
   show(day({ slots: [slot({ status: "completed" })] }));
-  expect(screen.getByText(/^Done\./)).toBeTruthy();
+  expect(screen.getByRole("img", { name: "Done" })).toBeTruthy();
+  expect(screen.queryByText(/^Done/, { selector: "p" })).toBeNull();
+  expect(screen.queryByText(/does not move/)).toBeNull();
 });
 
 /**
@@ -177,10 +181,38 @@ test.each([1, 3, 4, 10])(
     act(() => vi.advanceTimersByTime(1));
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
-    expect(screen.getByText(/stop window has closed/)).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Running" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mark it done" })).toBeTruthy();
   },
 );
+
+test("completion and Stop wait for the pending Start before sending another action", () => {
+  show(
+    day({
+      slots: [slot({ status: "started", presetKey: null, starting: true })],
+    }),
+  );
+  expect(screen.getByRole("img", { name: "Running" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Mark it done" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(screen.getByRole("button", { name: "Stop" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  act(() =>
+    publishPlan(day({ slots: [slot({ status: "started", presetKey: null })] })),
+  );
+  expect(screen.getByRole("button", { name: "Mark it done" })).toHaveProperty(
+    "disabled",
+    false,
+  );
+  expect(screen.getByRole("button", { name: "Stop" })).toHaveProperty(
+    "disabled",
+    false,
+  );
+});
 
 test("an early Stop unlocks postponement only once the plan confirms it", async () => {
   const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -320,7 +352,7 @@ test("a meeting is described and left alone", () => {
     "m1",
   );
   expect(screen.getByText("Design review")).toBeTruthy();
-  expect(screen.getByText(/never writes back/)).toBeTruthy();
+  expect(screen.getByText("From your calendar · Read-only")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
 });
 
@@ -377,8 +409,9 @@ test("a block left started overnight asks what happened", async () => {
     }),
   );
 
-  // Not running, and not something to carry on with.
-  expect(screen.queryByText(/Running now/)).toBeNull();
+  // The outcome is unknown; don't invent a reason such as closing the app.
+  expect(screen.getByText("Needs confirmation")).toBeTruthy();
+  expect(screen.queryByRole("img", { name: "Running" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();

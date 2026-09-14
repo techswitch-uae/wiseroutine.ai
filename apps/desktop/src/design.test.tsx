@@ -613,6 +613,68 @@ test("a resumable block is offered a resume, not a start", () => {
   expect(container.querySelector(".wr-btn-word")?.textContent).toBe("Resume");
 });
 
+test("a live card replaces its play action with a running cue, then a done cue", () => {
+  const { container, rerender } = render(
+    <Slot
+      variant="live"
+      time="11:00"
+      name="Stretch"
+      onStart={() => undefined}
+    />,
+  );
+  expect(container.querySelector('button[aria-label="Start"]')).toBeTruthy();
+
+  rerender(
+    <Slot
+      variant="live"
+      time="11:00"
+      name="Stretch"
+      running
+      grace={0.5}
+      autoMove="Moves soon"
+      onStart={() => undefined}
+    />,
+  );
+  expect(container.querySelector("button")).toBeNull();
+  expect(
+    container.querySelector('[role="img"][aria-label="Running"]'),
+  ).toBeTruthy();
+  expect(container.querySelector(".wr-bar")).toBeNull();
+  expect(container.querySelector(".wr-slot-automove")).toBeNull();
+
+  rerender(
+    <Slot
+      variant="live"
+      time="11:00"
+      name="Stretch"
+      done
+      onStart={() => undefined}
+    />,
+  );
+  expect(container.querySelector("button")).toBeNull();
+  expect(
+    container.querySelector('[role="img"][aria-label="Done"]'),
+  ).toBeTruthy();
+  expect(container.querySelector('[aria-label="Running"]')).toBeNull();
+});
+
+test("an explicitly unavailable action never draws a play button", () => {
+  const { container } = render(
+    <Slot variant="live" time="11:00" name="Stretch" action={null} />,
+  );
+  expect(container.querySelector("button")).toBeNull();
+});
+
+test("status cues also work outside the live visual variant", () => {
+  const { container, rerender } = render(
+    <Slot variant="focus" time="11:00" name="Read" running />,
+  );
+  expect(container.querySelector('[aria-label="Running"]')).toBeTruthy();
+  rerender(<Slot variant="recovery" time="11:00" name="Stretch" done />);
+  expect(container.querySelector('[aria-label="Done"]')).toBeTruthy();
+  expect(container.querySelector("button")).toBeNull();
+});
+
 test("the start button keeps its name when the word is hidden", () => {
   const { container } = render(
     <Slot

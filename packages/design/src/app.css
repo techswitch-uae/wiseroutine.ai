@@ -566,7 +566,13 @@ body.wr-dragging { user-select: none; -webkit-user-select: none; cursor: grabbin
   background: var(--color-accent); color: var(--wr-page);
 }
 
-.wr-slot-live {             /* exactly one per view - the slot startable now */
+.wr-running {
+  flex: none; width: 20px; height: 20px; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--color-accent-100); color: var(--color-accent-900);
+}
+
+.wr-slot-live {             /* due or running; the lifecycle decides the action */
   display: block; padding: 14px 16px; border-radius: 16px; box-shadow: var(--wr-lift-3);
 }
 .wr-slot-live .wr-rule { height: 34px; background: var(--color-accent); }
@@ -634,6 +640,8 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
   margin: 12px 0 4px; font: 400 17px/1.15 var(--font-heading);
   overflow-wrap: anywhere;
 }
+.wr-widget-title-row { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; }
+.wr-widget-title-row .wr-widget-title { flex: 1; min-width: 0; margin: 0; }
 .wr-widget-time {
   font: 600 12.5px var(--font-body); color: var(--color-accent-900);
   font-variant-numeric: tabular-nums;
@@ -1085,7 +1093,7 @@ img.wr-avatar { object-fit: cover; }
    off the mark's axis. */
 .wr-brand { display: flex; align-items: center; gap: 10px; padding-left: 6px; }
 .wr-brand-name { font-family: var(--font-heading); font-size: 15px; line-height: 1; }
-.wr-nav { display: flex; flex-direction: column; gap: 1px; }
+.wr-nav { display: flex; flex-direction: column; gap: 1px; padding-bottom: 6px; }
 
 .wr-sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 12px; }
 /* Ink: quick add is the sidebar's one commitment. */
@@ -1686,28 +1694,21 @@ img.wr-avatar { object-fit: cover; }
    calendar list with. A card is the group; a block is one thing in it, and it
    never carries a shadow - two elevations inside one card reads as two
    different kinds of surface. */
-/* Pressed into the card, not outlined on it.
-   These were the card's own background with a hairline drawn round them - the
-   same colour as the thing they sit in, separated by a 10% line. That is the
-   outline this system says not to reach for, and it is why they did not read.
-   Recessed, they are a different plane rather than a drawn edge: the page
-   raises the card, and the card sinks the blocks. */
+/* Straight on the page, no wrapper.
+   Each block is its own raised sheet - the same ground, radius and lift as a
+   card, because on this page it *is* the card: one setting, one surface. The
+   sand card that used to hold a section's blocks was a second plane between
+   the page and the thing being edited, and it read as heavy. Every control
+   inside keeps its ordinary recessed look; the ground under it is the one it
+   was drawn for. */
+.wr-blocks { display: grid; gap: 12px; }
 .wr-block {
-  padding: 12px 13px; border-radius: 13px;
-  background: var(--wr-recessed); box-shadow: var(--wr-inset);
+  padding: 16px 18px; border-radius: 15px;
+  background: var(--wr-card); box-shadow: var(--wr-lift-2);
 }
-/* Controls that were recessed on a light ground.
-   They cannot stay recessed on a recessed one - a segmented track, a secondary
-   button, a provider mark and a time field all share this exact tone, and on a
-   recessed block every one of them vanished into it. Inside a block they take
-   the card's ground instead: still a step away from what they sit on, just in
-   the other direction. Anything else added here that uses `--wr-recessed`
-   belongs in this list. */
-:is(.wr-block, .wr-provider)
-  :is(.wr-seg, .wr-btn-secondary, .wr-provider-mark, .wr-timefield) {
-  background: var(--wr-card);
-}
-.wr-block + .wr-block { margin-top: 9px; }
+/* The mark on a recessed provider row takes the card's ground: a step away
+   from what it sits on, in the other direction. */
+.wr-provider .wr-provider-mark { background: var(--wr-card); }
 .wr-block-head { display: flex; align-items: center; gap: 12px; }
 .wr-block-heading { flex: 1; min-width: 0; }
 .wr-block-title { margin: 0; font: 600 13px var(--font-body); color: var(--color-text); }

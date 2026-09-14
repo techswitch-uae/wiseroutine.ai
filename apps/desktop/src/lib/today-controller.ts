@@ -73,7 +73,8 @@ export function startTodayController(): () => void {
   };
 }
 
-export async function startTodaySlot(slotId: string): Promise<void> {
+/** True keeps the optimistic start (accepted or queued offline); false restores it. */
+export async function startTodaySlot(slotId: string): Promise<boolean> {
   const generation = sessionGeneration();
   const plan = todaySnapshot();
   if (
@@ -81,9 +82,9 @@ export async function startTodaySlot(slotId: string): Promise<void> {
     !isToday(plan, Date.now()) ||
     !plan.slots.some((slot) => slot.id === slotId)
   )
-    return;
+    return false;
   if (plan.slots.find((slot) => slot.id === slotId)?.status === "started")
-    return;
+    return true;
   const startedAt = Date.now();
   markStarted(slotId, startedAt);
   publishTodayPlan({
@@ -94,10 +95,12 @@ export async function startTodaySlot(slotId: string): Promise<void> {
   });
   try {
     await api.startSlot(slotId);
+    return generation === sessionGeneration();
   } catch {
     if (generation === sessionGeneration()) {
       publishTodayPlan(plan);
       notify("Couldn't start that just now.");
     }
+    return false;
   }
 }

@@ -257,9 +257,6 @@ const Settings: React.FC = () => {
         <h2 id={calendarsHeading} className="wr-settings-title">
           Calendars
         </h2>
-        <p>
-          Choose which calendars shape your routine. Meetings are read-only.
-        </p>
         <CalendarSettings onReady={onCalendarsReady} />
       </section>
 

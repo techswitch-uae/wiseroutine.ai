@@ -45,19 +45,20 @@ test("privacy opt-out erases existing titles and persists across a full page rel
     },
   ]);
   await page.goto("/settings");
-  const toggle = page.getByRole("switch", { name: "Save meeting details" });
-  await expect(toggle).toBeChecked();
-  await expect(toggle).toHaveAccessibleDescription(
-    /Turning this off removes saved meeting details/,
-  );
+  const details = page.getByRole("radio", { name: /Save meeting details/ });
+  const busy = page.getByRole("radio", { name: /Busy times only/ });
+  await expect(details).toBeChecked();
+  await busy.click();
+  await expect(page.getByText(/Busy times stay/)).toBeVisible();
   const saved = page.waitForResponse(
     (response) =>
       response.url().endsWith("/settings") &&
       response.request().method() === "PATCH",
   );
-  await toggle.click();
+  await page.getByRole("button", { name: "Update" }).click();
   expect((await saved).status()).toBe(204);
-  await expect(toggle).not.toBeChecked();
+  await expect(busy).toBeChecked();
+  await expect(page.getByRole("button", { name: "Update" })).toHaveCount(0);
   await page.setViewportSize({ width: 800, height: 650 });
   await page
     .getByRole("heading", { name: "Calendar privacy", exact: true })

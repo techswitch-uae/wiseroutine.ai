@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { TodayResponse, TodaySlot } from "../lib/api";
 import { publishPlan } from "../lib/plan-store";
@@ -84,6 +84,19 @@ test("offers a start only once the block is actually due", () => {
   show(day({ slots: [slot({ startsAt: AT - 60_000 })] }));
   expect(screen.getByText(/Now/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Start now" })).toBeTruthy();
+});
+
+test("Up next withdraws Start as soon as the slot starts, then follows the next activity", () => {
+  const current = slot({ startsAt: AT, endsAt: AT + 10 * 60_000 });
+  const later = slot({ id: "s2", title: "Walk" });
+  show(day({ slots: [current, later] }));
+  expect(screen.getByRole("button", { name: "Start now" })).toBeTruthy();
+  act(() =>
+    publishPlan(day({ slots: [{ ...current, status: "started" }, later] })),
+  );
+  expect(screen.queryByRole("button", { name: "Start now" })).toBeNull();
+  expect(screen.queryByText("Shoulder stretch")).toBeNull();
+  expect(screen.getByText("Walk")).toBeTruthy();
 });
 
 // It used to render an ink card reading "Nothing left today." The loudest

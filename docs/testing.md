@@ -46,11 +46,11 @@ pnpm --filter @wiseroutine/desktop exec playwright test calendars.spec.ts
 | Web accessibility/layout | Real keyboard navigation and skip link, native FAQ controls, axe WCAG A/AA checks in demo states, reduced motion, widths 320/390/640/800/1280 | Screenshots saved for review; automated checks are not a substitute for screen-reader or real-device acceptance |
 | Web unit tests | Actual scheduler placement/repair, duration preservation, bounds/conflicts, no false confirmed placement, deterministic replay, fail-closed release configuration | No provider or app API mocks masquerading as integration coverage |
 | App full stack | First activity/setup, free limit and removal, edit persistence, daily availability, auto-placement and accepted-slot stability, drag/skip/undo, calendar selection, privacy opt-out, view/settings persistence | Real React app → Worker → migrated libSQL; sign-in and provider data are seeded |
-| App core/release | Default-off routes, hidden shortcuts/assets, core recovery, preview enable/disable, started-session stop cutoff and postponement/history | Native webview, tray, OS permissions and signed installers require separate checks |
+| App core/release | Default-off routes, hidden shortcuts/assets, core recovery, preview enable/disable; approaching → due → running → done cues in timeline/widget; delayed/refused Start, refresh/reload, stop cutoff and postponement/history | Native webview, tray, OS permissions and signed installers require separate checks |
 | App capture | Keyboard/focus, links and multiple files, exact download bytes, offline draft recovery, plan/postpone and return to Inbox | Existing release/entitlement fixtures; not live OAuth or production storage |
 
 The suites currently contain **44 web browser cases** (11 stories × 4
-browser projects), **30 web unit cases**, and **41 full-stack app scenarios**.
+browser projects), **30 web unit cases**, and **45 full-stack app scenarios**.
 Counts will change as coverage grows; the actual run/report is authoritative.
 
 ## Isolation and reproducibility

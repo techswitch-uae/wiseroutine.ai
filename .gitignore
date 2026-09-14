@@ -40,3 +40,5 @@ blob-report
 # Claude Design project they came from — the project is the source, not these.
 Wise Routine*.html
 *.dc.html
+
+.design/

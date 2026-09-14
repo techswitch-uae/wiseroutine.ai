@@ -159,6 +159,72 @@ describe("buildTimeline", () => {
     }
   });
 
+  it("distinguishes approaching, due, running and done instead of treating them all as startable", () => {
+    const row = (status: "planned" | "started" | "completed", now: number) =>
+      buildTimeline(
+        day({ slots: [{ ...slot(H(10), H(11)), status }] }),
+        now,
+      )[0];
+    expect(row("planned", H(9))).toMatchObject({
+      startable: true,
+      running: false,
+    });
+    expect(row("planned", H(9))?.variant).not.toBe("live");
+    expect(row("planned", H(10))).toMatchObject({
+      variant: "live",
+      startable: true,
+      running: false,
+    });
+    // Starting early is still a real start, not a future play button.
+    for (const now of [H(9), H(10)]) {
+      expect(row("started", now)).toMatchObject({
+        variant: "live",
+        startable: false,
+        running: true,
+        movable: false,
+      });
+    }
+    expect(row("completed", H(10))).toMatchObject({
+      done: true,
+      startable: false,
+      running: false,
+    });
+    expect(row("completed", H(10))?.variant).not.toBe("live");
+    expect(row("started", H(11))).toMatchObject({
+      startable: false,
+      running: false,
+    });
+    expect(row("planned", H(11))).toMatchObject({
+      startable: false,
+      movable: false,
+    });
+  });
+
+  it("offers resume only before the stopped slot ends, and never starts missed work", () => {
+    const stopped = (now: number) =>
+      buildTimeline(
+        day({ slots: [{ ...slot(H(10), H(11)), status: "skipped" }] }),
+        now,
+      )[0];
+    expect(stopped(H(10))).toMatchObject({
+      variant: "live",
+      resumable: true,
+      startable: true,
+      running: false,
+    });
+    expect(stopped(H(11))).toMatchObject({
+      resumable: false,
+      startable: false,
+      running: false,
+    });
+    const missed = buildTimeline(
+      day({ slots: [{ ...slot(H(10), H(11)), status: "missed" }] }),
+      H(10),
+    )[0];
+    expect(missed).toMatchObject({ startable: false, running: false });
+    expect(missed?.variant).not.toBe("live");
+  });
+
   // We never write back to the calendar it came from, so a block that slides
   // but changes nothing would be saying we do.
   it("never lets you move a meeting", () => {

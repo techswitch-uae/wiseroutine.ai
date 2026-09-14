@@ -3,6 +3,7 @@ import {
   ChevronDownGlyph,
   Modal,
   RichText,
+  SlotStatusMark,
   TimeStepper,
   Widget,
 } from "@wiseroutine/design";
@@ -146,10 +147,7 @@ const Meeting: React.FC<{
           Show details
         </Button>
       ) : null}
-      <Note>
-        From your calendar. Wise Routine plans around this one and never writes
-        back to it, so it can only be moved where it came from.
-      </Note>
+      <Note>From your calendar · Read-only</Note>
 
       {details ? (
         <Modal
@@ -290,7 +288,7 @@ export const ThisSlot: React.FC = () => {
    * button must never have.
    */
   const finish = (how: "complete" | "skip") => {
-    if (pending.current) return;
+    if (pending.current || slot.starting) return;
     // Recheck on the press too: suspended webviews can wake after the cutoff.
     if (
       how === "skip" &&
@@ -326,7 +324,14 @@ export const ThisSlot: React.FC = () => {
 
   return (
     <Widget eyebrow="This block" leaving={leaving} onClose={close}>
-      <h3 className="wr-widget-title">{slot.title}</h3>
+      <div className="wr-widget-title-row">
+        <h3 className="wr-widget-title">{slot.title}</h3>
+        {slot.status === "completed" || state.running ? (
+          <SlotStatusMark
+            status={slot.status === "completed" ? "done" : "running"}
+          />
+        ) : null}
+      </div>
       {/* The time is the way to a different time. It used to be read here and
           changed by a full-width "Postpone / change time" button further
           down, which outweighed the stepper doing the everyday version of the
@@ -354,7 +359,9 @@ export const ThisSlot: React.FC = () => {
         </div>
       )}
 
-      <Note>{state.note}</Note>
+      {state.label && !state.running && slot.status !== "completed" ? (
+        <Note>{state.label}</Note>
+      ) : null}
       {flags.inbox && slot.reminderId ? (
         <Button
           variant="secondary"
@@ -416,7 +423,7 @@ export const ThisSlot: React.FC = () => {
         ["planned", "live", "missed", "skipped"].includes(slot.status) ? (
           <Button
             variant="quiet"
-            disabled={saving}
+            disabled={saving || slot.starting}
             onClick={() => finish("complete")}
           >
             Mark it done
@@ -428,7 +435,7 @@ export const ThisSlot: React.FC = () => {
         {canStopSlot(slot, now) && !module?.Session ? (
           <Button
             variant="quiet"
-            disabled={saving}
+            disabled={saving || slot.starting}
             onClick={() => finish("skip")}
           >
             Stop
@@ -442,7 +449,7 @@ export const ThisSlot: React.FC = () => {
         {state.unresolved ? (
           <Button
             variant="quiet"
-            disabled={saving}
+            disabled={saving || slot.starting}
             onClick={() => finish("skip")}
           >
             It didn't happen
