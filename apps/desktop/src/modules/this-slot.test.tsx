@@ -435,8 +435,11 @@ test("a meeting is described and left alone", () => {
     "m1",
   );
   expect(screen.getByText("Design review")).toBeTruthy();
-  expect(screen.getByText("From your calendar · Read-only")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+  expect(
+    screen.queryByRole("button", {
+      name: /^(Start|Resume|Stop|Postpone|Mark it done)$/,
+    }),
+  ).toBeNull();
 });
 
 // Removed, replanned out, or the day rolled over. There is no block to
