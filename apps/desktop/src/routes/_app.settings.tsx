@@ -140,6 +140,8 @@ const Settings: React.FC = () => {
         ];
       }),
     );
+    // A later load that works retires an earlier one's failure.
+    setProblem(null);
   }, []);
 
   useEffect(() => {

@@ -230,8 +230,8 @@ const Activities: React.FC = () => {
   const active = rows?.filter((row) => row.isActive).length ?? 0;
   const atLimit = active >= limit;
 
-  // The API places new demand while preserving accepted slots. Hidden fields
-  // are omitted on edit, never replaced with the simplified form's defaults.
+  // Routine changes start tomorrow. Hidden fields are omitted on edit,
+  // never replaced with the simplified form's defaults.
   const save = () => {
     if (!editing) return;
     const { draft, id } = editing;
@@ -269,6 +269,7 @@ const Activities: React.FC = () => {
     request
       .then(() => {
         setEditing(null);
+        notify(id ? "Saved for tomorrow. Today's routine is unchanged." : "Activity added. Its routine starts tomorrow.");
         invalidateServerState();
         load();
       })
@@ -401,7 +402,7 @@ const Activities: React.FC = () => {
                   row.daysOfWeek,
                 )} · ${LANDING_WORD[landingOf(row.preferredWindows)]}${
                   needsAddon(row) ? " · session off, addon disabled" : ""
-                }`}
+                }${row.changesFrom ? ` · from ${row.changesFrom}` : ""}`}
                 isActive={row.isActive}
                 busy={working === row.id}
                 onEdit={() =>
@@ -460,9 +461,8 @@ const Activities: React.FC = () => {
           title={editing.draft.name || "New activity"}
           subtitle={
             editing.id
-              ? "Changes apply to the rest of today as soon as you save."
-              : (editing.origin ??
-                "Describe it, and it gets placed into the gaps your calendar leaves.")
+              ? "Frequency, length and day changes start tomorrow. Today's routine stays as it is."
+              : "This routine starts tomorrow. Its slots will appear in Not placed."
           }
           onClose={() => {
             setEditing(null);

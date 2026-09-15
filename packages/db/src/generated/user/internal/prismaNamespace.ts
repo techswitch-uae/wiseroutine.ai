@@ -403,6 +403,7 @@ export const ModelName = {
   CalendarSyncState: 'CalendarSyncState',
   ExternalEvent: 'ExternalEvent',
   Activity: 'Activity',
+  ActivitySchedule: 'ActivitySchedule',
   ActivityWindow: 'ActivityWindow',
   Slot: 'Slot',
   SlotEvent: 'SlotEvent',
@@ -426,7 +427,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "calendarConnection" | "oAuthToken" | "calendar" | "calendarSyncState" | "externalEvent" | "activity" | "activityWindow" | "slot" | "slotEvent" | "reminder" | "planRun" | "widget" | "addon" | "deskSession"
+    modelProps: "calendarConnection" | "oAuthToken" | "calendar" | "calendarSyncState" | "externalEvent" | "activity" | "activitySchedule" | "activityWindow" | "slot" | "slotEvent" | "reminder" | "planRun" | "widget" | "addon" | "deskSession"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -871,6 +872,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.ActivityCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.ActivityCountAggregateOutputType> | number
+        }
+      }
+    }
+    ActivitySchedule: {
+      payload: Prisma.$ActivitySchedulePayload<ExtArgs>
+      fields: Prisma.ActivityScheduleFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ActivityScheduleFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ActivityScheduleFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>
+        }
+        findFirst: {
+          args: Prisma.ActivityScheduleFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ActivityScheduleFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>
+        }
+        findMany: {
+          args: Prisma.ActivityScheduleFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>[]
+        }
+        create: {
+          args: Prisma.ActivityScheduleCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>
+        }
+        createMany: {
+          args: Prisma.ActivityScheduleCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ActivityScheduleCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>[]
+        }
+        delete: {
+          args: Prisma.ActivityScheduleDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>
+        }
+        update: {
+          args: Prisma.ActivityScheduleUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>
+        }
+        deleteMany: {
+          args: Prisma.ActivityScheduleDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ActivityScheduleUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ActivityScheduleUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>[]
+        }
+        upsert: {
+          args: Prisma.ActivityScheduleUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>
+        }
+        aggregate: {
+          args: Prisma.ActivityScheduleAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateActivitySchedule>
+        }
+        groupBy: {
+          args: Prisma.ActivityScheduleGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ActivityScheduleGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ActivityScheduleCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ActivityScheduleCountAggregateOutputType> | number
         }
       }
     }
@@ -1616,6 +1691,15 @@ export const ActivityScalarFieldEnum = {
 export type ActivityScalarFieldEnum = (typeof ActivityScalarFieldEnum)[keyof typeof ActivityScalarFieldEnum]
 
 
+export const ActivityScheduleScalarFieldEnum = {
+  activityId: 'activityId',
+  effectiveDate: 'effectiveDate',
+  settingsJson: 'settingsJson'
+} as const
+
+export type ActivityScheduleScalarFieldEnum = (typeof ActivityScheduleScalarFieldEnum)[keyof typeof ActivityScheduleScalarFieldEnum]
+
+
 export const ActivityWindowScalarFieldEnum = {
   id: 'id',
   activityId: 'activityId',
@@ -1940,6 +2024,7 @@ export type GlobalOmitConfig = {
   calendarSyncState?: Prisma.CalendarSyncStateOmit
   externalEvent?: Prisma.ExternalEventOmit
   activity?: Prisma.ActivityOmit
+  activitySchedule?: Prisma.ActivityScheduleOmit
   activityWindow?: Prisma.ActivityWindowOmit
   slot?: Prisma.SlotOmit
   slotEvent?: Prisma.SlotEventOmit

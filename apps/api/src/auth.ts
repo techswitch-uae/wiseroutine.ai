@@ -394,7 +394,9 @@ export function createAuth(
        * work, and it is already gated by a token. The limits that matter,
        * sign-in and the emailed code, are untouched.
        */
-      customRules: { "/get-session": false },
+      // `/list-accounts` for the same reason: a token-gated read that Settings
+      // fires twice on mount, and the losing transaction 500'd the page.
+      customRules: { "/get-session": false, "/list-accounts": false },
     },
 
     user: {

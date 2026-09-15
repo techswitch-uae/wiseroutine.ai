@@ -14,21 +14,84 @@ export interface ActivityWithWindows {
   row: ActivityRow;
   /** Minutes from local midnight. Wall-clock, so it follows the user's zone. */
   anchorMinutes: number[];
+  /** Latest saved schedule date; the editor can disclose a pending change. */
+  effectiveDate?: string;
 }
 
 export async function listActivities(
   db: UserDatabase,
+  /** Omit for the editor; supply YYYY-MM-DD for planning and progress. */
+  date?: string,
 ): Promise<ActivityWithWindows[]> {
   // One query with the windows included, rather than N+1.
   const rows = await db.activity.findMany({
     where: { archivedAt: null },
-    include: { windows: { select: { anchorMinutes: true } } },
+    include: {
+      windows: { select: { anchorMinutes: true } },
+      schedules: {
+        ...(date ? { where: { effectiveDate: { lte: date } } } : {}),
+        orderBy: { effectiveDate: "desc" },
+        take: 1,
+      },
+    },
   });
 
-  return rows.map(({ windows, ...row }) => ({
-    row: row as ActivityRow,
-    anchorMinutes: windows.map((w) => w.anchorMinutes),
-  }));
+  return rows.map(({ windows, schedules, ...row }) => {
+    const version = schedules[0];
+    const result: ActivityWithWindows = {
+      row: row as ActivityRow,
+      anchorMinutes: windows.map((w) => w.anchorMinutes),
+      effectiveDate: version?.effectiveDate,
+    };
+    // No versions means a legacy activity: its existing settings are the
+    // baseline until the first edit preserves them explicitly.
+    if (date && version) {
+      if (version.settingsJson === null) result.row.isActive = false;
+      else {
+        const { anchorMinutes, ...settings } = JSON.parse(version.settingsJson) as ScheduleSettings;
+        result.row = { ...result.row, ...settings };
+        result.anchorMinutes = anchorMinutes;
+      }
+    }
+    return result;
+  });
+}
+
+const SCHEDULE_FIELDS = [
+  "minimumType", "minimumValue", "sessionMinutes", "daysOfWeek", "importance",
+  "bufferBeforeMeetingMinutes",
+] as const;
+type ScheduleSettings = Pick<ActivityRow, (typeof SCHEDULE_FIELDS)[number]> & { anchorMinutes: number[] };
+const settingsOf = ({ row, anchorMinutes }: ActivityWithWindows): string => JSON.stringify({
+  ...Object.fromEntries(SCHEDULE_FIELDS.map((key) => [key, row[key]])),
+  anchorMinutes: [...anchorMinutes].sort((a, b) => a - b),
+});
+
+/** Save tomorrow's latest choice, never a queue of every edit made today. */
+export async function scheduleActivityChanges(
+  db: UserDatabase,
+  activityId: string,
+  effectiveDate: string,
+  previous?: ActivityWithWindows,
+): Promise<boolean> {
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) => scheduleActivityChanges(tx, activityId, effectiveDate, previous));
+  const current = (await listActivities(db)).find((a) => a.row.id === activityId);
+  if (!current) throw new Error("No activity to configure");
+  const settingsJson = settingsOf(current);
+  if (previous && settingsJson === settingsOf(previous)) return false;
+  // Preserve the original baseline once. New activities have no routine today.
+  await db.activitySchedule.upsert({
+    where: { activityId_effectiveDate: { activityId, effectiveDate: "0001-01-01" } },
+    create: { activityId, effectiveDate: "0001-01-01", settingsJson: previous ? settingsOf(previous) : null },
+    update: {},
+  });
+  await db.activitySchedule.upsert({
+    where: { activityId_effectiveDate: { activityId, effectiveDate } },
+    create: { activityId, effectiveDate, settingsJson },
+    update: { settingsJson },
+  });
+  return true;
 }
 
 /** The free-plan limit counts *active* activities, so pausing frees a slot. */

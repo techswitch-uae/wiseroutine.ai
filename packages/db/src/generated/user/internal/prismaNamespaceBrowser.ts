@@ -57,6 +57,7 @@ export const ModelName = {
   CalendarSyncState: 'CalendarSyncState',
   ExternalEvent: 'ExternalEvent',
   Activity: 'Activity',
+  ActivitySchedule: 'ActivitySchedule',
   ActivityWindow: 'ActivityWindow',
   Slot: 'Slot',
   SlotEvent: 'SlotEvent',
@@ -192,6 +193,15 @@ export const ActivityScalarFieldEnum = {
 } as const
 
 export type ActivityScalarFieldEnum = (typeof ActivityScalarFieldEnum)[keyof typeof ActivityScalarFieldEnum]
+
+
+export const ActivityScheduleScalarFieldEnum = {
+  activityId: 'activityId',
+  effectiveDate: 'effectiveDate',
+  settingsJson: 'settingsJson'
+} as const
+
+export type ActivityScheduleScalarFieldEnum = (typeof ActivityScheduleScalarFieldEnum)[keyof typeof ActivityScheduleScalarFieldEnum]
 
 
 export const ActivityWindowScalarFieldEnum = {

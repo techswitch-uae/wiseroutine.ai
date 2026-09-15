@@ -2,7 +2,7 @@ import {
   createPlanRun,
   isTransaction,
   listActivities,
-  listBucket,
+  listBucketForDay,
   listEventsInRange,
   listSlotsForRange,
   moveSlot,
@@ -93,15 +93,16 @@ export async function planDay(
     params.user.dayStartMinutes,
     params.user.dayEndMinutes,
   );
+  const wholeDay = dayBounds(date, zone, 0, 1440);
   const dayStart = Math.max(bounds.start, params.from ?? bounds.start);
 
   const [events, activities, slots, dismissed, unplacedSlots] =
     await Promise.all([
       listEventsInRange(db, bounds.start, bounds.end),
-      listActivities(db),
-      listSlotsForRange(db, bounds.start, bounds.end),
-      userDismissedSlots(db, bounds.start, bounds.end),
-      params.retryUnplaced ? listBucket(db) : Promise.resolve([]),
+      listActivities(db, localDateKey(date)),
+      listSlotsForRange(db, wholeDay.start, wholeDay.end),
+      userDismissedSlots(db, wholeDay.start, wholeDay.end),
+      params.retryUnplaced ? listBucketForDay(db, wholeDay.start, wholeDay.end) : Promise.resolve([]),
     ]);
   const dismissedIds = new Set(dismissed.map((slot) => slot.id));
 
@@ -133,7 +134,8 @@ export async function planDay(
    * more on top of it is how "place the rest for me" placed the lot again.
    *
    * Completed slots are left out on purpose: they are already counted, in
-   * `completedToday`. Skipped/missed work is still owed. A user dismissal,
+   * `completedToday`. Stopped/missed occurrences still consume today's target.
+   * A user dismissal,
    * unlike a pause/archive, means "not today" and must not be recreated.
    *
    * ponytail: sessions, not minutes. A duration minimum whose kept slot was
@@ -145,7 +147,7 @@ export async function planDay(
     const keeps =
       slot.status === "planned"
         ? slot.isLocked || params.preservePlanned || slot.startsAt < dayStart
-        : ["live", "started", "bucketed"].includes(slot.status) ||
+        : ["live", "started", "bucketed", "skipped", "missed"].includes(slot.status) ||
           dismissedIds.has(slot.id);
     if (!keeps || !slot.activityId) continue;
     keptToday.set(slot.activityId, (keptToday.get(slot.activityId) ?? 0) + 1);
@@ -154,7 +156,7 @@ export async function planDay(
   const weekday = localWeekday(dayStart, zone);
   const weekStart = dayStart - weekday * 86_400_000;
   const [todayProgress, weekProgress] = await Promise.all([
-    progressForRange(db, bounds.start, bounds.end),
+    progressForRange(db, wholeDay.start, wholeDay.end),
     progressForRange(db, weekStart, bounds.end),
   ]);
 

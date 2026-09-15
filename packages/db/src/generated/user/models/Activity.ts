@@ -370,6 +370,7 @@ export type ActivityWhereInput = {
   archivedAt?: Prisma.DateTimeNullableFilter<"Activity"> | Date | string | null
   windows?: Prisma.ActivityWindowListRelationFilter
   slots?: Prisma.SlotListRelationFilter
+  schedules?: Prisma.ActivityScheduleListRelationFilter
 }
 
 export type ActivityOrderByWithRelationInput = {
@@ -397,6 +398,7 @@ export type ActivityOrderByWithRelationInput = {
   archivedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   windows?: Prisma.ActivityWindowOrderByRelationAggregateInput
   slots?: Prisma.SlotOrderByRelationAggregateInput
+  schedules?: Prisma.ActivityScheduleOrderByRelationAggregateInput
 }
 
 export type ActivityWhereUniqueInput = Prisma.AtLeast<{
@@ -427,6 +429,7 @@ export type ActivityWhereUniqueInput = Prisma.AtLeast<{
   archivedAt?: Prisma.DateTimeNullableFilter<"Activity"> | Date | string | null
   windows?: Prisma.ActivityWindowListRelationFilter
   slots?: Prisma.SlotListRelationFilter
+  schedules?: Prisma.ActivityScheduleListRelationFilter
 }, "id">
 
 export type ActivityOrderByWithAggregationInput = {
@@ -512,6 +515,7 @@ export type ActivityCreateInput = {
   archivedAt?: Date | string | null
   windows?: Prisma.ActivityWindowCreateNestedManyWithoutActivityInput
   slots?: Prisma.SlotCreateNestedManyWithoutActivityInput
+  schedules?: Prisma.ActivityScheduleCreateNestedManyWithoutActivityInput
 }
 
 export type ActivityUncheckedCreateInput = {
@@ -539,6 +543,7 @@ export type ActivityUncheckedCreateInput = {
   archivedAt?: Date | string | null
   windows?: Prisma.ActivityWindowUncheckedCreateNestedManyWithoutActivityInput
   slots?: Prisma.SlotUncheckedCreateNestedManyWithoutActivityInput
+  schedules?: Prisma.ActivityScheduleUncheckedCreateNestedManyWithoutActivityInput
 }
 
 export type ActivityUpdateInput = {
@@ -566,6 +571,7 @@ export type ActivityUpdateInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   windows?: Prisma.ActivityWindowUpdateManyWithoutActivityNestedInput
   slots?: Prisma.SlotUpdateManyWithoutActivityNestedInput
+  schedules?: Prisma.ActivityScheduleUpdateManyWithoutActivityNestedInput
 }
 
 export type ActivityUncheckedUpdateInput = {
@@ -593,6 +599,7 @@ export type ActivityUncheckedUpdateInput = {
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   windows?: Prisma.ActivityWindowUncheckedUpdateManyWithoutActivityNestedInput
   slots?: Prisma.SlotUncheckedUpdateManyWithoutActivityNestedInput
+  schedules?: Prisma.ActivityScheduleUncheckedUpdateManyWithoutActivityNestedInput
 }
 
 export type ActivityCreateManyInput = {
@@ -771,6 +778,20 @@ export type ActivityNullableScalarRelationFilter = {
   isNot?: Prisma.ActivityWhereInput | null
 }
 
+export type ActivityCreateNestedOneWithoutSchedulesInput = {
+  create?: Prisma.XOR<Prisma.ActivityCreateWithoutSchedulesInput, Prisma.ActivityUncheckedCreateWithoutSchedulesInput>
+  connectOrCreate?: Prisma.ActivityCreateOrConnectWithoutSchedulesInput
+  connect?: Prisma.ActivityWhereUniqueInput
+}
+
+export type ActivityUpdateOneRequiredWithoutSchedulesNestedInput = {
+  create?: Prisma.XOR<Prisma.ActivityCreateWithoutSchedulesInput, Prisma.ActivityUncheckedCreateWithoutSchedulesInput>
+  connectOrCreate?: Prisma.ActivityCreateOrConnectWithoutSchedulesInput
+  upsert?: Prisma.ActivityUpsertWithoutSchedulesInput
+  connect?: Prisma.ActivityWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.ActivityUpdateToOneWithWhereWithoutSchedulesInput, Prisma.ActivityUpdateWithoutSchedulesInput>, Prisma.ActivityUncheckedUpdateWithoutSchedulesInput>
+}
+
 export type ActivityCreateNestedOneWithoutWindowsInput = {
   create?: Prisma.XOR<Prisma.ActivityCreateWithoutWindowsInput, Prisma.ActivityUncheckedCreateWithoutWindowsInput>
   connectOrCreate?: Prisma.ActivityCreateOrConnectWithoutWindowsInput
@@ -801,6 +822,130 @@ export type ActivityUpdateOneWithoutSlotsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.ActivityUpdateToOneWithWhereWithoutSlotsInput, Prisma.ActivityUpdateWithoutSlotsInput>, Prisma.ActivityUncheckedUpdateWithoutSlotsInput>
 }
 
+export type ActivityCreateWithoutSchedulesInput = {
+  id: string
+  name: string
+  kind: string
+  icon?: string | null
+  isActive?: boolean
+  minimumType: string
+  minimumValue: number
+  sessionMinutes: number
+  daysOfWeek?: number
+  importance?: string
+  presetKey?: string | null
+  sessionEnabled?: boolean
+  startPolicy?: string
+  configJson?: string | null
+  graceMinutes?: number
+  bufferBeforeMeetingMinutes?: number
+  writeToCalendar?: boolean
+  writeTargetConnectionId?: string | null
+  ownerAddonId?: string | null
+  pausedByAddonAt?: Date | string | null
+  createdAt: Date | string
+  archivedAt?: Date | string | null
+  windows?: Prisma.ActivityWindowCreateNestedManyWithoutActivityInput
+  slots?: Prisma.SlotCreateNestedManyWithoutActivityInput
+}
+
+export type ActivityUncheckedCreateWithoutSchedulesInput = {
+  id: string
+  name: string
+  kind: string
+  icon?: string | null
+  isActive?: boolean
+  minimumType: string
+  minimumValue: number
+  sessionMinutes: number
+  daysOfWeek?: number
+  importance?: string
+  presetKey?: string | null
+  sessionEnabled?: boolean
+  startPolicy?: string
+  configJson?: string | null
+  graceMinutes?: number
+  bufferBeforeMeetingMinutes?: number
+  writeToCalendar?: boolean
+  writeTargetConnectionId?: string | null
+  ownerAddonId?: string | null
+  pausedByAddonAt?: Date | string | null
+  createdAt: Date | string
+  archivedAt?: Date | string | null
+  windows?: Prisma.ActivityWindowUncheckedCreateNestedManyWithoutActivityInput
+  slots?: Prisma.SlotUncheckedCreateNestedManyWithoutActivityInput
+}
+
+export type ActivityCreateOrConnectWithoutSchedulesInput = {
+  where: Prisma.ActivityWhereUniqueInput
+  create: Prisma.XOR<Prisma.ActivityCreateWithoutSchedulesInput, Prisma.ActivityUncheckedCreateWithoutSchedulesInput>
+}
+
+export type ActivityUpsertWithoutSchedulesInput = {
+  update: Prisma.XOR<Prisma.ActivityUpdateWithoutSchedulesInput, Prisma.ActivityUncheckedUpdateWithoutSchedulesInput>
+  create: Prisma.XOR<Prisma.ActivityCreateWithoutSchedulesInput, Prisma.ActivityUncheckedCreateWithoutSchedulesInput>
+  where?: Prisma.ActivityWhereInput
+}
+
+export type ActivityUpdateToOneWithWhereWithoutSchedulesInput = {
+  where?: Prisma.ActivityWhereInput
+  data: Prisma.XOR<Prisma.ActivityUpdateWithoutSchedulesInput, Prisma.ActivityUncheckedUpdateWithoutSchedulesInput>
+}
+
+export type ActivityUpdateWithoutSchedulesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  icon?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isActive?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  minimumType?: Prisma.StringFieldUpdateOperationsInput | string
+  minimumValue?: Prisma.IntFieldUpdateOperationsInput | number
+  sessionMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  daysOfWeek?: Prisma.IntFieldUpdateOperationsInput | number
+  importance?: Prisma.StringFieldUpdateOperationsInput | string
+  presetKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sessionEnabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  startPolicy?: Prisma.StringFieldUpdateOperationsInput | string
+  configJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  graceMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  bufferBeforeMeetingMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  writeTargetConnectionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pausedByAddonAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  windows?: Prisma.ActivityWindowUpdateManyWithoutActivityNestedInput
+  slots?: Prisma.SlotUpdateManyWithoutActivityNestedInput
+}
+
+export type ActivityUncheckedUpdateWithoutSchedulesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  kind?: Prisma.StringFieldUpdateOperationsInput | string
+  icon?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  isActive?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  minimumType?: Prisma.StringFieldUpdateOperationsInput | string
+  minimumValue?: Prisma.IntFieldUpdateOperationsInput | number
+  sessionMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  daysOfWeek?: Prisma.IntFieldUpdateOperationsInput | number
+  importance?: Prisma.StringFieldUpdateOperationsInput | string
+  presetKey?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sessionEnabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  startPolicy?: Prisma.StringFieldUpdateOperationsInput | string
+  configJson?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  graceMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  bufferBeforeMeetingMinutes?: Prisma.IntFieldUpdateOperationsInput | number
+  writeToCalendar?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  writeTargetConnectionId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  ownerAddonId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  pausedByAddonAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  windows?: Prisma.ActivityWindowUncheckedUpdateManyWithoutActivityNestedInput
+  slots?: Prisma.SlotUncheckedUpdateManyWithoutActivityNestedInput
+}
+
 export type ActivityCreateWithoutWindowsInput = {
   id: string
   name: string
@@ -825,6 +970,7 @@ export type ActivityCreateWithoutWindowsInput = {
   createdAt: Date | string
   archivedAt?: Date | string | null
   slots?: Prisma.SlotCreateNestedManyWithoutActivityInput
+  schedules?: Prisma.ActivityScheduleCreateNestedManyWithoutActivityInput
 }
 
 export type ActivityUncheckedCreateWithoutWindowsInput = {
@@ -851,6 +997,7 @@ export type ActivityUncheckedCreateWithoutWindowsInput = {
   createdAt: Date | string
   archivedAt?: Date | string | null
   slots?: Prisma.SlotUncheckedCreateNestedManyWithoutActivityInput
+  schedules?: Prisma.ActivityScheduleUncheckedCreateNestedManyWithoutActivityInput
 }
 
 export type ActivityCreateOrConnectWithoutWindowsInput = {
@@ -893,6 +1040,7 @@ export type ActivityUpdateWithoutWindowsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   slots?: Prisma.SlotUpdateManyWithoutActivityNestedInput
+  schedules?: Prisma.ActivityScheduleUpdateManyWithoutActivityNestedInput
 }
 
 export type ActivityUncheckedUpdateWithoutWindowsInput = {
@@ -919,6 +1067,7 @@ export type ActivityUncheckedUpdateWithoutWindowsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   slots?: Prisma.SlotUncheckedUpdateManyWithoutActivityNestedInput
+  schedules?: Prisma.ActivityScheduleUncheckedUpdateManyWithoutActivityNestedInput
 }
 
 export type ActivityCreateWithoutSlotsInput = {
@@ -945,6 +1094,7 @@ export type ActivityCreateWithoutSlotsInput = {
   createdAt: Date | string
   archivedAt?: Date | string | null
   windows?: Prisma.ActivityWindowCreateNestedManyWithoutActivityInput
+  schedules?: Prisma.ActivityScheduleCreateNestedManyWithoutActivityInput
 }
 
 export type ActivityUncheckedCreateWithoutSlotsInput = {
@@ -971,6 +1121,7 @@ export type ActivityUncheckedCreateWithoutSlotsInput = {
   createdAt: Date | string
   archivedAt?: Date | string | null
   windows?: Prisma.ActivityWindowUncheckedCreateNestedManyWithoutActivityInput
+  schedules?: Prisma.ActivityScheduleUncheckedCreateNestedManyWithoutActivityInput
 }
 
 export type ActivityCreateOrConnectWithoutSlotsInput = {
@@ -1013,6 +1164,7 @@ export type ActivityUpdateWithoutSlotsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   windows?: Prisma.ActivityWindowUpdateManyWithoutActivityNestedInput
+  schedules?: Prisma.ActivityScheduleUpdateManyWithoutActivityNestedInput
 }
 
 export type ActivityUncheckedUpdateWithoutSlotsInput = {
@@ -1039,6 +1191,7 @@ export type ActivityUncheckedUpdateWithoutSlotsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   windows?: Prisma.ActivityWindowUncheckedUpdateManyWithoutActivityNestedInput
+  schedules?: Prisma.ActivityScheduleUncheckedUpdateManyWithoutActivityNestedInput
 }
 
 
@@ -1049,11 +1202,13 @@ export type ActivityUncheckedUpdateWithoutSlotsInput = {
 export type ActivityCountOutputType = {
   windows: number
   slots: number
+  schedules: number
 }
 
 export type ActivityCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   windows?: boolean | ActivityCountOutputTypeCountWindowsArgs
   slots?: boolean | ActivityCountOutputTypeCountSlotsArgs
+  schedules?: boolean | ActivityCountOutputTypeCountSchedulesArgs
 }
 
 /**
@@ -1078,6 +1233,13 @@ export type ActivityCountOutputTypeCountWindowsArgs<ExtArgs extends runtime.Type
  */
 export type ActivityCountOutputTypeCountSlotsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.SlotWhereInput
+}
+
+/**
+ * ActivityCountOutputType without action
+ */
+export type ActivityCountOutputTypeCountSchedulesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ActivityScheduleWhereInput
 }
 
 
@@ -1106,6 +1268,7 @@ export type ActivitySelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   archivedAt?: boolean
   windows?: boolean | Prisma.Activity$windowsArgs<ExtArgs>
   slots?: boolean | Prisma.Activity$slotsArgs<ExtArgs>
+  schedules?: boolean | Prisma.Activity$schedulesArgs<ExtArgs>
   _count?: boolean | Prisma.ActivityCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["activity"]>
 
@@ -1188,6 +1351,7 @@ export type ActivityOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs =
 export type ActivityInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   windows?: boolean | Prisma.Activity$windowsArgs<ExtArgs>
   slots?: boolean | Prisma.Activity$slotsArgs<ExtArgs>
+  schedules?: boolean | Prisma.Activity$schedulesArgs<ExtArgs>
   _count?: boolean | Prisma.ActivityCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type ActivityIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
@@ -1198,6 +1362,7 @@ export type $ActivityPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
   objects: {
     windows: Prisma.$ActivityWindowPayload<ExtArgs>[]
     slots: Prisma.$SlotPayload<ExtArgs>[]
+    schedules: Prisma.$ActivitySchedulePayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -1695,6 +1860,7 @@ export interface Prisma__ActivityClient<T, Null = never, ExtArgs extends runtime
   readonly [Symbol.toStringTag]: "PrismaPromise"
   windows<T extends Prisma.Activity$windowsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Activity$windowsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ActivityWindowPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   slots<T extends Prisma.Activity$slotsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Activity$slotsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$SlotPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  schedules<T extends Prisma.Activity$schedulesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Activity$schedulesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ActivitySchedulePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2182,6 +2348,30 @@ export type Activity$slotsArgs<ExtArgs extends runtime.Types.Extensions.Internal
   take?: number
   skip?: number
   distinct?: Prisma.SlotScalarFieldEnum | Prisma.SlotScalarFieldEnum[]
+}
+
+/**
+ * Activity.schedules
+ */
+export type Activity$schedulesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ActivitySchedule
+   */
+  select?: Prisma.ActivityScheduleSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ActivitySchedule
+   */
+  omit?: Prisma.ActivityScheduleOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ActivityScheduleInclude<ExtArgs> | null
+  where?: Prisma.ActivityScheduleWhereInput
+  orderBy?: Prisma.ActivityScheduleOrderByWithRelationInput | Prisma.ActivityScheduleOrderByWithRelationInput[]
+  cursor?: Prisma.ActivityScheduleWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ActivityScheduleScalarFieldEnum | Prisma.ActivityScheduleScalarFieldEnum[]
 }
 
 /**

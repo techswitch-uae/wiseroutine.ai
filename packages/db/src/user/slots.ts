@@ -2,6 +2,8 @@ import {
   canPostponeSlot,
   canStartSlot,
   canStopSlot,
+  dayBounds,
+  localDateOf,
 } from "@wiseroutine/scheduler";
 import {
   at,
@@ -386,6 +388,8 @@ export async function moveSlot(
     return userTransaction(db, (tx) => moveSlot(tx, params, now, newId));
   const current = await getSlot(db, params.slotId);
   if (!current) return;
+  if (expiredRoutineBucket(current, now))
+    throw new ActionConflict("This unplaced slot belonged to a previous day. Use today's routine instead.");
   if (
     params.actor === "system"
       ? !["planned", "live", "bucketed"].includes(current.status)
@@ -642,6 +646,27 @@ export async function listBucket(
   return rows.map(toSlot);
 }
 
+/** Routine shortfalls belong to a day, unlike explicitly saved one-off work. */
+export async function listBucketForDay(db: UserDatabase, from: number, to: number): Promise<SlotRow[]> {
+  const rows = await db.slot.findMany({
+    where: {
+      status: "bucketed",
+      OR: [
+        { activityId: null },
+        { reminderId: { not: null } },
+        { startsAt: { gte: at(from), lt: at(to) } },
+      ],
+    },
+    orderBy: { startsAt: "asc" },
+  });
+  return rows.map(toSlot);
+}
+
+export function expiredRoutineBucket(slot: SlotRow, now: number, zone = slot.timeZone): boolean {
+  return slot.status === "bucketed" && slot.activityId !== null && slot.reminderId === null &&
+    slot.startsAt < dayBounds(localDateOf(now, zone), zone, 0, 1440).start;
+}
+
 /**
  * Slots whose grace period has run out, inside this user's database.
  *
@@ -876,7 +901,7 @@ export async function scheduledForRange(
       startsAt: { gte: at(from), lt: at(to) },
       // Bucket occurrences are already accounted for. They must not also
       // appear as fresh demand in To place or be recreated by another plan.
-      status: { in: ["planned", "live", "started", "bucketed"] },
+      status: { in: ["planned", "live", "started", "bucketed", "skipped", "missed"] },
     },
     select: { activityId: true },
   });

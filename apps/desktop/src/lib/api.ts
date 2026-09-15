@@ -318,6 +318,8 @@ export interface TodayResponse {
    * written by a version that did not send it. Read it as `?? []`.
    */
   progress?: ActivityProgress[];
+  /** Earliest pending routine configuration, in the account's local date. */
+  routineStartsOn?: string | null;
 }
 
 /** One day of `GET /scope`. The server has already bucketed it and resolved
@@ -530,6 +532,8 @@ export interface ActivityResponse {
   kind: "recovery" | "focus" | "task";
   isActive: boolean;
   minimum: { type: string; value: number };
+  /** The displayed editor values take effect on this local date. */
+  changesFrom?: string | null;
   sessionMinutes: number;
   daysOfWeek: number;
   importance: string;
@@ -1098,7 +1102,7 @@ export const api = {
   missed: () => request<MissedItem[]>("/missed"),
   /** The bucket. Emptied by `moveSlot` (accept) or `cancelSlot` (drop) - it
    *  has no mutations of its own, because both already exist. */
-  bucket: () => request<BucketItem[]>("/bucket"),
+  bucket: (at?: number) => request<BucketItem[]>(at === undefined ? "/bucket" : `/bucket?at=${at}`),
   /**
    * Fill a day.
    *

@@ -267,9 +267,24 @@ model Activity {
 
   windows ActivityWindow[]
   slots   Slot[]
+  schedules ActivitySchedule[]
 
   @@index([isActive], map: "activities_active")
   @@map("activities")
+}
+
+/// Effective-dated routine settings. Activity holds the latest editor values;
+/// planning/progress resolve the version for the user's local calendar date.
+model ActivitySchedule {
+  activityId String @map("activity_id")
+  effectiveDate String @map("effective_date")
+  /// Null means this activity had not started its routine yet.
+  settingsJson String? @map("settings_json")
+
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@id([activityId, effectiveDate])
+  @@map("activity_schedules")
 }
 
 model ActivityWindow {

@@ -22,6 +22,7 @@ import {
   dependentsOf,
   directoryTransaction,
   forgetStoredTitles,
+  expiredRoutineBucket,
   getAddon,
   getCalendarForSync,
   getReminder,
@@ -31,7 +32,7 @@ import {
   lastSyncedAt,
   listActivities,
   listAddons,
-  listBucket,
+  listBucketForDay,
   listCalendars,
   listConnections,
   listEventsInRange,
@@ -47,6 +48,7 @@ import {
   resumeDependents,
   scheduledForRange,
   scheduleWork,
+  scheduleActivityChanges,
   setActivityActive,
   setActivityWindows,
   setAddonEnabled,
@@ -58,7 +60,6 @@ import {
   slotStartTimes,
   toSchedulerActivity,
   touchLastSeen,
-  type UserDatabase,
   updateActivity,
   updateUserSettings,
   upsertCalendars,
@@ -111,7 +112,7 @@ import {
 import { requireFeature } from "../features";
 import { planAndSchedule, scheduleGrace } from "../planning/commands";
 import { validatePlacement } from "../planning/placement";
-import { detectConflicts, planDay } from "../planning/planDay";
+import { detectConflicts } from "../planning/planDay";
 import { enforceActivityFeatures, releaseGates } from "../release-gates";
 import { accessTokenFor, type SyncDeps } from "../sync/engine";
 import { ensureWatch, stopWatch, type WatchDeps } from "../sync/watch";
@@ -969,8 +970,10 @@ function modulePatch(body: Record<string, unknown>): Record<string, unknown> {
 
 app.get("/activities", async (c) => {
   const rows = await listActivities(c.get("db"));
+  const today = isoOfLocalDate(localDateOf(c.get("now"), c.get("user").timeZone));
   return c.json(
-    rows.map(({ row, anchorMinutes }) => ({
+    rows.map(({ row, anchorMinutes, effectiveDate }) => ({
+      changesFrom: effectiveDate && effectiveDate > today ? effectiveDate : null,
       id: row.id,
       name: row.name,
       kind: row.kind,
@@ -1030,24 +1033,9 @@ function validateDailyFrequency(
     });
 }
 
-/** New/resumed activities get room without evicting the accepted routine. */
-async function placeActivityChanges(c: Ctx, db: UserDatabase): Promise<void> {
-  const now = c.get("now");
-  const user = c.get("user");
-  // After hours, the occurrences still belong in the bucket, not nowhere.
-  await scheduleGrace(c);
-  await planDay(
-    db,
-    {
-      user,
-      onDay: now,
-      from: now,
-      preservePlanned: true,
-      trigger: "user_request",
-    },
-    now,
-    newId,
-  );
+/** Calendar arithmetic, not +24 hours: tomorrow can be 23 or 25 hours away. */
+function nextRoutineDate(c: Ctx): string {
+  return isoOfLocalDate(addLocalDays(localDateOf(c.get("now"), c.get("user").timeZone), 1));
 }
 
 app.post("/activities", async (c) =>
@@ -1080,7 +1068,7 @@ app.post("/activities", async (c) =>
       newId,
     );
 
-    await placeActivityChanges(c, db);
+    await scheduleActivityChanges(db, id, nextRoutineDate(c));
     return c.json({ id }, 201);
   }),
 );
@@ -1165,7 +1153,7 @@ app.patch("/activities/:id", async (c) =>
       );
     }
 
-    if (body.isActive !== false) await placeActivityChanges(c, db);
+    await scheduleActivityChanges(db, previous.row.id, nextRoutineDate(c), previous);
     return c.body(null, 204);
   }),
 );
@@ -1424,7 +1412,7 @@ async function fillDay(
   if (!can(user.plan, { kind: "plan.adaptive" }).ok) return;
 
   const [activities, slots] = await Promise.all([
-    listActivities(db),
+    listActivities(db, isoOfLocalDate(localDateOf(wholeDay.start, user.timeZone))),
     listSlotsForRange(db, wholeDay.start, wholeDay.end),
   ]);
 
@@ -1498,14 +1486,15 @@ app.get("/today", async (c) => {
   )
     await fillDay(c, wholeDay);
 
-  const [slots, events, syncedAt, activities, done, scheduled] =
+  const [slots, events, syncedAt, activities, done, scheduled, configured] =
     await Promise.all([
       listSlotsForRange(db, bounds.start, bounds.end),
       listEventsInRange(db, wholeDay.start, wholeDay.end),
       lastSyncedAt(db),
-      listActivities(db),
+      listActivities(db, isoOfLocalDate(date)),
       progressForRange(db, wholeDay.start, wholeDay.end),
       scheduledForRange(db, wholeDay.start, wholeDay.end),
+      listActivities(db),
     ]);
 
   const starts = await slotStartTimes(
@@ -1600,6 +1589,8 @@ app.get("/today", async (c) => {
         }
       : { before: [], after: [] },
     widgets: releasedWidgets(c.get("features"), visibleWidgets(user.plan, [])),
+    routineStartsOn: configured.filter((a) => a.row.isActive && a.effectiveDate && a.effectiveDate > isoOfLocalDate(date))
+      .map((a) => a.effectiveDate).sort()[0] ?? null,
     /**
      * Progress against today's minimums, for the "Today so far" module.
      *
@@ -2062,14 +2053,14 @@ app.post("/slots", async (c) => {
       minutes: todo.estimatedMinutes ?? 15,
     };
   } else {
-    const activities = await listActivities(db);
+    const activities = await listActivities(db, isoOfLocalDate(localDateOf(body.startsAt, user.timeZone)));
     const activity = activities.find((a) => a.row.id === body.activityId);
     if (!activity) {
       throw new HTTPException(404, { message: "No such activity" });
     }
     if (!activity.row.isActive) {
       throw new HTTPException(409, {
-        message: `${activity.row.name} is paused. Turn it back on to place it.`,
+        message: `${activity.row.name} is paused or hasn't started its routine yet.`, 
       });
     }
     subject = {
@@ -2336,7 +2327,7 @@ app.post("/slots/:id/move", async (c) => {
   await userTransaction(c.get("db"), async (db) => {
     const slot = await getSlot(db, c.req.param("id"));
     if (!slot) throw new HTTPException(404);
-    if (!canPostponeSlot(slot, c.get("now")))
+    if (!canPostponeSlot(slot, c.get("now")) || expiredRoutineBucket(slot, c.get("now"), c.get("user").timeZone))
       throw new HTTPException(409, {
         message:
           "This slot can no longer be moved. You can still mark it done.",
@@ -2436,9 +2427,7 @@ app.get("/bucket", async (c) => {
   const date = localDateOf(at, user.timeZone);
   const bounds = dayBounds(date, user.timeZone, 0, 24 * 60);
 
-  const slots = c.req.query("at")
-    ? await listBucket(db, bounds.start, bounds.end)
-    : await listBucket(db);
+  const slots = await listBucketForDay(db, bounds.start, bounds.end);
   const events = await listSlotEvents(
     db,
     slots.map((s) => s.id),

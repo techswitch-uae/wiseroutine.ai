@@ -719,7 +719,9 @@ const Today: React.FC = () => {
             gutter={false}
             onClick={() => void navigate({ to: "/activities" })}
           >
-            Nothing on today yet - add an activity
+            {data.routineStartsOn
+              ? `Your routine starts on ${data.routineStartsOn}. Its slots will appear in Not placed.`
+              : "Nothing on today yet - add an activity"}
           </DashedRow>
         ) : null}
         <DayGrid

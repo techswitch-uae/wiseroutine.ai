@@ -107,7 +107,7 @@ export async function realignAfterSync(
 
   const [events, activities, slots] = await Promise.all([
     listEventsInRange(deps.db, whole.start, whole.end),
-    listActivities(deps.db),
+    listActivities(deps.db, `${date.year}-${String(date.month).padStart(2, "0")}-${String(date.day).padStart(2, "0")}`),
     listSlotsForRange(deps.db, whole.start, whole.end),
   ]);
 

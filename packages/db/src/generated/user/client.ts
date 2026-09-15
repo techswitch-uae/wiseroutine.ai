@@ -73,6 +73,12 @@ export type ExternalEvent = Prisma.ExternalEventModel
  */
 export type Activity = Prisma.ActivityModel
 /**
+ * Model ActivitySchedule
+ * Effective-dated routine settings. Activity holds the latest editor values;
+ * planning/progress resolve the version for the user's local calendar date.
+ */
+export type ActivitySchedule = Prisma.ActivityScheduleModel
+/**
  * Model ActivityWindow
  * 
  */

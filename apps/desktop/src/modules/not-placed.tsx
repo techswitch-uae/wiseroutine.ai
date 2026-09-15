@@ -29,6 +29,8 @@ export function NotPlaced({
   const plan = usePlan();
   const density = useDensity();
   const [saved, setSaved] = useState<BucketItem[]>([]);
+  const [savedFor, setSavedFor] = useState<string | null>(null);
+  const dayKey = standalone ? "inbox" : JSON.stringify([plan?.date, plan?.timeZone]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -52,10 +54,11 @@ export function NotPlaced({
       const order = ++sequence;
       setLoading(true);
       void api
-        .bucket()
+        .bucket(!standalone && plan ? (plan.dayStart + plan.dayEnd) / 2 : undefined)
         .then((rows) => {
           if (active && order === sequence) {
             setSaved(standalone ? rows.filter((row) => !row.reminderId) : rows);
+            setSavedFor(dayKey);
             setError(false);
           }
         })
@@ -72,7 +75,7 @@ export function NotPlaced({
       active = false;
       globalThis.removeEventListener("wr:inbox-changed", refresh);
     };
-  }, [plan, standalone, revision]);
+  }, [plan, standalone, revision, dayKey]);
 
   const settle = () => {
     working.current = false;
@@ -191,14 +194,14 @@ export function NotPlaced({
 
   const rows = notPlacedRows(
     standalone ? [] : (plan?.progress ?? []),
-    saved,
+    savedFor === dayKey ? saved : [],
   ).filter((row) =>
     row.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
   );
   if (!plan && !standalone) return null;
   if (!loading && !error && rows.length === 0) return null;
   const total = rows.reduce((sum, row) => sum + row.count, 0);
-  const disabled = busy || loading || error;
+  const disabled = busy || loading || error || savedFor !== dayKey;
   const begin = (row: NotPlacedRow, x: number, y: number, keyboard = false) => {
     if (disabled || !plan) return;
     const start = Math.ceil(Math.max(Date.now(), plan.dayStart) / STEP) * STEP;
