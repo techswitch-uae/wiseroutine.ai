@@ -11,8 +11,8 @@ export default defineConfig({
   testDir: ".",
   testMatch: ["**/e2e-production/*.spec.ts", ...contracts.map((name) => `**/e2e/${name}.spec.ts`)],
   testIgnore: ["**/.playwright/**", "**/node_modules/**", "**/.output/**"],
-  outputDir: "test-results-built",
-  reporter: [[process.env.CI ? "list" : "line"], ["html", { open: "never", outputFolder: "playwright-report-built" }]],
+  outputDir: ".playwright/built/test-results",
+  reporter: [[process.env.CI ? "list" : "line"], ["html", { open: "never", outputFolder: ".playwright/built/report" }]],
   webServer: [
     { ...worker, command: worker.command.replace(".wrangler/e2e-state", ".wrangler/e2e-built-state") },
     {

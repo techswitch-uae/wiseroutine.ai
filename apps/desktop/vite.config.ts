@@ -144,6 +144,16 @@ export default defineConfig(async () => ({
     scenarioVerdicts(),
   ],
 
+  // This server exists to prerender the static shell, not to ship in Tauri.
+  // Splitting the SSR route graph creates cyclic chunks where session reset
+  // subscribers execute before the lifecycle module initializes. Keep this
+  // graph together; client route/asset splitting remains enabled.
+  environments: {
+    ssr: {
+      build: { rolldownOptions: { output: { codeSplitting: false } } },
+    },
+  },
+
   // Resolve path aliases from tsconfig.json
   resolve: {
     tsconfigPaths: true,

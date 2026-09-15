@@ -15,6 +15,7 @@ export default defineConfig({
       "**/dist/**",
       "e2e/**",
       "e2e-addons/**",
+      "e2e-production/**",
       ".playwright/**",
     ],
   },
