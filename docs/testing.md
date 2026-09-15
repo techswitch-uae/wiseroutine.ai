@@ -88,6 +88,29 @@ Counts will change as coverage grows; the actual run/report is authoritative.
 - Shared scheduler unit tests cover the algorithm more broadly. The landing
   page only demonstrates a small, deliberately understandable example.
 
+## API Worker startup
+
+API tests keep the normal **five-second test timeout**. The Workers pool lazily
+loads the entrypoint through Vite on the first `worker.default.fetch()`. On a
+cold CI runner, transforming that dependency graph can exceed the timeout before
+the handler runs. `apps/api/vitest.config.ts` preloads `src/index.ts` as a setup
+file, so compilation belongs to setup rather than the first request. It sends no
+warm-up request, does not mock the Worker, and does not change production code.
+
+`pnpm --filter @wiseroutine/api test` runs the complete API suite followed by a
+cold-start regression. The latter deliberately delays **entrypoint transformation
+by 6.5 seconds**, then runs the two real health assertions with a five-second
+timeout. Removing the setup preload reproduces the original timeout. This is
+controlled startup-delay injection, not a synchronization sleep or a benchmark
+of the deployed Worker's cold-start latency.
+
+```sh
+pnpm --filter @wiseroutine/api test:cold-start
+```
+
+Both runs use the existing disposable database harness on **41090–41091** and
+execute sequentially; do not run them concurrently against those ports.
+
 ## CI and failure evidence
 
 `.github/workflows/ci.yml` runs **all** app browser scenarios, rather than only

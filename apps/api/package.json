@@ -15,7 +15,8 @@
     "secrets:push:prod": "node scripts/push-secrets.mjs --env production",
     "secrets:check:dev": "node scripts/check-secrets.mjs --env dev",
     "secrets:check:prod": "node scripts/check-secrets.mjs --env production",
-    "test": "vitest run",
+    "test": "vitest run && pnpm test:cold-start",
+    "test:cold-start": "vitest run --config vitest.cold-start.config.ts",
     "typecheck": "tsc --noEmit",
     "clean": "git clean -xdf .cache .turbo dist node_modules",
     "grant": "node scripts/grant.mjs"

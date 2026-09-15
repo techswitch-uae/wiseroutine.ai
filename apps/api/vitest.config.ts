@@ -10,7 +10,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [
     cloudflareTest({
-      singleWorker: true,
       wrangler: { configPath: "./wrangler.jsonc" },
       miniflare: {
         bindings: {
@@ -35,6 +34,11 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     globalSetup: ["./vitest.globalSetup.ts"],
+    // The Workers pool otherwise imports/transforms the entrypoint lazily on
+    // the first worker.default.fetch(), charging cold compilation to that
+    // test's 5s timeout. Load the same module in setup, without sending a
+    // request or weakening the handler assertions/timeouts.
+    setupFiles: ["./src/index.ts"],
     /**
      * One file at a time.
      *
