@@ -81,8 +81,8 @@ const isSecretBinding = (value: unknown): value is SecretBinding =>
 /**
  * Resolved once per isolate, not once per request.
  *
- * Reading ten Secrets Store bindings is ten awaits; doing that on every
- * request would put them in front of every route. Keyed on the bindings
+ * Reading every declared Secrets Store binding on every request would put
+ * those awaits in front of every route. Keyed on the bindings
  * object itself so a different environment - the test runner's, say - cannot
  * pick up another one's cached answer, and so nothing is retained after the
  * isolate goes away.
@@ -124,8 +124,9 @@ export function resolveServerEnv(
  * Everything a deployed environment must have.
  *
  * The package fragments mark secrets optional so a half-configured laptop can
- * still boot the parts it is working on. That leniency must not reach a
- * deployment, so this is the second gate: `pnpm deploy:*` calls it through
+ * still boot the parts it is working on. Core M0 services must be configured
+ * in deployments; billing and remote push remain optional. This is the second
+ * gate: `pnpm deploy:*` calls it through
  * `/health/config` right after uploading, and a failure fails the deploy.
  *
  * It checks presence; the fragments' own rules (a `re_` prefix, 32 bytes of

@@ -5,7 +5,7 @@ import { API_URL, APP_URL, PORTS } from "./e2e/environment";
 const servers = Array.isArray(base.webServer) ? base.webServer : [];
 const worker = servers[0];
 if (!worker) throw new Error("Missing isolated Worker configuration");
-const contracts = ["authentication", "core-release", "calendar-repair", "late-start", "rollover-setup", "session-boundaries", "session-integrity", "slot-actions"];
+const contracts = ["authentication", "core-release", "calendar-repair", "late-start", "rollover-setup", "routine", "session-boundaries", "session-integrity", "slot-actions"];
 export default defineConfig({
   ...base,
   testDir: ".",

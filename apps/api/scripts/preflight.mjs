@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { parse } from "jsonc-parser";
-import { missing, placeholder, SECRET_KEYS, variableProblems } from "../src/deployment.ts";
+import { missing, placeholder, REQUIRED_SECRET_KEYS, SECRET_KEYS, variableProblems } from "../src/deployment.ts";
 
 export const PREFIX = { dev: "WR_DEV_", production: "WR_PROD_" };
 export function loadDeployment(environment, source = new URL("../wrangler.jsonc", import.meta.url)) {
@@ -21,7 +21,7 @@ export function loadDeployment(environment, source = new URL("../wrangler.jsonc"
 export function deploymentProblems(selected, environment) {
   const vars = selected.vars ?? {};
   const problems = variableProblems(vars);
-  if (vars.ENVIRONMENT !== (environment === "production" ? "production" : "development")) {
+  if (vars.ENVIRONMENT !== (environment === "production" ? "production" : "preview")) {
     problems.push("ENVIRONMENT (does not match the selected deployment)");
   }
   const bindings = selected.secrets_store_secrets ?? [];
@@ -37,8 +37,10 @@ export function deploymentProblems(selected, environment) {
     if (String(name).startsWith("E2E_")) problems.push(`${name} (test binding in deployment)`);
   }
   if (stores.size !== 1) problems.push("secrets_store_secrets (expected one explicitly selected store)");
-  for (const key of SECRET_KEYS) {
+  for (const key of REQUIRED_SECRET_KEYS) {
     if (!names.has(key)) problems.push(`${key} (missing secret binding)`);
+  }
+  for (const key of SECRET_KEYS) {
     if (Object.hasOwn(vars, key)) problems.push(`${key} (secret must not be in vars)`);
   }
   for (const key of Object.keys(vars)) if (key.startsWith("E2E_")) problems.push(`${key} (test binding in deployment)`);

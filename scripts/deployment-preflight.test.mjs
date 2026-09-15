@@ -3,17 +3,17 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { configurationProblems, SECRET_KEYS } from "../apps/api/src/deployment.ts";
+import { configurationProblems, REQUIRED_SECRET_KEYS, SECRET_KEYS } from "../apps/api/src/deployment.ts";
 import { checkDeployment, deploymentProblems, loadDeployment } from "../apps/api/scripts/preflight.mjs";
 import { declared } from "../apps/api/scripts/secrets-lib.mjs";
 const valid = (environment = "production") => ({
   vars: {
-    ENVIRONMENT: environment === "production" ? "production" : "development",
+    ENVIRONMENT: environment === "production" ? "production" : "preview",
     APP_URL: "https://app.example.com", API_URL: "https://api.example.com",
     TURSO_DIRECTORY_URL: "libsql://directory-org.turso.io", TURSO_USER_HOST: "org.turso.io", TURSO_ORG: "org", TURSO_GROUP: "users",
-    GOOGLE_CLIENT_ID: "google", MICROSOFT_CLIENT_ID: "microsoft", STRIPE_PRO_PRICE_ID: "price_live", RESEND_FROM: "support@example.com", ONESIGNAL_APP_ID: "notifications",
+    GOOGLE_CLIENT_ID: "google", MICROSOFT_CLIENT_ID: "microsoft", RESEND_FROM: "support@example.com",
   },
-  secrets_store_secrets: SECRET_KEYS.map((binding) => ({ binding, store_id: `store-${environment}`, secret_name: `WR_${environment === "production" ? "PROD" : "DEV"}_${binding}` })),
+  secrets_store_secrets: REQUIRED_SECRET_KEYS.map((binding) => ({ binding, store_id: `store-${environment}`, secret_name: `WR_${environment === "production" ? "PROD" : "DEV"}_${binding}` })),
 });
 test("complete declarations pass; embedded placeholders fail without exposing values", () => {
   const input = valid();
@@ -33,7 +33,7 @@ test("local targets, cross-environment secrets, test bindings and missing bindin
   input.secrets_store_secrets[0].secret_name = "WR_DEV_TURSO_AUTH_TOKEN";
   input.secrets_store_secrets.pop();
   const problems = deploymentProblems(input, "production").join("\n");
-  for (const key of ["API_URL", "E2E_SECRET", "TURSO_AUTH_TOKEN", "ONESIGNAL_API_KEY"]) assert.ok(problems.includes(key));
+  for (const key of ["API_URL", "E2E_SECRET", "TURSO_AUTH_TOKEN", "RESEND_API_KEY"]) assert.ok(problems.includes(key));
   assert.ok(!problems.includes(input.vars.E2E_SECRET));
 });
 test("JSONC parsing preserves URLs and selects only the requested environment/store", () => {
@@ -50,12 +50,39 @@ test("JSONC parsing preserves URLs and selects only the requested environment/st
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 test("the Worker checks the same placeholder/transport contract and root-key length", () => {
-  const config = { ...valid().vars, ...Object.fromEntries(SECRET_KEYS.map((key) => [key, "present"])), TOKEN_ROOT_KEY: Buffer.alloc(32).toString("base64") };
+  const config = { ...valid().vars, ...Object.fromEntries(REQUIRED_SECRET_KEYS.map((key) => [key, "present"])), TOKEN_ROOT_KEY: Buffer.alloc(32).toString("base64") };
   assert.deepEqual(configurationProblems(config), []);
   config.TOKEN_ROOT_KEY = Buffer.alloc(16).toString("base64");
   assert.ok(configurationProblems(config).some((p) => p.includes("32 bytes")));
   config.TURSO_DIRECTORY_URL = "libsql://directory-REPLACE_WITH_ORG.turso.io";
   assert.ok(configurationProblems(config).some((p) => p.includes("placeholder")));
+});
+test("named dev is preview, never local development; checked-in M0 declarations need no unused services", () => {
+  const dev = loadDeployment("dev");
+  assert.deepEqual(deploymentProblems(dev, "dev"), []);
+  for (const environment of ["development", "production"]) {
+    assert.ok(deploymentProblems({ ...dev, vars: { ...dev.vars, ENVIRONMENT: environment } }, "dev").some((p) => p.startsWith("ENVIRONMENT")));
+  }
+  for (const environment of ["dev", "production"]) {
+    const config = loadDeployment(environment);
+    const names = declared(environment).names;
+    assert.equal(names.length, REQUIRED_SECRET_KEYS.length);
+    assert.ok(!names.some((name) => /STRIPE|ONESIGNAL/.test(name)));
+    assert.ok(!Object.keys(config.vars).some((name) => /STRIPE|ONESIGNAL/.test(name)));
+  }
+});
+test("all core secrets remain mandatory; optional secrets remain protected and validated if supplied", () => {
+  const config = { ...valid().vars, ...Object.fromEntries(REQUIRED_SECRET_KEYS.map((key) => [key, "present"])), TOKEN_ROOT_KEY: Buffer.alloc(32).toString("base64") };
+  assert.deepEqual(configurationProblems(config), []);
+  for (const key of REQUIRED_SECRET_KEYS) {
+    assert.ok(configurationProblems({ ...config, [key]: undefined }).includes(`${key} (missing)`));
+  }
+  for (const key of SECRET_KEYS.filter((key) => !REQUIRED_SECRET_KEYS.includes(key))) {
+    const input = valid();
+    input.vars[key] = "never-print-me";
+    assert.ok(deploymentProblems(input, "production").includes(`${key} (secret must not be in vars)`));
+  }
+  assert.ok(configurationProblems({ ...config, STRIPE_PRO_PRICE_ID: "REPLACE_WITH_PRICE" }).some((p) => p.includes("placeholder")));
 });
 test("deploy commands preflight before network work and regenerate/check before upload", () => {
   const pkg = JSON.parse(readFileSync(new URL("../apps/api/package.json", import.meta.url), "utf8"));

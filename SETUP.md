@@ -129,7 +129,11 @@ What you still need to do: **complete the app registration** (logo, terms and
 privacy URLs) and consider **publisher verification** - both markedly improve
 the odds an admin approves it.
 
-## Stripe
+## Stripe (later milestone, not M0)
+
+Skip this for the first release. Billing stays disabled and Stripe vars/bindings
+are intentionally absent from deployed configuration. The following setup is
+for a separately approved billing launch.
 
 1. Create the Pro product and a recurring price.
 2. Add a webhook endpoint at `https://api.wiseroutine.ai/webhooks/stripe`
@@ -156,9 +160,10 @@ pnpm wrangler kv key put --binding CONFIG PRO_OFFER_ENABLED false --env producti
 Beta users keep Pro through `plan_grants` rows, which outrank Stripe and carry a
 reason and an optional expiry, so winding the beta down is per-user and audited.
 
-## OneSignal - web only
+## OneSignal - web only, not M0
 
-Create an app. The app ID is a var, the API key goes in the store.
+Skip this for the first release; OneSignal vars/bindings are intentionally
+undeclared. If remote push is enabled in a later milestone, create an app. The app ID is a var, the API key goes in the store.
 
 **OneSignal cannot reach the Tauri desktop app** - no Tauri SDK exists, the Web
 SDK needs a service worker on a real HTTP origin, and WebView2 on Windows has no

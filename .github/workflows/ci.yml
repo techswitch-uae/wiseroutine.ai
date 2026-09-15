@@ -16,7 +16,7 @@ concurrency:
 jobs:
   verify:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,7 +55,7 @@ jobs:
           pnpm install --frozen-lockfile --ignore-scripts
           pnpm test && pnpm typecheck
       - run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
-      - run: pnpm exec playwright install chromium
+      - run: pnpm exec playwright install chromium webkit
         working-directory: apps/desktop
       - run: pnpm --filter @wiseroutine/addon-sdk build && pnpm --filter @wiseroutine/addons build
       - run: pnpm exec playwright test --config playwright.addons.config.ts
@@ -63,6 +63,8 @@ jobs:
       - run: node scripts/assemble-addons.mjs
       - name: Full-stack app user journeys
         run: pnpm test:app-browser
+      - name: Production-built Chromium and WebKit user journeys
+        run: pnpm test:app-built
       - name: App browser failure evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -71,6 +73,9 @@ jobs:
           path: |
             apps/desktop/playwright-report/
             apps/desktop/test-results/
+            apps/desktop/.playwright/built/report/
+            apps/desktop/.playwright/built/test-results/
+          include-hidden-files: true
           retention-days: 7
       # This job verifies only. Never expose publishing/deployment/signing secrets to PR code.
 

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "dev:vite": "vite dev",
-    "build": "node ../../scripts/assemble-addons.mjs && vite build",
+    "build": "node ../../scripts/check-desktop-build.mjs --clean && node ../../scripts/assemble-addons.mjs && vite build && node ../../scripts/check-desktop-build.mjs",
     "bundle": "pnpm -w release:config && tauri build --config src-tauri/tauri.release.generated.json",
     "preview": "vite preview",
     "tauri": "tauri",

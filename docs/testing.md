@@ -1,6 +1,6 @@
 # Browser testing
 
-Two complementary suites. **The marketing demonstration is not evidence that
+Complementary app and marketing suites. **The marketing demonstration is not evidence that
 a user's live calendar, sign-in or native installer works.**
 
 ## Run locally
@@ -21,7 +21,11 @@ pnpm exec turbo run build --filter='./addons/*'
 node scripts/assemble-addons.mjs
 pnpm test:app-browser
 
-# Both, in sequence:
+# Static output shipped by Tauri, with Chromium and WebKit (same isolated API).
+pnpm --filter @wiseroutine/desktop exec playwright install chromium webkit
+pnpm test:app-built
+
+# Development-app and marketing suites, in sequence:
 pnpm test:e2e
 ```
 
@@ -58,7 +62,8 @@ pnpm --filter @wiseroutine/desktop exec playwright test calendars.spec.ts
 | App capture | Keyboard/focus, links and multiple files, exact download bytes, offline draft recovery, plan/postpone and return to Inbox | Existing release/entitlement fixtures; not live OAuth or production storage |
 
 The suites currently contain **44 web browser cases** (11 stories × 4
-browser projects), **30 web unit cases**, and **72 full-stack app scenarios**.
+browser projects), **30 web unit cases**, **72 full-stack development-app
+scenarios**, and **80 production-built app cases** (40 per Chromium/WebKit).
 Counts will change as coverage grows; the actual run/report is authoritative.
 
 ## Isolation and reproducibility
@@ -126,14 +131,17 @@ execute sequentially; do not run them concurrently against those ports.
 ## CI and failure evidence
 
 `.github/workflows/ci.yml` runs **all** app browser scenarios, rather than only
-core/capture subsets. A separate Linux job tests the marketing production build
+core/capture subsets, plus `pnpm test:app-built` against static production output
+in Chromium and WebKit. A separate Linux job tests the marketing production build
 across all four browser projects. Focused-only tests are rejected in CI.
 Desktop `typecheck` also checks browser specs and Playwright configs, so undefined
 fixture variables cannot hide outside TypeScript coverage. The Release workflow
 calls this same complete CI workflow with the candidate SHA before installers
 build; releases stay drafts. See [the acceptance contract](release-contract.md).
 
-Both suites save HTML reports and failure traces/screenshots. Web also keeps
+All browser suites save HTML reports and failure traces/screenshots. Built-app
+evidence lives under `apps/desktop/.playwright/built/{report,test-results}`;
+CI explicitly includes these hidden paths in the app artifact. Web also keeps
 failure videos and 390px/1280px full-page captures. CI uploads them even on failure
 with a seven-day retention period. Reports contain synthetic fixture data;
 don't run these scenarios against private calendars.
@@ -141,6 +149,7 @@ don't run these scenarios against private calendars.
 ```sh
 pnpm --filter @wiseroutine/web exec playwright show-report
 pnpm --filter @wiseroutine/desktop exec playwright show-report
+pnpm --filter @wiseroutine/desktop exec playwright show-report .playwright/built/report
 pnpm --filter @wiseroutine/web exec playwright show-trace path/to/trace.zip
 ```
 

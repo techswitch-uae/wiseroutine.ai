@@ -1,4 +1,4 @@
-import { API_URL } from "./environment";
+import { API_URL, TIME_ZONE } from "./environment";
 import { dayShown, expect, seedRoutine, test, todayAt } from "./support";
 
 const M = 60_000;
@@ -83,6 +83,19 @@ test("three stretches spread across Today, remain movable, and dragging toward t
     before,
   );
   expect(moved.status()).toBe(204);
+  // A response event precedes the controller's /today refresh. Wait for the
+  // requested destination, not an arbitrary render or the previous move's label.
+  const destination = moved.request().postDataJSON() as { startsAt: number };
+  const time = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(destination.startsAt);
+  await expect(first).toHaveAttribute(
+    "aria-label",
+    new RegExp(`^Stretch at ${time}\\.`),
+  );
   const label = await first.getAttribute("aria-label");
   await page.reload();
   await dayShown(page);

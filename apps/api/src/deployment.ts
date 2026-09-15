@@ -1,14 +1,19 @@
 /** Shared by the Worker health gate and the local, non-network preflight.
- * This validates the currently declared services, not live service operation.
- * Optional-service removal/profile changes require a reviewed deployment change. */
-export const SECRET_KEYS = [
+ * M0 needs database provisioning, authentication/email and both calendars.
+ * Billing and remote push are not core prerequisites. Native notifications do
+ * not use OneSignal. Explicitly supplied optional settings are still validated. */
+export const REQUIRED_SECRET_KEYS = [
   "TURSO_AUTH_TOKEN", "TURSO_PLATFORM_TOKEN", "TOKEN_ROOT_KEY", "SESSION_SECRET",
-  "GOOGLE_CLIENT_SECRET", "MICROSOFT_CLIENT_SECRET", "STRIPE_SECRET_KEY",
-  "STRIPE_WEBHOOK_SECRET", "RESEND_API_KEY", "ONESIGNAL_API_KEY",
+  "GOOGLE_CLIENT_SECRET", "MICROSOFT_CLIENT_SECRET", "RESEND_API_KEY",
+] as const;
+// Resolve/protect optional secrets too, when an environment declares them.
+export const SECRET_KEYS = [
+  ...REQUIRED_SECRET_KEYS,
+  "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "ONESIGNAL_API_KEY",
 ] as const;
 export const DEPLOYMENT_VARS = [
   "APP_URL", "API_URL", "TURSO_DIRECTORY_URL", "TURSO_USER_HOST", "TURSO_ORG", "TURSO_GROUP",
-  "GOOGLE_CLIENT_ID", "MICROSOFT_CLIENT_ID", "STRIPE_PRO_PRICE_ID", "RESEND_FROM", "ONESIGNAL_APP_ID",
+  "GOOGLE_CLIENT_ID", "MICROSOFT_CLIENT_ID", "RESEND_FROM",
 ] as const;
 export const placeholder = (value: unknown): boolean => typeof value === "string" && /REPLACE_WITH/i.test(value);
 export const missing = (value: unknown): boolean => value === undefined || value === null || (typeof value === "string" && value.trim() === "");
@@ -43,7 +48,7 @@ function localHost(host: string): boolean {
 
 export function configurationProblems(config: Record<string, unknown>): string[] {
   const problems = variableProblems(config);
-  for (const key of SECRET_KEYS) if (missing(config[key])) problems.push(`${key} (missing)`);
+  for (const key of REQUIRED_SECRET_KEYS) if (missing(config[key])) problems.push(`${key} (missing)`);
   if (config.TOKEN_ROOT_KEY) {
     try { if (atob(String(config.TOKEN_ROOT_KEY)).length !== 32) problems.push("TOKEN_ROOT_KEY (must encode 32 bytes)"); }
     catch { problems.push("TOKEN_ROOT_KEY (invalid base64)"); }

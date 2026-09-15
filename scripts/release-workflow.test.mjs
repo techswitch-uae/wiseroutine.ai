@@ -31,6 +31,7 @@ test("installers require the entire CI contract at the exact release SHA", () =>
     "pnpm test",
     "pnpm test:release",
     "pnpm test:app-browser",
+    "pnpm test:app-built",
     "pnpm test:web-browser",
     "cargo test --locked",
   ]) {
@@ -42,6 +43,17 @@ test("installers require the entire CI contract at the exact release SHA", () =>
     ).with.ref,
     "${{ needs.release-please.outputs.sha }}",
   );
+});
+
+test("built-app CI installs both engines and retains its actual report paths", () => {
+  const steps = ci.jobs.verify.steps;
+  assert.ok(steps.some((s) => /playwright install.*chromium.*webkit/.test(s.run ?? "")));
+  const evidence = steps.find((s) => s.with?.name === "app-browser-results");
+  assert.equal(evidence.if, "always()");
+  assert.equal(evidence.with["include-hidden-files"], true);
+  for (const path of [".playwright/built/report/", ".playwright/built/test-results/"]) {
+    assert.ok(evidence.with.path.includes(`apps/desktop/${path}`));
+  }
 });
 
 test("a failed or incomplete candidate never publishes an installer release", () => {

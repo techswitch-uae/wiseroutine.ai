@@ -27,6 +27,7 @@ candidate, not permission to publish it.
 | RECOVERY-01 | Failed setup reads never count as completion. Retry can recover. Notification permission is optional, explicitly requested and recoverable from native Settings. | `e2e/rollover-setup.spec.ts`; setup/notification-settings component tests |
 | RECOVERY-02 | Midnight updates operational Today even on Settings. An offline retained day is marked stale, cannot place work, and refreshes on reconnect even with an empty action queue. | `e2e/rollover-setup.spec.ts`; Today controller and Not placed unit tests |
 | RELEASE-01 | Root/Tauri/Cargo versions agree. The real Release Please update leaves Cargo.lock usable with `--locked`. Installer jobs consume the verified SHA and draft release ID. | `scripts/release-{version,workflow,config}.test.mjs`; E2E/config typechecking included in `pnpm typecheck` |
+| RELEASE-02 | Normal desktop builds reject absent/incomplete static shells and entry assets. Candidate Verify runs production-built Chromium and WebKit, not just Vite dev mode. | `scripts/check-desktop-build.test.mjs`, `scripts/release-workflow.test.mjs`, `pnpm test:app-built` |
 | NATIVE-01 | Show Wise Routine is always in the tray menu. Timed imported meetings share the countdown, but never receive activity Start actions/notifications. Slot Start expires at scheduled end and sends its exact id. | Rust compilation/clock tests and desktop `alerts.test.ts`; **actual Show/hide/restore and notification behavior require packaged OS acceptance** |
 
 Browser spec paths above are under `apps/desktop/e2e/`. Scheduler sources/tests are
@@ -48,7 +49,7 @@ under `packages/scheduler/src/`; API tests under `apps/api/src/`.
   clock/mail/provider/secondary-database substitutions are inert in production,
   including when an E2E binding is accidentally supplied.
 - Chromium app tests do not stand in for production-built WebKit/Tauri, AppKit,
-  Windows, signing, install/update or sleep/wake tests. These remain phase 3/4 gates.
+  Windows, signing, install/update or sleep/wake tests. These remain live and packaged-candidate gates.
 
 ## Publication checklist
 

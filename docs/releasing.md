@@ -15,9 +15,9 @@ The supported installer entry point is `pnpm bundle`. It validates release confi
    manifest, Tauri version, Cargo manifest **and lockfile**, plus the changelog.
 3. Merge the PR after CI passes; dispatch Release again. A merge does not dispatch it.
 4. Release Please creates a **draft** and its tag. The reusable Verify workflow runs
-   both browser suites, workspace tests/typechecks and native tests at the release
-   SHA. Installer jobs depend on that candidate gate and check out the same SHA.
-5. Keep the release a draft until phase 3/4 artifact, signing, updater, live provider
+   the development-app suite, production-built Chromium/WebKit app matrix,
+   marketing browsers, workspace tests/typechecks and native tests at the release SHA. Installer jobs depend on that candidate gate and check out the same SHA.
+5. Keep the release a draft until artifact, signing, updater, live provider
    and platform acceptance is complete. A successful build is not publication approval.
    Re-run failed jobs for the same candidate; do not move an existing release tag.
 
@@ -30,7 +30,7 @@ Future release-bearing commits (or squash PR titles) should use Conventional Com
 
 The candidate workflow is verification-only and receives no production secrets.
 Draft creation/build configuration is in place; public artifact promotion and live
-acceptance remain operational work. See [the first-release audit](first-release-audit.md).
+acceptance remain operational work. See [the remaining first-release checklist](first-release-audit.md).
 
 ## Marketing site
 
@@ -68,6 +68,9 @@ The validator checks configuration shape, not that a private key matches the pub
 pnpm install --frozen-lockfile
 pnpm exec turbo run typecheck test --force
 pnpm test:release
+pnpm --filter @wiseroutine/desktop exec playwright install chromium webkit
+pnpm test:app-browser
+pnpm test:app-built
 cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
 # With the release variables supplied securely:
 pnpm bundle
@@ -79,7 +82,7 @@ The API tests need the Turso CLI and exclusive test ports; see `setup-database.m
 
 Each bundled addon produces its own `addons/<name>/dist`. The desktop declares those workspace dependencies and assembles their outputs into `apps/desktop/public/addons` before Vite runs. Both package-local outputs and desktop staging assets are declared cache outputs. API URL changes and shared build-script changes invalidate the build cache.
 
-Use the root build graph (`pnpm build`) rather than invoking Vite directly on a fresh checkout. The assembly step fails clearly if an addon output is missing instead of quietly shipping incomplete assets.
+Use the root build graph (`pnpm build`) rather than invoking Vite directly on a fresh checkout. The assembly step fails clearly if an addon output is missing instead of quietly shipping incomplete assets. The normal desktop build clears old public output before Vite, then requires a nonempty prerendered `index.html`, a local module entry, and every referenced script, module preload and stylesheet. A nominally successful Vite exit with incomplete static output fails the build.
 
 ## Database rollout
 
@@ -96,4 +99,4 @@ User databases catch up on authenticated requests and queue consumption. A schem
 - New offline actions are account-scoped, carry stable idempotency IDs, and survive reauthentication for that same account. Another account cannot drain them.
 - Legacy unscoped addon configuration, setup flags, and native addon secret locations are deliberately not assigned to whichever user signs in next. Installed addons reload from the server; device-local addon secrets may need to be entered again.
 - Legacy unscoped offline queues are not automatically attributed or replayed; sign-in displays a recovery warning when they exist. They are not deleted by the new account-scoped queue code; inspect and verify their ownership before any manual recovery. This matters if deploying over an existing development installation with pending actions.
-- Selecting **Busy times only** in Settings and pressing **Update** erases titles, notes, and call links and stops saving new details. Busy times remain and the original provider calendar is unchanged. Opting back in permits subsequent sync writes; erased historical details are not reconstructed automatically.
+- Selecting **Busy times only** in Settings and pressing **Update** erases titles, notes, and call links and stops saving new details. Busy times remain and the original provider calendar is unchanged. Opting back in invalidates incremental cursors so the next sync can restore unchanged meeting details within the supported sync window. It fetches them again from the provider; it does not reconstruct history outside that window.
