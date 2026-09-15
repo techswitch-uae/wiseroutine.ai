@@ -148,7 +148,6 @@ const Meeting: React.FC<{
           Show details
         </Button>
       ) : null}
-      <Note>From your calendar · Read-only</Note>
 
       {details ? (
         <Modal
