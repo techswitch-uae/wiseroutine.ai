@@ -19,7 +19,7 @@
     "bundle": "pnpm --filter @wiseroutine/desktop bundle",
     "release:config": "node scripts/release-config.mjs",
     "release:frontend": "node scripts/release-config.mjs --check && turbo run typecheck build --filter=@wiseroutine/desktop...",
-    "test:release": "node --test scripts/release-config.test.mjs scripts/release-version.test.mjs scripts/release-workflow.test.mjs scripts/install-turso-ci.test.mjs scripts/deployment-preflight.test.mjs",
+    "test:release": "node --test scripts/release-config.test.mjs scripts/release-version.test.mjs scripts/release-workflow.test.mjs scripts/install-turso-ci.test.mjs scripts/deployment-preflight.test.mjs scripts/browser-environment.test.mjs",
     "test:app-browser": "pnpm --filter @wiseroutine/desktop exec playwright test",
     "test:app-built": "pnpm --filter @wiseroutine/desktop exec playwright test --config playwright.production.config.ts",
     "test:web-browser": "pnpm --filter @wiseroutine/web e2e",

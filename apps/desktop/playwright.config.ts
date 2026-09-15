@@ -68,13 +68,21 @@ export default defineConfig({
   webServer: [
     {
       command:
-        `pnpm --filter @wiseroutine/api exec wrangler dev --port ${PORTS.api} --persist-to .wrangler/e2e-state` +
+        `pnpm --filter @wiseroutine/api exec wrangler dev --local --ip 127.0.0.1 --env-file ../desktop/e2e/worker.vars --port ${PORTS.api} --persist-to .wrangler/e2e-state` +
         ` --var APP_URL:${APP_URL}` +
         ` --var API_URL:http://localhost:${PORTS.api}` +
         ` --var TURSO_DIRECTORY_URL:${DIRECTORY_URL}` +
         ` --var TURSO_USER_HOST:${USER_URL}` +
         ` --var E2E_SECRET:${E2E_SECRET}` +
         ` --var E2E_SECOND_USER_URL:${SECOND_USER_URL}`,
+      // Explicit --env-file skips .dev.vars and the default dotenv search.
+      // Do not inherit a developer's deployment selection or inject their
+      // process environment as Worker bindings. Built-app tests inherit this.
+      env: {
+        CLOUDFLARE_ENV: "",
+        CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "true",
+        CLOUDFLARE_INCLUDE_PROCESS_ENV: "false",
+      },
       // `/health` answers without touching a database, which is what makes it
       // a readiness check rather than a second thing that has to be up.
       url: `http://localhost:${PORTS.api}/health`,

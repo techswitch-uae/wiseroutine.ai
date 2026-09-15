@@ -29,6 +29,13 @@ Linux runners need Playwright's `install --with-deps` variant. CI installs it.
 Keep `E2E_API_URL` / `E2E_SECRET` overrides unset for local app runs; never point
 the seeding/reset suite at a production API or a developer's data.
 
+The browser Worker loads the checked-in **dummy-only** `apps/desktop/e2e/worker.vars`
+explicitly via Wrangler `--env-file`. No personal `.dev.vars`, `.env` files or
+production/GitHub secrets are needed. The harness forces local mode, clears the
+inherited Cloudflare environment selection, and disables process-environment
+injection into Worker bindings. The built-app configuration inherits this same
+Worker setup. Never use these public fixture values for a deployment.
+
 Focused commands remain available: `pnpm test:core-browser`,
 `pnpm test:capture-browser`, and `pnpm test:addon-browser`.
 
