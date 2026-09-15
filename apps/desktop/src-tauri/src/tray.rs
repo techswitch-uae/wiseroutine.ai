@@ -83,13 +83,13 @@ struct Day(Mutex<DayState>);
 #[derive(Default)]
 pub struct UpNext {
   /// "Shoulder stretch", or absent when the day has nothing left. Named in the
-  /// menu bar itself and not only in the menu behind it: a bare "18m" says
+  /// menu bar itself and not only in the menu behind it: a bare "18 min" says
   /// something is coming without saying what, which is the one thing worth
   /// knowing without switching apps.
   pub title: Option<String>,
   /// How long it runs, e.g. "10 min". Shown under the name in the menu.
   pub label: Option<String>,
-  /// The countdown drawn next to the icon, e.g. "18m". Absent leaves the menu
+  /// The countdown drawn next to the icon, e.g. "18 min". Absent leaves the menu
   /// bar showing the icon alone, which is the right look for an empty day.
   pub badge: Option<String>,
   /// Present only while a slot is actually startable, which is what decides
@@ -105,12 +105,12 @@ fn now_ms() -> i64 {
     .unwrap_or(0)
 }
 
-/// "18m", or "2h 05m". Rounded up, because a slot 90 seconds away reading
-/// "1m" and then sitting there for the next 89 of them looks stuck.
+/// "18 min", or "2h 05m". Rounded up, because a slot 90 seconds away reading
+/// "1 min" and then sitting there for the next 89 of them looks stuck.
 fn countdown(ms: i64) -> String {
   let minutes = if ms <= 0 { 0 } else { (ms + 59_999) / 60_000 };
   if minutes < 60 {
-    format!("{minutes}m")
+    format!("{minutes} min")
   } else {
     // Both units named. Without the second one this read "9h 10", which is
     // not a duration - it is two numbers, and the eye has to guess which.
@@ -217,7 +217,8 @@ fn menu_bar_title(next: &UpNext) -> Option<String> {
   } else {
     title.to_string()
   };
-  Some(format!("{short} · {badge}"))
+  let separator = if badge == "now" { " · " } else { " in " };
+  Some(format!("{short}{separator}{badge}"))
 }
 
 /// Keep the native write testable without an AppKit event loop.
@@ -507,9 +508,24 @@ mod tests {
     native_title(&mut displayed, &up_next(&day, AT));
     assert_eq!(displayed, "Breathing · now");
     native_title(&mut displayed, &up_next(&day, AT + 10 * MIN));
-    assert_eq!(displayed, "Breathing · 10m");
+    assert_eq!(displayed, "Breathing in 10 min");
     native_title(&mut displayed, &up_next(&day, AT + 30 * MIN));
     assert_eq!(displayed, "");
+  }
+
+  #[test]
+  fn uses_in_for_a_future_slot_and_a_dot_once_it_is_due() {
+    let mut walk = entry("walk", AT + 10 * MIN, AT + 20 * MIN);
+    walk.title = "Walk".to_string();
+    let day = [walk];
+    let mut displayed = String::new();
+
+    native_title(&mut displayed, &up_next(&day, AT));
+    assert_eq!(displayed, "Walk in 10 min");
+    native_title(&mut displayed, &up_next(&day, AT + 10 * MIN - 1));
+    assert_eq!(displayed, "Walk in 1 min");
+    native_title(&mut displayed, &up_next(&day, AT + 10 * MIN));
+    assert_eq!(displayed, "Walk · now");
   }
 
   #[test]
@@ -520,7 +536,7 @@ mod tests {
       entry("later", AT + 40 * MIN, AT + 50 * MIN),
     ];
     let next = up_next(&day, AT);
-    assert_eq!(next.badge.as_deref(), Some("1m"));
+    assert_eq!(next.badge.as_deref(), Some("1 min"));
     assert_eq!(next.label.as_deref(), Some("10 min"));
     // Not startable yet, so the menu item stays greyed.
     assert_eq!(next.slot_id, None);
@@ -576,17 +592,39 @@ mod tests {
   }
 
   #[test]
-  fn counts_the_same_way_the_webview_does() {
-    assert_eq!(countdown(90_000), "2m");
+  fn rounds_countdowns_up_and_labels_both_hour_units() {
+    assert_eq!(countdown(90_000), "2 min");
     assert_eq!(countdown(125 * MIN), "2h 05m");
-    assert_eq!(countdown(-5 * MIN), "0m");
+    assert_eq!(countdown(-5 * MIN), "0 min");
   }
 
   #[test]
-  fn ellipsises_a_long_name_by_character() {
-    let mut next = up_next(&[entry("a", AT, AT + MIN)], AT);
-    next.title = Some("Café ☕ and a very long stretch name".to_string());
-    let title = menu_bar_title(&next).unwrap();
-    assert_eq!(title, "Café ☕ and a very lon… · now");
+  fn ellipsises_a_long_name_by_character_without_truncating_the_countdown() {
+    let mut activity = entry("a", AT + 10 * MIN, AT + 20 * MIN);
+    activity.title = "Café ☕ and a very long stretch name".to_string();
+    let day = [activity];
+    assert_eq!(
+      menu_bar_title(&up_next(&day, AT)).as_deref(),
+      Some("Café ☕ and a very lon… in 10 min")
+    );
+    assert_eq!(
+      menu_bar_title(&up_next(&day, AT + 10 * MIN)).as_deref(),
+      Some("Café ☕ and a very lon… · now")
+    );
+  }
+
+  #[test]
+  fn keeps_a_name_at_the_limit_and_ellipsises_only_longer_names() {
+    let mut next = up_next(&[entry("a", AT + 10 * MIN, AT + 20 * MIN)], AT);
+    next.title = Some("é".repeat(TITLE_MAX));
+    assert_eq!(
+      menu_bar_title(&next),
+      Some(format!("{} in 10 min", "é".repeat(TITLE_MAX)))
+    );
+    next.title.as_mut().unwrap().push('☕');
+    assert_eq!(
+      menu_bar_title(&next),
+      Some(format!("{}… in 10 min", "é".repeat(TITLE_MAX - 1)))
+    );
   }
 }
