@@ -153,22 +153,35 @@ const Today: React.FC = () => {
               .filter((slot) => slot.starting)
               .map((slot) => [slot.id, slot]),
           );
-          return starting.size === 0
-            ? response
-            : {
-                ...response,
-                slots: response.slots.map((slot) => {
-                  const pending = starting.get(slot.id);
-                  return pending
-                    ? {
-                        ...slot,
-                        status: "started",
-                        startedAt: pending.startedAt,
-                        starting: true,
-                      }
-                    : slot;
-                }),
-              };
+          const next: CachedToday =
+            starting.size === 0
+              ? response
+              : {
+                  ...response,
+                  slots: response.slots.map((slot) => {
+                    const pending = starting.get(slot.id);
+                    return pending
+                      ? {
+                          ...slot,
+                          status: "started",
+                          startedAt: pending.startedAt,
+                          starting: true,
+                        }
+                      : slot;
+                  }),
+                };
+          // The same day again - which is what nearly every focus and settle
+          // reload returns - keeps the object it replaces. A new one re-published
+          // the plan, so every rail module re-rendered and re-fetched for a sync
+          // that changed nothing. `cachedAt` is stamped on every read, so it is
+          // left out; it is only shown for a stale plan, and `stale` is compared.
+          // ponytail: a string compare of one day's plan per reload; structural
+          // sharing per slot if plans ever get large enough to notice.
+          return current &&
+            JSON.stringify({ ...current, cachedAt: 0 }) ===
+              JSON.stringify({ ...next, cachedAt: 0 })
+            ? current
+            : next;
         });
         setError(null);
       })
@@ -368,8 +381,11 @@ const Today: React.FC = () => {
   useEffect(() => {
     const tick = () => setNow(Date.now());
     const timers = (data?.slots ?? [])
-      .map(slotActionDeadline)
-      .filter((at): at is number => at !== null && at > Date.now())
+      .flatMap((slot) => [slotActionDeadline(slot), slot.endsAt])
+      .filter(
+        (at): at is number =>
+          at !== null && Number.isFinite(at) && at > Date.now(),
+      )
       .map((at) => setTimeout(tick, Math.min(at - Date.now(), 2_147_483_647)));
     window.addEventListener("focus", tick);
     document.addEventListener("visibilitychange", tick);

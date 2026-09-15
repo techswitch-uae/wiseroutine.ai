@@ -1,5 +1,6 @@
 import {
   createPlanRun,
+  insertPlannedSlots,
   isTransaction,
   listActivities,
   listBucketForDay,
@@ -7,7 +8,6 @@ import {
   listSlotsForRange,
   moveSlot,
   progressForRange,
-  insertPlannedSlots,
   toSchedulerActivity,
   type UserDatabase,
   userDismissedSlots,
@@ -26,7 +26,7 @@ import {
   toBusyBlocks,
 } from "@wiseroutine/scheduler";
 
-export const ENGINE_VERSION = "1.3.0";
+export const ENGINE_VERSION = "1.4.0";
 
 /** The key a plan run is filed under. Spelled once, because `GET /today` asks
  *  "has this day been planned?" with it and this module answers with it. */
@@ -111,7 +111,9 @@ export async function planDay(
   // Every accepted appointment is preserved, whether placed by hand or by
   // the planner. Only collision-driven repair may move one, before its cutoff.
   const locked = slots
-    .filter((s) => ["planned", "live", "started", "completed"].includes(s.status))
+    .filter((s) =>
+      ["planned", "live", "started", "completed"].includes(s.status),
+    )
     .map((s) => ({
       activityId: s.activityId ?? s.id,
       start: s.startsAt,
@@ -138,7 +140,10 @@ export async function planDay(
    */
   const keptToday = new Map<string, number>();
   for (const slot of slots) {
-    const keeps = ["planned", "live", "started", "bucketed", "skipped", "missed"].includes(slot.status) || dismissedIds.has(slot.id);
+    const keeps =
+      ["planned", "live", "started", "bucketed", "skipped", "missed"].includes(
+        slot.status,
+      ) || dismissedIds.has(slot.id);
     if (!keeps || !slot.activityId) continue;
     keptToday.set(slot.activityId, (keptToday.get(slot.activityId) ?? 0) + 1);
   }

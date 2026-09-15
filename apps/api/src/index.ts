@@ -187,7 +187,9 @@ export async function sweepGrace(
   );
   if (!user) return undefined;
   return userTransaction(db, async (db) => {
-    const due = features.guided_sessions ? await slotsToAutoStart(db, now, 200) : [];
+    const due = features.guided_sessions
+      ? await slotsToAutoStart(db, now, 200)
+      : [];
 
     for (const slot of due) {
       switch (graceAction({ ...slot, startPolicy: "auto" }, now)) {
@@ -215,7 +217,6 @@ export async function sweepGrace(
 
         case "leave":
           break;
-
       }
     }
 
@@ -243,7 +244,7 @@ export async function sweepGrace(
     // the end). Unstarted slots become Time passed in the shared presentation.
     // Neither is moved, bucketed, completed or declared missed by a timer.
 
-    const next = await nextGraceDeadline(db, now);
+    const next = await nextGraceDeadline(db, now, features.guided_sessions);
     return Math.max(
       now + MINUTE,
       Math.min(next ?? Infinity, now + 15 * MINUTE),

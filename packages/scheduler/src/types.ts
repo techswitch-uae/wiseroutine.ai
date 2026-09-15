@@ -64,8 +64,8 @@ export interface Activity {
   minimum: Minimum;
   sessionMinutes: Minutes;
   importance: Importance;
-  /** Minutes before a meeting that must stay clear -
-   *  3e: "Never before a meeting · leaves 5 min". */
+  /** Preferred pre-meeting room. Raises the shared breather preference;
+   * a full-length tight fit is still permitted. */
   bufferBeforeMeetingMinutes: Minutes;
   /** Days the activity may run on, as a Sunday=0 bitmask. 0b1111111 = every day. */
   daysOfWeek: number;
@@ -89,14 +89,14 @@ export interface PlacedSlot extends Interval {
   activityId: string;
   /** An existing occurrence restored by an explicit placement request. */
   id?: string;
-  /** Set on input for user-pinned slots; the planner never moves these. */
+  /** Legacy provenance flag. Every input appointment is preserved, not just pinned ones. */
   isLocked?: boolean;
 }
 
 export type UnplacedReason =
   /** No gap was long enough for one session. */
   | "no_gap"
-  /** Gaps existed but every one collided with a pre-meeting buffer. */
+  /** Historical reason only; buffers are now preferences, never blockers. */
   | "buffer_blocked"
   /** There was time, but not enough separation from another occurrence. */
   | "spacing_blocked"
@@ -116,7 +116,7 @@ export interface PlanInput {
   /** Full working-day start when dayStart has been clamped to now. */
   spreadStart?: Instant;
   busy: BusyBlock[];
-  /** Slots the user placed or pinned. Treated as immovable and as busy. */
+  /** All accepted appointments, manual or automatic. Preserved and treated as busy. */
   locked: PlacedSlot[];
   demands: Demand[];
 }

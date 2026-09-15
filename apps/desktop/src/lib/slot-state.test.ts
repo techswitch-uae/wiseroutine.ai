@@ -29,6 +29,18 @@ describe("slotState", () => {
     }
   });
 
+  it.each(["planned", "live"] as const)(
+    "%s keeps first Start after movement expires, without claiming time has passed",
+    (status) => {
+      for (const now of [AT + 120_000, END - 1])
+        expect(slotState(slot({ status }), now)).toMatchObject({
+          label: null,
+          startable: true,
+          movable: false,
+        });
+    },
+  );
+
   it("identifies user placement without explaining the scheduler", () => {
     expect(slotState(slot({ isLocked: true }), AT)).toMatchObject({
       label: "Placed by you",

@@ -278,11 +278,17 @@ test.each(["planned", "live", "skipped"] as const)(
     expect(screen.getByRole("button", { name: /Postpone/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Later" })).toBeTruthy();
     act(() => vi.advanceTimersByTime(1));
-    expect(screen.queryByRole("button", { name: /^(Resume|Earlier|Later)$/ })).toBeNull();
-    expect(Boolean(screen.queryByRole("button", { name: "Start", exact: true }))).toBe(status !== "skipped");
+    expect(
+      screen.queryByRole("button", { name: /^(Resume|Earlier|Later)$/ }),
+    ).toBeNull();
+    expect(Boolean(screen.queryByRole("button", { name: "Start" }))).toBe(
+      status !== "skipped",
+    );
     expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
     act(() => vi.advanceTimersByTime(slot().endsAt - (AT + 120_000)));
-    expect(screen.queryByRole("button", { name: /^(Start|Resume)$/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /^(Start|Resume)$/ }),
+    ).toBeNull();
     expect(screen.getByRole("button", { name: "Mark it done" })).toBeTruthy();
   },
 );

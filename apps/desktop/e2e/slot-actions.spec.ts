@@ -25,7 +25,7 @@ async function prepare(page: Page, user: SeededUser, minutes: number) {
     .first()
     .click();
   const card = page.locator(".wr-widget", {
-    has: page.getByText("This slot", { exact: true }),
+    has: page.getByRole("heading", { name: "Read a little", exact: true }),
   });
   await expect(card.getByRole("button", { name: /Postpone/ })).toBeVisible();
   return { card, headers };

@@ -206,18 +206,32 @@ export function plan(input: PlanInput): PlanResult {
       // measures drift from its target; repair measures it from its old time.
       for (const origin of preferred.length ? preferred : [input.dayStart]) {
         const found = searchPlacement(gaps, {
-          duration, bufferMs, policy: ANYWHERE, origin, occupied, breather,
-          siblings, requiredGap: separation, spend,
+          duration,
+          bufferMs,
+          policy: ANYWHERE,
+          origin,
+          occupied,
+          breather,
+          siblings,
+          requiredGap: separation,
+          spend,
         });
         if ("failed" in found) continue;
         const fit = found.best;
-        if (!best || fit.cost < best.cost || (fit.cost === best.cost && fit.start < best.start))
+        if (
+          !best ||
+          fit.cost < best.cost ||
+          (fit.cost === best.cost && fit.start < best.start)
+        )
           best = fit;
       }
 
       if (!best) {
-        const reason: UnplacedReason = gaps.some((gap) => gap.end - gap.start >= duration)
-          ? "spacing_blocked" : "no_gap";
+        const reason: UnplacedReason = gaps.some(
+          (gap) => gap.end - gap.start >= duration,
+        )
+          ? "spacing_blocked"
+          : "no_gap";
         const existing = shortfall.get(activity.id);
         shortfall.set(activity.id, {
           sessions: (existing?.sessions ?? 0) + 1,

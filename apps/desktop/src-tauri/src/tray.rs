@@ -119,8 +119,8 @@ fn countdown(ms: i64) -> String {
 }
 
 /// Pending slots only: the webview removes started/stopped work on refresh.
-/// Mirror scheduler/slot-actions.ts: Start closes two minutes after the
-/// scheduled start (or the end of a shorter slot), not at the end of long work.
+/// Mirror scheduler/slot-actions.ts: first Start remains available until the
+/// scheduled end. The two-minute cutoff restricts movement, not first Start.
 fn up_next(entries: &[Entry], now: i64) -> UpNext {
   let Some(entry) = entries
     .iter()
@@ -442,7 +442,10 @@ mod tests {
     assert_eq!(during.badge.as_deref(), Some("now"));
 
     assert_eq!(up_next(&day, AT + 2 * MIN).slot_id.as_deref(), Some("a"));
-    assert_eq!(up_next(&day, AT + 10 * MIN - 1).slot_id.as_deref(), Some("a"));
+    assert_eq!(
+      up_next(&day, AT + 10 * MIN - 1).slot_id.as_deref(),
+      Some("a")
+    );
     // Same schedule, later clock. Nothing else changed.
     let after = up_next(&day, AT + 10 * MIN);
     assert_eq!(after.title, None);

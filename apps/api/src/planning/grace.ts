@@ -12,6 +12,8 @@ export interface GraceInput {
 export function graceAction(slot: GraceInput, now: number): "start" | "leave" {
   return slot.startPolicy === "auto" &&
     ["planned", "live"].includes(slot.status) &&
-    now >= slot.startsAt && canStartSlot(slot, now)
-    ? "start" : "leave";
+    now >= slot.startsAt &&
+    canStartSlot(slot, now)
+    ? "start"
+    : "leave";
 }

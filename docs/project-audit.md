@@ -347,7 +347,7 @@ Only addressed and regression-verified findings are listed here. Release readine
 
 ### 5. P1 — Grace-period rescheduling does not actually find a free gap
 
-**Resolved:** grace recovery runs transactionally and searches real gaps within working hours, accounting for meetings, active slots, and the meeting buffer. Multiple moves see earlier moves in the same transaction. Work with no fitting gap becomes bucketed with a reason. Next wake-up considers actual upcoming starts, grace expiry, completion, and abandonment, within the existing one-minute cron granularity.
+**Resolved, then superseded by the rules migration:** timer-driven manual-slot movement and abandonment are removed. An ignored slot stays put and remains startable until its end; manual starts await confirmation rather than being declared missed later. Only calendar collisions trigger automatic repair, using the shared movement cutoff, candidate scoring and spacing. Background wake-ups handle feature-gated auto-starts and completion backed by the latest actual automatic Start. See [activity planning](activity-planning.md) for the current contract.
 
 **Implementation:** `apps/api/src/index.ts`, `sweepGrace`; `packages/db/src/user/slots.ts`, `nextGraceDeadline`.
 

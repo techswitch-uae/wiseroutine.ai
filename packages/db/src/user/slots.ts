@@ -394,8 +394,8 @@ export async function moveSlot(
     data: {
       startsAt: at(params.startsAt),
       endsAt: at(params.endsAt),
-      // A user-placed slot is pinned from then on, so the next replan leaves it
-      // alone. Auto-moves stay movable but count toward the thrash cap.
+      // Provenance for "Placed by you". All accepted appointments survive
+      // explicit placement; the automatic move count is diagnostic history.
       isLocked: params.actor === "user" ? true : current.isLocked,
       autoMoveCount:
         params.actor === "system"
@@ -514,12 +514,19 @@ export async function setSlotStatus(
         );
     }
   }
-  if (
-    params.status === "started" &&
-    !canStartSlot(slot, now)
-  )
+  if (params.status === "started" && !canStartSlot(slot, now))
     throw new ActionConflict(
       "This slot can no longer be started or resumed. You can still mark it done.",
+    );
+  if (
+    params.status === "bucketed" &&
+    slot.status !== "bucketed" &&
+    !(params.actor === "system"
+      ? canRepairSlot(slot, now)
+      : canPostponeSlot(slot, now))
+  )
+    throw new ActionConflict(
+      "This slot can no longer be moved. You can still mark it done.",
     );
   if (params.status === "started" && slot.reminderId) {
     const todo = await db.reminder.findUnique({
@@ -725,6 +732,28 @@ export async function slotsToAutoStart(
   return rows.map(toSlot);
 }
 
+/** Only the latest Start determines who owns completion. An earlier automatic
+ * Start must not auto-complete a subsequent manual Resume of the same slot.
+ * Select before LIMIT, so old manual resumes cannot starve current auto work.
+ * rowid breaks ties between actions recorded at the same millisecond. */
+async function automaticStarts(
+  db: UserDatabase,
+  limit: number,
+): Promise<{ id: string }[]> {
+  return db.$queryRawUnsafe<{ id: string }[]>(
+    `
+    SELECT s.id FROM slots AS s
+    JOIN slot_events AS e ON e.rowid = (
+      SELECT rowid FROM slot_events
+      WHERE slot_id = s.id AND type = 'started'
+      ORDER BY at DESC, rowid DESC LIMIT 1
+    )
+    WHERE s.status = 'started' AND e.actor = 'system' AND e.reason_code = 'auto_start'
+    ORDER BY s.ends_at, s.id LIMIT ?`,
+    limit,
+  );
+}
+
 /**
  * Slots that have run their length and are waiting to be closed for the user.
  *
@@ -737,38 +766,44 @@ export async function autoSlotsToComplete(
   now: number,
   limit: number,
 ): Promise<SlotRow[]> {
+  const ids = await automaticStarts(db, limit);
   const rows = await db.slot.findMany({
     where: {
+      id: { in: ids.map((row) => row.id) },
       status: "started",
       endsAt: { lte: at(now) },
-      events: { some: { type: "started", actor: "system", reasonCode: "auto_start" } },
     },
     orderBy: { endsAt: "asc" },
-    take: limit,
   });
   return rows.map(toSlot);
 }
 
-/** Manual starts remain Needs confirmation after their end. No timer invents
- * a missed or completed outcome for them. */
-
-/** The next moment anything in this database needs attention, so the directory
- *  can be told when to come back. */
+/** The next actual background deadline. Manual starts remain Needs confirmation;
+ * neither their end nor a legacy grace setting is permission to mutate them. */
 export async function nextGraceDeadline(
   db: UserDatabase,
   after: number,
+  allowAutoStart = true,
 ): Promise<number | undefined> {
-  const rows = await db.slot.findMany({
-    where: {
-      OR: [
-        { status: { in: ["planned", "live"] }, endsAt: { gt: at(after) }, activity: { isActive: true, startPolicy: "auto" } },
-        { status: "started", events: { some: { type: "started", actor: "system", reasonCode: "auto_start" } } },
-      ],
-    },
-  });
-  const deadlines = rows.map((row) =>
-    ms(row.status === "started" ? row.endsAt : row.startsAt),
-  );
+  const [pending, automatic] = await Promise.all([
+    allowAutoStart
+      ? db.slot.findFirst({
+          where: {
+            status: { in: ["planned", "live"] },
+            endsAt: { gt: at(after) },
+            activity: { isActive: true, startPolicy: "auto" },
+          },
+          orderBy: { startsAt: "asc" },
+          select: { startsAt: true },
+        })
+      : Promise.resolve(null),
+    automaticStarts(db, 1),
+  ]);
+  const running = automatic[0] ? await getSlot(db, automatic[0].id) : undefined;
+  const deadlines = [
+    pending ? ms(pending.startsAt) : undefined,
+    running?.endsAt,
+  ].filter((deadline): deadline is number => deadline !== undefined);
   return deadlines.length ? Math.min(...deadlines) : undefined;
 }
 

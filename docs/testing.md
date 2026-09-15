@@ -46,12 +46,12 @@ pnpm --filter @wiseroutine/desktop exec playwright test calendars.spec.ts
 | Web accessibility/layout | Real keyboard navigation and skip link, native FAQ controls, axe WCAG A/AA checks in demo states, reduced motion, widths 320/390/640/800/1280 | Screenshots saved for review; automated checks are not a substitute for screen-reader or real-device acceptance |
 | Web unit tests | Actual scheduler placement/repair, duration preservation, bounds/conflicts, no false confirmed placement, deterministic replay, fail-closed release configuration | No provider or app API mocks masquerading as integration coverage |
 | App full stack | First activity/setup, free limit and removal, edit persistence, daily availability, auto-placement and accepted-slot stability, drag/skip/undo, calendar selection, privacy opt-out, view/settings persistence | Real React app → Worker → migrated libSQL; sign-in and provider data are seeded |
-| App core/release | Default-off routes, hidden shortcuts/assets, core recovery, preview enable/disable; approaching → due → running → done cues in timeline/widget; delayed/refused Start, refresh/reload, stop cutoff; early Start → Stop → scheduled cutoff, stale Postpone closure, reload and Done; in-place postponement without copies | Native webview, tray, OS permissions and signed installers require separate checks |
+| App core/release | Default-off routes, hidden shortcuts/assets, core recovery, preview enable/disable; approaching → due → running → done cues in timeline/widget; delayed/refused Start, refresh/reload, stop cutoff; early Start → Stop → scheduled cutoff, stale Postpone closure, reload and Done; in-place postponement without copies; first Start after movement expires, exact end, wake and reload | Native webview, tray, OS permissions and signed installers require separate checks |
 | Activity planning | Duration-aware frequency and save/reload; tomorrow-effective edits and old-bucket exclusion; repeated activities spread across Today; future-only pointer/keyboard movement; Not placed merges fresh demand and saved slots; no-space toast, reload/retry without duplicates, keyboard/pointer placement, and automatic placement preserving existing slots | Shared scheduler rules plus Worker/database integration; see [activity planning](activity-planning.md) |
 | App capture | Keyboard/focus, links and multiple files, exact download bytes, offline draft recovery, plan/postpone and return to Inbox | Existing release/entitlement fixtures; not live OAuth or production storage |
 
 The suites currently contain **44 web browser cases** (11 stories × 4
-browser projects), **30 web unit cases**, and **51 full-stack app scenarios**.
+browser projects), **30 web unit cases**, and **54 full-stack app scenarios**.
 Counts will change as coverage grows; the actual run/report is authoritative.
 
 ## Isolation and reproducibility
@@ -112,11 +112,32 @@ an hour-old last slot and an empty schedule. The setter model matches the
 pinned macOS tray library: `None` leaves existing text unchanged, while an
 explicit empty string clears it. Selecting no next slot alone is not enough.
 
-For native acceptance, hide the window with one pending slot and let its start
-window expire. After the next native tick (at most 15 seconds), only the tray
-icon should remain; the menu should say **Nothing up next**, with **Start now**
-disabled. Repeat after completing the last slot and signing out. Rust unit tests
+For native acceptance, rebuild/restart the desktop binary and hide its window
+with one pending slot. After two minutes from its start, **Start now** must
+remain available while time remains (movement in the app must be closed).
+Let the slot **end**. After the next native tick (at most 15 seconds), only the
+tray icon should remain; the menu should say **Nothing up next**, with
+**Start now** disabled. Repeat after completing the last slot and signing out. Rust unit tests
 model the setter contract; they do not drive a live AppKit status item.
+
+## Rules migration regression checks
+
+- Scheduler: shared candidate scoring for initial placement and repair,
+  breathing-room preference versus hard occupancy/spacing, exact movement and
+  first-Start boundaries (`rules-contract.test.ts`).
+- API: real background sweeps at the movement cutoff, after the old three-minute
+  grace, at slot end and after overnight sleep. No automatic manual-slot moves
+  or guessed outcomes; valid recorded offline Starts survive.
+- API: reading future days creates no slots/events/plan runs; all accepted
+  legacy `/plan` trigger labels use the same preserve-existing placement path.
+- API: calendar repair honors the cutoff for both manual and automatic slots;
+  started slots cannot be moved or bucketed by a stale repair decision.
+- Browser: `late-start.spec.ts` uses a guarded fixture for a previously accepted
+  appointment. Both timeline and widget submit a real late Start, preserving
+  identity and scheduled bounds through reload. Browser-clock expiry tests
+  verify exact UI boundaries; API tests independently enforce server time.
+- Browser: tomorrow-effective edits and day navigation are tested with weekly
+  planning enabled, without creating a routine just by viewing it.
 
 ## Still manual release gates
 

@@ -196,7 +196,7 @@ test("daily shortfalls do not carry over, but saved one-off work survives", asyn
   await setSlotStatus(
     userDb(),
     { slotId: oneOff.id, status: "bucketed", actor: "user" },
-    now,
+    oneOff.startsAt,
     id,
   );
   expect(await (await request(user, "/bucket")).json()).toMatchObject([

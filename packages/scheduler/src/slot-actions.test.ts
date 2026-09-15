@@ -74,7 +74,9 @@ test.each([1, 2, 3, 10])(
         expect(canPostponeSlot(s, now)).toBe(true);
       }
       for (const now of [deadline, deadline + 1, s.endsAt, AT + 86_400_000]) {
-        expect(canStartSlot(s, now)).toBe(status !== "skipped" && now < s.endsAt);
+        expect(canStartSlot(s, now)).toBe(
+          status !== "skipped" && now < s.endsAt,
+        );
         expect(canPostponeSlot(s, now)).toBe(false);
       }
     }

@@ -11,11 +11,7 @@ import { canPostponeSlot } from "@wiseroutine/scheduler";
 import { useEffect, useState } from "react";
 import { AddonWidgets } from "../addons/widget";
 import { upNextOf } from "../lib/alerts";
-import {
-  type ActivityProgress,
-  api,
-  type MissedItem,
-} from "../lib/api";
+import { type ActivityProgress, api, type MissedItem } from "../lib/api";
 import { useFeatures } from "../lib/features";
 import { usePicked } from "../lib/picked";
 import { startSlot, usePlan } from "../lib/plan-store";

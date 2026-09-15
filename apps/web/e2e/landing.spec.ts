@@ -119,7 +119,7 @@ test("meeting change → automatic repair → unaffected walk stays put → repl
 }) => {
   const focus = page.getByTestId("slot-focus");
   const walk = page.getByTestId("slot-walk");
-  await expect(focus).toHaveAttribute("aria-label", "Deep work, 09:30–10:15");
+  await expect(focus).toHaveAttribute("aria-label", "Deep work, 09:35–10:20");
   const walkBefore = await walk.getAttribute("aria-label");
   if (!walkBefore)
     throw new Error("The sample walk has no accessible time range");
@@ -129,16 +129,16 @@ test("meeting change → automatic repair → unaffected walk stays put → repl
     "Team check-in, 09:00–09:50",
   );
   await expect(focus).toHaveAttribute("aria-label", /moved automatically/);
-  await expect(focus).not.toHaveAttribute("aria-label", /09:30/);
+  await expect(focus).not.toHaveAttribute("aria-label", /09:35/);
   await expect(walk).toHaveAttribute("aria-label", walkBefore);
   await expect(page.getByRole("status")).toContainText(
-    "Your walk stays at 10:15.",
+    "Your walk stays at 11:00.",
   );
   await expect(page.getByRole("status")).toContainText(
     "Only the affected slot moves.",
   );
   await page.getByRole("button", { name: "Restore sample day" }).click();
-  await expect(focus).toHaveAttribute("aria-label", "Deep work, 09:30–10:15");
+  await expect(focus).toHaveAttribute("aria-label", "Deep work, 09:35–10:20");
   await expect(walk).toHaveAttribute("aria-label", walkBefore);
 });
 

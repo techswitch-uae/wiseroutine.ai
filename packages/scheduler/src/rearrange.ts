@@ -196,13 +196,12 @@ export const ANYWHERE: PlacementPolicy = { windows: [], spread: false };
 /**
  * A slot's lifecycle state.
  *
- * There is no pinned or locked state, deliberately. A slot the user dragged
- * into place is still a slot the day has to make room around, and exempting it
- * only means the day goes stale in one spot. If pinning is ever wanted it is a
- * product decision with its own UI, not a flag the solver quietly honours.
+ * Manual placement is provenance, not exemption from a meeting collision.
+ * Healthy slots always stay put. Pending collisions may be repaired only
+ * before the shared movement cutoff, regardless of how the slot was placed.
  *
- * `skipped` and `missed` are past-tense: they describe a session that did not
- * happen, so they only ever appear on a slot whose time has gone.
+ * `skipped` includes an early Stop: it is history, not automatic repair demand.
+ * A user can explicitly resume or move it only before the movement cutoff.
  */
 export type SlotStatus =
   | "planned"
@@ -284,7 +283,7 @@ export interface RearrangeResult {
   /** Ids of slots that were already fine and were not touched. */
   kept: string[];
   /** Ids of slots that collide but are ours no longer - running, or already
-   *  begun by the clock. Reported, never relocated. */
+   *  past the movement cutoff. Reported, never relocated. */
   frozenConflicts: string[];
 }
 
@@ -460,7 +459,12 @@ export function searchPlacement(
   let sawAnyPosition = false;
 
   for (const gap of gaps) {
-    params.spend?.(params.occupied.length + params.siblings.length + params.policy.windows.length + 1);
+    params.spend?.(
+      params.occupied.length +
+        params.siblings.length +
+        params.policy.windows.length +
+        1,
+    );
     for (const start of positionsIn(gap, params)) {
       params.spend?.(params.occupied.length + params.siblings.length + 1);
       sawAnyPosition = true;
@@ -505,7 +509,10 @@ export function searchPlacement(
 
 /** Slots that still hold time but are no longer ours to move. */
 const isFrozen = (slot: CurrentSlot, now: Instant): boolean =>
-  !canRepairSlot({ status: slot.status, startsAt: slot.start, endsAt: slot.end }, now);
+  !canRepairSlot(
+    { status: slot.status, startsAt: slot.start, endsAt: slot.end },
+    now,
+  );
 
 /** Slots that will not happen and should not block a repair. */
 const isGone = (slot: CurrentSlot): boolean =>

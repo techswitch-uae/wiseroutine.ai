@@ -2039,24 +2039,14 @@ describe("social sign-in handoff", () => {
   });
 });
 
-/**
- * Activities repeat, and nothing is written ahead for them.
- *
- * The alternative - filling days into the table as far forward as anyone might
- * look - is a plan nobody has seen going stale on disk. So a day is planned
- * the first time it is opened, and these are the rules that makes: planned
- * once, not re-planned, not re-planned for something added later in the day,
- * never for a day that is over, and never for an account with nothing to
- * place.
- */
-describe("planning a day on open", () => {
-  /**
-   * Filling the day in without being asked is a Pro behaviour.
-   *
-   * It used to happen for everyone, which undercut the pricing line it is
-   * meant to be selling: a day that is already placed by the time you look at
-   * it makes "Pro does the placing" an offer of something you already have.
-   */
+/** Opening a date shows demand; only explicit placement creates slots. */
+describe("reading days versus explicit placement", () => {
+  const place = (user: TestUser, at: number) =>
+    worker.default.fetch("http://api/plan", {
+      method: "POST",
+      headers: user.headers,
+      body: JSON.stringify({ at }),
+    });
   const open = async (user: TestUser, at: number) =>
     worker.default.fetch(`http://api/today?at=${at}`, {
       headers: user.headers,
@@ -2068,13 +2058,13 @@ describe("planning a day on open", () => {
   const slotsOf = async (response: Response) =>
     ((await response.json()) as { slots: { title: string }[] }).slots;
 
-  test("a day plans itself the first time it is opened", async () => {
+  test("a future day remains unplanned when first opened", async () => {
     const user = await seedUser({ plan: "pro" });
     await seedActivity({ name: "Eye rest", minimumValue: 2 });
 
     const slots = await slotsOf(await open(user, AHEAD()));
-    expect(slots).toHaveLength(2);
-    expect(slots.every((s) => s.title === "Eye rest")).toBe(true);
+    expect(slots).toHaveLength(0);
+    expect(await userDb().planRun.count()).toBe(0);
   });
 
   test("an activity added after the day was filled waits to be placed", async () => {
@@ -2082,6 +2072,7 @@ describe("planning a day on open", () => {
     const at = AHEAD();
 
     await seedActivity({ name: "Eye rest", minimumValue: 1 });
+    await place(user, at);
     expect(await slotsOf(await open(user, at))).toHaveLength(1);
 
     // This used to place it on the next look, which meant adding an activity
@@ -2110,6 +2101,7 @@ describe("planning a day on open", () => {
     ).getDay();
 
     await seedActivity({ name: "Eye rest", minimumValue: 1 });
+    await place(user, at);
     await open(user, at);
 
     // Never due, so never missing - otherwise a Sunday-only activity would
@@ -2127,6 +2119,7 @@ describe("planning a day on open", () => {
     await seedActivity();
 
     const at = AHEAD();
+    await place(user, at);
     await open(user, at);
     await open(user, at);
 
@@ -2139,9 +2132,7 @@ describe("planning a day on open", () => {
     const user = await seedUser({ plan: "pro" });
     await seedActivity();
 
-    // History is not replanned. Today after working hours still is - the whole
-    // working day is placed whatever the clock says, so someone opening the
-    // app in the evening sees the shape their day was meant to have.
+    // Reading history never invents the appointments somebody might have had.
     await open(user, Date.now() - 2 * 86_400_000);
     expect(await userDb().planRun.count()).toBe(0);
   });
@@ -2156,6 +2147,8 @@ describe("planning a day on open", () => {
     expect(await userDb().planRun.count()).toBe(0);
 
     await seedActivity({ minimumValue: 1 });
+    expect(await slotsOf(await open(user, at))).toHaveLength(0);
+    await place(user, at);
     expect(await slotsOf(await open(user, at))).toHaveLength(1);
   });
 
@@ -2180,7 +2173,7 @@ describe("a free day gets automatic placement", () => {
       headers: user.headers,
     });
 
-  test("opening the day places the routine", async () => {
+  test("opening the day leaves placement to the user", async () => {
     const user = await seedUser({ plan: "free" });
     await seedActivity({ minimumValue: 3 });
 
@@ -2188,7 +2181,7 @@ describe("a free day gets automatic placement", () => {
     expect(response.status).toBe(200);
     expect(
       ((await response.json()) as { slots: unknown[] }).slots,
-    ).toHaveLength(3);
+    ).toHaveLength(0);
   });
 
   // An explicit request remains available as a core recovery action.
@@ -2209,7 +2202,7 @@ describe("a free day gets automatic placement", () => {
 
   // What the placement tray reads. Placed-but-not-done has to count against
   // the minimum, or it would keep asking for three more.
-  test("automatic placement counts against demand and explicit planning does not duplicate it", async () => {
+  test("explicit placement counts against demand without duplicated occurrences", async () => {
     const user = await seedUser({ plan: "free" });
     await seedActivity({ minimumValue: 3 });
 
@@ -2217,7 +2210,7 @@ describe("a free day gets automatic placement", () => {
     const start = (await before.json()) as {
       progress: { scheduled: number; count: number; minimumValue: number }[];
     };
-    expect(start.progress[0]?.scheduled).toBe(3);
+    expect(start.progress[0]?.scheduled).toBe(0);
 
     await worker.default.fetch("http://api/plan", {
       method: "POST",
@@ -2293,6 +2286,11 @@ describe("an activity's behaviour survives being saved", () => {
       }),
     });
 
+    await worker.default.fetch("http://api/plan", {
+      method: "POST",
+      headers: user.headers,
+      body: JSON.stringify({ at: tomorrowNoon() }),
+    });
     const day = await worker.default.fetch(
       `http://api/today?at=${tomorrowNoon()}`,
       { headers: user.headers },
@@ -2441,7 +2439,9 @@ describe("a session that was started and never finished", () => {
     const yesterday = await startedSlot(activityId, Date.now() - 24 * HOUR);
 
     expect(await autoSlotsToComplete(userDb(), Date.now(), 200)).toEqual([]);
-    expect(await userDb().slot.findUnique({ where: { id: yesterday } })).toMatchObject({ status: "started" });
+    expect(
+      await userDb().slot.findUnique({ where: { id: yesterday } }),
+    ).toMatchObject({ status: "started" });
   });
 
   /**
@@ -2455,7 +2455,9 @@ describe("a session that was started and never finished", () => {
     await startedSlot(activityId, Date.now() - 10 * 60_000);
     await startedSlot(activityId, Date.now() + 60_000);
 
-    expect(await autoSlotsToComplete(userDb(), Date.now(), 200)).toHaveLength(0);
+    expect(await autoSlotsToComplete(userDb(), Date.now(), 200)).toHaveLength(
+      0,
+    );
   });
 
   test("no lifecycle state is automatically completed without auto-start evidence", async () => {
@@ -2481,7 +2483,9 @@ describe("a session that was started and never finished", () => {
     }
 
     expect(await autoSlotsToComplete(userDb(), Date.now(), 200)).toEqual([]);
-    expect(await userDb().slot.findUnique({ where: { id: started } })).toMatchObject({ status: "started" });
+    expect(
+      await userDb().slot.findUnique({ where: { id: started } }),
+    ).toMatchObject({ status: "started" });
     expect(user).toBeTruthy();
   });
 

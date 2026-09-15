@@ -1143,6 +1143,9 @@ app.patch("/activities/:id", async (c) =>
       patch.daysOfWeek = daysOfWeek(body.daysOfWeek, 0b1111111);
     }
     if (Object.keys(patch).length > 0) {
+      // Guided policy changes are immediate, but do not run the planner.
+      // Register the wake-up before committing a newly automatic policy.
+      if (body.startPolicy !== undefined) await scheduleGrace(c);
       await updateActivity(db, c.req.param("id"), patch);
     }
 
@@ -1767,7 +1770,12 @@ app.post("/plan", async (c) => {
 
   // Legacy trigger names remain accepted as telemetry, not alternative
   // scheduling algorithms. This endpoint always explicitly fills remaining work.
-  if (body.trigger !== undefined && !["morning", "calendar_change", "user_request", "missed_replan"].includes(body.trigger))
+  if (
+    body.trigger !== undefined &&
+    !["morning", "calendar_change", "user_request", "missed_replan"].includes(
+      body.trigger,
+    )
+  )
     throw new HTTPException(400, { message: "Unknown placement trigger" });
   if (body.at !== undefined && !Number.isFinite(body.at))
     throw new HTTPException(400, { message: "Invalid placement date" });

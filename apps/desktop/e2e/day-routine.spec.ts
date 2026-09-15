@@ -1,8 +1,8 @@
 import { API_URL } from "./environment";
 import { dayShown, expect, seedRoutine, test } from "./support";
 
-// Read tomorrow's routine without the separately gated auto-planning preview.
-test.use({ features: { day_view_options: true } });
+// Even with weekly planning enabled, reading tomorrow must not place it.
+test.use({ features: { day_view_options: true, weekly_planning: true } });
 
 test("yesterday's shortfalls do not accumulate, and repeated edits change only tomorrow's Not placed counts", async ({
   page,

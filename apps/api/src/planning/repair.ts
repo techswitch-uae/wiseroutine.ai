@@ -59,7 +59,7 @@ export interface Repair {
   moves: RepairMove[];
   bucket: RepairBucketed[];
   /** Slots that clash and are no longer ours to move - running, or already
-   *  begun by the clock. Reported so the conflict badge stays honest. */
+   *  past the movement cutoff. Reported so the conflict badge stays honest. */
   frozen: string[];
 }
 

@@ -4,10 +4,10 @@ import {
   dueWork,
   failWork,
   forgetStoredTitles,
+  insertPlannedSlots,
   nextGraceDeadline,
   placeSlot,
   processWebhook,
-  insertPlannedSlots,
   scheduleWork,
   setActivityWindows,
   setSlotStatus,
@@ -173,13 +173,14 @@ test.each([
   ).toMatchObject({ sessionMinutes: 10, minimumValue: 2 });
 });
 
-test("automatic planning leaves a durable grace marker on the first open", async () => {
+test("explicit placement leaves a durable background marker", async () => {
   const user = await seedUser({ plan: "pro" });
   await seedActivity();
-  const response = await worker.default.fetch(
-    `http://api/today?at=${tomorrowNoon()}`,
-    { headers: user.headers },
-  );
+  const response = await worker.default.fetch("http://api/plan", {
+    method: "POST",
+    headers: user.headers,
+    body: JSON.stringify({ at: tomorrowNoon() }),
+  });
   expect(response.status).toBe(200);
   expect(await userDb().slot.count()).toBeGreaterThan(0);
   expect(
@@ -187,6 +188,27 @@ test("automatic planning leaves a durable grace marker on the first open", async
       where: { userId: user.userId, kind: "grace_sweep" },
     }),
   ).not.toBeNull();
+});
+
+test("an immediate guided policy change schedules background work without planning the day", async () => {
+  const user = await seedUser();
+  const activityId = await seedActivity();
+  const response = await worker.default.fetch(
+    `http://api/activities/${activityId}`,
+    {
+      method: "PATCH",
+      headers: user.headers,
+      body: JSON.stringify({ startPolicy: "auto" }),
+    },
+  );
+  expect(response.status).toBe(204);
+  expect(
+    await directory().scheduledWork.findFirst({
+      where: { userId: user.userId, kind: "grace_sweep" },
+    }),
+  ).not.toBeNull();
+  expect(await userDb().slot.count()).toBe(0);
+  expect(await userDb().planRun.count()).toBe(0);
 });
 
 test("duplicate action delivery does not append events or undo a later completion", async () => {
@@ -370,7 +392,12 @@ test("next deadline includes imminent auto starts and running session ends", asy
   expect(await nextGraceDeadline(db, now)).toBe(now + 120000);
   await setSlotStatus(
     db,
-    { slotId: s.id, status: "started", actor: "system", reasonCode: "auto_start" },
+    {
+      slotId: s.id,
+      status: "started",
+      actor: "system",
+      reasonCode: "auto_start",
+    },
     now,
     id,
   );
@@ -479,7 +506,7 @@ const config = {
   TURSO_DIRECTORY_URL: "http://127.0.0.1:41090",
   TURSO_USER_HOST: "http://127.0.0.1:41091",
 } as ServerEnv;
-test("grace recovery finds distinct free gaps after meetings, not now + five", async () => {
+test("a background sweep never moves elapsed manual slots into newly free gaps", async () => {
   const user = await seedUser({ timeZone: "UTC" });
   const db = userDb();
   const now = tomorrowNoon();
@@ -532,11 +559,15 @@ test("grace recovery finds distinct free gaps after meetings, not now + five", a
     now,
   );
   const slots = await db.slot.findMany({ orderBy: { startsAt: "asc" } });
-  expect(slots[0]?.startsAt.getTime()).toBe(now + 1800000);
-  expect(slots[1]?.startsAt.getTime()).toBe(slots[0]?.endsAt.getTime());
+  expect(slots.map((slot) => slot.startsAt.getTime())).toEqual([
+    now - 900000,
+    now - 900000 + 1,
+  ]);
+  expect(slots.every((slot) => slot.status === "planned")).toBe(true);
+  expect(await db.slotEvent.count()).toBe(2);
 });
 
-test("grace recovery buckets work when the working day cannot fit it", async () => {
+test("a background sweep never turns elapsed history into unplaced demand", async () => {
   const user = await seedUser({ timeZone: "UTC" });
   const db = userDb();
   const now = tomorrowNoon();
@@ -564,13 +595,14 @@ test("grace recovery buckets work when the working day cannot fit it", async () 
     now,
   );
   expect(await db.slot.findUnique({ where: { id: s.id } })).toMatchObject({
-    status: "bucketed",
+    status: "planned",
+    startsAt: new Date(now - 900000),
   });
   expect(
     await db.slotEvent.findFirst({
       where: { slotId: s.id, reasonCode: "no_gap" },
     }),
-  ).not.toBeNull();
+  ).toBeNull();
 });
 
 test("schema catch-up fails closed and succeeds on a later retry", async () => {

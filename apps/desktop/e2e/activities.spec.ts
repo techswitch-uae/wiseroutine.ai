@@ -463,21 +463,38 @@ test("a deleted slot stays gone for today, and only for today", async ({
   await page.keyboard.press("Delete");
   await expect(slot).toHaveCount(0);
 
-  // Opening the day re-plans anything missing from it, so this is the test
-  // that "off today" is not silently undone a second later: the cancelled slot
-  // is still a row, which is what keeps the activity from being re-placed.
+  // Reload does not place anything. Explicit placement must also respect
+  // today's dismissal rather than silently replacing the cancelled slot.
   await page.reload();
   await dayShown(page);
   await expect(slot).toHaveCount(0);
 
-  // With the weekly-planning preview enabled, tomorrow can materialize its
-  // own demand. "Only for today" is a claim about the plan, not just the UI.
+  const headers = { authorization: `Bearer ${user.token}` };
+  await page.request.post(`${API_URL}/plan`, { headers, data: {} });
+  await page.reload();
+  await dayShown(page);
+  await expect(slot).toHaveCount(0);
+
+  // Tomorrow has fresh demand, but reading it must not place that demand.
   const tomorrow = await (
     await fetch(`${API_URL}/today?at=${Date.now() + 86_400_000}`, {
       headers: { authorization: `Bearer ${user.token}` },
     })
   ).json();
-  expect(
-    (tomorrow as { slots: { title: string }[] }).slots.map((s) => s.title),
-  ).toContain("Eye rest");
+  expect(tomorrow.slots).toEqual([]);
+  expect(tomorrow.progress).toMatchObject([
+    { name: "Eye rest", minimumValue: 1, scheduled: 0 },
+  ]);
+  await page.request.post(`${API_URL}/plan`, {
+    headers,
+    data: { at: Date.now() + 86_400_000 },
+  });
+  const placed = await (
+    await page.request.get(`${API_URL}/today?at=${Date.now() + 86_400_000}`, {
+      headers,
+    })
+  ).json();
+  expect(placed.slots.map((s: { title: string }) => s.title)).toContain(
+    "Eye rest",
+  );
 });

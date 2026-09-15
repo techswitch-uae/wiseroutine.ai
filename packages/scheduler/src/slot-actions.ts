@@ -60,13 +60,18 @@ export function canStartSlot(slot: TimedSlot, now: number): boolean {
  * First Start remains available after this window, but never renews movement. */
 export function canPostponeSlot(slot: TimedSlot, now: number): boolean {
   const deadline = slotActionDeadline(slot);
-  return slot.status === "bucketed" || (
-    ["planned", "live", "skipped"].includes(slot.status) &&
-    deadline !== null && Number.isFinite(now) && now < deadline
+  return (
+    slot.status === "bucketed" ||
+    (["planned", "live", "skipped"].includes(slot.status) &&
+      deadline !== null &&
+      Number.isFinite(now) &&
+      now < deadline)
   );
 }
 
 /** Calendar repair only moves pending appointments, never stopped history. */
 export function canRepairSlot(slot: TimedSlot, now: number): boolean {
-  return ["planned", "live"].includes(slot.status) && canPostponeSlot(slot, now);
+  return (
+    ["planned", "live"].includes(slot.status) && canPostponeSlot(slot, now)
+  );
 }

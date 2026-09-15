@@ -2,11 +2,13 @@
 
 ## The problem with replanning
 
-Today, `realignAfterSync` responds to a conflict by calling `planDay`, which
-wipes every planned slot from `now` onward and re-solves the day. That is
-correct and unusable: a meeting that moves twenty minutes makes four blocks the
-user had already accepted jump somewhere else, and there is no honest way to
-explain any of them.
+The former full-replan path wiped planned slots and re-solved the day when a
+meeting changed. That made unrelated, accepted appointments jump around.
+
+The production path now uses local repair. Explicit placement only appends
+remaining work; it cannot delete or replace accepted appointments. Reading any
+date is side-effect-free, including the weekly-planning view. The background
+worker never moves an ignored slot or guesses a manual session's outcome.
 
 `rearrange()` ([rearrange.ts](../packages/scheduler/src/rearrange.ts)) repairs
 instead. Only the slots the change actually broke are touched, earliest first,
@@ -32,7 +34,7 @@ what makes the result explicable and identical every time.
 | Outcome | Meaning | UI |
 |---|---|---|
 | `moved` | Inside its window, close to home. | Applied silently |
-| `suggested` | A position exists but leaves the window, or moves far enough to be a different plan. | `suggested` slot, awaits confirm |
+| `suggested` | A position exists but leaves the window, or moves far enough to be a different plan. | Not placed, with a suggested position retained in its log |
 | `blocked` | No position we would stand behind. | Bucket → widget |
 
 ## The rules
@@ -58,17 +60,26 @@ to back is one long block that lies about being two; four eye rests inside an
 hour is one eye rest and three interruptions. There is no version of that the
 user wants, so it is never offered.
 
-The floor applies to every activity, not just the spread ones.
+The production integration applies spread to **all repeated activities**;
+there is no opt-in kind or database flag. Simulator policies may explicitly
+turn spread off to isolate its floor. Initial placement and repair share
+`siblingGap()`.
 
-### The breather — a preference, priced, and configurable
+### The breather — a shared placement preference
 
 A session that starts the second a two-hour call ends is a session nobody does.
 So a placement prefers to leave a gap on each side of whatever it is adjacent
 to — meeting *or* another of our own sessions, because landing flush against
 either is the same problem.
 
-The rule is `BreatherRule`, passed on `RearrangeInput.breather`, all in minutes
-so a settings screen can hand it over unchanged:
+Initial placement and repair share `searchPlacement()`, including breather
+candidates and scoring. Initial placement measures distance from a routine
+target; repair measures it from the old appointment. Neither rejects a
+full-length fit solely for missing breathing room.
+
+`BreatherRule` is configurable in the simulator through
+`RearrangeInput.breather`. Production uses these defaults; a settings UI is
+not part of this migration:
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -78,8 +89,8 @@ so a settings screen can hand it over unchanged:
 | `weight` | 2 | What a missing minute is worth, in minutes of drift. |
 
 Omitted takes `DEFAULT_BREATHER`; `NO_BREATHER` is the off preset. Settings
-should expose the three sizes — `weight` prices the preference rather than
-describing it, and is a tuning knob, not a question to ask anyone.
+could eventually expose the three sizes — `weight` prices the preference
+rather than describing it. No new settings are introduced in this pass.
 
 `resolveBreather` fills in and clamps whatever settings hand over. A negative
 gap is not a rule but a bug arriving from the edge of the system: it would make
@@ -109,7 +120,7 @@ thirty-minute item in it.
 `h2` / `h7` / `h8` are the same day at 5 minutes, off, and 15 minutes — three
 answers from one situation, which is the point of the setting being a number.
 
-### Windows
+### Windows (simulator-only)
 
 The whole slot must fit inside one allowed region — a stretch straddling noon
 is not a morning stretch. Outside → `suggested`.
@@ -129,9 +140,15 @@ a confirmation people read becomes one they dismiss.
 
 ### No pinned state
 
-There is no `isLocked`. A slot the user dragged into place is still a slot the
-day has to make room around. Frozen means *running or already begun by the
-clock*, nothing else. (`planDay` still honours `isLocked` — see Follow-ups.)
+`isLocked` remains storage/UI provenance for **Placed by you**, not a special
+placement algorithm. Explicit placement preserves **every** accepted slot.
+Calendar repair may move a manually placed slot only if a meeting collides
+and its movement window remains open.
+
+Pending slots freeze at **two minutes after scheduled start, or their end if
+sooner**. Started and completed slots never move. First Start on an unstarted
+slot remains available until its end; this does not reopen movement. The shared
+permission helpers and database transaction enforce these boundaries.
 
 `skipped` and `missed` are excluded from automatic placement. A user may resume
 or move an early-stopped slot only before its scheduled start cutoff (see
@@ -159,13 +176,15 @@ behaviour and switching it is a product decision, not a detail of this function.
 ### The bucket is never auto-filled
 
 There is no `pending` input. A session in the bucket stays there until the user
-acts on it; freed time is not quietly claimed. A "place these for me" flow is
-its own piece of work with its own UI.
+acts on it; freed time is not quietly claimed. **Place them for me** explicitly
+retries saved IDs/durations and fresh demand while preserving accepted slots.
+See [activity planning](activity-planning.md).
 
 ## Tests
 
-[rearrange.test.ts](../packages/scheduler/src/rearrange.test.ts) — 663
-assertions, two kinds.
+[rearrange.test.ts](../packages/scheduler/src/rearrange.test.ts) covers the
+scenario corpus. [rules-contract.test.ts](../packages/scheduler/src/rules-contract.test.ts)
+checks placement/repair parity and the exact shared movement boundary.
 
 **Invariants**, run against all 60 scenarios, true regardless of what we decide
 a good repair looks like: never on top of a meeting, never on top of another
@@ -183,7 +202,8 @@ breather" cannot pass because every scenario happened to be insensitive to it.
 
 ### Mutation results
 
-Every rule was broken deliberately to check the suite notices:
+Historical mutation checks, recorded before the lifecycle-boundary migration.
+They are not a claim that mutations were rerun in this pass:
 
 | Mutation | Tests failed |
 |---|---|
@@ -229,10 +249,11 @@ And again once the gap rule became configurable:
   enforced; two different activities may end up back to back, subject to the
   breather.
 
-## Open questions
+## Historical simulator feedback
 
-Three places where the current rules and the recorded verdicts disagree. The
-simulator flags all three as stale, with the old outcome shown.
+These recorded human verdicts predate later rule changes. They are retained,
+not silently rewritten as approvals. Current automated expectations remain the
+executable contract; the notes below are not additional migration tasks.
 
 1. **`a2` — moved became suggested.** The breather pushed the only landing spot
    from 11:00 to 11:10, which crosses the 60-minute drift line. Judged "ok" as a
@@ -287,12 +308,11 @@ away from a database - the two ways it can go wrong are both silent, a
 really moves, the bucket really fills, `/today` stops drawing it, and the
 position `GET /bucket` hands back really lands when it is accepted.
 
-The corpus itself cannot run through the last of those. 27 of the 60 scenarios
-use a window (13), a `spread` (11), a configured breather (3) or the literal
-busy reading (g1, g7, g8), and the schema can express none of them - so an
-end-to-end run would be measuring the gap below rather than the integration.
-Worth doing once `activity_windows` and `activities` can carry a policy; then
-all 60 go through the real path and the two suites cannot drift.
+Not every simulator policy is a production feature. Hard windows, customized
+breathers and literal busy interpretation remain simulator capabilities.
+Repeated-activity spread **is** integrated. Production-equivalent cases and
+permission boundaries are covered through the real repair/database path; the
+suite does not claim full end-to-end parity with all 60 simulator scenarios.
 
 ### What the integration does not carry yet
 
@@ -304,19 +324,17 @@ all 60 go through the real path and the two suites cannot drift.
 - **The inferring busy reading**, matching `planDay`. Two solvers disagreeing
   about what counts as busy is worse than either answer, so `literal` stays a
   decision for both at once.
-- **A bucket entry never becomes `missed`.** It sits until the user answers it
-  and then falls out of the day-ranged read. Sweeping the leftovers at day end
-  needs a day-end trigger, which does not exist.
+- **Daily bucket leftovers expire from active demand at local rollover.**
+  History is retained without a sweep or invented missed outcome. Explicit
+  saved one-off work survives.
 - **The edge tolerance is gone.** `realignAfterSync` used to skip an overlap
   under five minutes. Any overlap is now handed to the engine, which usually
   answers a small one with a small move.
 
-## Follow-ups
+## Optional product extensions, not migration gaps
 
-- **`planDay` and `busy.ts`.** The literal busy reading and the removal of
-  pinning are corpus-level decisions so far. If they are the product's answer,
-  `planDay` should adopt both — it currently infers busy-ness and honours
-  `isLocked`.
+- **Literal busy interpretation.** Changing which meetings hold time requires
+  a product decision applied consistently to placement, repair and validation.
 - **The DB has no hard windows.** `ActivityWindow` stores `anchorMinutes`
   (a point) where `PlacementPolicy` wants a region. Hard-window support would
   require `start_minutes`/`end_minutes` in `activity_windows`. Spread is now

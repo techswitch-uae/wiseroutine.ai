@@ -153,7 +153,11 @@ export { expect };
 export const seedRoutine = (
   token: string,
   activity: Record<string, unknown>,
-  options: { place?: boolean; pastUnplaced?: number } = {},
+  options: {
+    place?: boolean;
+    pastUnplaced?: number;
+    slotStartsAt?: number;
+  } = {},
 ) => seed<{ id: string }>("/routine", { activity, ...options }, token);
 export const setFeatures = (user: SeededUser, flags: FeatureOverrides) =>
   seed<void>("/features", flags, user.token);

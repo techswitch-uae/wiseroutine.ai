@@ -13,11 +13,11 @@ describe("the launch demonstration uses the product's scheduler", () => {
     const day = sampleDay("planned");
     expect(day.slots).toHaveLength(2);
     expect(day.slots.find((slot) => slot.activityId === "focus")).toMatchObject(
-      { start: at(9, 30), end: at(10, 15) },
+      { start: at(9, 35), end: at(10, 20) },
     );
     expect(day.slots.find((slot) => slot.activityId === "walk")).toMatchObject({
-      start: at(10, 15),
-      end: at(10, 25),
+      start: at(11),
+      end: at(11, 10),
     });
     expect(day.repair.moved).toEqual([]);
   });

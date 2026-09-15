@@ -98,9 +98,8 @@ export async function realignAfterSync(
    */
   if (conflicts.length === 0) return { conflicts: 0, moved: 0, bucketed: 0 };
 
-  // Free plans see the conflict and decide themselves. This is the same gate
-  // `POST /plan` applies to a `calendar_change` trigger - checked here too,
-  // because a push notification must not become a way around it.
+  // Calendar repair is core on both plans. Keep the shared capability gate
+  // here as well as on explicit placement.
   if (!can(deps.plan, { kind: "plan.adaptive" }).ok) {
     return { conflicts: conflicts.length, moved: 0, bucketed: 0 };
   }
@@ -162,9 +161,8 @@ export async function realignAfterSync(
     );
   }
 
-  // A moved slot carries a fresh grace period, and the sweep that enforces it
-  // is driven from the directory - so a repair that does not leave a marker
-  // there is a repair whose slots never expire.
+  // Keep guided auto-start work durable after a repair. Manual slots never
+  // acquire an automatic move or outcome just because their time passes.
   if (plan.moves.length > 0) {
     await scheduleWork(
       deps.directory,

@@ -115,6 +115,29 @@ test("fresh demand uses a passive state label and no dismiss or change-time butt
   expect(screen.queryByRole("button", { name: /Drop|Choose time/ })).toBeNull();
 });
 
+// Every window focus syncs and re-reads the list. Disabling the rows for each
+// of those reads flashed the grips and the button, so a day that already has
+// its list keeps it usable while the next read is out.
+test("a background re-read of the same day keeps placing usable", async () => {
+  publishPlan(day());
+  render(<NotPlaced />);
+  const button = await ready();
+
+  let finish: (rows: BucketItem[]) => void = () => undefined;
+  bucket.mockReturnValueOnce(
+    new Promise<BucketItem[]>((resolve) => {
+      finish = resolve;
+    }),
+  );
+  act(() => publishPlan(day()));
+  expect(bucket).toHaveBeenCalledTimes(2);
+  expect(button).toBeEnabled();
+  expect(grip()).toBeEnabled();
+
+  await act(async () => finish([]));
+  expect(button).toBeEnabled();
+});
+
 test("saved slots and fresh demand share one row without double counting", async () => {
   bucket.mockResolvedValue([saved("s1"), saved("s2")]);
   publishPlan(day(2));

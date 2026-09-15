@@ -1,6 +1,7 @@
 import {
   type ActivityInput,
   createActivity,
+  placeSlot,
   userTransaction,
 } from "@wiseroutine/db";
 import {
@@ -181,10 +182,13 @@ testing.post("/routine", requireUser, async (c) => {
     activity,
     place = true,
     pastUnplaced = 0,
+    slotStartsAt,
   } = await c.req.json<{
     activity: ActivityInput;
     place?: boolean;
     pastUnplaced?: number;
+    /** A previously accepted appointment, including one now in progress. */
+    slotStartsAt?: number;
   }>();
   const now = c.get("now");
   const user = c.get("user");
@@ -228,7 +232,21 @@ testing.post("/routine", requireUser, async (c) => {
           createdAt: new Date(previous),
         },
       });
-    if (place)
+    if (place && slotStartsAt !== undefined && Number.isFinite(slotStartsAt))
+      await placeSlot(
+        db,
+        {
+          activityId: id,
+          title: activity.name,
+          kind: activity.kind ?? "recovery",
+          startsAt: slotStartsAt,
+          endsAt: slotStartsAt + (activity.sessionMinutes ?? 10) * 60_000,
+          timeZone: user.timeZone,
+        },
+        slotStartsAt - 60_000,
+        newId,
+      );
+    else if (place)
       await planDay(
         db,
         {

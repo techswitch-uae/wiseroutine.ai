@@ -161,8 +161,7 @@ describe("a meeting lands on a slot", () => {
     // of an overlap this move just ended. A slot that escaped still wearing a
     // clash badge is the timeline lying in the other direction.
     expect(slot.conflictEventId).toBeNull();
-    // Counted, because the thrash cap is what stops a slot walking down the
-    // day one meeting at a time.
+    // Retained as diagnostic history, not a timer-driven retry allowance.
     expect(slot.autoMoveCount).toBe(1);
 
     expect(await get<BucketEntry[]>(user, `/bucket?at=${hour(12)}`)).toEqual(
@@ -190,6 +189,33 @@ describe("a meeting lands on a slot", () => {
     expect(slot.startsAt.getTime()).toBeLessThan(hour(10));
   });
 });
+
+test.each([false, true])(
+  "calendar repair respects the movement cutoff regardless of manual placement (pinned=%s)",
+  async (isLocked) => {
+    const { user, calendarId, activityId } = await aDay();
+    const slotId = await seedSlot(activityId, hour(10), 30);
+    const healthyId = await seedSlot(activityId, hour(14), 30);
+    await userDb().slot.update({ where: { id: slotId }, data: { isLocked } });
+    await seedMeeting(calendarId, hour(10), hour(10) + 5 * MINUTE);
+    const healthy = await slotRow(healthyId);
+    expect(
+      await realignAfterSync(deps(user), hour(10) + 2 * MINUTE, newId),
+    ).toEqual({ conflicts: 1, moved: 0, bucketed: 0 });
+    expect(await slotRow(slotId)).toMatchObject({
+      status: "planned",
+      startsAt: new Date(hour(10)),
+    });
+    expect((await slotRow(slotId)).conflictEventId).not.toBeNull();
+    // Replay the earlier decision instant to exercise the exact open boundary.
+    expect(
+      (await realignAfterSync(deps(user), hour(10) + 2 * MINUTE - 1, newId))
+        .moved,
+    ).toBe(1);
+    expect(await slotRow(healthyId)).toEqual(healthy);
+    expect((await slotRow(slotId)).id).toBe(slotId);
+  },
+);
 
 describe("the bucket", () => {
   test("a day with no room hands the session back, and stops drawing it", async () => {

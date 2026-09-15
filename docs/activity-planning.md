@@ -53,18 +53,38 @@ Mid-day planning starts at now, while spacing still uses the full working day.
 Adding or editing an activity does not run the planner. Opening an unplanned Today does
 not place the routine as a side effect: it appears in **Not placed**, ready for
 manual placement or **Place them for me**. That button preserves existing
-placements. The gated future-day planning preview remains separate.
+placements. Reading a future day is also side-effect-free, even with weekly
+planning enabled. All accepted appointments are preserved, not only manual
+placements; the old full-replacement planner is gone.
+
+Initial placement and repair use the same candidate search and score:
+`distance from target + 2 × missing breathing room`. They prefer five minutes
+beside a neighbour, or ten beside one lasting at least 45 minutes. The activity's
+meeting buffer raises that preference before the next neighbour. Breathing room
+may be borrowed to fit a **full-length** slot; occupied time and same-activity
+spacing may not. Initial placement targets routine preferences; repair targets
+the slot's previous time.
+
+Calendar sync repairs only collisions. It leaves healthy slots and Not placed
+alone, and cannot move or bucket a pending slot after its movement cutoff.
+Manual placement is provenance ("Placed by you"), not immunity from a meeting
+collision before that cutoff. The existing calendar busy interpretation is
+unchanged. Engine version: **1.4.0**.
 
 ## Manual movement
 
-- Start, Resume, dragging and Postpone share one cutoff: **two minutes after
-  the scheduled start**, or the slot's end if sooner. This applies to pinned
-  slots too. An early Start/Stop does not renew that window.
+- **First Start** on an unstarted slot remains available strictly until its
+  scheduled end, including after the two-minute movement cutoff. Starting late
+  does not move or extend the appointment.
+- **Resume, dragging and Postpone** close **two minutes after the scheduled
+  start**, or the slot's end if sooner. Calendar repair uses the same cutoff.
+  This applies to manually placed slots too. An early Start/Stop does not renew it.
 - Before the cutoff, moving an early-stopped slot updates the **same slot**
   and returns it to planned. Its Start/Stop events remain in the action log;
   there is no replacement appointment or duplicate occurrence.
-- Once the cutoff passes, no Start/Resume, movement or Postpone is offered.
-  **Mark it done** remains available to record what actually happened.
+- After the movement cutoff, an unstarted slot still offers **Start**, but no
+  movement or Postpone. A stopped slot no longer offers Resume. At the slot's
+  end, Start closes too. **Mark it done** remains available.
 - Started, completed and missed slots cannot be moved. Today's Not placed
   slots remain available during the day; old daily shortfalls cannot be revived
   through a stale drag or Postpone request. Saved one-off work does not expire.
@@ -76,9 +96,29 @@ placements. The gated future-day planning preview remains separate.
   rejects past destinations and occupied intervals. Offline Start/Resume uses
   the recorded action time, not a fresh window at replay.
 - Manual choices may override **automatic spacing**, not meetings or other
-  occupied slots. Moving a slot pins it against a full replan.
+  occupied slots. Explicit placement always preserves existing appointments.
 - Undo restores the original appointment with its existing one-minute grace;
   it is not a way to submit a new past timestamp.
+
+## Background and wake-up behavior
+
+Time passing is not a placement trigger. The old per-activity grace / first-gap
+move / two-retry loop has been removed. `graceMinutes` and `autoMoveCount` remain
+legacy storage/API fields, not permission to move an ignored slot.
+
+An unstarted slot stays put and displays **Time passed** only at its end. A
+manually started slot becomes **Needs confirmation**, not automatically missed
+an hour later. Neither path invents an outcome, creates replacement demand, or
+invalidates an offline Start recorded while time remained.
+
+Guided auto-start is still feature-gated. It may start a due slot while time
+remains, never fabricate a start after waking beyond its end. Only actual
+auto-start evidence permits automatic completion; changing a policy or disabling
+the feature does not strand an auto-start already in flight.
+
+The native tray retains Start now until the slot's end, then explicitly clears
+the title and disables Start when no next slot remains. Native acceptance still
+requires rebuilding and testing the desktop binary.
 
 ## Not placed
 
@@ -117,6 +157,15 @@ User-facing terminology is **slot** for a Wise Routine activity occurrence and
 renamed: those describe UI geometry, not a second product concept.
 
 ## Coverage
+
+- `packages/scheduler/src/rules-contract.test.ts`: shared placement/repair
+  scoring, tight fits, pre-meeting buffers and exact repair/Start boundaries.
+- `apps/api/src/features-background.test.ts`: real sweeps across the cutoff,
+  repeated ticks, sleep, offline Start, guided auto-start and rollback.
+- `apps/api/src/slot-window.test.ts`: first Start versus Resume, immutable
+  movement boundaries in the transaction, replay and unchanged slot identity.
+- `apps/desktop/e2e/late-start.spec.ts`: late Start from timeline and widget,
+  real API persistence, exact end, wake and reload.
 
 - `packages/scheduler/src/routine.test.ts`: limits, distinct targets, all kinds,
   anchors, kept slots, short/late/crowded days, spacing and demand conservation.

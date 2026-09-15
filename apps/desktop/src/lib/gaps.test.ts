@@ -199,7 +199,7 @@ describe("buildTimeline", () => {
       running: false,
     });
     expect(row("planned", H(10) + 120_000)).toMatchObject({
-      startable: false,
+      startable: true,
       movable: false,
     });
   });

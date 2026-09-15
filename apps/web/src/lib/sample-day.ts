@@ -70,7 +70,9 @@ export function sampleDay(state: SampleState) {
     demands: activities.map((activity) => ({
       activity,
       sessionsNeeded: 1,
-      preferredAt: [],
+      // A late-morning walk stays clear while the earlier focus slot repairs.
+      // This is a soft routine preference, resolved by the real planner.
+      preferredAt: activity.id === "walk" ? [at(11)] : [],
     })),
   });
   const originalSlots: CurrentSlot[] = initial.placed.map((slot) => ({
