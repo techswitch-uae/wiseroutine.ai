@@ -1,36 +1,33 @@
 import { useNavigate } from "@tanstack/react-router";
 import {
+  Button,
   type CalendarProvider,
   Modal,
   ProviderChoice,
   SetupModule,
 } from "@wiseroutine/design";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   alertPermissionGranted,
   alertsAvailable,
   ensureAlertPermission,
 } from "../lib/alerts";
 import { api } from "../lib/api";
-import { beginConnect } from "../routes/_app.calendars";
-import { DAY_HOURS_ANCHOR } from "../routes/_app.settings";
+import { beginConnect } from "../lib/calendar-connect";
+import { accountStorageKey } from "../lib/session-lifecycle";
+import { DAY_HOURS_ANCHOR } from "../lib/settings-sections";
 
 /**
  * The rail's set-up module, and the sheet its one button opens.
  *
- * Four steps, all of them real: a calendar to read, two activities to place in
- * it, a look at the hours everything is placed between, and permission to say
- * something when a slot starts. There is no way out but finishing, because
- * there is nothing the app can do until they are true - a day with no calendar
- * and no activities is an empty ruler, a routine nobody is told about is a
- * list, and "Skip for now" only ever bought a blank screen with no explanation
- * on it.
+ * A calendar, one activity and working hours establish the routine.
+ * Notification permission is optional and never blocks setup completion.
  *
  * The notification step is not offered in a browser, where there is no menu
  * bar to be reminded from and nothing to grant.
  *
  * Each step retires itself by being satisfied, not by being pressed: the
- * calendar step goes when a connection lands, the activities step when two are
+ * calendar step goes when a connection lands, the activities step when one is
  * active. The module goes when the last one does, and does not come back.
  *
  * That last part is the difference between a checklist and a wizard, and this
@@ -71,7 +68,7 @@ const DONE = "wr.setup.done";
 
 const remembered = (key: string): boolean => {
   try {
-    return globalThis.localStorage?.getItem(key) === "1";
+    return globalThis.localStorage?.getItem(accountStorageKey(key)) === "1";
   } catch {
     // Private windows and locked-down profiles throw on access rather than
     // returning null. Not remembering asks again, which is a small annoyance;
@@ -82,14 +79,14 @@ const remembered = (key: string): boolean => {
 
 const remember = (key: string): void => {
   try {
-    globalThis.localStorage?.setItem(key, "1");
+    globalThis.localStorage?.setItem(accountStorageKey(key), "1");
   } catch {
     // Then it asks again next launch. Nothing else breaks.
   }
 };
 
 /** How many activities the first plan needs before it can shape a day. */
-const ENOUGH_ACTIVITIES = 2;
+const ENOUGH_ACTIVITIES = 1;
 
 export const SetupRail: React.FC = () => {
   const navigate = useNavigate();
@@ -98,33 +95,54 @@ export const SetupRail: React.FC = () => {
   const [seenHours, setSeenHours] = useState(() => remembered(HOURS_SEEN));
   const [finished, setFinished] = useState(() => remembered(DONE));
   const [connecting, setConnecting] = useState(false);
+  const [connectionProblem, setConnectionProblem] = useState<string | null>(
+    null,
+  );
   const [busy, setBusy] = useState<CalendarProvider | null>(null);
   /** Null while unknown, and in a browser it stays null - a step that cannot
    *  exist is never counted rather than being counted as failed. */
   const [alerts, setAlerts] = useState<boolean | null>(null);
+  const [readProblem, setReadProblem] = useState(false);
+  const revision = useRef(0);
 
   const look = useCallback(() => {
     // Nothing left to ask about, and no answer that could bring this back.
     if (finished) return;
 
-    api
-      .calendars()
-      .then((response) => setConnected(response.connections.length > 0))
-      // A failed read is not proof of no calendar, and asking someone who is
-      // already set up to set up again is worse than showing nothing.
-      .catch(() => setConnected(true));
-
-    api
-      .activities()
-      .then((rows) => setActive(rows.filter((row) => row.isActive).length))
-      .catch(() => setActive(ENOUGH_ACTIVITIES));
+    const request = ++revision.current;
+    setReadProblem(false);
+    setConnected(null);
+    setActive(null);
+    void Promise.allSettled([api.calendars(), api.activities()]).then(
+      ([calendars, activities]) => {
+        if (request !== revision.current) return;
+        setConnected(
+          calendars.status === "fulfilled"
+            ? calendars.value.connections.length > 0
+            : null,
+        );
+        setActive(
+          activities.status === "fulfilled"
+            ? activities.value.filter((row) => row.isActive).length
+            : null,
+        );
+        setReadProblem(
+          calendars.status === "rejected" || activities.status === "rejected",
+        );
+      },
+    );
 
     // Granted in a system dialog outside this window, so it is re-read on
     // every look rather than only when the button is pressed.
     if (alertsAvailable()) void alertPermissionGranted().then(setAlerts);
   }, [finished]);
 
-  useEffect(look, [look]);
+  useEffect(() => {
+    look();
+    return () => {
+      revision.current++;
+    };
+  }, [look]);
 
   // Consent completes in a browser, and activities are added on another page,
   // so coming back to this window is the only signal this one gets that
@@ -135,8 +153,8 @@ export const SetupRail: React.FC = () => {
   }, [look]);
 
   const enough = active !== null && active >= ENOUGH_ACTIVITIES;
-  const alerted = !alertsAvailable() || alerts === true;
-  const complete = connected === true && enough && seenHours && alerted;
+  // Permission is optional; denial must never block a usable routine.
+  const complete = connected === true && enough && seenHours;
 
   // Written the moment it is first true, and never read as a live question
   // again - see `DONE`.
@@ -147,6 +165,15 @@ export const SetupRail: React.FC = () => {
   }, [complete]);
 
   if (finished) return null;
+  if (readProblem)
+    return (
+      <section aria-label="Setup">
+        <p role="alert">
+          Couldn't check your setup. Your progress hasn't been changed.
+        </p>
+        <Button onClick={look}>Retry setup check</Button>
+      </section>
+    );
   // Nothing until both reads land: a checklist that ticks its steps one at a
   // time as the answers arrive reads as progress the user did not make.
   if (connected === null || active === null) return null;
@@ -169,9 +196,9 @@ export const SetupRail: React.FC = () => {
           },
           {
             key: "activities",
-            label: "Add two activities",
+            label: "Add your first activity",
             detail:
-              "A stretch and something for your eyes is a good pair to start with.",
+              "Choose one thing you want to make time for. Its routine starts tomorrow.",
             done: enough,
             action: {
               label: "Add an activity",
@@ -201,7 +228,7 @@ export const SetupRail: React.FC = () => {
             ? [
                 {
                   key: "alerts",
-                  label: "Allow notifications",
+                  label: "Allow notifications (optional)",
                   detail:
                     "So a slot can tell you it is starting, even when the window is behind something else.",
                   done: alerts === true,
@@ -227,14 +254,19 @@ export const SetupRail: React.FC = () => {
             busy={busy}
             onChoose={(provider) => {
               setBusy(provider);
-              void beginConnect(provider).then(() => {
+              setConnectionProblem(null);
+              void beginConnect(provider).then((failure) => {
                 setBusy(null);
-                // Consent carries on in the browser; the sheet has done its
-                // job and the step ticks itself when the account lands.
-                setConnecting(false);
+                if (failure) setConnectionProblem(failure);
+                else setConnecting(false);
               });
             }}
           />
+          {connectionProblem ? (
+            <p className="wr-auth-problem" role="alert">
+              {connectionProblem}
+            </p>
+          ) : null}
         </Modal>
       ) : null}
     </>

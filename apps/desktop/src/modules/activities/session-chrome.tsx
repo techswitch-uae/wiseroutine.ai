@@ -1,6 +1,9 @@
 import { Button } from "@wiseroutine/design";
-import { useEffect } from "react";
+import { canStopSlot } from "@wiseroutine/scheduler";
+import { useContext, useEffect } from "react";
 import { chime } from "../../lib/chime";
+import { useSlotClock } from "../../lib/slot-clock";
+import { SessionActions } from "../session-actions";
 import { clock } from "./session-clock";
 
 /**
@@ -35,6 +38,8 @@ export const SessionFrame: React.FC<{
   children,
   dim = false,
 }) => {
+  const actions = useContext(SessionActions);
+  const now = useSlotClock(actions?.slot);
   // One note when the frame appears, one when it goes. In the shared frame
   // rather than in each module, so a session cannot ship without them and
   // cannot ship with two.
@@ -86,12 +91,13 @@ export const SessionFrame: React.FC<{
         <Button variant="commit" onClick={onDone}>
           {doneLabel}
         </Button>
-        {/* Quiet, and honestly labelled. A session abandoned halfway is a skip,
-          and dressing it up as anything else would put a stretch nobody did
-          into this week's numbers. */}
-        <Button variant="quiet" onClick={onSkip}>
-          Stop
-        </Button>
+        {/* A running session must be stopped explicitly, within its undo window.
+          No implicit skip through Postpone. Standalone design previews have no provider. */}
+        {!actions || canStopSlot(actions.slot, now) ? (
+          <Button variant="quiet" onClick={onSkip}>
+            Stop
+          </Button>
+        ) : null}
       </div>
     </div>
   );

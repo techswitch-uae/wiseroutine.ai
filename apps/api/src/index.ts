@@ -1,5 +1,5 @@
 import {
-  abandonedSlots,
+  ActionConflict,
   autoSlotsToComplete,
   completeWork,
   createDirectory,
@@ -9,23 +9,26 @@ import {
   failWork,
   getCalendarForSync,
   getUser,
-  moveSlot,
+  nextGraceDeadline,
   pruneEventsBefore,
   pruneProcessedEvents,
   scheduleWork,
   setSlotStatus,
-  slotsPastGrace,
+  slotsToAutoStart,
+  userTransaction,
   type WorkKind,
   watchesExpiringBefore,
 } from "@wiseroutine/db";
-import type { PlanId } from "@wiseroutine/plans";
+import { CORE_FEATURES, type FeatureFlags } from "@wiseroutine/plans/features";
 import { syncInterval } from "@wiseroutine/scheduler";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
+import { trustedOrigins } from "./auth";
 import {
   type App,
   type Bindings,
+  ensureUserSchema,
   newId,
   type SyncJob,
   withContext,
@@ -37,6 +40,7 @@ import {
   type ServerEnv,
   userCredentials,
 } from "./env";
+import { readFeatures } from "./features";
 import { graceAction } from "./planning/grace";
 import { app as appRoutes } from "./routes/app";
 import { billing } from "./routes/billing";
@@ -45,17 +49,39 @@ import { signin } from "./routes/signin";
 import { testing } from "./routes/testing";
 import {
   type SyncDeps,
-  syncCalendar,
-  syncWindowStart,
+  syncCalendarAndRepair,
   WINDOW_BEHIND_DAYS,
 } from "./sync/engine";
-import { realignAfterSync } from "./sync/realign";
 import { ensureWatch, type WatchDeps } from "./sync/watch";
+import { providerTestReader, requestTime } from "./testing-runtime";
 import { webhooks } from "./webhooks";
 
 const api = new Hono<App>();
 
-api.use("*", cors({ origin: (origin) => origin, credentials: true }));
+/**
+ * Who may talk to this API, credentials attached.
+ *
+ * Was `origin: (origin) => origin` - reflect whatever asked - which with
+ * `credentials: true` meant any page on the web could put a credentialed
+ * request to `/auth/*` and read the reply. The list is Better Auth's own, so
+ * the two cannot disagree; see `trustedOrigins` in `auth.ts`.
+ *
+ * Runs before `withContext`, so it reads the raw bindings rather than the
+ * resolved `ServerEnv`. `APP_URL` and `ENVIRONMENT` are plain vars, not
+ * secrets, so they are strings on both.
+ *
+ * An origin that is not on the list gets no `Access-Control-Allow-Origin`
+ * header at all rather than a denial - which is what CORS is: the browser
+ * refuses to hand the answer over. A request with no `Origin` header is not a
+ * browser and is left alone; `requireUser` is what stands behind it.
+ */
+api.use("*", (c, next) =>
+  cors({
+    origin: (origin) =>
+      trustedOrigins(c.env).includes(origin) ? origin : null,
+    credentials: true,
+  })(c, next),
+);
 api.use("*", withContext);
 
 api.get("/health", (c) => c.text("OK"));
@@ -98,6 +124,8 @@ api.route("/", appRoutes);
 
 api.onError((error, c) => {
   if (error instanceof HTTPException) return error.getResponse();
+  if (error instanceof ActionConflict)
+    return c.json({ message: error.message }, 409);
   console.error("unhandled", error);
   return c.json({ error: "internal_error" }, 500);
 });
@@ -144,155 +172,82 @@ function clientIds(config: ServerEnv): SyncDeps["clientIds"] {
  * no longer scan everyone at once - the directory says whose turn it is, and
  * this runs against that one person.
  */
-/**
- * How far back the auto-mover looks.
- *
- * Generous enough to cover the longest grace an activity sets plus a sweep
- * that arrived late, and short enough that a slot placed at nine this morning
- * is left where it is rather than dragged to now and then marked missed.
- *
- * The grace itself is per activity and read from the slot - see `slotsPastGrace`.
- * This is only the horizon the query looks back over.
- */
-const GRACE_WINDOW = 30 * MINUTE;
-
-/**
- * How long past its end a started session may sit before it is called
- * abandoned.
- *
- * Long on purpose. A stretch someone is still doing, a session that ran over,
- * a lid shut for ten minutes - all of those are someone still in it, and
- * closing a session out from under them is worse than leaving it a while
- * longer. An hour past the end is none of those.
- */
-const ABANDONED_AFTER = 60 * MINUTE;
-
-async function sweepGrace(
+export async function sweepGrace(
   job: SyncJob,
   config: ServerEnv,
   now: number,
+  features: FeatureFlags = CORE_FEATURES,
 ): Promise<number | undefined> {
   const db = createUserDatabase(userCredentials(config, job.databaseName));
-  const due = await slotsPastGrace(db, now, 200, GRACE_WINDOW);
+  const user = await getUser(
+    createDirectory(directoryCredentials(config)),
+    job.userId,
+  );
+  if (!user) return undefined;
+  return userTransaction(db, async (db) => {
+    const due = features.guided_sessions
+      ? await slotsToAutoStart(db, now, 200)
+      : [];
 
-  for (const slot of due) {
-    switch (graceAction(slot, now)) {
-      /**
-       * An activity that starts itself.
-       *
-       * The slot goes live at its own start time and is closed at its end by
-       * `autoSlotsToComplete` below. It is never moved, whether or not it is
-       * locked - moving something that has already begun is not a
-       * rescheduling, it is a lie about what happened.
-       */
-      case "start":
-        await setSlotStatus(
-          db,
-          {
-            slotId: slot.id,
-            status: "started",
-            actor: "system",
-            reasonCode: "auto_start",
-          },
-          now,
-          newId,
-        );
-        break;
+    for (const slot of due) {
+      switch (graceAction({ ...slot, startPolicy: "auto" }, now)) {
+        /**
+         * An activity that starts itself.
+         *
+         * The slot goes live at its own start time and is closed at its end by
+         * `autoSlotsToComplete` below. It is never moved, whether or not it is
+         * locked - moving something that has already begun is not a
+         * rescheduling, it is a lie about what happened.
+         */
+        case "start":
+          await setSlotStatus(
+            db,
+            {
+              slotId: slot.id,
+              status: "started",
+              actor: "system",
+              reasonCode: "auto_start",
+            },
+            now,
+            newId,
+          );
+          break;
 
-      case "leave":
-        break;
-
-      case "miss":
-        await setSlotStatus(
-          db,
-          {
-            slotId: slot.id,
-            status: "missed",
-            actor: "system",
-            reasonCode: "auto_move_limit",
-            reasonText: "moved twice, then no gap appeared",
-          },
-          now,
-          newId,
-        );
-        break;
-
-      case "move": {
-        const duration = slot.endsAt - slot.startsAt;
-        await moveSlot(
-          db,
-          {
-            slotId: slot.id,
-            startsAt: now + 5 * MINUTE,
-            endsAt: now + 5 * MINUTE + duration,
-            actor: "system",
-            reasonCode: "grace_expired",
-            reasonText: "not started in time",
-          },
-          now,
-          newId,
-        );
-        break;
+        case "leave":
+          break;
       }
     }
-  }
 
-  // Close anything that started itself and has now run its length. Separate
-  // from the loop above because these are `started`, not `planned` - a
-  // different question asked of a different set of slots.
-  const finished = await autoSlotsToComplete(db, now, 200);
-  for (const slot of finished) {
-    await setSlotStatus(
-      db,
-      {
-        slotId: slot.id,
-        status: "completed",
-        actor: "system",
-        reasonCode: "auto_complete",
-      },
-      now,
-      newId,
+    // Close anything that started itself and has now run its length. Separate
+    // from the loop above because these are `started`, not `planned` - a
+    // different question asked of a different set of slots.
+    const finished = await autoSlotsToComplete(db, now, 200);
+    for (const slot of finished) {
+      // Actual auto-start evidence, not the activity's current policy. This
+      // also finishes an in-flight guided slot after a feature rollback.
+      await setSlotStatus(
+        db,
+        {
+          slotId: slot.id,
+          status: "completed",
+          actor: "system",
+          reasonCode: "auto_complete",
+        },
+        now,
+        newId,
+      );
+    }
+
+    // Manual starts retain their outcome choice (Needs confirmation after
+    // the end). Unstarted slots become Time passed in the shared presentation.
+    // Neither is moved, bucketed, completed or declared missed by a timer.
+
+    const next = await nextGraceDeadline(db, now, features.guided_sessions);
+    return Math.max(
+      now + MINUTE,
+      Math.min(next ?? Infinity, now + 15 * MINUTE),
     );
-  }
-
-  /**
-   * Sessions someone started and never finished.
-   *
-   * The one status with nothing behind it. `auto` slots are closed by the pass
-   * above and manual ones are closed from inside the session - so a window
-   * shut mid-stretch left the row `started` for ever. Still drawn as "running
-   * now" days later, still counted as scheduled, so the day never re-asked for
-   * the session either.
-   *
-   * Recorded as missed, not completed, and this is the judgement call in here:
-   * we know it was started and we do not know it was done. Inventing progress
-   * in someone's own health record is the worse of the two mistakes, and the
-   * missed list can say exactly what happened where a silent completion could
-   * not. The reason code is what makes it reversible if that call is wrong.
-   *
-   * After the `auto` pass on purpose - by here, anything still `started` and an
-   * hour past its end really was abandoned.
-   */
-  const abandoned = await abandonedSlots(db, now, 200, ABANDONED_AFTER);
-  for (const slot of abandoned) {
-    await setSlotStatus(
-      db,
-      {
-        slotId: slot.id,
-        status: "missed",
-        actor: "system",
-        reasonCode: "never_finished",
-        reasonText: "started, then left running",
-      },
-      now,
-      newId,
-    );
-  }
-
-  // Come back in a minute while anything is still pending, otherwise back off.
-  return due.length > 0 || finished.length > 0 || abandoned.length > 0
-    ? now + MINUTE
-    : now + 15 * MINUTE;
+  });
 }
 
 async function runSyncJob(
@@ -300,6 +255,7 @@ async function runSyncJob(
   config: ServerEnv,
   rootKey: string,
   now: number,
+  kv: KVNamespace,
 ): Promise<number | undefined> {
   if (!job.targetId) return undefined;
 
@@ -311,59 +267,25 @@ async function runSyncJob(
   if (target?.connectionStatus !== "active") return undefined;
 
   const directory = createDirectory(directoryCredentials(config));
-  const user = await getUser(directory, job.userId);
-  const deps: SyncDeps = {
-    db,
-    userId: job.userId,
-    rootKey,
-    clientIds: clientIds(config),
-  };
-
-  await syncCalendar(
-    deps,
+  const readPage = await providerTestReader(config, kv, target.calendarId);
+  const { lastSeenAt } = await syncCalendarAndRepair(
     {
-      calendarId: target.calendarId,
-      connectionId: target.connectionId,
-      provider: target.provider,
-      providerCalendarId: target.providerCalendarId,
-      storeTitles: user?.storeEventTitles ?? true,
-      // Never reach back before the calendar was connected. The zone is only
-      // known out here, which is why the floor is computed here and not in
-      // the engine.
-      windowStart: syncWindowStart(
-        now,
-        target.connectedAt,
-        user?.timeZone ?? "UTC",
-      ),
+      ...(readPage ? { readPage } : {}),
+      db,
+      directory,
+      userId: job.userId,
+      rootKey,
+      clientIds: clientIds(config),
     },
+    target,
     now,
     newId,
   );
 
-  // Detecting the change is only half of it. Without this, a meeting dragged
-  // onto a focus slot in Outlook is stored correctly and the slot stays put.
-  if (user) {
-    await realignAfterSync(
-      {
-        db,
-        directory,
-        userId: job.userId,
-        plan: user.plan as PlanId,
-        user: {
-          timeZone: user.timeZone,
-          dayStartMinutes: user.dayStartMinutes,
-          dayEndMinutes: user.dayEndMinutes,
-        },
-      },
-      now,
-      newId,
-    );
-  }
-
   // Push notifications are what keep a calendar current; this poll only
   // catches the ones that never arrived. So how soon it runs again follows
   // whether anyone is actually looking.
-  return now + syncInterval(user?.lastSeenAt?.getTime() ?? null, now);
+  return now + syncInterval(lastSeenAt, now);
 }
 
 /**
@@ -441,6 +363,7 @@ export default {
         jobs.push({
           type: WORK_TO_JOB[item.kind],
           workId: item.id,
+          workRevision: item.revision,
           userId: item.userId,
           databaseName: user.databaseName,
           ...(item.targetId ? { targetId: item.targetId } : {}),
@@ -503,26 +426,47 @@ export default {
     );
     const directory = createDirectory(directoryCredentials(config));
     const rootKey = config.TOKEN_ROOT_KEY ?? "";
-    const now = Date.now();
+    const now = await requestTime(config, env.CONFIG);
 
     for (const message of batch.messages) {
       const job = message.body;
 
       try {
+        const user = await getUser(directory, job.userId);
+        if (!user || user.deletedAt || !user.databaseReady) {
+          message.ack();
+          continue;
+        }
+        await ensureUserSchema(config, directory, user.id, user);
         const nextDueAt =
           job.type === "grace-sweep"
-            ? await sweepGrace(job, config, now)
+            ? await sweepGrace(
+                job,
+                config,
+                now,
+                await readFeatures(env.CONFIG, job.userId),
+              )
             : job.type === "renew-watch"
               ? await runWatchJob(job, config, rootKey, now)
-              : await runSyncJob(job, config, rootKey, now);
+              : await runSyncJob(job, config, rootKey, now, env.CONFIG);
 
         // Reschedule in the directory, or drop the marker if there is nothing
         // further to do. Forgetting this is how a calendar goes quiet.
         if (job.workId) {
           if (nextDueAt === undefined) {
-            await completeWork(directory, job.workId, now + 24 * 60 * MINUTE);
+            await completeWork(
+              directory,
+              job.workId,
+              now + 24 * 60 * MINUTE,
+              job.workRevision ?? 0,
+            );
           } else {
-            await completeWork(directory, job.workId, nextDueAt);
+            await completeWork(
+              directory,
+              job.workId,
+              nextDueAt,
+              job.workRevision ?? 0,
+            );
           }
         }
 
@@ -537,7 +481,7 @@ export default {
       } catch (error) {
         console.error("work failed", job.type, job.targetId, error);
         if (job.workId) {
-          await failWork(directory, job.workId, now);
+          await failWork(directory, job.workId, now, job.workRevision ?? 0);
         } else {
           // A webhook-triggered job with no directory row still needs to come
           // back, so leave a marker rather than losing the change entirely.

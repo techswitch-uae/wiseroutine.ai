@@ -1,6 +1,9 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 // Desktop only, like the updater below: there is no menu bar to put an icon
 // in on a phone.
+mod addons;
+mod attachments;
+
 #[cfg(desktop)]
 mod tray;
 
@@ -17,7 +20,16 @@ fn greet() -> String {
 pub fn run() {
   let builder = tauri::Builder::default()
     .plugin(tauri_plugin_opener::init())
-    .plugin(tauri_plugin_notification::init());
+    .plugin(tauri_plugin_notification::init())
+    .plugin(tauri_plugin_dialog::init())
+    // An addon frame is a fetched document on its own scheme, so it carries
+    // its own Content-Security-Policy instead of inheriting the app's. See
+    // `addons.rs`.
+    .register_uri_scheme_protocol(addons::SCHEME, addons::serve);
+
+  // ponytail: debug builds only, so it never ships.
+  #[cfg(debug_assertions)]
+  let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
 
   // The updater downloads and swaps the app bundle; `process` is what lets it
   // restart into the version it just installed. Neither exists on mobile.
@@ -32,10 +44,29 @@ pub fn run() {
       tray::install(app)?;
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![greet, tray::set_schedule]);
+    .invoke_handler(tauri::generate_handler![
+      greet,
+      attachments::save_attachment,
+      tray::set_schedule,
+      addons::authorize_addons,
+      addons::install_addon,
+      addons::forget_addon,
+      addons::set_addon_secret,
+      addons::addon_secret_keys,
+      addons::addon_fetch
+    ]);
 
   #[cfg(not(desktop))]
-  let builder = builder.invoke_handler(tauri::generate_handler![greet]);
+  let builder = builder.invoke_handler(tauri::generate_handler![
+    greet,
+    attachments::save_attachment,
+    addons::authorize_addons,
+    addons::install_addon,
+    addons::forget_addon,
+    addons::set_addon_secret,
+    addons::addon_secret_keys,
+    addons::addon_fetch
+  ]);
 
   builder
     .on_window_event(|window, event| {

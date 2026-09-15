@@ -10,38 +10,33 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { loadDeployment, PREFIX } from "./preflight.mjs";
+export { PREFIX } from "./preflight.mjs";
 
 /** wrangler is a dependency of apps/api, not of the root, so every command
  *  runs from here regardless of where the script was invoked. */
 export const PKG = fileURLToPath(new URL("..", import.meta.url));
 
-export const PREFIX = { dev: "WR_DEV_", production: "WR_PROD_" };
-
 /**
  * Pull the store id and secret names out of wrangler.jsonc.
  *
- * A regex rather than a JSONC parser: these are two flat string fields with no
- * escaping or nesting to get wrong, and the alternative is a dependency whose
- * only job is to strip comments. If the shape ever gets more interesting than
- * this, that trade stops being worth it.
+ * Read only the selected environment. Another environment's store must never
+ * become the destination merely because it appeared first in the file.
  */
-export function declared(env) {
-  const text = readFileSync(new URL("wrangler.jsonc", `file://${PKG}`), "utf8");
+export function declared(env, source) {
+  const config = loadDeployment(env, source);
   const prefix = PREFIX[env];
-
-  const names = [...text.matchAll(/"secret_name":\s*"([^"]+)"/g)]
-    .map((m) => m[1])
-    .filter((name) => name.startsWith(prefix));
-
-  const stores = new Set(
-    [...text.matchAll(/"store_id":\s*"([^"]+)"/g)].map((m) => m[1]),
-  );
+  const entries = config.secrets_store_secrets ?? [];
+  const names = entries.map((entry) => entry.secret_name);
+  if (names.some((name) => typeof name !== "string" || !name.startsWith(prefix))) fail("secret names do not match the selected environment");
+  const stores = new Set(entries.map((entry) => entry.store_id));
+  if (stores.size !== 1) fail("expected one Secrets Store in the selected environment");
 
   if (names.length === 0) {
     fail(`no ${prefix}* secrets declared for env=${env}`);
   }
 
-  if ([...stores].some((id) => id.startsWith("REPLACE_WITH"))) {
+  if ([...stores].some((id) => !id || /REPLACE_WITH/i.test(id))) {
     fail(
       "wrangler.jsonc still has a placeholder store_id - run" +
         " `pnpm wrangler secrets-store store list --remote` and paste the id in",

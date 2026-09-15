@@ -45,6 +45,16 @@ export function sessionsNeededToday(
   if (!runsOn(activity, weekday)) return 0;
 
   const { minimum } = activity;
+  if (
+    !Number.isFinite(activity.sessionMinutes) ||
+    activity.sessionMinutes <= 0 ||
+    !Number.isFinite(minimum.value) ||
+    minimum.value < 0
+  ) {
+    throw new RangeError(
+      "Activity duration and minimum must be finite, with a positive duration",
+    );
+  }
 
   switch (minimum.type) {
     case "countPerDay":

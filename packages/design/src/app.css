@@ -17,6 +17,11 @@
   --wr-page: #f6f1e8;            /* content ground */
   --wr-chrome: var(--color-neutral-200); /* window bar, sidebars, settings panes */
   --wr-card: var(--color-neutral-100);
+  /* The surfaces that read as "a thing of ours": a slot on the day, a widget
+     in the rail, a settings block, the sidebar's current page. White, one
+     step above the card's cream so they lift off it as well as off the page.
+     One token on purpose - set it back to `var(--wr-card)` to revert. */
+  --wr-surface: #fff;
   --wr-recessed: var(--color-neutral-200);
   --wr-track: var(--color-neutral-300);
   --wr-dashed: #cdbe9f;
@@ -461,16 +466,23 @@ button.wr-chip { cursor: pointer; }
   user-select: none; -webkit-user-select: none;
 }
 /* The picked block, which the rail is describing. A ring rather than a fill:
-   the fill is the slot's category and must go on saying which kind it is. */
-.wr-daygrid-item-selected .wr-slot {
+   the fill is the slot's category and must go on saying which kind it is.
+
+   Focus draws the same ring, on the block's own edge. It used to add an
+   outline 2px outside it instead - and because a press focuses the block by
+   hand (see `onPointerDown`), picking one drew both: a ring on the slot and a
+   second ring around it, which reads as two states rather than one. One edge
+   is enough to say "this one", and it is still the accent, so a block reached
+   by Tab is as visible as it was. */
+.wr-daygrid-item-selected .wr-slot,
+.wr-daygrid-item-movable:focus-visible .wr-slot {
   box-shadow: var(--wr-lift-1), inset 0 0 0 1.5px var(--color-accent);
 }
-.wr-daygrid-item-selected .wr-slot-live {
+.wr-daygrid-item-selected .wr-slot-live,
+.wr-daygrid-item-movable:focus-visible .wr-slot-live {
   box-shadow: var(--wr-lift-3), inset 0 0 0 1.5px var(--color-accent);
 }
-.wr-daygrid-item-movable:focus-visible {
-  outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 16px;
-}
+.wr-daygrid-item-movable:focus-visible { outline: none; }
 /* Where it would land: the block's own outline, emptied. It is the layout the
    drop will produce, so it is drawn in the layout rather than sketched over it
    - lanes and all. */
@@ -519,7 +531,7 @@ body.wr-dragging { user-select: none; -webkit-user-select: none; cursor: grabbin
 .wr-slot {
   flex: 1; display: flex; align-items: center; gap: 11px;
   padding: 11px 15px; border-radius: 14px;
-  background: var(--wr-card); box-shadow: var(--wr-lift-1);
+  background: var(--wr-surface); box-shadow: var(--wr-lift-1);
 }
 /* the 3px rule is the only category marker; dots are for status and legends */
 .wr-rule { width: 3px; height: 20px; flex: none; border-radius: 2px; background: var(--color-text); }
@@ -530,7 +542,7 @@ body.wr-dragging { user-select: none; -webkit-user-select: none; cursor: grabbin
 
 /* A Paused / Off / owed row. It fills whatever it is put in rather than
    carrying a width of its own - see `StateRow`. */
-.wr-staterow { width: 100%; flex: none; border-radius: 15px; }
+.wr-staterow { width: 100%; flex: none; border-radius: 15px; flex-wrap: wrap; }
 /* `min-width: 0` is what lets the name give way. A flex item's floor is its
    content, so without it a long activity name cannot shrink and pushes the
    count and the duration out through the side of the card instead. */
@@ -541,6 +553,17 @@ body.wr-dragging { user-select: none; -webkit-user-select: none; cursor: grabbin
 /* The two ends are short and fixed; only the middle is negotiable. */
 .wr-staterow > :first-child,
 .wr-staterow > :last-child { flex: none; white-space: nowrap; }
+/* Restated after the rule above: with no trailing element the name IS the
+   last child, and a fixed, unwrapping name pushed out of the row. */
+.wr-staterow > .wr-staterow-name { flex: 1; min-width: 0; white-space: normal; }
+/* The row's buttons, on their own full line, wrapping when three do not fit. */
+.wr-staterow > .wr-staterow-actions {
+  flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: 6px;
+  margin-top: 2px; white-space: normal;
+}
+/* One size down: three of the standard pills stack one per line in a rail. */
+.wr-staterow-actions .wr-btn { padding: 8px 14px; font-size: 12px; }
+.wr-staterow-actions .wr-btn-quiet { padding: 8px 10px; }
 
 .wr-slot-meeting {          /* the app does not own it, so it must not compete */
   min-height: 56px; justify-content: space-between;
@@ -559,7 +582,13 @@ body.wr-dragging { user-select: none; -webkit-user-select: none; cursor: grabbin
   background: var(--color-accent); color: var(--wr-page);
 }
 
-.wr-slot-live {             /* exactly one per view - the slot startable now */
+.wr-running {
+  flex: none; width: 20px; height: 20px; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--color-accent-100); color: var(--color-accent-900);
+}
+
+.wr-slot-live {             /* due or running; the lifecycle decides the action */
   display: block; padding: 14px 16px; border-radius: 16px; box-shadow: var(--wr-lift-3);
 }
 .wr-slot-live .wr-rule { height: 34px; background: var(--color-accent); }
@@ -587,7 +616,7 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
    neighbour or on being first. */
 .wr-widget {
   width: 250px; padding: 17px 19px; border-radius: var(--radius-lg);
-  background: var(--wr-card); box-shadow: var(--wr-lift-2);
+  background: var(--wr-surface); box-shadow: var(--wr-lift-2);
   box-sizing: border-box;
 }
 /* The box a widget grows into. Its height is animated in script - see
@@ -607,27 +636,74 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
 .wr-widget-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 /* Only on a module the user opened. The label takes the room, so the X sits
    at the end of the row rather than fighting the count for the same corner. */
+/* Pulled 3px past the padding edge so the glyph's own bounding box - not the
+   22px target around it - lines up with the card's content edge. */
 .wr-widget-close {
-  margin-left: auto; flex: none; border: 0; background: transparent;
-  width: 20px; height: 20px; border-radius: 999px; cursor: pointer;
+  margin-left: auto; margin-right: -3px; flex: none; border: 0;
+  background: transparent; cursor: pointer;
+  width: 22px; height: 22px; border-radius: 999px;
   display: flex; align-items: center; justify-content: center;
-  font: 400 16px/1 var(--font-body); color: var(--wr-text-soft);
+  color: var(--wr-text-soft);
 }
 .wr-widget-close:hover { background: var(--wr-recessed); color: var(--color-text); }
 /* A module that names one thing: the thing, then when it is. The eyebrow says
    which module this is, so the name below it is the content, not a heading. */
+/* Caprasimo is vendored at 400 and has no bold, so asking for 600 got a
+   synthetic one: the browser smeared the 400 outlines, which at 15px read as
+   a blurry title rather than a heavier one. Drawn at its real weight, one
+   step larger to keep the presence the fake bold was after. */
 .wr-widget-title {
-  margin: 10px 0 2px; font: 600 15px/1.25 var(--font-heading);
+  margin: 12px 0 4px; font: 400 17px/1.15 var(--font-heading);
   overflow-wrap: anywhere;
 }
+.wr-widget-title-row { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; }
+.wr-widget-title-row .wr-widget-title { flex: 1; min-width: 0; margin: 0; }
 .wr-widget-time {
   font: 600 12.5px var(--font-body); color: var(--color-accent-900);
   font-variant-numeric: tabular-nums;
 }
 .wr-widget-time-soft { font-weight: 400; color: var(--wr-text-soft); }
+/* The time, when it can be changed, is the control that changes it - one place
+   for "a different time" in every state, instead of a full-width button that
+   outweighed the stepper beside it. A soft pill says it can be pressed; the
+   negative margin keeps the digits on the card's content edge, where they sat
+   as plain text. */
+.wr-widget-time-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-left: -8px; padding: 3px 8px; border: 0; border-radius: 999px;
+  background: var(--color-neutral-200); cursor: pointer; text-align: left;
+}
+.wr-widget-time-btn:hover { background: var(--color-neutral-300); }
+.wr-widget-time-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px var(--color-accent); }
 /* On the dark card the accent brown disappears into the ground. */
 .wr-widget-attention .wr-widget-time { color: var(--color-neutral-100); }
 .wr-widget-attention .wr-widget-time-soft {
+  color: color-mix(in srgb, var(--color-neutral-100) 66%, transparent);
+}
+/* The head as an ink tab across a sand card: This slot on the block Up next is
+   counting down to, carrying that module's ink and countdown so the rail names
+   the block once. Only the head goes dark - every control below keeps the
+   ground it was drawn for. The top radius is the card's, so nothing clips. */
+.wr-widget-tabbed { padding-top: 0; }
+.wr-widget-tab {
+  margin: 0 -19px 2px; padding: 12px 19px 11px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--color-text); color: var(--color-neutral-100);
+}
+.wr-widget-tab .wr-label { color: color-mix(in srgb, var(--color-neutral-100) 72%, transparent); }
+.wr-widget-tab .wr-widget-time { color: var(--color-neutral-100); }
+.wr-widget-tab .wr-widget-tab-now {
+  padding: 1px 8px; border-radius: 999px;
+  background: var(--color-accent-100); color: var(--color-accent-900);
+}
+.wr-widget-tab .wr-widget-close { color: color-mix(in srgb, var(--color-neutral-100) 66%, transparent); }
+.wr-widget-tab .wr-widget-close:hover {
+  background: color-mix(in srgb, var(--color-neutral-100) 12%, transparent);
+  color: var(--color-neutral-100);
+}
+/* Same reason, for a second line borrowed from a light-surface row: the muted
+   token is near-black, and on this card that is invisible rather than quiet. */
+.wr-widget-attention .wr-slot-meta {
   color: color-mix(in srgb, var(--color-neutral-100) 66%, transparent);
 }
 .wr-widget-empty {
@@ -675,7 +751,7 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
   border: 0; background: transparent; cursor: pointer; text-align: left; width: 100%;
 }
 .wr-navitem-active {
-  font-weight: 600; color: var(--color-text); background: var(--color-neutral-100);
+  font-weight: 600; color: var(--color-text); background: var(--wr-surface);
   box-shadow: 0 1px 2px rgba(46, 43, 37, 0.07), 0 3px 8px rgba(46, 43, 37, 0.06);
 }
 .wr-navitem-count { margin-left: auto; font: 700 10.5px var(--font-body); padding: 1px 7px; border-radius: 999px; background: var(--wr-track); }
@@ -738,10 +814,13 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
    not a heavier shadow, is what separates it from its target. */
 .wr-drag-card {
   position: absolute; left: 34px; top: 34px; right: 34px;
-  border-radius: 14px; background: var(--wr-card); box-shadow: var(--wr-lift-3);
+  border-radius: 14px; background: var(--wr-surface); box-shadow: var(--wr-lift-3);
   padding: 11px 15px; display: flex; align-items: center; gap: 11px;
 }
 .wr-grip { font: 400 12px var(--font-body); color: var(--wr-text-soft); letter-spacing: 2px; }
+.wr-placement-grip { border: 0; background: transparent; padding: 8px 4px; cursor: grab; touch-action: none; }
+.wr-placement-grip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 4px; }
+.wr-placement-grip:disabled { cursor: default; opacity: .5; }
 
 .wr-stepper-row { display: flex; align-items: center; gap: 8px; }
 .wr-stepper {
@@ -1054,7 +1133,7 @@ img.wr-avatar { object-fit: cover; }
    off the mark's axis. */
 .wr-brand { display: flex; align-items: center; gap: 10px; padding-left: 6px; }
 .wr-brand-name { font-family: var(--font-heading); font-size: 15px; line-height: 1; }
-.wr-nav { display: flex; flex-direction: column; gap: 1px; }
+.wr-nav { display: flex; flex-direction: column; gap: 1px; padding-bottom: 6px; }
 
 .wr-sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 12px; }
 /* Ink: quick add is the sidebar's one commitment. */
@@ -1083,7 +1162,7 @@ img.wr-avatar { object-fit: cover; }
 /* Lift 3 - the floating-surface step, shared with the live slot and dialogs. */
 .wr-usermenu-pop {
   position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; min-width: 208px;
-  background: var(--wr-card); border-radius: var(--radius-md); box-shadow: var(--wr-lift-3);
+  background: var(--wr-surface); border-radius: var(--radius-md); box-shadow: var(--wr-lift-3);
   padding: 6px; z-index: 20;
 }
 .wr-usermenu-head {
@@ -1264,8 +1343,12 @@ img.wr-avatar { object-fit: cover; }
      cannot go missing again, which is what happened when each part carried its
      own hardcoded padding. */
   --wr-sheet-pad: 22px;
-  position: relative; width: 100%; max-width: 460px; max-height: 100%;
-  background: var(--wr-page); border-radius: 18px; box-shadow: var(--wr-lift-3);
+  /* Four fifths of the window, and never more than the window has. Long
+     enough for an invitation with an agenda in it, short enough that the day
+     behind it is still visible - and the body is the only part that scrolls,
+     so the title stays put however long the content is. */
+  position: relative; width: 100%; max-width: 560px; max-height: min(80vh, 100%);
+  background: var(--wr-surface); border-radius: 18px; box-shadow: var(--wr-lift-3);
   display: flex; flex-direction: column; overflow: hidden;
 }
 .wr-sheet-head {
@@ -1464,7 +1547,7 @@ img.wr-avatar { object-fit: cover; }
 .wr-hours-pop {
   position: absolute; top: calc(100% + 8px); left: 0; z-index: 20;
   width: 296px; padding: 14px 15px 12px;
-  border-radius: var(--radius-md); background: var(--wr-card);
+  border-radius: var(--radius-md); background: var(--wr-surface);
   box-shadow: var(--wr-lift-3);
 }
 .wr-hours-title { padding: 0 3px; }
@@ -1518,7 +1601,7 @@ img.wr-avatar { object-fit: cover; }
    fetch it, and what that fetching last achieved - then the date, which is the
    page's title and stays the largest thing here rather than becoming another
    member of the toolbar. */
-.wr-daybar { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.wr-daybar { display: flex; flex-wrap: wrap; flex-shrink: 0; align-items: center; gap: 14px; min-width: 0; }
 
 /* ── A group of controls that reads as one object ──────────────────────────
    The recessed pill the header's toolbars sit in. Shared, because it was not:
@@ -1572,9 +1655,13 @@ img.wr-avatar { object-fit: cover; }
 }
 /* Mid-sync the dot is a state, not an alert. */
 .wr-dot-soft { background: var(--color-accent-300); }
+/* Let the tools move below the title in a narrow day column, rather than
+   squeezing the date and hour span into overlapping fragments. */
 .wr-daybar-title {
-  display: flex; align-items: baseline; gap: 10px; min-width: 0;
+  display: flex; flex-wrap: wrap; flex-shrink: 0; align-items: baseline;
+  gap: 4px 10px; min-width: 0; max-width: 100%;
 }
+.wr-daybar-title .wr-page-helper { white-space: nowrap; }
 /* Why the title used to sit lower than it sat left, with 26px of padding on
    both edges. Two things, neither of them padding.
    Vertical padding is measured to a text BOX while horizontal padding is
@@ -1630,6 +1717,10 @@ img.wr-avatar { object-fit: cover; }
    `scroll-margin-top` is what makes "Edit hours and ranges" arrive with the
    heading visible rather than flush against the top of the scroller. */
 .wr-settings { display: flex; flex-direction: column; gap: 30px; }
+/* Activities still groups its list and its form in cards. On a settings-style
+   page they are the same kind of surface as a block, so they take the same
+   ground - the rail's cards on Today keep the cream. */
+.wr-settings .wr-card { background: var(--wr-surface); }
 .wr-settings-section { scroll-margin-top: 18px; }
 /* Trimmed for the same reason the day's title is: vertical space is measured
    to a text box and horizontal space to the letters, so an untrimmed heading
@@ -1647,28 +1738,26 @@ img.wr-avatar { object-fit: cover; }
    calendar list with. A card is the group; a block is one thing in it, and it
    never carries a shadow - two elevations inside one card reads as two
    different kinds of surface. */
-/* Pressed into the card, not outlined on it.
-   These were the card's own background with a hairline drawn round them - the
-   same colour as the thing they sit in, separated by a 10% line. That is the
-   outline this system says not to reach for, and it is why they did not read.
-   Recessed, they are a different plane rather than a drawn edge: the page
-   raises the card, and the card sinks the blocks. */
+/* Straight on the page, no wrapper.
+   Each block is its own raised sheet - the same ground, radius and lift as a
+   card, because on this page it *is* the card: one setting, one surface. The
+   sand card that used to hold a section's blocks was a second plane between
+   the page and the thing being edited, and it read as heavy. Every control
+   inside keeps its ordinary recessed look; the ground under it is the one it
+   was drawn for. */
+.wr-blocks { display: grid; gap: 12px; }
 .wr-block {
-  padding: 12px 13px; border-radius: 13px;
-  background: var(--wr-recessed); box-shadow: var(--wr-inset);
+  padding: 16px 18px; border-radius: 15px;
+  background: var(--wr-surface); box-shadow: var(--wr-lift-2);
+  transition: box-shadow 0.2s ease;
 }
-/* Controls that were recessed on a light ground.
-   They cannot stay recessed on a recessed one - a segmented track, a secondary
-   button, a provider mark and a time field all share this exact tone, and on a
-   recessed block every one of them vanished into it. Inside a block they take
-   the card's ground instead: still a step away from what they sit on, just in
-   the other direction. Anything else added here that uses `--wr-recessed`
-   belongs in this list. */
-:is(.wr-block, .wr-provider)
-  :is(.wr-seg, .wr-btn-secondary, .wr-provider-mark, .wr-timefield) {
-  background: var(--wr-card);
+/* The section a link landed on, lit until the first press outside it. */
+.wr-settings-section[data-active] .wr-block {
+  box-shadow: 0 0 0 1.5px var(--color-accent), var(--wr-lift-2);
 }
-.wr-block + .wr-block { margin-top: 9px; }
+/* The mark on a recessed provider row takes the card's ground: a step away
+   from what it sits on, in the other direction. */
+.wr-provider .wr-provider-mark { background: var(--wr-card); }
 .wr-block-head { display: flex; align-items: center; gap: 12px; }
 .wr-block-heading { flex: 1; min-width: 0; }
 .wr-block-title { margin: 0; font: 600 13px var(--font-body); color: var(--color-text); }
@@ -1718,11 +1807,54 @@ img.wr-avatar { object-fit: cover; }
 /* ── Activities ────────────────────────────────────────────────────────────
    The library is a palette of starting points, so its chips are dashed - the
    kit's word for "not a real object on the page yet". */
+/* One block per heading.
+   The first version set the group gap barely above the chip gap, so the
+   heading, its chips and the next heading all sat at roughly one rhythm and
+   the whole card read as one run of text and pills. Three separations, each
+   deliberately different: a heading sits close to the chips it names, the
+   chips sit close to each other, and the groups sit well apart with a rule
+   between them - so the eye finds the two categories before it starts reading
+   any of the names. */
+.wr-library-group { display: grid; gap: 11px; }
+.wr-library-group + .wr-library-group {
+  margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--wr-hairline);
+}
+/* The card's own note is a sentence about the whole card, not about the first
+   group, and it was sitting one line above that group's heading. */
+.wr-library-group:first-of-type { margin-top: 4px; }
 .wr-library { display: flex; flex-wrap: wrap; gap: 9px; }
-.wr-library-chip { text-align: left; }
+/* The chip is a wrapper now, not the button: one whose session comes from an
+   addon carries a cog beside its name, and a button inside a button is invalid
+   markup with an inner control no keyboard can reach. The wrapper keeps the
+   chip's own padding and dashed edge; the two buttons inside it are bare. */
+.wr-library-chip { text-align: left; padding: 0; gap: 0; }
 .wr-library-chip b { font-weight: 600; color: var(--color-text); }
-.wr-library-chip:hover:not(:disabled) { border-color: var(--color-accent); }
-.wr-library-chip:disabled { opacity: 0.45; cursor: default; }
+.wr-library-chip:hover:not([data-disabled]) { border-color: var(--color-accent); }
+.wr-library-chip[data-disabled] { opacity: 0.45; }
+
+.wr-library-pick {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 7px 13px; border: 0; background: none; cursor: pointer;
+  font: inherit; color: inherit; text-align: left;
+}
+.wr-library-pick:disabled { cursor: default; }
+/* The chip already has the cog's padding, so the cog only needs the right
+   half of it - otherwise the two controls sit a full gap apart. */
+.wr-library-cog {
+  display: inline-flex; align-items: center;
+  padding: 7px 11px 7px 0; margin-left: -5px;
+  border: 0; background: none; cursor: pointer;
+  color: var(--wr-text-soft);
+}
+.wr-library-cog:hover { color: var(--color-text); }
+
+/* Said on the chip rather than found out afterwards: this template's addon is
+   switched off, so picking it gives a plain timed block. Italic and quiet,
+   because it is a caveat and not a second name. */
+.wr-library-caveat {
+  font: 400 11px var(--font-body); font-style: italic;
+  color: var(--wr-text-soft); margin-left: 2px;
+}
 
 /* Two decisions of equal weight, so two equal columns - until the rail leaves
    no room for them, at which point stacking beats squeezing. */
@@ -1744,23 +1876,23 @@ img.wr-avatar { object-fit: cover; }
   font: 400 11.5px/1.5 var(--font-body); color: var(--wr-text-muted); flex: 1; min-width: 180px;
 }
 
-/* Seven of the same thing, so seven equal columns rather than a wrapping row -
-   a picker whose last two days fall onto a second line stops reading as a
-   week. */
-.wr-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+/* Seven discs in a row, one letter each. A chosen day is an ink disc with a
+   light letter; an unchosen one is sand with a hairline, so the week reads as
+   a row of coins with some turned over. Fixed at 40px rather than a seventh
+   of the column: a disc has to be round, and a column-width one is not. */
+.wr-days { display: flex; gap: 10px; }
 .wr-day {
-  border: 0; cursor: pointer; padding: 9px 0; border-radius: 11px;
-  background: var(--wr-recessed); box-shadow: var(--wr-inset);
-  font: 600 12px var(--font-body); color: var(--wr-text-muted);
+  flex: none; width: 40px; height: 40px; padding: 0; border: 0; cursor: pointer;
+  border-radius: 999px;
+  background: var(--wr-recessed); box-shadow: inset 0 0 0 1px var(--wr-hairline);
+  font: 700 13px var(--font-body); color: var(--wr-text-muted);
 }
-.wr-day:hover { color: var(--color-text); }
-/* The same accent a chosen segment carries - a day is on or it is not, and
-   this is the kit's one word for chosen. */
+.wr-day:hover { color: var(--color-text); background: var(--wr-track); }
 .wr-day-on {
-  background: var(--color-accent-700); color: var(--color-neutral-100);
+  background: var(--color-text); color: var(--color-neutral-100);
   box-shadow: 0 1px 3px rgba(46, 43, 37, 0.25);
 }
-.wr-day-on:hover { color: var(--color-neutral-100); }
+.wr-day-on:hover { color: var(--color-neutral-100); background: var(--color-neutral-800); }
 
 .wr-activity-row {
   display: flex; align-items: center; gap: 12px;
@@ -1804,21 +1936,30 @@ img.wr-avatar { object-fit: cover; }
   align-items: center; justify-content: center; gap: 13px;
   color: var(--wr-text-muted);
 }
-/* A ring with one lit arc, reusing the same rotation the sync button spins by.
-   Track in the sand the disabled surfaces use, so it reads as furniture until
-   the accent arc passes. */
-.wr-loading-spin {
-  width: 24px; height: 24px; border-radius: 999px; box-sizing: border-box;
-  border: 2.5px solid var(--wr-track);
-  border-top-color: var(--color-accent);
-  animation: wr-spin 0.85s linear infinite;
+/* The mark itself, arcs turning: see `.wr-mark-spin`. */
+.wr-loading-inline {
+  flex: none; align-self: auto; flex-direction: row; gap: 8px;
+  justify-content: flex-start; padding: 9px 10px;
 }
 .wr-loading-text { font: 600 12.5px var(--font-body); }
-/* Slowed rather than stopped: a still ring says "stuck", which is the one
+/* The brand mark as a loader: its two arcs turn about the disc's centre. The
+   turn starts from -90 because that is where the ring rests - see BrandMark -
+   and a CSS transform replaces the SVG one, so it has to carry that itself. */
+.wr-mark-spin { transform-origin: 60px 60px; animation: wr-mark-spin 1.1s linear infinite; }
+@keyframes wr-mark-spin { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
+/* Slowed rather than stopped: a still mark says "stuck", which is the one
    thing this is not. */
 @media (prefers-reduced-motion: reduce) {
-  .wr-loading-spin { animation-duration: 2.4s; }
+  .wr-mark-spin { animation-duration: 2.8s; }
 }
+
+/* An invitation's own words: line breaks kept, links and emphasis rendered as
+   elements by `RichText` - never as markup. */
+.wr-rich {
+  font: 400 13px/1.55 var(--font-body); color: var(--color-text);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.wr-rich .wr-linklike { color: var(--color-accent-900); }
 
 /* A button that reads as a link, for a sentence that has to carry an action
    inside it - "Needs notifications turned on, open Notification settings". A
@@ -1901,7 +2042,7 @@ img.wr-avatar { object-fit: cover; }
   font: 400 11.5px/1.5 var(--font-body); color: var(--wr-text-muted);
 }
 .wr-legend-swatch { width: 16px; height: 8px; border-radius: 999px; flex: none; }
-.wr-legend-slot { background: var(--wr-card); box-shadow: var(--wr-lift-1); }
+.wr-legend-slot { background: var(--wr-surface); box-shadow: var(--wr-lift-1); }
 .wr-legend-meeting {
   background: var(--wr-recessed);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #2e2b25 12%, transparent);
@@ -2017,7 +2158,7 @@ img.wr-avatar { object-fit: cover; }
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #2e2b25 12%, transparent);
   align-items: flex-start; padding: 4px 6px;
 }
-.wr-week-block-slot { background: var(--wr-card); box-shadow: var(--wr-lift-1); }
+.wr-week-block-slot { background: var(--wr-surface); box-shadow: var(--wr-lift-1); }
 .wr-week-block-live {
   background: var(--color-accent-700); color: #fff;
   box-shadow: 0 2px 5px rgba(46, 43, 37, 0.2);
@@ -2039,7 +2180,7 @@ img.wr-avatar { object-fit: cover; }
   position: absolute; left: 3px; z-index: 3;
   width: 210px; max-width: none;
   padding: 9px 11px; border-radius: 12px;
-  background: var(--wr-card); box-shadow: var(--wr-lift-3);
+  background: var(--wr-surface); box-shadow: var(--wr-lift-3);
 }
 /* The last days of the week open leftwards - the page scroller clips
    sideways, so opening rightwards there runs off the edge of the week. */
@@ -2100,3 +2241,123 @@ button.wr-month-cell:hover { box-shadow: var(--wr-lift-2); }
 }
 .wr-month-dot-done { background: var(--color-accent); box-shadow: none; }
 
+
+/* ── Quick add ─────────────────────────────────────────────────────────── */
+/* A palette over the day, not a sheet in the middle of it: it sits above the
+   day it is about to change. Two bands - the field on the card ground, the
+   choices on the recessed one - and every row is a button. */
+.wr-palette-overlay { align-items: flex-start; padding-top: 64px; }
+.wr-palette {
+  position: relative; width: 100%; max-width: 600px; border-radius: 22px; overflow: hidden;
+  background: var(--color-neutral-100); outline: none;
+  box-shadow: 0 6px 14px rgba(46, 43, 37, 0.16), 0 28px 60px rgba(46, 43, 37, 0.3);
+}
+.wr-palette-head { display: flex; align-items: center; gap: 13px; padding: 20px 24px 17px; }
+.wr-palette-dot { width: 26px; height: 26px; border-radius: 999px; background: var(--color-accent); flex: none; }
+.wr-palette-input {
+  flex: 1; min-width: 0; border: 0; padding: 0; background: transparent; outline: none;
+  font: 400 22px var(--font-heading); color: var(--color-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wr-palette-input::placeholder { color: color-mix(in srgb, var(--color-text) 52%, transparent); }
+.wr-palette-body {
+  display: flex; flex-direction: column; gap: 8px; padding: 16px 24px 20px;
+  background: var(--wr-page); box-shadow: inset 0 1px 2px rgba(46, 43, 37, 0.06);
+}
+.wr-palette-kicker {
+  display: flex; justify-content: space-between; align-items: baseline; margin: 4px 0 2px;
+  font: 700 10px var(--font-body); letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--wr-text-muted);
+}
+.wr-palette-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.wr-palette-chip {
+  display: flex; align-items: center; gap: 8px; padding: 10px 15px 10px 13px; border-radius: 999px;
+  border: 0; cursor: pointer; background: var(--color-neutral-100); color: var(--color-text);
+  font: 600 13px var(--font-body);
+  box-shadow: 0 1px 2px rgba(46, 43, 37, 0.06), 0 4px 12px rgba(46, 43, 37, 0.07);
+}
+.wr-palette-chip:hover { box-shadow: 0 2px 5px rgba(46, 43, 37, 0.1), 0 10px 22px rgba(46, 43, 37, 0.14); }
+.wr-palette-chip .wr-keycap { padding: 2px 6px; }
+.wr-palette-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  padding: 11px 14px; border-radius: 15px; border: 0; cursor: pointer;
+  background: var(--color-neutral-100); color: var(--color-text);
+  box-shadow: 0 1px 2px rgba(46, 43, 37, 0.06), 0 4px 12px rgba(46, 43, 37, 0.07);
+}
+.wr-palette-row-on { box-shadow: 0 3px 6px rgba(46, 43, 37, 0.1), 0 18px 40px rgba(46, 43, 37, 0.2); }
+/* Dashed is "not a thing yet" - the row that keeps it as a todo. */
+.wr-palette-row-dashed { background: transparent; box-shadow: none; border: 1px dashed #cdbe9f; }
+.wr-palette-row-dashed.wr-palette-row-on { background: var(--color-neutral-100); }
+.wr-palette-when {
+  width: 56px; flex: none; font: 400 17px var(--font-heading); color: var(--wr-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.wr-palette-row-on .wr-palette-when { color: var(--color-accent-900); }
+.wr-palette-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.wr-palette-title { font: 600 13px var(--font-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wr-palette-note { font: 400 11.5px var(--font-body); color: var(--wr-text-muted); }
+.wr-palette-pills { display: flex; align-items: center; gap: 7px; margin: 2px 0 6px; }
+.wr-palette-pill {
+  padding: 6px 13px; border-radius: 999px; border: 0; cursor: pointer;
+  font: 600 12px var(--font-body); background: var(--color-neutral-200);
+  color: color-mix(in srgb, var(--color-text) 74%, transparent);
+  box-shadow: inset 0 0 0 1px rgba(46, 43, 37, 0.08);
+}
+.wr-palette-pill-on { background: var(--color-accent-700); color: #fff; box-shadow: none; }
+/* A pill you can type a number into. Same height, same ground and same radius
+   as the chips beside it, so the row has one baseline rather than a form field
+   standing among buttons. */
+.wr-palette-pill-field {
+  display: inline-flex; align-items: baseline; gap: 4px; cursor: text;
+  /* Dashed and set apart at the end of the row - the same "not one of these,
+     type your own" that `wr-palette-row-dashed` means. Solid and inline it was
+     a fifth chip reading "15 min" beside the selected "15 min", which looked
+     like the same choice twice. */
+  margin-left: auto; background: transparent;
+  box-shadow: none; border: 1px dashed #cdbe9f;
+}
+.wr-palette-pill-field input {
+  width: 3ch; min-width: 0; border: 0; padding: 0; background: transparent;
+  color: var(--color-text); font: inherit; text-align: right;
+  font-variant-numeric: tabular-nums; outline: none;
+  -moz-appearance: textfield; appearance: textfield;
+}
+.wr-palette-pill-field input::-webkit-outer-spin-button,
+.wr-palette-pill-field input::-webkit-inner-spin-button { appearance: none; margin: 0; }
+.wr-palette-pill-field:focus-within { box-shadow: inset 0 0 0 1.5px var(--color-accent); }
+.wr-palette-foot {
+  display: flex; align-items: center; gap: 14px; padding: 11px 24px;
+  font: 400 11px var(--font-body); color: var(--wr-text-muted);
+}
+.wr-palette-foot span { display: inline-flex; align-items: center; gap: 5px; }
+
+/* ── On a white surface ────────────────────────────────────────────────────
+   Everything that is recessed was drawn for the cream card: the sand a step
+   below it. On a white surface - a block, a widget, a sheet, a popover, the
+   Activities cards - that same sand reads as a darker patch rather than a
+   lower plane, so here the recessed things take the cream instead, one step
+   down from white. A control inside one of those (a stepper's buttons, a
+   provider row's mark) goes one further step so it stays separate.
+   Last in the file on purpose, and `:where()` on the surface so the rules
+   carry only the control's own specificity: a hover, a pressed segment, a
+   selected day or pill - all declared with more - still win. */
+:where(.wr-block, .wr-widget, .wr-sheet, .wr-hours-pop, .wr-usermenu-pop, .wr-week-pop, .wr-settings .wr-card)
+  :is(.wr-seg, .wr-btn-secondary, .wr-timefield, .wr-stepper, .wr-provider,
+      .wr-provider-terms, .wr-slot-meeting, .wr-slot-inset, .wr-confirm,
+      .wr-switchrow, .wr-hours-edit, .wr-hours-opt:hover, .wr-status,
+      .wr-keycap, .wr-pillgroup, .wr-widget-time-btn, .wr-iconbtn) {
+  background: var(--wr-card);
+}
+:where(.wr-block, .wr-widget, .wr-sheet, .wr-hours-pop, .wr-usermenu-pop, .wr-week-pop, .wr-settings .wr-card)
+  :is(.wr-hours-opt[aria-checked="true"], .wr-calpick-row:hover,
+      .wr-palette-pill:not(.wr-palette-pill-on), .wr-day:not(.wr-day-on)) {
+  background: var(--wr-card);
+}
+:where(.wr-block, .wr-widget, .wr-sheet, .wr-hours-pop, .wr-usermenu-pop, .wr-week-pop, .wr-settings .wr-card)
+  :is(.wr-stepper-btn, .wr-provider .wr-provider-mark) {
+  background: var(--wr-surface);
+}
+:where(.wr-block, .wr-widget, .wr-sheet, .wr-hours-pop, .wr-usermenu-pop, .wr-week-pop, .wr-settings .wr-card)
+  .wr-stepper-btn:disabled:hover {
+  background: var(--wr-surface);
+}

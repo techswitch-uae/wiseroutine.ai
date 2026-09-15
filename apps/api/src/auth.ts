@@ -1,6 +1,5 @@
 import {
   type Directory,
-  grantPlan,
   newDatabaseName,
   USER_DEFAULTS,
 } from "@wiseroutine/db";
@@ -12,9 +11,10 @@ import { emailOTP } from "better-auth/plugins/email-otp";
 import { Resend } from "resend";
 import type { ServerEnv } from "./env";
 import { provisionUserDatabase } from "./provisioning";
-
-/** What the pricing page promises: a fortnight of Pro, no card. */
-const TRIAL_DAYS = 14;
+import {
+  type SocialHandoffAttempt,
+  socialHandoffHooks,
+} from "./social-handoff";
 
 /**
  * Authentication.
@@ -112,6 +112,20 @@ const userFields = {
     required: true,
     input: false,
     defaultValue: () => USER_DEFAULTS.databaseReady,
+  },
+  /**
+   * Declared here so `requireUser` can read it off the session user.
+   *
+   * Zero, always, whatever the running Worker's migration count is.
+   * `provisionUserDatabase` stamps the real number the moment it has applied
+   * them, and stamping it optimistically here would tell the request path
+   * there is nothing to do for a database that does not exist yet.
+   */
+  schemaVersion: {
+    type: "number",
+    required: true,
+    input: false,
+    defaultValue: () => USER_DEFAULTS.schemaVersion,
   },
   timeZone: {
     type: "string",
@@ -238,23 +252,62 @@ async function sendOtp(env: ServerEnv, to: string, otp: string): Promise<void> {
   }
 }
 
-export function createAuth(directory: Directory, env: ServerEnv) {
+/**
+ * Every origin allowed to talk to this API.
+ *
+ * One list, used twice: Better Auth trusts it for sign-in, and the CORS
+ * middleware in `index.ts` reflects only what appears here. They used to
+ * disagree - CORS reflected whatever origin asked, so any page on the web
+ * could put a credentialed request to `/auth/*` and read the answer. Two
+ * lists would drift apart again, so there is one.
+ *
+ * Takes the two fields rather than `ServerEnv`, because CORS runs before
+ * `withContext` and has only the raw bindings to read from.
+ */
+export function trustedOrigins(env: {
+  APP_URL: string;
+  ENVIRONMENT?: string;
+}): string[] {
+  return [
+    env.APP_URL,
+    // The desktop app's webview is not served from APP_URL: Tauri gives it a
+    // scheme of its own, which differs by platform. Omitting these makes
+    // sign-in fail in the packaged app while working in the browser.
+    "tauri://localhost",
+    "http://tauri.localhost",
+    ...(env.ENVIRONMENT === "development"
+      ? [
+          // ponytail: the design gallery runs on its own Vite port
+          // (`pnpm design`) and is not APP_URL. Hardcoded, not configurable -
+          // one dev port.
+          "http://localhost:41100",
+        ]
+      : []),
+  ];
+}
+
+export function createAuth(
+  directory: Directory,
+  env: ServerEnv,
+  handoff?: SocialHandoffAttempt,
+  boundaries: {
+    sendCode?: (email: string, otp: string) => Promise<void>;
+    beforeProvision?: () => Promise<void>;
+  } = {},
+) {
+  const provision = async (user: { id: string; databaseName?: unknown }) => {
+    await boundaries.beforeProvision?.();
+    await provisionUserDatabase(directory, env, {
+      userId: user.id,
+      databaseName: String(user.databaseName),
+    });
+  };
   return betterAuth({
     database: prismaAdapter(directory, { provider: "sqlite" }),
     baseURL: env.API_URL,
     basePath: "/auth",
     secret: required(env.SESSION_SECRET, "SESSION_SECRET"),
-    // The desktop app's webview is not served from APP_URL: Tauri gives it a
-    // scheme of its own, which differs by platform. Omitting these makes
-    // sign-in fail in the packaged app while working in the browser.
-    trustedOrigins: [
-      env.APP_URL,
-      "tauri://localhost",
-      "http://tauri.localhost",
-      // ponytail: the design gallery runs on its own Vite port (`pnpm design`)
-      // and is not APP_URL. Hardcoded, not configurable - one dev port.
-      ...(env.ENVIRONMENT === "development" ? ["http://localhost:41100"] : []),
-    ],
+    trustedOrigins: trustedOrigins(env),
 
     /**
      * Better Auth catches its own errors and returns a response, so nothing
@@ -284,6 +337,7 @@ export function createAuth(directory: Directory, env: ServerEnv) {
     session: { expiresIn: SESSION_DAYS * 86_400 },
 
     socialProviders: configuredProviders(env),
+    hooks: socialHandoffHooks(directory, env.APP_URL, handoff),
 
     /**
      * Which identities are allowed to become the same account.
@@ -351,7 +405,9 @@ export function createAuth(directory: Directory, env: ServerEnv) {
        * work, and it is already gated by a token. The limits that matter,
        * sign-in and the emailed code, are untouched.
        */
-      customRules: { "/get-session": false },
+      // `/list-accounts` for the same reason: a token-gated read that Settings
+      // fires twice on mount, and the losing transaction 500'd the page.
+      customRules: { "/get-session": false, "/list-accounts": false },
     },
 
     user: {
@@ -361,6 +417,20 @@ export function createAuth(directory: Directory, env: ServerEnv) {
     },
 
     databaseHooks: {
+      session: {
+        create: {
+          // A failed user-create after-hook can leave the user row behind.
+          // Retrying OTP then signs into an existing user, so the create hook
+          // alone cannot recover it. Never issue a usable session until ready.
+          before: async (session) => {
+            const user = await directory.user.findUnique({
+              where: { id: session.userId },
+            });
+            if (user && !user.databaseReady) await provision(user);
+            return { data: session };
+          },
+        },
+      },
       user: {
         create: {
           /**
@@ -372,37 +442,11 @@ export function createAuth(directory: Directory, env: ServerEnv) {
            * a retried signup recovers rather than leaving half an account.
            */
           after: async (user) => {
-            await provisionUserDatabase(directory, env, {
-              userId: user.id,
-              // The name the insert actually used, not one recomputed here.
-              databaseName: String(user.databaseName),
-            });
+            await provision(user);
 
-            /**
-             * The trial, as a grant rather than a Stripe subscription.
-             *
-             * Fourteen days of Pro with no card, which is what the pricing
-             * page promises. Stripe has a trial of its own, but reaching it
-             * needs a checkout - and a trial you have to enter card details
-             * for is not the offer being made.
-             *
-             * A grant outranks Stripe in `resolvePlan`, so this is also what
-             * founding access is: the same row with a longer expiry and a
-             * different `reason`. One mechanism, and winding it down is a
-             * date passing rather than a flag being flipped.
-             */
-            await grantPlan(
-              directory,
-              {
-                userId: user.id,
-                plan: "pro",
-                reason: "trial",
-                grantedBy: "signup",
-                expiresAt: Date.now() + TRIAL_DAYS * 86_400_000,
-              },
-              Date.now(),
-              () => crypto.randomUUID(),
-            );
+            // M0 is a real Free account, not an expiring Pro trial. Existing
+            // grants/subscriptions are untouched; founding discounts are a
+            // separate commercial record to implement before paid launch.
           },
         },
       },
@@ -419,7 +463,10 @@ export function createAuth(directory: Directory, env: ServerEnv) {
         // Sign-in and sign-up are the same act: an address that proves it can
         // read its own mail. No separate registration step to abandon.
         async sendVerificationOTP({ email, otp }) {
-          await sendOtp(env, email, otp);
+          await (boundaries.sendCode ?? ((to, code) => sendOtp(env, to, code)))(
+            email,
+            otp,
+          );
         },
       }),
       // The desktop app has no cookie jar worth the name, so it carries the

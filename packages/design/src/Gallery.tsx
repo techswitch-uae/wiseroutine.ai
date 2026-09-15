@@ -18,11 +18,11 @@ import {
   FitStrip,
   HoursMenu,
   LiveStatus,
+  Loading,
   Metric,
   NavItem,
   OutsideRange,
   PlanNote,
-  PlayGlyph,
   ProviderButton,
   ProviderChoice,
   Rule,
@@ -42,6 +42,7 @@ import {
   WidgetEmpty,
 } from "./components";
 import { ACTIVITY_LIBRARY, TODAY_FIXTURE } from "./fixtures";
+import { PlayGlyph } from "./icons";
 import { DayBar } from "./layout";
 import {
   AccountScreen,
@@ -315,6 +316,23 @@ export const Gallery: React.FC = () => {
         title="Foundations"
         blurb="Every value below is a token. Nothing in a screen should introduce a fourth hue or a fifth elevation."
       >
+        <Row
+          name="Loading"
+          tag="Loading"
+          why={
+            <>
+              The mark itself, its two arcs turning about the disc. One drawing
+              at every size: 24 for a page's first load, 40 when the account is
+              opening, 16 inline in a list or panel that is otherwise there.
+            </>
+          }
+        >
+          <div className="gl-set" style={{ alignItems: "center", gap: 28 }}>
+            <Loading inline>Loading…</Loading>
+            <Loading>Loading your day…</Loading>
+            <Loading size={40}>Opening your account…</Loading>
+          </div>
+        </Row>
         <Row
           name="Colour roles"
           tag="token"
@@ -718,7 +736,7 @@ export const Gallery: React.FC = () => {
                 marginTop: 5,
               }}
             >
-              10 min, guided. Ends before your 11:25 focus block.
+              10 min, guided. Ends before your 11:25 focus slot.
             </div>
             <Button variant="primary" block style={{ marginTop: 14 }}>
               <PlayGlyph />
@@ -1012,6 +1030,29 @@ export const Gallery: React.FC = () => {
           }
         >
           <div className="gl-set">
+            <div
+              style={{
+                width: 250,
+                flex: "none",
+                padding: 18,
+                boxSizing: "border-box",
+              }}
+            >
+              <StateRow
+                recessed
+                name="Evening stretch"
+                meta="Not placed · no gap it would fit in"
+                leading={<Chip variant="static">10 min</Chip>}
+                trailing={null}
+                actions={
+                  <>
+                    <Button variant="primary">11:30</Button>
+                    <Button variant="secondary">Choose time</Button>
+                    <Button variant="quiet">Drop</Button>
+                  </>
+                }
+              />
+            </div>
             <StateRow
               name="Breathing"
               leading={<span className="wr-rule wr-rule-hollow" />}
@@ -1064,7 +1105,7 @@ export const Gallery: React.FC = () => {
         >
           <ActivityLibrary
             templates={ACTIVITY_LIBRARY}
-            used="0 of 2 used"
+            used="0 of 3 used"
             onPick={() => undefined}
           />
         </Row>
@@ -1133,7 +1174,6 @@ export const Gallery: React.FC = () => {
               meta="10 min · 3 × day · any working hour"
               isActive
               onEdit={() => undefined}
-              onToggle={() => undefined}
               onRemove={() => undefined}
             />
             <ActivityRow
@@ -1141,7 +1181,6 @@ export const Gallery: React.FC = () => {
               meta="3 min · 2 × day · mornings"
               isActive={false}
               onEdit={() => undefined}
-              onToggle={() => undefined}
               onRemove={() => undefined}
             />
           </div>

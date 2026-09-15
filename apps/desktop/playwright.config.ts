@@ -4,6 +4,8 @@ import {
   DIRECTORY_URL,
   E2E_SECRET,
   PORTS,
+  SECOND_USER_URL,
+  TIME_ZONE,
   USER_URL,
 } from "./e2e/environment";
 
@@ -22,7 +24,7 @@ import {
  * browser - how a draft of ticks behaves, how a download reports progress - it
  * belongs in Vitest next to the code, not here.
  *
- * The whole stack belongs to the run: two libSQL servers from `globalSetup`,
+ * The whole stack belongs to the run: three libSQL servers from `globalSetup`,
  * and a Worker and a Vite server started below, all on the suite's own ports.
  * They used to be the two processes the developer already had running, which
  * was cheaper to start and cost far more than it saved - see `environment.ts`
@@ -33,16 +35,18 @@ export default defineConfig({
   testDir: "./e2e",
   globalSetup: "./e2e/globalSetup.ts",
   // One at a time: every scenario seeds into the same local libSQL, which
-  // serves one database for all users. Parallel runs would read each other's
-  // meetings.
+  // serves the primary fixture tenant; account-isolation cases opt into a
+  // second server. Parallel runs would still read/reset each other's data.
   workers: 1,
   fullyParallel: false,
+  forbidOnly: !!process.env.CI,
   // A scenario waits on a real sync settling, so the default 5s is too tight.
   timeout: 30_000,
   expect: { timeout: 10_000 },
-  reporter: process.env.CI ? "list" : "line",
+  reporter: [[process.env.CI ? "list" : "line"], ["html", { open: "never" }]],
   use: {
     baseURL: APP_URL,
+    timezoneId: TIME_ZONE,
     // Kept only for a failure - a passing scenario's trace is noise nobody
     // opens.
     trace: "retain-on-failure",
@@ -64,10 +68,25 @@ export default defineConfig({
   webServer: [
     {
       command:
-        `pnpm --filter @wiseroutine/api exec wrangler dev --port ${PORTS.api}` +
+        `pnpm --filter @wiseroutine/api exec wrangler dev --local --ip 127.0.0.1 --env-file ../desktop/e2e/worker.vars --port ${PORTS.api} --persist-to .wrangler/e2e-state` +
+        ` --var APP_URL:${APP_URL}` +
+        ` --var API_URL:http://localhost:${PORTS.api}` +
         ` --var TURSO_DIRECTORY_URL:${DIRECTORY_URL}` +
         ` --var TURSO_USER_HOST:${USER_URL}` +
-        ` --var E2E_SECRET:${E2E_SECRET}`,
+        ` --var E2E_SECRET:${E2E_SECRET}` +
+        ` --var E2E_SECOND_USER_URL:${SECOND_USER_URL}`,
+      // Explicit --env-file skips .dev.vars and the default dotenv search.
+      // Do not inherit a developer's deployment selection or inject their
+      // process environment as Worker bindings. Built-app tests inherit this.
+      env: {
+        CLOUDFLARE_ENV: "",
+        CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "true",
+        CLOUDFLARE_INCLUDE_PROCESS_ENV: "false",
+        // Keep crash details with this isolated run, not in a runner-global
+        // directory that disappears before CI can upload failure evidence.
+        WRANGLER_LOG_PATH: ".wrangler/e2e-logs",
+        WRANGLER_LOG_SANITIZE: "true",
+      },
       // `/health` answers without touching a database, which is what makes it
       // a readiness check rather than a second thing that has to be up.
       url: `http://localhost:${PORTS.api}/health`,

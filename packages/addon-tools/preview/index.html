@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Wise Routine addon development host</title>
+<style>body{font:16px system-ui;background:#faf9f6;color:#292924;max-width:960px;margin:32px auto;padding:16px}label{display:block;margin:8px 0}button,select,input{font:inherit;padding:6px}iframe{display:block;width:560px;max-width:100%;height:360px;border:1px solid #ccc;margin:24px 0}pre{white-space:pre-wrap;max-height:300px;overflow:auto}fieldset{margin-top:20px}</style>
+<h1>Addon development host</h1>
+<p><strong>Synthetic data only.</strong> No Wise Routine account, token, real calendar, billing or network proxy. A successful preview is not distribution approval.</p>
+<label for="role">Contribution</label><select id="role"></select>
+<fieldset id="permissions"><legend>Granted permissions — uncheck to test denial</legend></fieldset>
+<button id="reload">Restart with these permissions</button>
+<button id="disconnect">Disconnect</button>
+<label>Quick Add title <input id="title" value="A synthetic task"></label>
+<label for="quickKey">Quick Add row</label><select id="quickKey"></select>
+<button id="quick">Send Quick Add</button>
+<div id="frame"></div>
+<p id="status" role="status"></p>
+<h2>Host diagnostics (no real data)</h2><pre id="log"></pre>
+<script type="module" src="/host.js"></script>

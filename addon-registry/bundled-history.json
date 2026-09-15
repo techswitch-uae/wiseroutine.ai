@@ -1,0 +1,210 @@
+[
+  {
+    "id": "wiseroutine.breathing",
+    "apiVersion": 1,
+    "name": "Breathing",
+    "version": "1.0.0",
+    "description": "A circle paces your breathing for the whole slot - box, 4-7-8 or coherent.",
+    "capabilities": [
+      {
+        "kind": "ui:session"
+      }
+    ],
+    "activityTypes": [
+      {
+        "key": "pacer",
+        "name": "Breathing",
+        "blurb": "a circle paces your breathing for the whole slot - box, 4-7-8 or coherent",
+        "defaults": {
+          "sessionMinutes": 3,
+          "startPolicy": "manual"
+        },
+        "ground": "dim",
+        "settings": [
+          {
+            "key": "pattern",
+            "label": "Pattern",
+            "type": "select",
+            "default": "box 4-4-4-4",
+            "options": ["box 4-4-4-4", "4-7-8", "coherent 5-5"]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "wiseroutine.day-so-far",
+    "apiVersion": 1,
+    "name": "Day so far",
+    "version": "1.0.0",
+    "description": "A card in the rail showing how much of today happened, and how much did not.",
+    "capabilities": [
+      {
+        "kind": "ui:widget"
+      },
+      {
+        "kind": "read:schedule",
+        "scope": "today"
+      }
+    ],
+    "widgets": [
+      {
+        "key": "progress",
+        "name": "Day so far"
+      }
+    ]
+  },
+  {
+    "id": "wiseroutine.deep-work",
+    "apiVersion": 1,
+    "name": "Deep work",
+    "version": "1.0.0",
+    "description": "The block takes over the screen with a countdown, and your music if you have set a link.",
+    "capabilities": [
+      {
+        "kind": "ui:session"
+      },
+      {
+        "kind": "ui:embed",
+        "origins": ["https://open.spotify.com"]
+      },
+      {
+        "kind": "open:external",
+        "origins": ["https://open.spotify.com"]
+      }
+    ],
+    "activityTypes": [
+      {
+        "key": "focus",
+        "name": "Deep work",
+        "blurb": "the block takes over the screen with a countdown, and your music if you have set a link",
+        "defaults": {
+          "sessionMinutes": 25,
+          "startPolicy": "manual"
+        },
+        "canvas": {
+          "width": 460,
+          "height": 430
+        },
+        "settings": [
+          {
+            "key": "musicUrl",
+            "label": "Music to work to (optional)",
+            "type": "text",
+            "default": "",
+            "maxLength": 300,
+            "placeholder": "https://open.spotify.com/playlist/…"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "wiseroutine.eye-rest",
+    "apiVersion": 1,
+    "name": "Eye rest",
+    "version": "1.0.0",
+    "description": "The screen dims and your eyes are asked to find something far away.",
+    "capabilities": [
+      {
+        "kind": "ui:session"
+      }
+    ],
+    "activityTypes": [
+      {
+        "key": "look-away",
+        "name": "Eye rest",
+        "blurb": "the screen dims for the whole slot and asks your eyes to find something far away",
+        "defaults": {
+          "sessionMinutes": 5,
+          "startPolicy": "auto"
+        },
+        "ground": "dim",
+        "canvas": {
+          "width": 420,
+          "height": 220
+        },
+        "settings": [
+          {
+            "key": "metres",
+            "label": "How far to look, in metres",
+            "type": "number",
+            "default": 6,
+            "min": 1,
+            "max": 50
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "wiseroutine.stretch",
+    "apiVersion": 1,
+    "name": "Guided stretch",
+    "version": "1.0.0",
+    "description": "Walks you through a stretch one step at a time, hands-free.",
+    "capabilities": [
+      {
+        "kind": "ui:session"
+      }
+    ],
+    "activityTypes": [
+      {
+        "key": "guided",
+        "name": "Guided stretch",
+        "blurb": "it walks you through the stretch one step at a time, hands-free",
+        "defaults": {
+          "sessionMinutes": 10,
+          "startPolicy": "manual"
+        },
+        "canvas": {
+          "width": 460,
+          "height": 300
+        },
+        "settings": [
+          {
+            "key": "routine",
+            "label": "Routine",
+            "type": "select",
+            "default": "Shoulders & neck",
+            "options": ["Shoulders & neck", "Back & hips", "Wrists & eyes"]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "wiseroutine.todos",
+    "apiVersion": 1,
+    "name": "Todos",
+    "version": "1.0.0",
+    "description": "The things with no time yet. Tick them, drop them, or put one on the day - and keep what Quick add typed.",
+    "capabilities": [
+      {
+        "kind": "ui:widget"
+      },
+      {
+        "kind": "read:schedule",
+        "scope": "today"
+      },
+      {
+        "kind": "read:todos"
+      },
+      {
+        "kind": "write:todos"
+      }
+    ],
+    "widgets": [
+      {
+        "key": "list",
+        "name": "Todos"
+      }
+    ],
+    "quickAdd": [
+      {
+        "key": "todo",
+        "name": "Keep it as a todo"
+      }
+    ]
+  }
+]

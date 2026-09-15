@@ -13,8 +13,8 @@ import {
   ScopeNav,
   Slot,
 } from "@wiseroutine/design";
+import { slotActionDeadline } from "@wiseroutine/scheduler";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { upNextOf } from "../lib/alerts";
 import {
   ApiError,
   api,
@@ -23,10 +23,14 @@ import {
   getSessionToken,
   type TodayResponse,
 } from "../lib/api";
+import { setDayRange, useDayRange } from "../lib/day-range";
 import { setDensity, useDensity } from "../lib/density";
+import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
 import { pick, usePicked } from "../lib/picked";
+import { PLACING_KEY, usePlacing } from "../lib/placing";
 import {
+  isToday,
   publishMove,
   publishPlan,
   publishReload,
@@ -34,8 +38,11 @@ import {
 } from "../lib/plan-store";
 import { markStarted } from "../lib/running-slot";
 import { dayOf, todayOf } from "../lib/scope";
+import { sessionGeneration } from "../lib/session-lifecycle";
+import { DAY_HOURS_ANCHOR } from "../lib/settings-sections";
+import { slotState } from "../lib/slot-state";
+import { startTodaySlot } from "../lib/today-controller";
 import { TodayRail } from "../modules/today-rail";
-import { DAY_HOURS_ANCHOR } from "./_app.settings";
 
 /** What `api.today()` hands back: the plan plus where it came from. */
 type CachedToday = TodayResponse & { stale: boolean; cachedAt: number };
@@ -56,14 +63,6 @@ const SYNC_AFTER_AWAY_MS = 20_000;
  */
 const SETTLE_MS = [1_200, 4_000, 10_000];
 
-/** A wall clock time, in the same 24-hour shape the rest of the day uses. */
-const hourClock = (at: number): string =>
-  new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).format(new Date(at));
-
 /**
  * Midday on the chosen date, which is what the server is asked for.
  *
@@ -78,29 +77,25 @@ const middayOn = (date: Date): number =>
 const Today: React.FC = () => {
   const navigate = useNavigate();
   /** The day on screen. Absent means today - see `lib/scope`. */
-  const { date: dateParam } = Route.useSearch();
+  const flags = useFeatures();
+  const search = Route.useSearch();
+  const dateParam = flags.day_view_options ? search.date : undefined;
   const [data, setData] = useState<CachedToday | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   /** How much room an hour gets. Remembered between launches - see
    *  `lib/density.ts`. */
   const density = useDensity();
-  const [queued, setQueued] = useState(() => api.pendingCount());
   const [syncing, setSyncing] = useState(false);
   /** The block the rail is describing - see `lib/picked`. Held there rather
    *  than here because the rail is mounted by the shell, not by this page. */
   const picked = usePicked();
+  /** A session being dragged in from the rail - see `modules/not-placed`. */
+  const placing = usePlacing();
 
-  /**
-   * Which hours are on screen, for as long as this window is open.
-   *
-   * Deliberately not saved. Switching to the evening to check something is
-   * looking, not a preference - the range the day *starts* on is a setting,
-   * and it lives in Settings where it can be seen and changed on purpose.
-   * Null means "whatever the server opens on", which is what the first load
-   * asks for and what the server answers with.
-   */
-  const [range, setRange] = useState<string | null>(null);
+  /** Last explicitly chosen view, remembered locally for this account.
+   * Null keeps the existing default; release gates still constrain requests. */
+  const range = useDayRange();
 
   const today = todayOf();
   const viewed = dayOf(dateParam, today);
@@ -127,31 +122,84 @@ const Today: React.FC = () => {
     });
   };
 
+  const loadSequence = useRef(0);
   const load = useCallback(() => {
+    const request = ++loadSequence.current;
+    const generation = sessionGeneration();
+    const current = () =>
+      request === loadSequence.current && generation === sessionGeneration();
     if (!getSessionToken()) {
       setError("not_connected");
       return;
     }
     api
       .today({
-        ...(range ? { range } : {}),
+        ...(!flags.day_view_options
+          ? { range: range === "full" ? "full" : "working" }
+          : range
+            ? { range }
+            : {}),
         // Omitted on today, so the request is the one it has always been and
         // the server's own clock decides which day that is.
         ...(dateParam ? { at: middayOn(dayOf(dateParam, new Date())) } : {}),
       })
       .then((response) => {
-        setData(response);
-        setQueued(api.pendingCount());
+        if (!current()) return;
+        setData((current) => {
+          // A refresh can finish before an in-flight Start reaches the server.
+          // Keep its local cue/disabled follow-up actions until Start settles.
+          const starting = new Map(
+            current?.slots
+              .filter((slot) => slot.starting)
+              .map((slot) => [slot.id, slot]),
+          );
+          const next: CachedToday =
+            starting.size === 0
+              ? response
+              : {
+                  ...response,
+                  slots: response.slots.map((slot) => {
+                    const pending = starting.get(slot.id);
+                    return pending
+                      ? {
+                          ...slot,
+                          status: "started",
+                          startedAt: pending.startedAt,
+                          starting: true,
+                        }
+                      : slot;
+                  }),
+                };
+          // The same day again - which is what nearly every focus and settle
+          // reload returns - keeps the object it replaces. A new one re-published
+          // the plan, so every rail module re-rendered and re-fetched for a sync
+          // that changed nothing. `cachedAt` is stamped on every read, so it is
+          // left out; it is only shown for a stale plan, and `stale` is compared.
+          // ponytail: a string compare of one day's plan per reload; structural
+          // sharing per slot if plans ever get large enough to notice.
+          return current &&
+            JSON.stringify({ ...current, cachedAt: 0 }) ===
+              JSON.stringify({ ...next, cachedAt: 0 })
+            ? current
+            : next;
+        });
         setError(null);
       })
       .catch((cause: unknown) => {
+        if (!current()) return;
+        // Retained data is no longer a current answer, including when a day
+        // rolls over offline. Keep history visible but label it and disable
+        // placement until the new day's reads succeed.
+        setData((previous) =>
+          previous && !previous.stale ? { ...previous, stale: true } : previous,
+        );
         setError(
           cause instanceof ApiError && cause.status === 401
             ? "not_connected"
             : "offline",
         );
       });
-  }, [range, dateParam]);
+  }, [range, dateParam, flags.day_view_options]);
 
   /**
    * Sync now, then show what arrived.
@@ -191,6 +239,14 @@ const Today: React.FC = () => {
     // is published rather than passed - see `lib/plan-store`.
     publishPlan(data);
   }, [data]);
+  useEffect(
+    () => () => {
+      loadSequence.current++;
+      publishPlan(null);
+      pick(null);
+    },
+    [],
+  );
 
   const refresh = useCallback(() => {
     lastSync.current = Date.now();
@@ -258,16 +314,22 @@ const Today: React.FC = () => {
    * regaining a network - not on the app being reopened somewhere with one.
    */
   useEffect(() => {
-    const drain = () => {
-      void flushPending().then((sent) => {
-        setQueued(api.pendingCount());
-        if (sent > 0) load();
-      });
+    const drain = (refresh = false) => {
+      void flushPending().then(
+        (sent) => {
+          if (refresh || sent > 0) load();
+        },
+        () => {
+          if (refresh) load();
+        },
+      );
     };
-
+    // An empty queue is not evidence that the visible day is fresh: it may
+    // have rolled over while offline, independently of any pending action.
+    const online = () => drain(true);
     drain();
-    globalThis.addEventListener?.("online", drain);
-    return () => globalThis.removeEventListener?.("online", drain);
+    globalThis.addEventListener?.("online", online);
+    return () => globalThis.removeEventListener?.("online", online);
   }, [load]);
 
   /**
@@ -306,7 +368,18 @@ const Today: React.FC = () => {
               slot.status === "planned" &&
               slot.startsAt <= at,
           );
-          if (due) latest.current();
+          /**
+           * And the day itself ending, which nothing else here noticed.
+           *
+           * `load` is memoised on the range and the date in the URL, and today
+           * has no date in the URL - so a window left open across midnight
+           * went on drawing yesterday's slots, and went on handing them to the
+           * menu bar, until something else happened to re-read the day. The
+           * clock is the only thing that knows, and it is already ticking.
+           */
+          const rolled =
+            dataRef.current !== null && !isToday(dataRef.current, at);
+          if (due || rolled) latest.current();
           atNextMinute();
         },
         60_000 - (Date.now() % 60_000),
@@ -315,6 +388,26 @@ const Today: React.FC = () => {
     atNextMinute();
     return () => clearTimeout(timer);
   }, []);
+
+  // The ruler must lose its controls at the same instant as This slot,
+  // including appointments that don't start on a whole minute.
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    const timers = (data?.slots ?? [])
+      .flatMap((slot) => [slotActionDeadline(slot), slot.endsAt])
+      .filter(
+        (at): at is number =>
+          at !== null && Number.isFinite(at) && at > Date.now(),
+      )
+      .map((at) => setTimeout(tick, Math.min(at - Date.now(), 2_147_483_647)));
+    window.addEventListener("focus", tick);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      for (const timer of timers) clearTimeout(timer);
+      window.removeEventListener("focus", tick);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [data]);
 
   /**
    * Put a slot somewhere else, by hand.
@@ -328,13 +421,25 @@ const Today: React.FC = () => {
    * where it was put - see `moveSlot`.
    */
   const move = useCallback((key: string, startsAt: number, endsAt: number) => {
+    const slot = dataRef.current?.slots.find((item) => item.id === key);
+    if (startsAt < Date.now()) {
+      notify("Choose a time ahead of now.");
+      return;
+    }
+    if (!slot || !slotState(slot, Date.now()).movable) return;
     setData(
       (current) =>
         current && {
           ...current,
           slots: current.slots.map((slot) =>
             slot.id === key
-              ? { ...slot, startsAt, endsAt, isLocked: true }
+              ? {
+                  ...slot,
+                  startsAt,
+                  endsAt,
+                  isLocked: true,
+                  status: "planned" as const,
+                }
               : slot,
           ),
         },
@@ -359,17 +464,71 @@ const Today: React.FC = () => {
    * day in hand, and the server's answer either confirms it or takes it back.
    */
   const start = useCallback((slotId: string) => {
+    const slot = dataRef.current?.slots.find((item) => item.id === slotId);
+    if (!slot || !slotState(slot, Date.now()).startable) return;
+    if (dataRef.current && isToday(dataRef.current, Date.now())) {
+      // The operational controller updates the tray/session immediately, but
+      // the visible day has its own range-scoped snapshot. Update it too so
+      // neither the grid nor the selected widget offers Start while awaiting
+      // the server. Re-read on settlement to confirm or roll back a refusal.
+      const startedAt = Date.now();
+      setData(
+        (current) =>
+          current && {
+            ...current,
+            slots: current.slots.map((slot) =>
+              slot.id === slotId
+                ? {
+                    ...slot,
+                    status: "started" as const,
+                    startedAt,
+                    starting: true,
+                  }
+                : slot,
+            ),
+          },
+      );
+      void startTodaySlot(slotId).then((started) => {
+        setData(
+          (current) =>
+            current && {
+              ...current,
+              slots: current.slots.map((item) =>
+                item.id === slotId && item.starting
+                  ? {
+                      ...item,
+                      starting: false,
+                      ...(!started
+                        ? { status: slot.status, startedAt: slot.startedAt }
+                        : {}),
+                    }
+                  : item,
+              ),
+            },
+        );
+        latest.current();
+      });
+      return;
+    }
     // This run opened it, so this run may show its session - see
     // `lib/running-slot`. Marked before the request, because the optimistic
     // status below is what the overlay reads.
-    markStarted(slotId);
+    if (
+      dataRef.current?.slots.find((slot) => slot.id === slotId)?.status ===
+      "started"
+    )
+      return;
+    const startedAt = Date.now();
+    markStarted(slotId, startedAt);
 
     setData(
       (current) =>
         current && {
           ...current,
           slots: current.slots.map((slot) =>
-            slot.id === slotId ? { ...slot, status: "started" as const } : slot,
+            slot.id === slotId
+              ? { ...slot, status: "started" as const, startedAt }
+              : slot,
           ),
         },
     );
@@ -377,7 +536,6 @@ const Today: React.FC = () => {
     api
       .startSlot(slotId)
       .then(({ queued: waiting }) => {
-        setQueued(api.pendingCount());
         // Offline there is nothing to reload from, and the queue is projected
         // onto every later read - so the optimistic status above is not a
         // guess, it is what the next answer will say too.
@@ -452,39 +610,7 @@ const Today: React.FC = () => {
    * `upNextOf` last called up next" - worked out here, from the same plan the
    * menu was rendered from.
    */
-  useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in globalThis)) return;
-
-    let stop: (() => void)[] = [];
-    void import("@tauri-apps/api/event").then(async ({ listen }) => {
-      stop = await Promise.all([
-        listen("tray://start", () => {
-          // The menu says "start what's next", and next means today. If the
-          // window happens to be showing another day, that day's plan is not
-          // an answer to it - better to do nothing than to start something
-          // scheduled for a week away.
-          const plan = dataRef.current;
-          const at = Date.now();
-          if (!plan || at < plan.dayStart || at >= plan.dayEnd) return;
-          const next = upNextOf(plan.slots, at);
-          if (next?.slotId) start(next.slotId);
-        }),
-        // The pause itself is applied in `tray.rs`, where the press lands and
-        // where the clock that honours it runs. This draws the toast, and is
-        // told when the quiet ends rather than working it out - one definition
-        // of an hour, not two.
-        listen<number>("tray://pause", (event) => {
-          notify(
-            `Quiet until ${hourClock(event.payload)}. The day carries on.`,
-          );
-        }),
-      ]);
-    });
-
-    return () => {
-      for (const off of stop) off();
-    };
-  }, [start]);
+  // Native events are owned by the signed-in shell, not this route.
 
   if (!data) {
     return (
@@ -497,6 +623,47 @@ const Today: React.FC = () => {
   }
 
   const rows = buildTimeline(data, now);
+
+  /**
+   * The session being dragged in from the rail, as a block on the day.
+   *
+   * Only once it is over the day: a drag wandering the sidebar has no time to
+   * be drawn at, and a block pinned to the top of the grid until the cursor
+   * arrives is a placement nobody asked for.
+   */
+  /**
+   * The session being dragged in from the rail, as a block on the day.
+   *
+   * Only once it is over the day: a drag wandering the sidebar has no time to
+   * be drawn at, and a block pinned to the top of the grid until the cursor
+   * arrives is a placement nobody asked for. The block and the cursor travel
+   * together because the grid needs both - one to lay out, one to hang the
+   * card from.
+   */
+  const at = placing?.startsAt ?? null;
+  const ghost =
+    placing && at !== null
+      ? {
+          block: {
+            key: PLACING_KEY,
+            startsAt: at,
+            endsAt: at + placing.minutes * 60_000,
+            title: placing.name,
+            node: (
+              <Slot
+                variant={placing.kind === "focus" ? "focus" : "recovery"}
+                time=""
+                name={placing.name}
+                meta={`${placing.minutes} min`}
+              />
+            ),
+          },
+          cursor: placing.keyboard
+            ? null
+            : { key: PLACING_KEY, x: placing.x, y: placing.y },
+        }
+      : null;
+
   const dayLabel = new Intl.DateTimeFormat("en-GB", {
     timeZone: data.timeZone,
     weekday: "long",
@@ -521,19 +688,25 @@ const Today: React.FC = () => {
 
   return (
     <>
-      {data.stale ? (
-        <SavedPlanNotice cachedAt={data.cachedAt} queued={queued} />
-      ) : null}
-
       <DayBar
         hours={
           <HoursMenu
-            ranges={data.ranges}
+            ranges={
+              flags.day_view_options
+                ? data.ranges
+                : data.ranges.filter(
+                    (range) => range.key === "working" || range.key === "full",
+                  )
+            }
             value={data.range}
-            onChange={setRange}
-            densities={DAY_DENSITIES}
-            density={density.key}
-            onDensityChange={setDensity}
+            onChange={setDayRange}
+            {...(flags.day_view_options
+              ? {
+                  densities: DAY_DENSITIES,
+                  density: density.key,
+                  onDensityChange: setDensity,
+                }
+              : {})}
             onEdit={() =>
               void navigate({ to: "/settings", hash: DAY_HOURS_ANCHOR })
             }
@@ -542,13 +715,15 @@ const Today: React.FC = () => {
         date={dayLabel}
         span={hoursLabel}
         nav={
-          <ScopeNav
-            atToday={atToday}
-            unit="day"
-            onBack={() => goTo(addDays(viewed, -1))}
-            onToday={() => goTo(null)}
-            onForward={() => goTo(addDays(viewed, 1))}
-          />
+          flags.day_view_options ? (
+            <ScopeNav
+              atToday={atToday}
+              unit="day"
+              onBack={() => goTo(addDays(viewed, -1))}
+              onToday={() => goTo(null)}
+              onForward={() => goTo(addDays(viewed, 1))}
+            />
+          ) : null
         }
         syncing={syncing}
         syncedAt={data.syncedAt}
@@ -562,37 +737,49 @@ const Today: React.FC = () => {
             edge="before"
             count={data.outside.before.length}
             at={active ? clockOf(active.startMinutes) : ""}
-            onExpand={() => setRange("full")}
+            onExpand={() => setDayRange("full")}
           />
         ) : null}
 
-        {rows.length === 0 ? (
-          // The only empty day left: nothing has been added to place. Anything
-          // that exists is placed the moment this page is opened - see
-          // `fillDay` on the Worker - so there is no "press to plan" here to
-          // press.
+        {!data.progress?.length &&
+        (rows.length === 0 || data.routineStartsOn) ? (
+          // Keep the ruler available even on an empty day: it is the drop
+          // target for Not placed, including one-off slots without activities.
           <DashedRow
             gutter={false}
             onClick={() => void navigate({ to: "/activities" })}
           >
-            Nothing on today yet - add an activity
+            {data.routineStartsOn
+              ? `Your routine starts on ${data.routineStartsOn}. Its slots will appear in Not placed.`
+              : "Nothing on today yet - add an activity"}
           </DashedRow>
-        ) : (
-          <DayGrid
-            dayStart={data.dayStart}
-            dayEnd={data.dayEnd}
-            timeZone={data.timeZone}
-            // Pressing the day itself puts the rail's card away. The blocks
-            // stop the press before it gets here, so this is only ever the
-            // empty parts of the grid.
-            onBackdrop={() => pick(null)}
-            // Both halves of the density, never one. The scale and the floor
-            // are the same decision, and splitting them is how a day ends up
-            // with every block drawn at the same lie - see `DayDensity`.
-            quarterStep={density.quarterStep}
-            minBlockHeight={density.minBlockHeight}
-            onMove={move}
-            items={rows.map((row) => ({
+        ) : null}
+        <DayGrid
+          dayStart={data.dayStart}
+          dayEnd={data.dayEnd}
+          timeZone={data.timeZone}
+          // Open the day where the day has got to. Unconditional because the
+          // now line is only drawn on a day that contains now, so this asks
+          // for nothing on any other date.
+          revealNow
+          // Pressing the day itself puts the rail's card away. The blocks
+          // stop the press before it gets here, so this is only ever the
+          // empty parts of the grid.
+          onBackdrop={() => pick(null)}
+          // Both halves of the density, never one. The scale and the floor
+          // are the same decision, and splitting them is how a day ends up
+          // with every block drawn at the same lie - see `DayDensity`.
+          quarterStep={density.quarterStep}
+          minBlockHeight={density.minBlockHeight}
+          onMove={move}
+          moveFrom={now}
+          /* The block the drop would produce, handed to the grid as a block
+               like any other so it is laid out - lane, column and all - by
+               exactly the rules that will apply once it exists. */
+          placing={ghost?.cursor ?? null}
+          items={[
+            ...(ghost ? [ghost.block] : []),
+            ...rows.map((row) => ({
               key: row.key,
               startsAt: row.startsAt,
               endsAt: row.endsAt,
@@ -603,12 +790,16 @@ const Today: React.FC = () => {
               // move, and the answer is worth giving.
               onSelect: () => pick(row.key),
               selected: row.key === picked,
-              // Enter and Delete, for a block that has focus. A finished slot
-              // offers neither: there is nothing left to start, and taking it
-              // off the day would erase what actually happened.
-              ...(row.slotId && row.done !== true
+              // Starting follows the same clock-aware rule as the widget.
+              ...(row.slotId && row.startable
+                ? { onStart: () => row.slotId && start(row.slotId) }
+                : {}),
+              // Removing is separate: elapsed work may be dismissed, but
+              // started/completed history must not be erased.
+              ...(row.slotId &&
+              row.done !== true &&
+              data.slots.find((s) => s.id === row.slotId)?.status !== "started"
                 ? {
-                    onStart: () => row.slotId && start(row.slotId),
                     onRemove: () => row.slotId && remove(row.slotId, row.title),
                   }
                 : {}),
@@ -621,68 +812,38 @@ const Today: React.FC = () => {
                   name={row.title}
                   meta={row.meta ?? ""}
                   done={row.done ?? false}
-                  // Stopped, not unstarted. The rail says the same thing in
-                  // words - see `slotState`.
-                  action={row.resumable === true ? "resume" : "start"}
+                  running={row.running ?? false}
+                  action={
+                    row.startable ? (row.resumable ? "resume" : "start") : null
+                  }
                   // No grace bar or "moves itself" line inside the grid: those
                   // are list-row affordances, and here they make a 25-minute
                   // block draw twice its own height and collide with the next.
-                  onStart={() => {
-                    if (row.slotId) start(row.slotId);
-                  }}
+                  onStart={
+                    row.startable
+                      ? () => {
+                          if (row.slotId) start(row.slotId);
+                        }
+                      : undefined
+                  }
                 />
               ),
-            }))}
-          />
-        )}
+            })),
+          ]}
+        />
 
         {data.outside.after.length > 0 ? (
           <OutsideRange
             edge="after"
             count={data.outside.after.length}
             at={active ? clockOf(active.endMinutes) : ""}
-            onExpand={() => setRange("full")}
+            onExpand={() => setDayRange("full")}
           />
         ) : null}
       </div>
     </>
   );
 };
-
-/**
- * Shown only when the plan on screen came from storage rather than the server.
- *
- * A stale plan presented as current is worse than an error - someone would
- * follow a routine that has since been replanned around a meeting they cannot
- * see. Saying when it was saved lets them judge that themselves.
- */
-const SavedPlanNotice: React.FC<{ cachedAt: number; queued: number }> = ({
-  cachedAt,
-  queued,
-}) => (
-  <div
-    role="status"
-    style={{
-      background: "var(--wr-recessed)",
-      border: "1px solid var(--wr-hairline)",
-      borderRadius: 12,
-      padding: "9px 12px",
-      marginBottom: 12,
-      font: "500 12.5px var(--font-body)",
-      color: "var(--wr-text-muted)",
-    }}
-  >
-    Offline - showing the plan saved at{" "}
-    {new Intl.DateTimeFormat("en-GB", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }).format(new Date(cachedAt))}
-    {queued > 0
-      ? `. ${queued} ${queued === 1 ? "change" : "changes"} will sync when you reconnect.`
-      : "."}
-  </div>
-);
 
 export const Route = createFileRoute("/_app/")({
   /** The day being read, as `YYYY-MM-DD`. Absent is today, and today is never

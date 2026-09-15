@@ -1,0 +1,113 @@
+name: Verify
+on:
+  push:
+  pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact candidate commit to verify
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Turso with formula-scoped Homebrew trust
+        run: bash scripts/install-turso-ci.sh
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm addon:verify
+      - name: Preserve published release identities
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if git cat-file -e "$BASE_REF:addon-registry/catalog.json" 2>/dev/null; then
+            git show "$BASE_REF:addon-registry/catalog.json" > /tmp/previous-addon-catalog.json
+            if git cat-file -e "$BASE_REF:addon-registry/bundled-history.json" 2>/dev/null; then
+              git show "$BASE_REF:addon-registry/bundled-history.json" > /tmp/previous-bundled-history.json
+              node scripts/check-addon-catalog.mjs /tmp/previous-addon-catalog.json /tmp/previous-bundled-history.json
+            else
+              node scripts/check-addon-catalog.mjs /tmp/previous-addon-catalog.json
+            fi
+          fi
+      - run: pnpm typecheck && pnpm test && pnpm test:release
+      - name: Verify the public kit without the private workspace
+        run: |
+          pnpm addon:kit "$RUNNER_TEMP/addon-kit"
+          cd "$RUNNER_TEMP/addon-kit"
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm test && pnpm typecheck
+      - run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - run: pnpm exec playwright install chromium webkit
+        working-directory: apps/desktop
+      - run: pnpm --filter @wiseroutine/addon-sdk build && pnpm --filter @wiseroutine/addons build
+      - run: pnpm exec playwright test --config playwright.addons.config.ts
+        working-directory: apps/desktop
+      - run: node scripts/assemble-addons.mjs
+      - name: Full-stack app user journeys
+        run: pnpm test:app-browser
+      - name: Production-built Chromium and WebKit user journeys
+        run: pnpm test:app-built
+      - name: App browser failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-browser-results
+          path: |
+            apps/desktop/playwright-report/
+            apps/desktop/test-results/
+            apps/desktop/.playwright/built/report/
+            apps/desktop/.playwright/built/test-results/
+            apps/api/.wrangler/e2e-logs/
+            apps/api/.wrangler/e2e-built-logs/
+          include-hidden-files: true
+          retention-days: 7
+      # This job verifies only. Never expose publishing/deployment/signing secrets to PR code.
+
+  marketing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm --filter @wiseroutine/web typecheck && pnpm --filter @wiseroutine/web test
+      - run: pnpm exec biome check apps/web
+      - run: pnpm exec playwright install --with-deps chromium firefox webkit
+        working-directory: apps/web
+      - name: Production landing-page user journeys
+        run: pnpm test:web-browser
+      - name: Web browser reports and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-browser-results
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          retention-days: 7

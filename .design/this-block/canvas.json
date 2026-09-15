@@ -1,0 +1,13 @@
+{
+  "artboards": [
+    { "file": "Current.dc.html", "x": 0, "y": 0, "w": 330, "h": 360, "title": "Current" },
+    { "file": "Main.dc.html", "x": 410, "y": 0, "w": 330, "h": 360, "title": "Option A - tightened" },
+    { "file": "OptionB.dc.html", "x": 820, "y": 0, "w": 330, "h": 360, "title": "Option B - action lane" }
+  ],
+  "annotations": [
+    { "id": "current-issues", "x": 0, "y": 400, "w": 330, "text": "What reads as off:\n\n1. \"Mark it done\" sits 35px from the card edge (19px card + 16px button padding) while everything above starts at 19px.\n2. Bottom air is 28px vs 17px at the top - the card looks like it is sliding down.\n3. Title is Caprasimo faked to 600 at 15px, so it smudges; time and note are both 12.5px, so the hierarchy flattens.\n4. Gaps go 10 / 2 / 8 / 12 / 12 with no rhythm." },
+    { "id": "a-changes", "x": 410, "y": 400, "w": 330, "text": "Option A keeps the anatomy, fixes the geometry:\n\n- quiet action loses its horizontal padding, so its text lands on the 19px content edge\n- padding 18 / 19 / 10, so top and bottom air match once the button's own 10px is counted\n- title at Caprasimo's real 400 weight, 17px\n- rhythm 12 / 4 / 10 / 14 / 4\n- Tabler X instead of the heavier x glyph\n\nTradeoff: the quiet action's hit area no longer reaches the card edge on the left." },
+    { "id": "b-changes", "x": 820, "y": 400, "w": 330, "text": "Option B adds structure: a hairline splits content from an action lane, so \"Mark it done\" reads as a deliberate escape route rather than a label floating under a button.\n\nTradeoff: one more rule on a 250px card, and the lane costs ~8px of height. Worth it only if other rail cards adopt the same lane." }
+  ],
+  "launch": { "view": "canvas" }
+}

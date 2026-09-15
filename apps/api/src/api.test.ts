@@ -1,10 +1,11 @@
 import { exports as worker } from "cloudflare:workers";
 import {
-  abandonedSlots,
   autoSlotsToComplete,
-  slotsPastGrace,
+  removeAddon,
+  slotsToAutoStart,
 } from "@wiseroutine/db";
 import { beforeEach, describe, expect, test } from "vitest";
+import { bundledEntries } from "./addons/registry";
 import {
   accessTokenFor,
   syncWindowStart,
@@ -17,6 +18,7 @@ import {
   seedCalendar,
   seedUser,
   type TestUser,
+  testFeatures,
   tomorrowNoon,
   userDb,
 } from "./test-support";
@@ -33,7 +35,12 @@ import {
 // `turso dev` serves one database per instance, so every test user shares
 // both. Reset between tests so counts, lists and fixed ids start from a known
 // state.
-beforeEach(resetDatabases);
+// This pre-existing integration suite exercises all implemented milestones.
+// features.test.ts separately verifies the actual all-off launch defaults.
+beforeEach(async () => {
+  await resetDatabases();
+  await testFeatures("all");
+});
 
 describe("health", () => {
   test("responds without auth", async () => {
@@ -49,6 +56,766 @@ describe("health", () => {
     const response = await worker.default.fetch("http://api/health/config");
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ ok: false });
+  });
+});
+
+/**
+ * CORS used to reflect whatever origin asked, with `credentials: true`.
+ *
+ * That combination let any page on the web put a credentialed request to
+ * `/auth/*` and read the answer. The allowlist is Better Auth's own
+ * `trustedOrigins`, so the two cannot drift; these tests are what notices if
+ * someone widens one and not the other - or reaches for the reflecting
+ * one-liner again.
+ */
+/**
+ * Installing, removing, and what removing is allowed to take with it.
+ *
+ * An addon is a package somebody outside this repo wrote, so every rule about
+ * one has to be enforced here rather than in the app: the client calls the
+ * same functions, but only this side is the gate.
+ */
+describe("addons", () => {
+  const BREATHING = "wiseroutine.breathing";
+  const PACER = "wiseroutine.breathing/pacer";
+  const hour = 3_600_000;
+
+  const list = async (user: TestUser) => {
+    const response = await worker.default.fetch("http://api/addons", {
+      headers: user.headers,
+    });
+    return (await response.json()) as {
+      addons: {
+        id: string;
+        isEnabled: boolean;
+        bundled: boolean;
+        granted: { kind: string }[];
+      }[];
+    };
+  };
+
+  const setEnabled = (user: TestUser, id: string, isEnabled: boolean) =>
+    worker.default.fetch(`http://api/addons/${id}`, {
+      method: "PATCH",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ isEnabled }),
+    });
+
+  test("lists what may be installed", async () => {
+    const user = await seedUser({ plan: "free" });
+    const response = await worker.default.fetch("http://api/addons/available", {
+      headers: user.headers,
+    });
+    const body = (await response.json()) as {
+      addons: { id: string; manifest: { capabilities: unknown[] } }[];
+    };
+    const breathing = body.addons.find((addon) => addon.id === BREATHING);
+    expect(breathing).toBeDefined();
+    expect(breathing?.manifest.capabilities).toEqual([{ kind: "ui:session" }]);
+
+    // All four of the app's own guided sessions, listed like anything else.
+    expect(body.addons.length).toBeGreaterThanOrEqual(4);
+  });
+
+  /**
+   * The four that ship inside the app install themselves.
+   *
+   * Their bundles are already on the machine, so asking somebody to press
+   * Install on a file already sitting on their disk would be a button
+   * describing the implementation rather than a choice. The install *row* is
+   * still needed - it holds the grant the host checks against - so it is
+   * written the first time the list is read.
+   */
+  test("records the addons that ship with the app, without being asked", async () => {
+    const user = await seedUser({ plan: "free" });
+    const body = await list(user);
+
+    expect(body.addons.map((addon) => addon.id).sort()).toEqual([
+      "wiseroutine.breathing",
+      "wiseroutine.day-so-far",
+      "wiseroutine.deep-work",
+      "wiseroutine.eye-rest",
+      "wiseroutine.stretch",
+      "wiseroutine.todos",
+    ]);
+    expect(body.addons.every((addon) => addon.bundled)).toBe(true);
+    expect(body.addons.every((addon) => addon.isEnabled)).toBe(true);
+  });
+
+  // The seeding runs on every read of the list. It must be an upsert that
+  // leaves the switch alone, or reading the page would turn back on whatever
+  // the user had just turned off.
+  test("seeding again does not switch back on what the user switched off", async () => {
+    const user = await seedUser({ plan: "free" });
+    await list(user);
+    await setEnabled(user, BREATHING, false);
+
+    const body = await list(user);
+    expect(body.addons.find((addon) => addon.id === BREATHING)?.isEnabled).toBe(
+      false,
+    );
+    // And no duplicate row for the one that was already there.
+    expect(body.addons).toHaveLength(bundledEntries().length);
+  });
+
+  /**
+   * The capabilities come from the registry, never from the request.
+   *
+   * A client that could name its own would be a client that could grant itself
+   * any of them - which is the whole install flow defeated by one extra field
+   * in a body.
+   */
+  test("grants what the registry says, not what the caller asks for", async () => {
+    const user = await seedUser({ plan: "pro" });
+    const installed = await worker.default.fetch(
+      `http://api/addons/${BREATHING}/install`,
+      {
+        method: "POST",
+        headers: { ...user.headers, "content-type": "application/json" },
+        body: JSON.stringify({
+          capabilities: [
+            { kind: "read:schedule", scope: "history" },
+            { kind: "write:own" },
+          ],
+        }),
+      },
+    );
+    expect(installed.status).toBe(201);
+
+    const body = await list(user);
+    expect(
+      body.addons.find((addon) => addon.id === BREATHING)?.granted,
+    ).toEqual([{ kind: "ui:session" }]);
+  });
+
+  test("refuses an addon that is not on the registry", async () => {
+    const user = await seedUser({ plan: "pro" });
+    const response = await worker.default.fetch(
+      "http://api/addons/acme.evil/install",
+      { method: "POST", headers: user.headers },
+    );
+    expect(response.status).toBe(404);
+  });
+
+  /**
+   * A bundled addon cannot be removed, only switched off.
+   *
+   * Its bundle is part of the app and cannot be deleted from it, so the next
+   * read of the list would record it again - a Remove button whose effect
+   * lasts until the page reloads is worse than no Remove button. Switching off
+   * does everything a user wants from removing one.
+   */
+  test("refuses to remove an addon that ships with the app", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await list(user);
+
+    const response = await worker.default.fetch(
+      `http://api/addons/${BREATHING}`,
+      { method: "DELETE", headers: user.headers },
+    );
+    expect(response.status).toBe(400);
+    expect(await list(user)).toMatchObject({ addons: expect.anything() });
+  });
+
+  /**
+   * The rule, and the reason this has a test rather than a comment.
+   *
+   * Switching an addon off takes the future it had claimed and leaves the past
+   * alone. A completed slot is a fact about someone's week that the progress
+   * numbers were computed from; deleting it would make last Tuesday change
+   * retroactively. A slot still ahead of the clock is only a plan.
+   */
+  test("switching off takes the future and leaves the past", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await list(user);
+
+    // Created by the *user* from the addon's activity type, which is how
+    // almost every one of these exists: nothing owns it, and `preset_key` is
+    // the only link back to the addon. Matching on `owner_addon_id` alone
+    // reported "0 activities, 0 slots" while the activity sat on the day.
+    const activityId = await seedActivity({
+      name: "Breathing",
+      presetKey: PACER,
+    });
+
+    const db = userDb();
+    await db.slot.createMany({
+      data: [
+        {
+          id: "done",
+          activityId,
+          title: "Breathing",
+          kind: "recovery",
+          startsAt: new Date(Date.now() - hour),
+          endsAt: new Date(Date.now() - hour + 600_000),
+          timeZone: "UTC",
+          status: "completed",
+          createdAt: new Date(),
+        },
+        {
+          id: "ahead",
+          activityId,
+          title: "Breathing",
+          kind: "recovery",
+          startsAt: new Date(Date.now() + hour),
+          endsAt: new Date(Date.now() + hour + 600_000),
+          timeZone: "UTC",
+          status: "planned",
+          createdAt: new Date(),
+        },
+      ],
+    });
+
+    const off = await setEnabled(user, BREATHING, false);
+    expect(off.status).toBe(200);
+    expect(await off.json()).toEqual({ paused: 1, cancelled: 1, resumed: 0 });
+
+    expect((await db.slot.findUnique({ where: { id: "done" } }))?.status).toBe(
+      "completed",
+    );
+    expect((await db.slot.findUnique({ where: { id: "ahead" } }))?.status).toBe(
+      "cancelled",
+    );
+
+    /**
+     * Pausing the activity is what makes the cancelling stick. Left active,
+     * the planner would work from its minimum and place the slots again on the
+     * next run, and everything just cancelled would be back within minutes.
+     */
+    const activity = await db.activity.findUnique({
+      where: { id: activityId },
+    });
+    expect(activity?.isActive).toBe(false);
+    // Paused, not deleted: switching it back on should find it waiting.
+    expect(activity?.pausedByAddonAt).not.toBeNull();
+  });
+
+  /** Switching back on is what makes switching off a toggle and not a door. */
+  test("switching back on restores exactly what it took", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await list(user);
+    const activityId = await seedActivity({ presetKey: PACER });
+
+    await setEnabled(user, BREATHING, false);
+    const on = await setEnabled(user, BREATHING, true);
+    expect(await on.json()).toEqual({ paused: 0, cancelled: 0, resumed: 1 });
+
+    const activity = await userDb().activity.findUnique({
+      where: { id: activityId },
+    });
+    expect(activity?.isActive).toBe(true);
+    expect(activity?.pausedByAddonAt).toBeNull();
+  });
+
+  /**
+   * And only what it took.
+   *
+   * An activity the user switched off themselves must stay off. Without
+   * `pausedByAddonAt` the two kinds of paused are indistinguishable, and
+   * re-enabling an addon would silently switch on activities somebody had
+   * deliberately retired.
+   */
+  test("switching back on leaves alone what the user had paused", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await list(user);
+    const mine = await seedActivity({
+      name: "Retired breathing",
+      presetKey: PACER,
+      isActive: false,
+    });
+
+    await setEnabled(user, BREATHING, false);
+    await setEnabled(user, BREATHING, true);
+
+    const activity = await userDb().activity.findUnique({
+      where: { id: mine },
+    });
+    expect(activity?.isActive).toBe(false);
+  });
+
+  /** Nothing to lose means nothing to confirm - see the Addons page. */
+  test("reports what switching off would cost, before it costs it", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await list(user);
+
+    const empty = await worker.default.fetch(
+      `http://api/addons/${BREATHING}/impact`,
+      { headers: user.headers },
+    );
+    expect(await empty.json()).toEqual({ activities: [], futureSlots: 0 });
+
+    const activityId = await seedActivity({
+      name: "Breathing",
+      presetKey: PACER,
+    });
+    await userDb().slot.create({
+      data: {
+        id: "ahead",
+        activityId,
+        title: "Breathing",
+        kind: "recovery",
+        startsAt: new Date(Date.now() + hour),
+        endsAt: new Date(Date.now() + hour + 600_000),
+        timeZone: "UTC",
+        status: "planned",
+        createdAt: new Date(),
+      },
+    });
+
+    const response = await worker.default.fetch(
+      `http://api/addons/${BREATHING}/impact`,
+      { headers: user.headers },
+    );
+    // Named, not counted: the dialog asks somebody to confirm losing these,
+    // and a number is not something they can check.
+    expect(await response.json()).toEqual({
+      activities: [{ id: activityId, name: "Breathing" }],
+      futureSlots: 1,
+    });
+  });
+
+  /**
+   * An addon's own id must not claim another addon's activities.
+   *
+   * The prefix match is on `id/` rather than `id`, so `wiseroutine.stretch`
+   * cannot take `wiseroutine.stretching/guided` with it. Ids may not contain a
+   * slash, which is what makes the separator unambiguous.
+   */
+  test("switching one off leaves another addon's activities alone", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await list(user);
+
+    const breathing = await seedActivity({
+      name: "Breathing",
+      presetKey: PACER,
+    });
+    const stretch = await seedActivity({
+      name: "Stretch",
+      presetKey: "wiseroutine.stretch/guided",
+    });
+
+    await setEnabled(user, BREATHING, false);
+
+    const db = userDb();
+    expect(
+      (await db.activity.findUnique({ where: { id: breathing } }))?.isActive,
+    ).toBe(false);
+    expect(
+      (await db.activity.findUnique({ where: { id: stretch } }))?.isActive,
+    ).toBe(true);
+  });
+});
+
+/**
+ * Requests the desktop host makes for an addon.
+ *
+ * The header names the addon; the server reads its grant and refuses what
+ * the grant does not cover. Ownership of slots is checked here too.
+ */
+describe("an addon's own requests", () => {
+  const TODOS = "wiseroutine.todos";
+  const BREATHING = "wiseroutine.breathing";
+
+  const asAddon = (user: TestUser, id: string) => ({
+    ...user.headers,
+    "x-wr-addon": id,
+    "content-type": "application/json",
+  });
+
+  /** Read the list once so the bundled addons are installed. */
+  const ready = async (user: TestUser) => {
+    await worker.default.fetch("http://api/addons", { headers: user.headers });
+  };
+
+  /** What the user approved, as data. There is no bundled addon with
+   *  `write:own`, so the grant is widened directly. */
+  const grant = (id: string, granted: unknown[]) =>
+    userDb().addon.update({
+      where: { id },
+      data: { grantedJson: JSON.stringify(granted) },
+    });
+
+  test("refuses an addon that is not installed or is switched off", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await ready(user);
+
+    const unknown = await worker.default.fetch("http://api/todos", {
+      headers: asAddon(user, "acme.nothing"),
+    });
+    expect(unknown.status).toBe(403);
+
+    await worker.default.fetch(`http://api/addons/${TODOS}`, {
+      method: "PATCH",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ isEnabled: false }),
+    });
+    const off = await worker.default.fetch("http://api/todos", {
+      headers: asAddon(user, TODOS),
+    });
+    expect(off.status).toBe(403);
+  });
+
+  test("unknown installed versions and non-addon endpoints fail closed", async () => {
+    const user = await seedUser({ plan: "free" });
+    await ready(user);
+    const endpoint = await worker.default.fetch(`http://api/addons/${TODOS}`, {
+      method: "PATCH",
+      headers: asAddon(user, TODOS),
+      body: JSON.stringify({ isEnabled: true }),
+    });
+    expect(endpoint.status).toBe(403);
+    const planning = await worker.default.fetch("http://api/plan", {
+      method: "POST",
+      headers: asAddon(user, TODOS),
+      body: JSON.stringify({ trigger: "calendar_change" }),
+    });
+    expect(planning.status).toBe(403);
+    await userDb().addon.update({
+      where: { id: TODOS },
+      data: { version: "99.0.0" },
+    });
+    const unknown = await worker.default.fetch("http://api/todos", {
+      headers: asAddon(user, TODOS),
+    });
+    expect(unknown.status).toBe(403);
+    const list = await worker.default.fetch("http://api/addons", {
+      headers: user.headers,
+    });
+    const body = (await list.json()) as {
+      addons: { id: string; revoked: boolean }[];
+    };
+    expect(body.addons.find((addon) => addon.id === TODOS)?.revoked).toBe(true);
+  });
+
+  test("reenabling addon activities cannot bypass the Free plan limit and rolls back the flag", async () => {
+    const user = await seedUser({ plan: "free" });
+    await ready(user);
+    const dependent = await seedActivity({ presetKey: `${BREATHING}/pacer` });
+    const change = (isEnabled: boolean) =>
+      worker.default.fetch(`http://api/addons/${BREATHING}`, {
+        method: "PATCH",
+        headers: { ...user.headers, "content-type": "application/json" },
+        body: JSON.stringify({ isEnabled }),
+      });
+    expect((await change(false)).status).toBe(200);
+    await seedActivity();
+    await seedActivity();
+    await seedActivity();
+    expect((await change(true)).status).toBe(402);
+    expect(
+      (await userDb().addon.findUnique({ where: { id: BREATHING } }))
+        ?.isEnabled,
+    ).toBe(false);
+    expect(
+      (await userDb().activity.findUnique({ where: { id: dependent } }))
+        ?.isActive,
+    ).toBe(false);
+  });
+
+  test("checks the grant, not the manifest, on every write", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await ready(user);
+
+    const allowed = await worker.default.fetch("http://api/todos", {
+      method: "POST",
+      headers: asAddon(user, TODOS),
+      body: JSON.stringify({ title: "Reply to Anders" }),
+    });
+    expect(allowed.status).toBe(201);
+
+    // Breathing never asked for todos.
+    const refused = await worker.default.fetch("http://api/todos", {
+      method: "POST",
+      headers: asAddon(user, BREATHING),
+      body: JSON.stringify({ title: "x" }),
+    });
+    expect(refused.status).toBe(403);
+
+    // The same addon, with its grant narrowed by the user.
+    await grant(TODOS, [{ kind: "read:todos" }]);
+    const narrowed = await worker.default.fetch("http://api/todos", {
+      method: "POST",
+      headers: asAddon(user, TODOS),
+      body: JSON.stringify({ title: "x" }),
+    });
+    expect(narrowed.status).toBe(403);
+  });
+
+  test("removal rolls back failures and disabling cancels standalone owned future slots, not history", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await ready(user);
+    const db = userDb(),
+      now = Date.now(),
+      start = now + 3600000;
+    const dependent = await seedActivity({ presetKey: `${TODOS}/test` });
+    for (const status of ["planned", "completed", "started"] as const)
+      await db.slot.create({
+        data: {
+          id: `owned-${status}`,
+          ownerAddonId: TODOS,
+          title: status,
+          kind: "task",
+          startsAt: new Date(start),
+          endsAt: new Date(start + 600000),
+          timeZone: "UTC",
+          status,
+          createdAt: new Date(now),
+        },
+      });
+    await expect(
+      removeAddon(db, TODOS, now, () => {
+        throw new Error("synthetic history failure");
+      }),
+    ).rejects.toThrow("synthetic history failure");
+    expect(
+      (await db.activity.findUnique({ where: { id: dependent } }))?.isActive,
+    ).toBe(true);
+    expect(
+      (await db.slot.findUnique({ where: { id: "owned-planned" } }))?.status,
+    ).toBe("planned");
+    expect(await db.addon.findUnique({ where: { id: TODOS } })).not.toBeNull();
+    const impact = await worker.default.fetch(
+      `http://api/addons/${TODOS}/impact`,
+      { headers: user.headers },
+    );
+    expect(((await impact.json()) as { futureSlots: number }).futureSlots).toBe(
+      1,
+    );
+    const disabled = await worker.default.fetch(`http://api/addons/${TODOS}`, {
+      method: "PATCH",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ isEnabled: false }),
+    });
+    expect(disabled.status).toBe(200);
+    expect(((await disabled.json()) as { cancelled: number }).cancelled).toBe(
+      1,
+    );
+    expect(
+      (await db.slot.findUnique({ where: { id: "owned-planned" } }))?.status,
+    ).toBe("cancelled");
+    expect(
+      (await db.slot.findUnique({ where: { id: "owned-completed" } }))?.status,
+    ).toBe("completed");
+    expect(
+      (await db.slot.findUnique({ where: { id: "owned-started" } }))?.status,
+    ).toBe("started");
+  });
+
+  test("an addon may change only the slots it placed", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await ready(user);
+    await grant(TODOS, [{ kind: "write:own" }]);
+    const at = tomorrowNoon();
+
+    const placed = await worker.default.fetch("http://api/slots", {
+      method: "POST",
+      headers: asAddon(user, TODOS),
+      body: JSON.stringify({
+        title: "Walk",
+        kind: "recovery",
+        startsAt: at,
+        endsAt: at + 600_000,
+      }),
+    });
+    expect(placed.status).toBe(201);
+    const own = (await placed.json()) as { id: string; ownerAddonId: string };
+    expect(own.ownerAddonId).toBe(TODOS);
+
+    // The user's own slot, placed from an activity.
+    const activityId = await seedActivity({ name: "Stretch" });
+    const users = await worker.default.fetch("http://api/slots", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ activityId, startsAt: at + 3_600_000 }),
+    });
+    expect(users.status).toBe(201);
+    const theirs = (await users.json()) as { id: string };
+
+    const mine = await worker.default.fetch(
+      `http://api/slots/${own.id}/complete`,
+      { method: "POST", headers: asAddon(user, TODOS) },
+    );
+    expect(mine.status).toBe(204);
+
+    const notMine = await worker.default.fetch(
+      `http://api/slots/${theirs.id}/complete`,
+      { method: "POST", headers: asAddon(user, TODOS) },
+    );
+    expect(notMine.status).toBe(403);
+
+    // And an addon cannot place the user's activities at all.
+    const activity = await worker.default.fetch("http://api/slots", {
+      method: "POST",
+      headers: asAddon(user, TODOS),
+      body: JSON.stringify({ activityId, startsAt: at + 7_200_000 }),
+    });
+    expect(activity.status).toBe(403);
+
+    // The log says who did it.
+    const events = await userDb().slotEvent.findMany({
+      where: { slotId: own.id },
+    });
+    expect(events.map((e) => e.actor).sort()).toEqual(["addon", "addon"]);
+  });
+});
+
+/**
+ * What the user approved is the grant, and it moves only when they say so.
+ */
+describe("grants", () => {
+  const TODOS = "wiseroutine.todos";
+
+  const granted = async (user: TestUser, id: string) => {
+    const response = await worker.default.fetch("http://api/addons", {
+      headers: user.headers,
+    });
+    const body = (await response.json()) as {
+      addons: {
+        id: string;
+        version: string;
+        granted: unknown;
+        settings: unknown;
+      }[];
+    };
+    return body.addons.find((addon) => addon.id === id);
+  };
+
+  test("a client may grant less than the manifest asks for, never more", async () => {
+    const user = await seedUser({ plan: "pro" });
+
+    const less = await worker.default.fetch(
+      `http://api/addons/${TODOS}/install`,
+      {
+        method: "POST",
+        headers: { ...user.headers, "content-type": "application/json" },
+        body: JSON.stringify({ granted: [{ kind: "ui:widget" }] }),
+      },
+    );
+    expect(less.status).toBe(201);
+    expect((await granted(user, TODOS))?.granted).toEqual([
+      { kind: "ui:widget" },
+    ]);
+
+    const more = await worker.default.fetch(
+      `http://api/addons/${TODOS}/install`,
+      {
+        method: "POST",
+        headers: { ...user.headers, "content-type": "application/json" },
+        body: JSON.stringify({
+          granted: [{ kind: "ui:widget" }, { kind: "write:own" }],
+        }),
+      },
+    );
+    expect(more.status).toBe(400);
+    expect((await granted(user, TODOS))?.granted).toEqual([
+      { kind: "ui:widget" },
+    ]);
+  });
+
+  test("reads never upgrade; an explicit upgrade keeps its narrowed grant", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await granted(user, TODOS);
+    await userDb().addon.update({
+      where: { id: TODOS },
+      data: { version: "0.1.0", grantedJson: JSON.stringify([]) },
+    });
+
+    expect((await granted(user, TODOS))?.version).toBe("0.1.0");
+    const upgrade = await worker.default.fetch(
+      `http://api/addons/${TODOS}/install`,
+      {
+        method: "POST",
+        headers: { ...user.headers, "content-type": "application/json" },
+        body: JSON.stringify({ version: "1.0.0" }),
+      },
+    );
+    expect(upgrade.status).toBe(201);
+    const row = await granted(user, TODOS);
+    expect(row?.version).toBe("1.0.0");
+    expect(row?.granted).toEqual([]);
+  });
+
+  test("settings are kept to what the manifest declares", async () => {
+    const user = await seedUser({ plan: "pro" });
+    await granted(user, TODOS);
+
+    const response = await worker.default.fetch(`http://api/addons/${TODOS}`, {
+      method: "PATCH",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ settings: { apiKey: "leak", other: 1 } }),
+    });
+    expect(response.status).toBe(204);
+    expect((await granted(user, TODOS))?.settings).toEqual({});
+  });
+});
+
+/**
+ * Migrations used to run exactly once per account: at signup.
+ *
+ * Everything written afterwards reached new users and nobody else, which was
+ * survivable while migrations only added columns nothing read yet and stopped
+ * being survivable when they started renaming things. A user left behind is
+ * one whose guided sessions quietly stop opening.
+ */
+describe("schema catch-up", () => {
+  test("brings a database behind the Worker up to date on the next request", async () => {
+    const user = await seedUser({ schemaVersion: 0 });
+
+    const response = await worker.default.fetch("http://api/addons", {
+      headers: user.headers,
+    });
+    expect(response.status).toBe(200);
+
+    const row = await directory().user.findUnique({
+      where: { id: user.userId },
+      select: { schemaVersion: true },
+    });
+    expect(row?.schemaVersion).toBeGreaterThan(0);
+  });
+});
+
+describe("cross-origin access", () => {
+  const preflight = (origin: string) =>
+    worker.default.fetch("http://api/today", {
+      method: "OPTIONS",
+      headers: {
+        origin,
+        "access-control-request-method": "GET",
+      },
+    });
+
+  test("a trusted origin is allowed", async () => {
+    // APP_URL in the test bindings - see vitest.config.ts.
+    const response = await preflight("http://localhost:41000");
+    expect(response.headers.get("access-control-allow-origin")).toBe(
+      "http://localhost:41000",
+    );
+    expect(response.headers.get("access-control-allow-credentials")).toBe(
+      "true",
+    );
+  });
+
+  // The packaged app is not served from APP_URL: Tauri gives its webview a
+  // scheme of its own. Dropping these breaks sign-in in the bundle while
+  // leaving it working in the browser, which is the worst way to find out.
+  test.each(["tauri://localhost", "http://tauri.localhost"])(
+    "the desktop origin %s is allowed",
+    async (origin) => {
+      const response = await preflight(origin);
+      expect(response.headers.get("access-control-allow-origin")).toBe(origin);
+    },
+  );
+
+  test("a stranger gets no allow-origin header at all", async () => {
+    const response = await preflight("https://evil.example");
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  // Not a browser, so CORS has nothing to say about it. `requireUser` is what
+  // stands behind this one, and it is asserted just below.
+  test("a request with no origin is left to the auth check", async () => {
+    const response = await worker.default.fetch("http://api/today");
+    expect(response.status).toBe(401);
   });
 });
 
@@ -105,15 +872,16 @@ describe("authentication", () => {
 describe("plan gating", () => {
   // The point of the test: the SERVER refuses. A gate that only exists in the
   // UI is not a gate.
-  test("free is refused a third active activity", async () => {
+  test("free is refused a fourth active activity", async () => {
     const user = await seedUser({ plan: "free" });
     await seedActivity({ name: "One" });
     await seedActivity({ name: "Two" });
+    await seedActivity({ name: "Three" });
 
     const response = await worker.default.fetch("http://api/activities", {
       method: "POST",
       headers: { ...user.headers, "content-type": "application/json" },
-      body: JSON.stringify({ name: "Three", sessionMinutes: 10 }),
+      body: JSON.stringify({ name: "Four", sessionMinutes: 10 }),
     });
 
     expect(response.status).toBe(402);
@@ -125,12 +893,13 @@ describe("plan gating", () => {
   test("a paused activity does not count against the limit", async () => {
     const user = await seedUser({ plan: "free" });
     await seedActivity({ name: "One" });
+    await seedActivity({ name: "Two" });
     await seedActivity({ name: "Paused", isActive: false });
 
     const response = await worker.default.fetch("http://api/activities", {
       method: "POST",
       headers: { ...user.headers, "content-type": "application/json" },
-      body: JSON.stringify({ name: "Two", sessionMinutes: 10 }),
+      body: JSON.stringify({ name: "Three", sessionMinutes: 10 }),
     });
 
     expect(response.status).toBe(201);
@@ -149,14 +918,14 @@ describe("plan gating", () => {
     expect(response.status).toBe(201);
   });
 
-  test("free cannot request an adaptive replan", async () => {
+  test("free can request the core adaptive replan", async () => {
     const user = await seedUser({ plan: "free" });
     const response = await worker.default.fetch("http://api/plan", {
       method: "POST",
       headers: { ...user.headers, "content-type": "application/json" },
       body: JSON.stringify({ trigger: "calendar_change" }),
     });
-    expect(response.status).toBe(402);
+    expect(response.status).toBe(200);
   });
 
   test("free can still plan its day on request", async () => {
@@ -193,6 +962,44 @@ describe("planning end to end", () => {
     );
     const body = (await today.json()) as { slots: unknown[] };
     expect(body.slots.length).toBe(result.placed);
+  });
+
+  /**
+   * The reported bug: "place the rest for me" placed the lot.
+   *
+   * A session dragged onto the day by hand is pinned, so a replan keeps it -
+   * but the demand was worked out from what had been *completed*, which a
+   * placed-but-not-yet-done session is not. So a three-a-day activity with one
+   * already on the timeline asked for three more and got a day with four.
+   */
+  test("counts what is already on the day against the day's minimum", async () => {
+    const user = await seedUser({ plan: "free" });
+    const activityId = await seedActivity({
+      minimumValue: 3,
+      sessionMinutes: 10,
+    });
+    const at = tomorrowNoon();
+
+    const placed = await worker.default.fetch("http://api/slots", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ activityId, startsAt: at }),
+    });
+    expect(placed.status).toBe(201);
+
+    const planned = await worker.default.fetch("http://api/plan", {
+      method: "POST",
+      headers: { ...user.headers, "content-type": "application/json" },
+      body: JSON.stringify({ trigger: "user_request", at }),
+    });
+    // Two, not three: the one already there is one of the three.
+    expect(((await planned.json()) as { placed: number }).placed).toBe(2);
+
+    const today = await worker.default.fetch(`http://api/today?at=${at}`, {
+      headers: user.headers,
+    });
+    const body = (await today.json()) as { slots: unknown[] };
+    expect(body.slots.length).toBe(3);
   });
 
   // Found while writing these tests: planning a day whose window has already
@@ -453,12 +1260,12 @@ describe("a grant running out", () => {
   test("an expired trial is refused on the very next request", async () => {
     const user = await seedUser({ plan: "free" });
     await grant(user.userId, Date.now() - 1);
-    for (let i = 0; i < 2; i++) await seedActivity({ name: `A${i}` });
+    for (let i = 0; i < 3; i++) await seedActivity({ name: `A${i}` });
 
     const response = await worker.default.fetch("http://api/activities", {
       method: "POST",
       headers: { ...user.headers, "content-type": "application/json" },
-      body: JSON.stringify({ name: "Third", kind: "recovery" }),
+      body: JSON.stringify({ name: "Fourth", kind: "recovery" }),
     });
     expect(response.status).toBe(402);
 
@@ -730,6 +1537,45 @@ describe("day view hours", () => {
     const full = await day(user, at, "full");
     expect(full.meetings.map((m) => m.title)).toEqual(["Early", "Standup"]);
     expect(full.outside.before).toEqual([]);
+  });
+
+  /**
+   * Where the call is, carried through to the block that draws it.
+   *
+   * Both providers send it and the sync stores it - this is the half in
+   * between, which used to end at the database: the column was written and
+   * nothing ever read it back out.
+   */
+  test("a meeting carries its join link to the day", async () => {
+    const user = await utcUser();
+    const { calendarId } = await seedCalendar();
+    const at = weekdayNoon();
+    const noon = new Date(at);
+    noon.setHours(12, 0, 0, 0);
+
+    await userDb().externalEvent.create({
+      data: {
+        id: crypto.randomUUID(),
+        calendarId,
+        providerEventId: "evt-call",
+        title: "Design review",
+        startsAt: noon,
+        endsAt: new Date(noon.getTime() + 1_800_000),
+        joinUrl: "https://meet.google.com/abc-defg-hij",
+        updatedAt: new Date(),
+      },
+    });
+
+    const today = (await (
+      await worker.default.fetch(`http://api/today?at=${at}`, {
+        headers: user.headers,
+      })
+    ).json()) as { meetings: { title: string; joinUrl: string | null }[] };
+
+    expect(today.meetings).toHaveLength(1);
+    expect(today.meetings[0]?.joinUrl).toBe(
+      "https://meet.google.com/abc-defg-hij",
+    );
   });
 
   test("turning the setting off empties the edges rather than the day", async () => {
@@ -1193,24 +2039,14 @@ describe("social sign-in handoff", () => {
   });
 });
 
-/**
- * Activities repeat, and nothing is written ahead for them.
- *
- * The alternative - filling days into the table as far forward as anyone might
- * look - is a plan nobody has seen going stale on disk. So a day is planned
- * the first time it is opened, and these are the rules that makes: planned
- * once, not re-planned, not re-planned for something added later in the day,
- * never for a day that is over, and never for an account with nothing to
- * place.
- */
-describe("planning a day on open", () => {
-  /**
-   * Filling the day in without being asked is a Pro behaviour.
-   *
-   * It used to happen for everyone, which undercut the pricing line it is
-   * meant to be selling: a day that is already placed by the time you look at
-   * it makes "Pro does the placing" an offer of something you already have.
-   */
+/** Opening a date shows demand; only explicit placement creates slots. */
+describe("reading days versus explicit placement", () => {
+  const place = (user: TestUser, at: number) =>
+    worker.default.fetch("http://api/plan", {
+      method: "POST",
+      headers: user.headers,
+      body: JSON.stringify({ at }),
+    });
   const open = async (user: TestUser, at: number) =>
     worker.default.fetch(`http://api/today?at=${at}`, {
       headers: user.headers,
@@ -1222,13 +2058,13 @@ describe("planning a day on open", () => {
   const slotsOf = async (response: Response) =>
     ((await response.json()) as { slots: { title: string }[] }).slots;
 
-  test("a day plans itself the first time it is opened", async () => {
+  test("a future day remains unplanned when first opened", async () => {
     const user = await seedUser({ plan: "pro" });
     await seedActivity({ name: "Eye rest", minimumValue: 2 });
 
     const slots = await slotsOf(await open(user, AHEAD()));
-    expect(slots).toHaveLength(2);
-    expect(slots.every((s) => s.title === "Eye rest")).toBe(true);
+    expect(slots).toHaveLength(0);
+    expect(await userDb().planRun.count()).toBe(0);
   });
 
   test("an activity added after the day was filled waits to be placed", async () => {
@@ -1236,6 +2072,7 @@ describe("planning a day on open", () => {
     const at = AHEAD();
 
     await seedActivity({ name: "Eye rest", minimumValue: 1 });
+    await place(user, at);
     expect(await slotsOf(await open(user, at))).toHaveLength(1);
 
     // This used to place it on the next look, which meant adding an activity
@@ -1264,6 +2101,7 @@ describe("planning a day on open", () => {
     ).getDay();
 
     await seedActivity({ name: "Eye rest", minimumValue: 1 });
+    await place(user, at);
     await open(user, at);
 
     // Never due, so never missing - otherwise a Sunday-only activity would
@@ -1281,6 +2119,7 @@ describe("planning a day on open", () => {
     await seedActivity();
 
     const at = AHEAD();
+    await place(user, at);
     await open(user, at);
     await open(user, at);
 
@@ -1293,9 +2132,7 @@ describe("planning a day on open", () => {
     const user = await seedUser({ plan: "pro" });
     await seedActivity();
 
-    // History is not replanned. Today after working hours still is - the whole
-    // working day is placed whatever the clock says, so someone opening the
-    // app in the evening sees the shape their day was meant to have.
+    // Reading history never invents the appointments somebody might have had.
     await open(user, Date.now() - 2 * 86_400_000);
     expect(await userDb().planRun.count()).toBe(0);
   });
@@ -1310,6 +2147,8 @@ describe("planning a day on open", () => {
     expect(await userDb().planRun.count()).toBe(0);
 
     await seedActivity({ minimumValue: 1 });
+    expect(await slotsOf(await open(user, at))).toHaveLength(0);
+    await place(user, at);
     expect(await slotsOf(await open(user, at))).toHaveLength(1);
   });
 
@@ -1328,22 +2167,24 @@ describe("planning a day on open", () => {
   });
 });
 
-describe("a free day is left as the user left it", () => {
+describe("a free day gets automatic placement", () => {
   const open = async (user: TestUser, at: number) =>
     worker.default.fetch(`http://api/today?at=${at}`, {
       headers: user.headers,
     });
 
-  test("opening the day places nothing", async () => {
+  test("opening the day leaves placement to the user", async () => {
     const user = await seedUser({ plan: "free" });
     await seedActivity({ minimumValue: 3 });
 
     const response = await open(user, tomorrowNoon());
     expect(response.status).toBe(200);
-    expect(((await response.json()) as { slots: unknown[] }).slots).toEqual([]);
+    expect(
+      ((await response.json()) as { slots: unknown[] }).slots,
+    ).toHaveLength(0);
   });
 
-  // The day is still fillable - on request, which is the whole difference.
+  // An explicit request remains available as a core recovery action.
   test("asking for it fills it", async () => {
     const user = await seedUser({ plan: "free" });
     await seedActivity({ minimumValue: 3 });
@@ -1361,7 +2202,7 @@ describe("a free day is left as the user left it", () => {
 
   // What the placement tray reads. Placed-but-not-done has to count against
   // the minimum, or it would keep asking for three more.
-  test("what is left to place drops as slots are placed", async () => {
+  test("explicit placement counts against demand without duplicated occurrences", async () => {
     const user = await seedUser({ plan: "free" });
     await seedActivity({ minimumValue: 3 });
 
@@ -1445,6 +2286,11 @@ describe("an activity's behaviour survives being saved", () => {
       }),
     });
 
+    await worker.default.fetch("http://api/plan", {
+      method: "POST",
+      headers: user.headers,
+      body: JSON.stringify({ at: tomorrowNoon() }),
+    });
     const day = await worker.default.fetch(
       `http://api/today?at=${tomorrowNoon()}`,
       { headers: user.headers },
@@ -1532,14 +2378,13 @@ describe("the grace sweep's window", () => {
     });
   };
 
-  test("reaches a slot just past its moment, and not one from this morning", async () => {
+  test("manual appointments never enter background auto-start work", async () => {
     const now = Date.now();
     await seedSlot("Two minutes ago", now - 2 * 60_000);
     await seedSlot("This morning", now - 9 * 3_600_000);
     await seedSlot("Later", now + 60_000);
 
-    const due = await slotsPastGrace(userDb(), now, 200, 30 * 60_000);
-    expect(due.map((slot) => slot.title)).toEqual(["Two minutes ago"]);
+    expect(await slotsToAutoStart(userDb(), now, 200)).toEqual([]);
   });
 });
 
@@ -1588,13 +2433,15 @@ describe("a session that was started and never finished", () => {
     );
   });
 
-  test("is collected once it is well past its end", async () => {
+  test("manual starts remain for confirmation even a day after their end", async () => {
     await seedUser();
     const activityId = await seedActivity();
     const yesterday = await startedSlot(activityId, Date.now() - 24 * HOUR);
 
-    const found = await abandonedSlots(userDb(), Date.now(), 200, HOUR);
-    expect(found.map((slot) => slot.id)).toEqual([yesterday]);
+    expect(await autoSlotsToComplete(userDb(), Date.now(), 200)).toEqual([]);
+    expect(
+      await userDb().slot.findUnique({ where: { id: yesterday } }),
+    ).toMatchObject({ status: "started" });
   });
 
   /**
@@ -1608,12 +2455,12 @@ describe("a session that was started and never finished", () => {
     await startedSlot(activityId, Date.now() - 10 * 60_000);
     await startedSlot(activityId, Date.now() + 60_000);
 
-    expect(await abandonedSlots(userDb(), Date.now(), 200, HOUR)).toHaveLength(
+    expect(await autoSlotsToComplete(userDb(), Date.now(), 200)).toHaveLength(
       0,
     );
   });
 
-  test("only ever collects the started ones", async () => {
+  test("no lifecycle state is automatically completed without auto-start evidence", async () => {
     const user = await seedUser();
     const activityId = await seedActivity();
     const long = Date.now() - 24 * HOUR;
@@ -1635,8 +2482,10 @@ describe("a session that was started and never finished", () => {
       });
     }
 
-    const found = await abandonedSlots(userDb(), Date.now(), 200, HOUR);
-    expect(found.map((slot) => slot.id)).toEqual([started]);
+    expect(await autoSlotsToComplete(userDb(), Date.now(), 200)).toEqual([]);
+    expect(
+      await userDb().slot.findUnique({ where: { id: started } }),
+    ).toMatchObject({ status: "started" });
     expect(user).toBeTruthy();
   });
 
@@ -1934,5 +2783,101 @@ describe("sync window", () => {
     expect(syncWindowStart(connected, connected, "America/Los_Angeles")).toBe(
       Date.UTC(2026, 7, 11, 7),
     );
+  });
+});
+
+/**
+ * Todos: a title with no time, until it is put on the day and becomes a slot.
+ */
+describe("todos", () => {
+  const json = (user: TestUser, body: unknown) => ({
+    method: "POST",
+    headers: { ...user.headers, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  test("a todo placed on the day is a slot, and leaves the open list", async () => {
+    const user = await seedUser({ plan: "free" });
+    const at = tomorrowNoon();
+
+    const created = await worker.default.fetch(
+      "http://api/todos",
+      json(user, { title: "Reply to Anders", minutes: 20 }),
+    );
+    expect(created.status).toBe(201);
+    const todo = (await created.json()) as { id: string; minutes: number };
+    expect(todo.minutes).toBe(20);
+
+    const listed = (await (
+      await worker.default.fetch("http://api/todos", { headers: user.headers })
+    ).json()) as { id: string }[];
+    expect(listed.map((t) => t.id)).toEqual([todo.id]);
+
+    const placed = await worker.default.fetch(
+      "http://api/slots",
+      json(user, { todoId: todo.id, startsAt: at }),
+    );
+    expect(placed.status).toBe(201);
+    const slot = (await placed.json()) as {
+      id: string;
+      title: string;
+      kind: string;
+      endsAt: number;
+    };
+    expect(slot.title).toBe("Reply to Anders");
+    expect(slot.kind).toBe("task");
+    expect(slot.endsAt).toBe(at + 20 * 60_000);
+
+    // Slotted, pointing at the slot it became - and no longer open.
+    const row = await userDb().reminder.findUnique({ where: { id: todo.id } });
+    expect(row?.status).toBe("slotted");
+    expect(row?.slotId).toBe(slot.id);
+    const after = (await (
+      await worker.default.fetch("http://api/todos", { headers: user.headers })
+    ).json()) as unknown[];
+    expect(after).toEqual([]);
+
+    // And placing it twice is refused: it is on the day already.
+    const again = await worker.default.fetch(
+      "http://api/slots",
+      json(user, { todoId: todo.id, startsAt: at + 60 * 60_000 }),
+    );
+    expect(again.status).toBe(409);
+  });
+
+  test("done and dropped both take it off the list; nothing else is accepted", async () => {
+    const user = await seedUser({ plan: "free" });
+    const todo = (await (
+      await worker.default.fetch(
+        "http://api/todos",
+        json(user, { title: "Physio exercises" }),
+      )
+    ).json()) as { id: string; minutes: number | null };
+    expect(todo.minutes).toBeNull();
+
+    const bad = await worker.default.fetch(`http://api/todos/${todo.id}`, {
+      ...json(user, { status: "open" }),
+      method: "PATCH",
+    });
+    expect(bad.status).toBe(400);
+
+    const done = await worker.default.fetch(`http://api/todos/${todo.id}`, {
+      ...json(user, { status: "done" }),
+      method: "PATCH",
+    });
+    expect(done.status).toBe(204);
+    const listed = (await (
+      await worker.default.fetch("http://api/todos", { headers: user.headers })
+    ).json()) as unknown[];
+    expect(listed).toEqual([]);
+  });
+
+  test("a blank title is refused", async () => {
+    const user = await seedUser({ plan: "free" });
+    const response = await worker.default.fetch(
+      "http://api/todos",
+      json(user, { title: "   " }),
+    );
+    expect(response.status).toBe(400);
   });
 });

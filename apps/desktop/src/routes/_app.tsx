@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 import {
   AppFrame,
+  Loading,
   ScopeSwitcher,
   Sidebar,
   Toasts,
@@ -18,10 +19,21 @@ import { setAccount, useAccount } from "../lib/account";
 import { armAlerts } from "../lib/alerts";
 import { ApiError, api, getSessionToken, setSessionToken } from "../lib/api";
 import { dismiss, useToasts } from "../lib/notify";
-import { useTodayPlan } from "../lib/plan-store";
+import { todaySnapshot, useTodayPlan } from "../lib/plan-store";
 import { dayLabel, periodLabel, scopeOf, todayOf } from "../lib/scope";
+import {
+  sessionGeneration,
+  useSessionGeneration,
+  useSessionIdentity,
+} from "../lib/session-lifecycle";
+import { startTodayController, startTodaySlot } from "../lib/today-controller";
 import "../lib/rail";
+import { AddonBackground } from "../addons/background";
+import { watchAddons } from "../addons/installed";
+import { loadFeatures, useFeatures, watchFeatures } from "../lib/features";
+import { reloadTodos } from "../lib/todos";
 import { type AppUpdate, checkForUpdate, installUpdate } from "../lib/updates";
+import { QuickAdd } from "../modules/quick-add";
 import { SessionOverlay } from "../modules/session";
 import { TrialPill } from "../modules/trial-pill";
 
@@ -50,8 +62,12 @@ import { TrialPill } from "../modules/trial-pill";
  * entry with no route behind it is a dead click, and this list is the product.
  */
 const NAV = [
+  { key: "inbox", label: "Inbox", to: "/inbox" },
   { key: "activities", label: "Activities", to: "/activities" },
-  { key: "calendars", label: "Calendars", to: "/calendars" },
+  // The packages, not the cards they contribute - see `_app.addons`. Above
+  // Settings because it is a place things are added, and below the two that
+  // are the routine itself.
+  { key: "addons", label: "Addons", to: "/addons" },
   { key: "settings", label: "Settings", to: "/settings" },
 ] as const;
 
@@ -141,6 +157,40 @@ const UpdateNotice: React.FC = () => {
  */
 const useMenuBar = (): void => {
   const plan = useTodayPlan();
+  const identity = useSessionIdentity();
+  const flags = useFeatures();
+  useEffect(() => {
+    if (!identity) return;
+    return watchFeatures();
+  }, [identity]);
+  useEffect(() => {
+    if (!identity) return;
+    return startTodayController();
+  }, [identity]);
+  useEffect(() => {
+    if (!identity || !("__TAURI_INTERNALS__" in globalThis)) return;
+    let stopped = false;
+    let unlisten: (() => void) | undefined;
+    void import("@tauri-apps/api/event").then(async ({ listen }) => {
+      const stop = await listen<string>(
+        "tray://start",
+        ({ payload: slotId }) => {
+          // The tray may now name a meeting. Never substitute another activity
+          // for what its menu actually offered; the controller rechecks lifecycle.
+          const slot = todaySnapshot()?.slots.find(
+            (slot) => slot.id === slotId,
+          );
+          if (slot && slot.startsAt <= Date.now()) void startTodaySlot(slot.id);
+        },
+      );
+      if (stopped) stop();
+      else unlisten = stop;
+    });
+    return () => {
+      stopped = true;
+      unlisten?.();
+    };
+  }, [identity]);
 
   // On the plan, and on nothing else. There was a thirty-second tick here
   // once, to move the countdown beside the icon along - and it was the bug:
@@ -150,13 +200,58 @@ const useMenuBar = (): void => {
   useEffect(
     // No plan is a real answer, not a reason to skip: an empty schedule is
     // what clears a stale title off the bar.
-    () => armAlerts(plan?.slots ?? []),
+    () => armAlerts(plan?.slots ?? [], plan?.meetings ?? []),
     [plan],
   );
+
+  // In the shell rather than on the Today page: a session takes over whatever
+  // page is open, so the addon that draws it has to be loaded whatever page
+  // was open. Idempotent, and a failure leaves the app running without it.
+  useEffect(() => {
+    if (!identity) return;
+    const stop = watchAddons();
+    if (flags.inbox) void reloadTodos();
+    return stop;
+  }, [identity, flags]);
 };
+
+/**
+ * ⌘K, anywhere in the app.
+ *
+ * The one global key. On the document rather than on a page, because the
+ * dialog is about the day and not about the page that happens to be open -
+ * and the sidebar's button says ⌘K on it, so it had better be true wherever
+ * the sidebar is.
+ */
+function useQuickAdd(enabled: boolean): [boolean, (open: boolean) => void] {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!enabled) {
+      setOpen(false);
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !(event.metaKey || event.ctrlKey)) return;
+      if (event.altKey || event.shiftKey) return;
+      if (event.key.toLowerCase() !== "k") return;
+      event.preventDefault();
+      setOpen(true);
+    };
+    const open = () => setOpen(true);
+    document.addEventListener("keydown", onKey);
+    globalThis.addEventListener("wr:quick-add", open);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      globalThis.removeEventListener("wr:quick-add", open);
+    };
+  }, [enabled]);
+  return [open, setOpen];
+}
 
 const AppLayout: React.FC = () => {
   const navigate = useNavigate();
+  const identity = useSessionIdentity();
+  const epoch = useSessionGeneration();
   useMenuBar();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   // The switcher names the period on screen, and the period lives in the URL -
@@ -165,6 +260,16 @@ const AppLayout: React.FC = () => {
   const search = useRouterState({ select: (s) => s.location.search });
   // Shared with the account page, which can change the name - see lib/account.
   const user = useAccount();
+  const flags = useFeatures();
+  const nav = [
+    { key: "today", label: "Today", to: "/" },
+    ...NAV.filter(
+      (item) =>
+        (item.key !== "inbox" || flags.inbox) &&
+        (item.key !== "addons" || flags.community_addons),
+    ),
+  ];
+  const [quickAdd, setQuickAdd] = useQuickAdd(flags.quick_capture);
 
   // The macOS title bar is a transparent overlay, so the traffic lights land on
   // the sidebar. Tell the stylesheet to leave them room - see `.wr-tauri`.
@@ -184,9 +289,10 @@ const AppLayout: React.FC = () => {
    */
   useEffect(() => {
     let cancelled = false;
+    const generation = epoch;
 
     const signedOut = () => {
-      if (cancelled) return;
+      if (cancelled || generation !== sessionGeneration()) return;
       setSessionToken(null);
       setAccount(null);
       void navigate({ to: "/signin", replace: true });
@@ -195,7 +301,7 @@ const AppLayout: React.FC = () => {
     api
       .session()
       .then((s) => {
-        if (cancelled) return;
+        if (cancelled || generation !== sessionGeneration()) return;
         if (!s?.user) return signedOut();
         setAccount({
           // Null for anyone who signed up with an emailed code, and empty for
@@ -225,6 +331,7 @@ const AppLayout: React.FC = () => {
               ? s.user.dayOpensOn
               : "working",
           showOutsideRange: s.user.showOutsideRange,
+          storeEventTitles: s.user.storeEventTitles ?? true,
         });
       })
       .catch((cause: unknown) => {
@@ -237,11 +344,11 @@ const AppLayout: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [navigate]);
+  }, [navigate, epoch]);
 
   // No fallback: on a calendar scope nothing in this list is current, and
   // defaulting to one would light a row the user is not on.
-  const active = NAV.find((item) => item.to === pathname)?.key ?? "";
+  const active = nav.find((item) => item.to === pathname)?.key ?? "";
   const today = todayOf();
   const scope = scopeOf(pathname);
   const period = periodLabel(scope, search as Record<string, unknown>, today);
@@ -262,29 +369,41 @@ const AppLayout: React.FC = () => {
   // after the user has moved to Today, and the message has to survive that.
   const toasts = useToasts();
 
+  if (!identity) return <Loading size={40}>Opening your account…</Loading>;
   return (
     <>
       <AppFrame
+        key={epoch}
         chrome={false}
         // The same width of page whether or not this one has modules - unless
         // it has asked for the width instead, which the calendar's wider
         // scopes do.
-        reserveRail={!fullWidth}
+        reserveRail={!fullWidth && Boolean(Rail)}
         {...(Rail ? { rail: <Rail /> } : {})}
         sidebar={
           <Sidebar
-            items={NAV}
+            items={nav}
             active={active}
             scope={
-              <ScopeSwitcher
-                active={scope}
-                dayLabel={dayLabel(today)}
-                {...(period ? { periodLabel: period } : {})}
-                onSelect={(key) => void navigate({ to: SCOPE_ROUTES[key] })}
-              />
+              flags.week_view ? (
+                <ScopeSwitcher
+                  available={
+                    flags.month_view
+                      ? ["day", "week", "month"]
+                      : ["day", "week"]
+                  }
+                  active={scope}
+                  dayLabel={dayLabel(today)}
+                  {...(period ? { periodLabel: period } : {})}
+                  onSelect={(key) => void navigate({ to: SCOPE_ROUTES[key] })}
+                />
+              ) : null
             }
+            {...(flags.quick_capture
+              ? { onQuickAdd: () => setQuickAdd(true) }
+              : {})}
             onNavigate={(key) => {
-              const item = NAV.find((entry) => entry.key === key);
+              const item = nav.find((entry) => entry.key === key);
               // Destinations without a route yet do nothing rather than
               // navigating somewhere wrong. They are listed because they are the
               // real IA, not because they are built.
@@ -292,7 +411,7 @@ const AppLayout: React.FC = () => {
             }}
             user={
               <>
-                <TrialPill />
+                {flags.billing_checkout ? <TrialPill /> : null}
                 <UserMenu
                   // Name if the provider gave us one, address if not. `||` rather
                   // than `??` on purpose: an empty name is as absent as a null one,
@@ -300,7 +419,11 @@ const AppLayout: React.FC = () => {
                   name={user?.name || user?.email || "Account"}
                   {...(user?.avatarUrl ? { avatarSrc: user.avatarUrl } : {})}
                   {...(user?.email !== undefined ? { email: user.email } : {})}
-                  plan={user?.plan === "pro" ? "pro" : "free"}
+                  plan={
+                    flags.billing_checkout && user?.plan === "pro"
+                      ? "pro"
+                      : "free"
+                  }
                   items={USER_MENU}
                   onSelect={(key) => {
                     if (key === "signout") {
@@ -321,16 +444,36 @@ const AppLayout: React.FC = () => {
         }
       >
         <Outlet />
+        {flags.community_addons || flags.quick_capture || flags.insights ? (
+          <AddonBackground />
+        ) : null}
       </AppFrame>
-      <SessionOverlay />
+      {/* Keyed by who is signed in, so that signing in as somebody else
+          remounts both rather than handing the next account the previous
+          one's overlay or half-typed capture - the same fence
+          `accountStorageKey` and `assertSessionScope` draw everywhere else.
+
+          Namespaced because they are siblings: keyed on the bare identity,
+          both children of this fragment carried the *same* key whenever Quick
+          add was open, and React is entitled to drop or duplicate one of two
+          siblings that claim one identity. The prefix is what makes each key
+          unique; the identity is what makes it change. */}
+      <SessionOverlay key={`session-overlay/${identity}`} />
+      {flags.quick_capture && quickAdd ? (
+        <QuickAdd
+          key={`quick-add/${identity}`}
+          onClose={() => setQuickAdd(false)}
+        />
+      ) : null}
       <Toasts items={toasts} onDismiss={dismiss} />
     </>
   );
 };
 
 export const Route = createFileRoute("/_app")({
-  beforeLoad: () => {
+  beforeLoad: async () => {
     if (!getSessionToken()) throw redirect({ to: "/signin" });
+    await loadFeatures();
   },
   component: AppLayout,
 });

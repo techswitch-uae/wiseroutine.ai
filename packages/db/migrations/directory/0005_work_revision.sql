@@ -1,0 +1,1 @@
+ALTER TABLE "scheduled_work" ADD COLUMN "revision" INTEGER NOT NULL DEFAULT 0;

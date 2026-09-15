@@ -2,14 +2,14 @@
 
 Two deployed environments, `dev` and `production`, plus local. Each deployed
 one is a separate Worker with its own queue, KV namespace, databases and
-secrets.
+secrets. Deployed `dev` uses `ENVIRONMENT=preview`; only local Wrangler uses
+`development`.
 
 **Where a value lives, decided by one question - is it a secret?**
 
 - **No → `vars` in `apps/api/wrangler.jsonc`.** Committed, per environment.
-  URLs, Turso org/group, OAuth client *IDs*, Stripe price, Resend From,
-  OneSignal app ID. These ship in consent URLs, email headers or client-side
-  SDK code anyway.
+  URLs, Turso org/group, OAuth client *IDs* and Resend From. These ship in
+  consent URLs or email headers anyway.
 - **Yes → Cloudflare Secrets Store**, bound per environment in the same file.
   Nothing can read a stored secret back - not the dashboard, not us. Only a
   Worker with a binding resolves it, at runtime.
@@ -52,9 +52,14 @@ store per account, 100 secrets, 1 KiB each.
 
 ## 2. Secrets
 
-Ten per environment. Put the values in `apps/api/.env.dev` and
-`apps/api/.env.prod` - both gitignored, and generated for you with every name
-and its source - then:
+Seven core secrets per environment for M0. Stripe and OneSignal are not
+required or declared; native desktop notifications do not use OneSignal.
+Do not add billing/push bindings merely to pass deployment checks. Old local
+secret files may still contain those keys; the push script reports undeclared
+keys without uploading them.
+
+Put the core values in `apps/api/.env.dev` and `apps/api/.env.prod` (both
+gitignored), then:
 
 ```bash
 pnpm --filter @wiseroutine/api secrets:push:dev -- --dry-run
@@ -70,10 +75,7 @@ pnpm --filter @wiseroutine/api secrets:check:dev
 | `SESSION_SECRET` | generated - see below |
 | `GOOGLE_CLIENT_SECRET` | Google Cloud console |
 | `MICROSOFT_CLIENT_SECRET` | Entra → Certificates & secrets |
-| `STRIPE_SECRET_KEY` | Stripe - test mode for dev, live for production |
-| `STRIPE_WEBHOOK_SECRET` | Stripe webhook endpoint |
 | `RESEND_API_KEY` | Resend → API keys |
-| `ONESIGNAL_API_KEY` | OneSignal → Keys & IDs |
 
 Names in the file are **unprefixed**; the `WR_DEV_` / `WR_PROD_` prefix belongs
 to the store, where both environments share one account namespace.
@@ -141,17 +143,20 @@ pnpm --filter @wiseroutine/api deploy:dev
 pnpm --filter @wiseroutine/api deploy:prod
 ```
 
-Three gates, stopping at the first failure:
+The deploy command stops at the first failure:
 
-1. `check-secrets.mjs` - every declared secret exists in the store. Nothing is
-   uploaded otherwise.
-2. `wrangler deploy` - refuses a binding it cannot wire.
-3. `GET /health/config` - the deployed Worker resolves every binding and runs
-   the schema over the result. Catches empty values, wrong shapes (a Resend key
-   without `re_`) and any var still holding a `REPLACE_WITH_…` placeholder.
+1. Offline `preflight.mjs` checks the explicitly selected environment, core
+   declarations, public origins, secret bindings and absence of placeholders or
+   `E2E_*` test bindings. Run separately with `preflight:dev` / `preflight:prod`.
+2. `check-secrets.mjs` checks every declared secret exists in the store.
+3. Regenerate database clients/embedded migrations and typecheck.
+4. `wrangler deploy` refuses a binding it cannot wire.
+5. `GET /health/config` resolves the bindings and checks the core M0 contract
+   plus the shape of any explicitly supplied optional settings.
 
-Gate 1 is pre-upload, gate 3 post-upload - so treat a gate-3 failure as "roll
-back", not "nothing happened". Nothing can compare a stored secret against its
+The health check is post-upload: treat failure as "roll back", not "nothing
+happened". None of these checks proves connectivity, migration completion or
+successful provisioning; rehearse the database rollout separately. Nothing can compare a stored secret against its
 source, because Cloudflare will not disclose it.
 
 ## 5. Domains
@@ -169,8 +174,9 @@ Then set `APP_URL` and `API_URL` in each environment's `vars`.
 
 Three places, and the deploy tells you if you miss one:
 
-1. `SECRET_KEYS` in `apps/api/src/env.ts`
-2. both `secrets_store_secrets` blocks in `wrangler.jsonc`
+1. `SECRET_KEYS` in `apps/api/src/deployment.ts` (included automatically when
+   added to `REQUIRED_SECRET_KEYS` for a new core prerequisite)
+2. the intended environments' `secrets_store_secrets` blocks in `wrangler.jsonc`
 3. a schema fragment - a package's `keys.ts`, or `apps/api/src/env.ts`
 
 Then add it to `.env.dev` / `.env.prod` and push.

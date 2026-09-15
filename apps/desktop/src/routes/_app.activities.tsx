@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { ownerOf } from "@wiseroutine/addons";
 import {
   ACTIVITY_LIBRARY,
   type ActivityDraft,
@@ -13,12 +14,17 @@ import {
   Loading,
   Modal,
   PlanNote,
+  type TemplateNote,
 } from "@wiseroutine/design";
 import { PLANS } from "@wiseroutine/plans";
+import { maxDailySessions } from "@wiseroutine/scheduler";
 import { useCallback, useEffect, useState } from "react";
+import { useInstalledAddons } from "../addons/installed";
 import { useAccount } from "../lib/account";
 import { type ActivityResponse, ApiError, api } from "../lib/api";
+import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
+import { invalidateServerState } from "../lib/session-lifecycle";
 import { moduleFor, type StartPolicy } from "../modules/activities";
 import {
   ActivityModuleFields,
@@ -37,7 +43,7 @@ import {
  * behind it invited exactly the mistake it looks like it invites: picking a
  * second template halfway through filling in the first.
  *
- * Pausing is deliberately not offered yet - see `Yours` below.
+ * The list offers Edit and Remove. Removing an activity frees its allowance.
  */
 
 /** Where the two named landings aim. Mid-morning and mid-afternoon rather than
@@ -71,7 +77,10 @@ const draftOf = (row: ActivityResponse): ActivityDraft => ({
   name: row.name,
   kind: row.kind,
   sessionMinutes: row.sessionMinutes,
-  perDay: row.minimum.type === "countPerDay" ? row.minimum.value : 1,
+  perDay:
+    row.minimum.type === "countPerDay"
+      ? Math.min(row.minimum.value, maxDailySessions(row.sessionMinutes))
+      : 1,
   days: row.daysOfWeek,
   land: landingOf(row.preferredWindows),
 });
@@ -101,18 +110,25 @@ const NO_MODULE: ModuleDraft = {
 };
 
 /**
- * The module a library pick starts with.
+ * The activity type a library pick starts with.
  *
  * By template key rather than by name, because a template can be renamed the
  * moment it is picked and matching on the new name would silently drop the
- * module. Anything not listed starts as a plain timed slot, which is the
- * honest default for something the app has no session for.
+ * session.
+ *
+ * Every value is namespaced, because every guided session is an addon now -
+ * the app's own four included. An addon that is switched off or not installed
+ * makes `moduleFor` return undefined and the template falls through to
+ * `NO_MODULE`, which is the same answer "walk" and "water" already get: a
+ * plain timed slot. That is the graceful degradation the whole boundary rests
+ * on, and it is now exercised by the app's own activities rather than only by
+ * hypothetical strangers'.
  */
 const LIBRARY_MODULES: Record<string, string> = {
-  "shoulder-stretch": "stretch",
-  "eye-rest": "eye_rest",
-  "deep-work": "deep_work",
-  breathing: "breathing",
+  stretch: "wiseroutine.stretch/guided",
+  "eye-rest": "wiseroutine.eye-rest/look-away",
+  "deep-work": "wiseroutine.deep-work/focus",
+  breathing: "wiseroutine.breathing/pacer",
 };
 
 function moduleForTemplate(key: string): ModuleDraft {
@@ -139,6 +155,17 @@ interface Editing {
   id?: string;
 }
 
+/**
+ * The addon behind a preset key, if the key names one at all.
+ *
+ * Both halves matter. A key with no slash is not an addon's - there are none
+ * left in this app, but a row written before the migration would look like
+ * that and must not be reported as a missing addon. A key that does name one
+ * which is not installed is the case this whole function exists for.
+ */
+const addonBehind = (presetKey: string | null | undefined): string | null =>
+  presetKey ? ownerOf(presetKey) : null;
+
 const howOften = (row: ActivityResponse): string => {
   const { type, value } = row.minimum;
   if (type === "durationPerDay") return `${value} min a day`;
@@ -154,8 +181,20 @@ const LANDING_WORD: Record<ActivityDraft["land"], string> = {
 
 const Activities: React.FC = () => {
   const account = useAccount();
+  const navigate = useNavigate();
+  /**
+   * Subscribed to, not read once.
+   *
+   * The whole point of this page being in sync with the Addons page is that it
+   * reacts: switch an addon off in another tab of the same window and the
+   * caveats appear here without a reload. `useInstalledAddons` is the store
+   * `loadAddons` publishes into, so this re-renders the moment that happens.
+   */
+  const addons = useInstalledAddons();
   const plan = account?.plan === "pro" ? "pro" : "free";
-  const limit = PLANS[plan].maxActiveActivities;
+  const flags = useFeatures();
+  const limit =
+    PLANS[flags.larger_routines ? plan : "free"].maxActiveActivities;
 
   const [rows, setRows] = useState<readonly ActivityResponse[] | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -177,33 +216,48 @@ const Activities: React.FC = () => {
 
   useEffect(load, [load]);
 
+  /** Configured for a session whose addon is not there to run it. */
+  const needsAddon = (row: ActivityResponse): boolean => {
+    const addonId = addonBehind(row.presetKey);
+    return (
+      flags.guided_sessions &&
+      addonId !== null &&
+      row.sessionEnabled !== false &&
+      !addons.has(addonId)
+    );
+  };
+
   const active = rows?.filter((row) => row.isActive).length ?? 0;
   const atLimit = active >= limit;
 
-  /**
-   * Saving does not touch today.
-   *
-   * It used to re-plan straight after, so adding an activity in the morning
-   * meant walking back to Today and finding it already on the day. That is
-   * the one thing placement is not supposed to do: the day is filled once, at
-   * the start of it, and anything added afterwards is offered by the "To
-   * place today" module with a button, rather than arranged behind your back.
-   */
+  // Routine changes start tomorrow. Hidden fields are omitted on edit,
+  // never replaced with the simplified form's defaults.
   const save = () => {
     if (!editing) return;
     const { draft, id } = editing;
+    const previous = rows?.find((row) => row.id === id);
     const input = {
       name: draft.name.trim(),
       kind: draft.kind,
-      minimumType: "countPerDay" as const,
-      minimumValue: draft.perDay,
+      ...(!previous || previous.minimum.type === "countPerDay"
+        ? {
+            minimumType: "countPerDay" as const,
+            minimumValue: draft.perDay,
+          }
+        : {}),
       sessionMinutes: draft.sessionMinutes,
       daysOfWeek: draft.days,
-      preferredWindows: windowsOf(draft.land),
-      presetKey: editing.module.presetKey,
-      sessionEnabled: editing.module.sessionEnabled,
-      startPolicy: editing.module.startPolicy,
-      configJson: editing.module.configJson,
+      ...(flags.advanced_scheduling && plan === "pro"
+        ? { preferredWindows: windowsOf(draft.land) }
+        : {}),
+      ...(flags.guided_sessions
+        ? {
+            presetKey: editing.module.presetKey,
+            sessionEnabled: editing.module.sessionEnabled,
+            startPolicy: editing.module.startPolicy,
+            configJson: editing.module.configJson,
+          }
+        : {}),
     };
 
     setSaving(true);
@@ -215,6 +269,12 @@ const Activities: React.FC = () => {
     request
       .then(() => {
         setEditing(null);
+        notify(
+          id
+            ? "Saved for tomorrow. Today's routine is unchanged."
+            : "Activity added. Its routine starts tomorrow.",
+        );
+        invalidateServerState();
         load();
       })
       .catch((cause: unknown) => {
@@ -235,10 +295,63 @@ const Activities: React.FC = () => {
     api
       .removeActivity(id)
       .then(() => {
+        invalidateServerState();
         load();
       })
       .catch(() => notify("Couldn't remove that activity. Try again."))
       .finally(() => setWorking(null));
+  };
+
+  /**
+   * What to say on a library chip, which group it sits in, and where its cog
+   * goes.
+   *
+   * The grouping is the first thing the list needed. Seven chips in a row gave
+   * no hint that four of them bring something with them and three simply
+   * reserve the time - which is the difference somebody is actually choosing
+   * between, and it was legible only after picking one.
+   *
+   * The heading is "From an addon" rather than anything about sessions.
+   * Everything in that group happens to run a guided session today, because
+   * those are the four addons that exist - but an addon is a package, and the
+   * next one may contribute a widget, a background job or an integration and
+   * no full-screen session at all. A heading that describes what today's
+   * addons happen to do is a heading that has to be renamed the first time one
+   * of them does something else.
+   *
+   * Every template here whose session is real belongs to an addon, so almost
+   * all of them get a cog - and the cog goes to the Addons page rather than to
+   * a per-addon screen, because that is where the switch and the permissions
+   * are, and there is nothing else to configure about an addon that is not
+   * already in the activity form below.
+   *
+   * The caveat is the honest half. A template whose addon is switched off is
+   * still a perfectly good timed block and stays pickable; it just will not do
+   * what its name suggests, and saying so on the chip beats letting somebody
+   * add it and find out.
+   */
+  const noteFor = (template: ActivityTemplate): TemplateNote | undefined => {
+    if (!flags.guided_sessions) return undefined;
+    const presetKey = LIBRARY_MODULES[template.key];
+    const addonId = addonBehind(presetKey);
+    // A walk is a block of time. Nothing is behind it and there is nothing to
+    // manage - so it gets a heading saying exactly that, and no cog. The two
+    // groups answer the question somebody actually has in front of this list:
+    // does picking this bring something with it, or does it just put the time
+    // aside.
+    if (!addonId) return { group: "A simple slot" };
+
+    const installed = addons.has(addonId);
+    return {
+      group: "Guided routines",
+      ...(flags.community_addons
+        ? { onConfigure: () => void navigate({ to: "/addons" }) }
+        : {}),
+      configureLabel: installed
+        ? `Manage the addon behind ${template.name}`
+        : `${template.name} needs an addon that is switched off`,
+      ...(installed ? {} : { caveat: "· session off" }),
+    };
   };
 
   const pick = (template: ActivityTemplate | null) => {
@@ -252,7 +365,7 @@ const Activities: React.FC = () => {
               sessionMinutes: template.sessionMinutes,
               perDay: template.perDay,
               days: template.days,
-              land: template.land,
+              land: flags.advanced_scheduling ? template.land : "any",
             },
             module: moduleForTemplate(template.key),
             origin: "From the library · change anything",
@@ -271,11 +384,6 @@ const Activities: React.FC = () => {
         <h2 className="wr-settings-title">Activities</h2>
 
         {rows.length > 0 ? (
-          // No Pause here yet. The free limit counts active activities, so
-          // pausing is a real way to swap one out - but it is going to be a
-          // Pro capability, and shipping it to everyone first and taking it
-          // away later is the one order that cannot be done kindly. Remove is
-          // the way out until then; the kit still carries the control.
           <Card
             title="Yours"
             note="Each one is placed into the gaps your calendar leaves, on the days you picked."
@@ -284,9 +392,21 @@ const Activities: React.FC = () => {
               <ActivityRow
                 key={row.id}
                 name={row.name}
+                /**
+                 * The last clause appears only when something is wrong.
+                 *
+                 * An activity whose addon is switched off still runs - it is a
+                 * timed block on the day like any other - but the guided
+                 * session it was configured with does not, and the row is the
+                 * only place a user would ever find that out. Without it the
+                 * two pages disagree silently: the Addons page says off, and
+                 * this one goes on describing a session that will not open.
+                 */
                 meta={`${row.sessionMinutes} min · ${howOften(row)} · ${daysLabel(
                   row.daysOfWeek,
-                )} · ${LANDING_WORD[landingOf(row.preferredWindows)]}`}
+                )} · ${LANDING_WORD[landingOf(row.preferredWindows)]}${
+                  needsAddon(row) ? " · session off, addon disabled" : ""
+                }${row.changesFrom ? ` · from ${row.changesFrom}` : ""}`}
                 isActive={row.isActive}
                 busy={working === row.id}
                 onEdit={() =>
@@ -314,6 +434,7 @@ const Activities: React.FC = () => {
           // them, so it belongs on the group.
           disabled={atLimit}
           onPick={pick}
+          noteFor={noteFor}
         />
 
         {/* Only free ever reaches a limit, so there is only one note. Pro's
@@ -321,9 +442,11 @@ const Activities: React.FC = () => {
             instead, which is the moment someone is about to add another. */}
         {atLimit ? (
           <div style={{ marginTop: 14 }}>
-            <PlanNote title="Free keeps two active at a time">
-              Remove one you are not using to make room, or move to Pro for as
-              many as you like.
+            <PlanNote title={`Your routine keeps ${limit} active at a time`}>
+              Remove an activity you no longer need to make room.
+              {flags.billing_checkout && flags.larger_routines
+                ? " Pro supports larger routines."
+                : ""}
             </PlanNote>
           </div>
         ) : null}
@@ -342,9 +465,8 @@ const Activities: React.FC = () => {
           title={editing.draft.name || "New activity"}
           subtitle={
             editing.id
-              ? "Changes apply to the rest of today as soon as you save."
-              : (editing.origin ??
-                "Describe it, and it gets placed into the gaps your calendar leaves.")
+              ? "Frequency, length and day changes start tomorrow. Today's routine stays as it is."
+              : "This routine starts tomorrow. Its slots will appear in Not placed."
           }
           onClose={() => {
             setEditing(null);
@@ -379,9 +501,9 @@ const Activities: React.FC = () => {
                   nothing, so there is nothing to say about the plan. */}
               {editing.id ? null : (
                 <span className="wr-activity-note">
-                  {plan === "free"
-                    ? "Free covers two. A third asks you to swap one out or move to Pro."
-                    : "Pro does not limit these. A really busy day may still not fit them all."}
+                  {Number.isFinite(limit)
+                    ? `You can keep ${limit} activities active. Remove one to make room for another.`
+                    : "A really busy day may still not fit every activity."}
                 </span>
               )}
             </>
@@ -390,12 +512,20 @@ const Activities: React.FC = () => {
           <ActivityForm
             draft={editing.draft}
             named={editing.origin !== undefined}
+            advanced={flags.advanced_scheduling && plan === "pro"}
+            showFrequency={
+              !editing.id ||
+              rows.find((row) => row.id === editing.id)?.minimum.type ===
+                "countPerDay"
+            }
             onChange={(draft) => setEditing({ ...editing, draft })}
           >
-            <ActivityModuleFields
-              value={editing.module}
-              onChange={(module) => setEditing({ ...editing, module })}
-            />
+            {flags.guided_sessions ? (
+              <ActivityModuleFields
+                value={editing.module}
+                onChange={(module) => setEditing({ ...editing, module })}
+              />
+            ) : null}
           </ActivityForm>
           {problem ? (
             <p

@@ -19,11 +19,15 @@
  * suspended, so the menu bar froze mid-day and start notifications never
  * arrived - which is that first paragraph coming true by accident.
  *
- * `upNextOf` stayed, and is now the rail's - and the one thing the tray menu
- * still asks the webview, which is what "Start now" starts.
+ * `upNextOf` stays slot-only for the rail. The native tray also shows imported
+ * meetings and sends the exact slot id when its Start action is available.
  */
 
-import type { TodaySlot } from "./api";
+import { canStartSlot } from "@wiseroutine/scheduler";
+import type { TodayMeeting, TodaySlot } from "./api";
+import { onSessionReset, sessionGeneration } from "./session-lifecycle";
+
+onSessionReset(() => armAlerts([]));
 
 const inTauri = (): boolean => "__TAURI_INTERNALS__" in globalThis;
 
@@ -36,9 +40,8 @@ const PENDING = new Set(["planned", "live"]);
  *
  * The rail's own reading of the day - see `modules/dashboard`. The menu bar
  * had the same shape pushed to it until it grew its own clock; it now takes
- * the schedule and works this out for itself in `tray.rs`, and `upNextOf`
- * stays here because "Start now" on the tray menu still has to decide what
- * "next" meant at the moment it was pressed.
+ * the schedule and works this out for itself in `tray.rs`. This helper remains
+ * slot-only: the rail's activity controls must never start imported meetings.
  */
 export interface UpNext {
   /** What it is, on its own. The menu bar and the rail both name it. */
@@ -48,6 +51,9 @@ export interface UpNext {
   /** "18m", or "now" once it can be started. */
   badge?: string;
   slotId?: string;
+  /** The block itself, startable yet or not - what the rail matches a pressed
+   *  block against. `slotId` stays the startable-only one Start reads. */
+  id?: string;
 }
 
 /**
@@ -71,7 +77,7 @@ const minutesOf = (slot: TodaySlot): number =>
 
 export function upNextOf(slots: readonly TodaySlot[], now: number): UpNext {
   const next = slots
-    .filter((slot) => PENDING.has(slot.status) && slot.endsAt > now)
+    .filter((slot) => PENDING.has(slot.status) && canStartSlot(slot, now))
     .sort((a, b) => a.startsAt - b.startsAt)[0];
 
   if (!next) return {};
@@ -81,6 +87,7 @@ export function upNextOf(slots: readonly TodaySlot[], now: number): UpNext {
     title: next.title,
     label: `${minutesOf(next)} min`,
     badge: live ? "now" : countdown(next.startsAt - now),
+    id: next.id,
     // Only offered while it is actually startable. Starting something an hour
     // early is not a shortcut, it is a different plan.
     ...(live ? { slotId: next.id } : {}),
@@ -132,21 +139,45 @@ export async function ensureAlertPermission(): Promise<boolean> {
  * activity that had already finished. The clock that has to keep running now
  * runs in `tray.rs`, which is not something macOS puts to sleep.
  *
- * Only what is left: a slot that has been dealt with has nothing to announce
- * and nothing to count down to.
+ * Only pending slots and timed meetings. All-day events must not hide every
+ * timed appointment; imported meetings are display-only, never auto-started.
  */
-async function pushSchedule(slots: readonly TodaySlot[]): Promise<void> {
+export function trayEntries(
+  slots: readonly TodaySlot[],
+  meetings: readonly TodayMeeting[],
+) {
+  return [
+    ...slots
+      .filter((slot) => PENDING.has(slot.status))
+      .map(({ id, title, startsAt, endsAt }) => ({
+        id,
+        title,
+        startsAt,
+        endsAt,
+        kind: "slot" as const,
+      })),
+    ...meetings
+      .filter((meeting) => !meeting.isAllDay)
+      .map(({ id, title, startsAt, endsAt }) => ({
+        id,
+        title: title ?? "Busy",
+        startsAt,
+        endsAt,
+        kind: "meeting" as const,
+      })),
+  ];
+}
+
+async function pushSchedule(
+  slots: readonly TodaySlot[],
+  meetings: readonly TodayMeeting[],
+): Promise<void> {
+  const generation = sessionGeneration();
   try {
     const { invoke } = await import("@tauri-apps/api/core");
+    if (generation !== sessionGeneration()) return;
     await invoke("set_schedule", {
-      entries: slots
-        .filter((slot) => PENDING.has(slot.status))
-        .map(({ id, title, startsAt, endsAt }) => ({
-          id,
-          title,
-          startsAt,
-          endsAt,
-        })),
+      entries: trayEntries(slots, meetings),
     });
   } catch (error) {
     console.error("schedule refused", error);
@@ -160,7 +191,10 @@ async function pushSchedule(slots: readonly TodaySlot[]): Promise<void> {
  * behind this any more and no disposer to hand back: `tray.rs` re-reads what
  * it was given every fifteen seconds, on a clock macOS does not suspend.
  */
-export function armAlerts(slots: readonly TodaySlot[]): void {
+export function armAlerts(
+  slots: readonly TodaySlot[],
+  meetings: readonly TodayMeeting[] = [],
+): void {
   if (!inTauri()) return;
-  void pushSchedule(slots);
+  void pushSchedule(slots, meetings);
 }

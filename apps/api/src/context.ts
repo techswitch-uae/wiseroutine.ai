@@ -1,11 +1,17 @@
+import type { AddonCapability } from "@wiseroutine/addons";
 import {
+  applyMigrations,
   createDirectory,
   type Directory,
+  forgetStoredTitles,
   refreshUserPlan,
+  storesEventDetails,
+  USER_MIGRATIONS,
   type UserDatabase,
 } from "@wiseroutine/db";
 import { required } from "@wiseroutine/env";
 import { type Capability, can, type PlanId } from "@wiseroutine/plans";
+import type { FeatureFlags } from "@wiseroutine/plans/features";
 import type { Context, MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { type Auth, createAuth } from "./auth";
@@ -14,7 +20,10 @@ import {
   directoryCredentials,
   resolveServerEnv,
   type ServerEnv,
+  userCredentials,
 } from "./env";
+import { readFeatures } from "./features";
+import { authTestBoundaries, requestTime } from "./testing-runtime";
 
 /**
  * Cloudflare bindings.
@@ -26,6 +35,16 @@ import {
 export interface Bindings {
   SYNC_QUEUE: Queue<SyncJob>;
   CONFIG: KVNamespace;
+  ADDON_BUNDLES?: R2Bucket;
+  /**
+   * Named rather than left to the index signature, because CORS runs before
+   * `withContext` and so reads these off the raw bindings rather than the
+   * resolved `ServerEnv` - see `trustedOrigins` in `auth.ts`. Both are plain
+   * `vars` in wrangler.jsonc, never secrets, so they are strings here as well
+   * as there.
+   */
+  APP_URL: string;
+  ENVIRONMENT?: string;
   [key: string]: unknown;
 }
 
@@ -33,6 +52,7 @@ export interface SyncJob {
   type: "sync-calendar" | "renew-watch" | "grace-sweep";
   /** Directory row id, so the consumer can reschedule or fail it. */
   workId: string;
+  workRevision?: number;
   userId: string;
   databaseName: string;
   targetId?: string;
@@ -58,6 +78,18 @@ export interface SessionUser {
   lastSeenAt: number | null;
 }
 
+/**
+ * The addon a request is made for, from the `x-wr-addon` header.
+ *
+ * The desktop host sets it on every write it proxies for an addon. The route
+ * then checks the grant and, for slots, ownership. Null for the user's own
+ * requests.
+ */
+export interface AddonActor {
+  id: string;
+  granted: readonly AddonCapability[];
+}
+
 export interface Variables {
   env: ServerEnv;
   directory: Directory;
@@ -66,6 +98,8 @@ export interface Variables {
   /** The signed-in user's own database. */
   db: UserDatabase;
   now: number;
+  addon: AddonActor | null;
+  features: FeatureFlags;
 }
 
 export type App = { Bindings: Bindings; Variables: Variables };
@@ -81,8 +115,16 @@ export const withContext: MiddlewareHandler<App> = async (c, next) => {
   const directory = createDirectory(directoryCredentials(env));
   c.set("env", env);
   c.set("directory", directory);
-  c.set("auth", createAuth(directory, env));
-  c.set("now", Date.now());
+  c.set(
+    "auth",
+    createAuth(
+      directory,
+      env,
+      undefined,
+      authTestBoundaries(env, c.env.CONFIG),
+    ),
+  );
+  c.set("now", await requestTime(env, c.env.CONFIG));
   await next();
 };
 
@@ -94,6 +136,7 @@ export const withContext: MiddlewareHandler<App> = async (c, next) => {
  * already paid for. Read from KV so it flips without a deploy.
  */
 export async function proOfferEnabled(c: Ctx): Promise<boolean> {
+  if (!c.get("features").billing_checkout) return false;
   const value = await c.env.CONFIG.get("PRO_OFFER_ENABLED");
   if (value === null) return c.get("env").PRO_OFFER_ENABLED;
   return value !== "false";
@@ -167,10 +210,79 @@ export const requireUser: MiddlewareHandler<App> = async (c, next) => {
     storeEventTitles: session.user.storeEventTitles,
     lastSeenAt: session.user.lastSeenAt?.getTime() ?? null,
   });
-  c.set("db", createUserDb(c.get("env"), session.user.databaseName));
+  await ensureUserSchema(c.get("env"), c.get("directory"), session.user.id, {
+    databaseName: session.user.databaseName,
+    schemaVersion: session.user.schemaVersion,
+  });
 
+  c.set("db", createUserDb(c.get("env"), session.user.databaseName));
+  // Existing opt-outs predate the local privacy fence. Install it once before
+  // serving reads; sync writes consult it inside their transaction.
+  if (
+    !session.user.storeEventTitles &&
+    (await storesEventDetails(c.get("db")))
+  ) {
+    await forgetStoredTitles(c.get("db"));
+  }
+
+  c.set("features", await readFeatures(c.env.CONFIG, session.user.id));
   await next();
 };
+
+/**
+ * Bring a user's database up to the migrations this Worker carries.
+ *
+ * The same shape as the plan-expiry refresh above, and for the same reason:
+ * one extra read that is an integer comparison on every request, one write on
+ * the first request after a deploy that added a migration, and nothing at all
+ * on all the others.
+ *
+ * It is here rather than in a background job because it must finish *before*
+ * the handler reads the database. A route that ran against a schema one
+ * migration behind would not fail loudly - it would read a renamed column as
+ * absent, which is the quiet kind of wrong.
+ *
+ * ## Why this exists at all
+ *
+ * `provisionUserDatabase` was the only caller of `applyMigrations`, so
+ * migrations ran exactly once per account: at signup. Everything written
+ * afterwards reached new users and nobody else. That was survivable while
+ * migrations only added columns nothing read yet, and stopped being survivable
+ * when they started *renaming* things - 0010 and 0012 move activities onto
+ * their addons' keys, and a user who never receives them is a user whose
+ * guided sessions quietly stop opening.
+ *
+ * ## When it fails
+ *
+ * Fail closed with a retryable response: a handler must never read or mutate
+ * an incompatible schema. Each migration and its marker commit atomically;
+ * the version is advanced only after the whole run succeeds. Queue consumers
+ * use this same gate before opening a user's database.
+ */
+export async function ensureUserSchema(
+  env: ServerEnv,
+  directory: Directory,
+  userId: string,
+  user: { databaseName: string; schemaVersion: number },
+): Promise<void> {
+  if (user.schemaVersion >= USER_MIGRATIONS.length) return;
+
+  try {
+    await applyMigrations(
+      userCredentials(env, user.databaseName),
+      USER_MIGRATIONS,
+    );
+    await directory.user.update({
+      where: { id: userId },
+      data: { schemaVersion: USER_MIGRATIONS.length },
+    });
+  } catch (error) {
+    console.error("schema catch-up", userId, error);
+    throw new HTTPException(503, {
+      message: "Your data is being upgraded. Please retry shortly.",
+    });
+  }
+}
 
 /**
  * Enforce a plan capability.
@@ -179,14 +291,21 @@ export const requireUser: MiddlewareHandler<App> = async (c, next) => {
  * side that counts. A gate that only exists in the UI is not a gate.
  */
 export function enforce(c: Ctx, capability: Capability): void {
-  const decision = can(c.get("user").plan, capability);
+  // Larger routines are a separate release from owning an existing Pro grant.
+  const plan =
+    capability.kind === "activity.create" && !c.get("features").larger_routines
+      ? "free"
+      : c.get("user").plan;
+  const decision = can(plan, capability);
   if (!decision.ok) {
     throw new HTTPException(402, {
       res: Response.json(
         {
           error: "plan_limit",
           reason: decision.reason,
-          upsell: decision.upsell,
+          upsell: c.get("features").billing_checkout
+            ? decision.upsell
+            : "Remove an activity you no longer need to make room.",
         },
         { status: 402 },
       ),

@@ -1,0 +1,10 @@
+{
+  "author": "Replace with verified maintainer name",
+  "license": "MIT",
+  "source": {
+    "repository": "https://github.com/OWNER/REPOSITORY",
+    "commit": "REPLACE_WITH_FULL_IMMUTABLE_40_CHARACTER_COMMIT"
+  },
+  "support": "https://github.com/OWNER/REPOSITORY/issues",
+  "privacy": "Explain each permission, data use, retention and deletion. No real personal data in the submission."
+}

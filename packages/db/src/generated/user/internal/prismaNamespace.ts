@@ -403,12 +403,14 @@ export const ModelName = {
   CalendarSyncState: 'CalendarSyncState',
   ExternalEvent: 'ExternalEvent',
   Activity: 'Activity',
+  ActivitySchedule: 'ActivitySchedule',
   ActivityWindow: 'ActivityWindow',
   Slot: 'Slot',
   SlotEvent: 'SlotEvent',
   Reminder: 'Reminder',
   PlanRun: 'PlanRun',
-  DashboardModule: 'DashboardModule',
+  Widget: 'Widget',
+  Addon: 'Addon',
   DeskSession: 'DeskSession'
 } as const
 
@@ -425,7 +427,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "calendarConnection" | "oAuthToken" | "calendar" | "calendarSyncState" | "externalEvent" | "activity" | "activityWindow" | "slot" | "slotEvent" | "reminder" | "planRun" | "dashboardModule" | "deskSession"
+    modelProps: "calendarConnection" | "oAuthToken" | "calendar" | "calendarSyncState" | "externalEvent" | "activity" | "activitySchedule" | "activityWindow" | "slot" | "slotEvent" | "reminder" | "planRun" | "widget" | "addon" | "deskSession"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -873,6 +875,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    ActivitySchedule: {
+      payload: Prisma.$ActivitySchedulePayload<ExtArgs>
+      fields: Prisma.ActivityScheduleFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ActivityScheduleFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ActivityScheduleFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>
+        }
+        findFirst: {
+          args: Prisma.ActivityScheduleFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ActivityScheduleFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>
+        }
+        findMany: {
+          args: Prisma.ActivityScheduleFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>[]
+        }
+        create: {
+          args: Prisma.ActivityScheduleCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>
+        }
+        createMany: {
+          args: Prisma.ActivityScheduleCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ActivityScheduleCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>[]
+        }
+        delete: {
+          args: Prisma.ActivityScheduleDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>
+        }
+        update: {
+          args: Prisma.ActivityScheduleUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>
+        }
+        deleteMany: {
+          args: Prisma.ActivityScheduleDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ActivityScheduleUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ActivityScheduleUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>[]
+        }
+        upsert: {
+          args: Prisma.ActivityScheduleUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ActivitySchedulePayload>
+        }
+        aggregate: {
+          args: Prisma.ActivityScheduleAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateActivitySchedule>
+        }
+        groupBy: {
+          args: Prisma.ActivityScheduleGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ActivityScheduleGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ActivityScheduleCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ActivityScheduleCountAggregateOutputType> | number
+        }
+      }
+    }
     ActivityWindow: {
       payload: Prisma.$ActivityWindowPayload<ExtArgs>
       fields: Prisma.ActivityWindowFieldRefs
@@ -1243,77 +1319,151 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
-    DashboardModule: {
-      payload: Prisma.$DashboardModulePayload<ExtArgs>
-      fields: Prisma.DashboardModuleFieldRefs
+    Widget: {
+      payload: Prisma.$WidgetPayload<ExtArgs>
+      fields: Prisma.WidgetFieldRefs
       operations: {
         findUnique: {
-          args: Prisma.DashboardModuleFindUniqueArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$DashboardModulePayload> | null
+          args: Prisma.WidgetFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WidgetPayload> | null
         }
         findUniqueOrThrow: {
-          args: Prisma.DashboardModuleFindUniqueOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$DashboardModulePayload>
+          args: Prisma.WidgetFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WidgetPayload>
         }
         findFirst: {
-          args: Prisma.DashboardModuleFindFirstArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$DashboardModulePayload> | null
+          args: Prisma.WidgetFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WidgetPayload> | null
         }
         findFirstOrThrow: {
-          args: Prisma.DashboardModuleFindFirstOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$DashboardModulePayload>
+          args: Prisma.WidgetFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WidgetPayload>
         }
         findMany: {
-          args: Prisma.DashboardModuleFindManyArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$DashboardModulePayload>[]
+          args: Prisma.WidgetFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WidgetPayload>[]
         }
         create: {
-          args: Prisma.DashboardModuleCreateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$DashboardModulePayload>
+          args: Prisma.WidgetCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WidgetPayload>
         }
         createMany: {
-          args: Prisma.DashboardModuleCreateManyArgs<ExtArgs>
+          args: Prisma.WidgetCreateManyArgs<ExtArgs>
           result: BatchPayload
         }
         createManyAndReturn: {
-          args: Prisma.DashboardModuleCreateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$DashboardModulePayload>[]
+          args: Prisma.WidgetCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WidgetPayload>[]
         }
         delete: {
-          args: Prisma.DashboardModuleDeleteArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$DashboardModulePayload>
+          args: Prisma.WidgetDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WidgetPayload>
         }
         update: {
-          args: Prisma.DashboardModuleUpdateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$DashboardModulePayload>
+          args: Prisma.WidgetUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WidgetPayload>
         }
         deleteMany: {
-          args: Prisma.DashboardModuleDeleteManyArgs<ExtArgs>
+          args: Prisma.WidgetDeleteManyArgs<ExtArgs>
           result: BatchPayload
         }
         updateMany: {
-          args: Prisma.DashboardModuleUpdateManyArgs<ExtArgs>
+          args: Prisma.WidgetUpdateManyArgs<ExtArgs>
           result: BatchPayload
         }
         updateManyAndReturn: {
-          args: Prisma.DashboardModuleUpdateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$DashboardModulePayload>[]
+          args: Prisma.WidgetUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WidgetPayload>[]
         }
         upsert: {
-          args: Prisma.DashboardModuleUpsertArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$DashboardModulePayload>
+          args: Prisma.WidgetUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WidgetPayload>
         }
         aggregate: {
-          args: Prisma.DashboardModuleAggregateArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.AggregateDashboardModule>
+          args: Prisma.WidgetAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateWidget>
         }
         groupBy: {
-          args: Prisma.DashboardModuleGroupByArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.DashboardModuleGroupByOutputType>[]
+          args: Prisma.WidgetGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.WidgetGroupByOutputType>[]
         }
         count: {
-          args: Prisma.DashboardModuleCountArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.DashboardModuleCountAggregateOutputType> | number
+          args: Prisma.WidgetCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.WidgetCountAggregateOutputType> | number
+        }
+      }
+    }
+    Addon: {
+      payload: Prisma.$AddonPayload<ExtArgs>
+      fields: Prisma.AddonFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.AddonFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AddonPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.AddonFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AddonPayload>
+        }
+        findFirst: {
+          args: Prisma.AddonFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AddonPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.AddonFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AddonPayload>
+        }
+        findMany: {
+          args: Prisma.AddonFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AddonPayload>[]
+        }
+        create: {
+          args: Prisma.AddonCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AddonPayload>
+        }
+        createMany: {
+          args: Prisma.AddonCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.AddonCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AddonPayload>[]
+        }
+        delete: {
+          args: Prisma.AddonDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AddonPayload>
+        }
+        update: {
+          args: Prisma.AddonUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AddonPayload>
+        }
+        deleteMany: {
+          args: Prisma.AddonDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.AddonUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.AddonUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AddonPayload>[]
+        }
+        upsert: {
+          args: Prisma.AddonUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$AddonPayload>
+        }
+        aggregate: {
+          args: Prisma.AddonAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateAddon>
+        }
+        groupBy: {
+          args: Prisma.AddonGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AddonGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.AddonCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AddonCountAggregateOutputType> | number
         }
       }
     }
@@ -1502,6 +1652,8 @@ export const ExternalEventScalarFieldEnum = {
   busyStatus: 'busyStatus',
   responseStatus: 'responseStatus',
   isCancelled: 'isCancelled',
+  joinUrl: 'joinUrl',
+  description: 'description',
   changeTag: 'changeTag',
   providerUpdatedAt: 'providerUpdatedAt',
   deletedAt: 'deletedAt',
@@ -1530,11 +1682,22 @@ export const ActivityScalarFieldEnum = {
   bufferBeforeMeetingMinutes: 'bufferBeforeMeetingMinutes',
   writeToCalendar: 'writeToCalendar',
   writeTargetConnectionId: 'writeTargetConnectionId',
+  ownerAddonId: 'ownerAddonId',
+  pausedByAddonAt: 'pausedByAddonAt',
   createdAt: 'createdAt',
   archivedAt: 'archivedAt'
 } as const
 
 export type ActivityScalarFieldEnum = (typeof ActivityScalarFieldEnum)[keyof typeof ActivityScalarFieldEnum]
+
+
+export const ActivityScheduleScalarFieldEnum = {
+  activityId: 'activityId',
+  effectiveDate: 'effectiveDate',
+  settingsJson: 'settingsJson'
+} as const
+
+export type ActivityScheduleScalarFieldEnum = (typeof ActivityScheduleScalarFieldEnum)[keyof typeof ActivityScheduleScalarFieldEnum]
 
 
 export const ActivityWindowScalarFieldEnum = {
@@ -1560,6 +1723,7 @@ export const SlotScalarFieldEnum = {
   conflictEventId: 'conflictEventId',
   conflictSeverity: 'conflictSeverity',
   autoMoveCount: 'autoMoveCount',
+  ownerAddonId: 'ownerAddonId',
   planRunId: 'planRunId',
   createdAt: 'createdAt'
 } as const
@@ -1585,6 +1749,9 @@ export type SlotEventScalarFieldEnum = (typeof SlotEventScalarFieldEnum)[keyof t
 export const ReminderScalarFieldEnum = {
   id: 'id',
   title: 'title',
+  notes: 'notes',
+  linksJson: 'linksJson',
+  activityId: 'activityId',
   dueWindow: 'dueWindow',
   dueDate: 'dueDate',
   estimatedMinutes: 'estimatedMinutes',
@@ -1612,13 +1779,27 @@ export const PlanRunScalarFieldEnum = {
 export type PlanRunScalarFieldEnum = (typeof PlanRunScalarFieldEnum)[keyof typeof PlanRunScalarFieldEnum]
 
 
-export const DashboardModuleScalarFieldEnum = {
-  moduleKey: 'moduleKey',
+export const WidgetScalarFieldEnum = {
+  widgetKey: 'widgetKey',
   position: 'position',
   isEnabled: 'isEnabled'
 } as const
 
-export type DashboardModuleScalarFieldEnum = (typeof DashboardModuleScalarFieldEnum)[keyof typeof DashboardModuleScalarFieldEnum]
+export type WidgetScalarFieldEnum = (typeof WidgetScalarFieldEnum)[keyof typeof WidgetScalarFieldEnum]
+
+
+export const AddonScalarFieldEnum = {
+  id: 'id',
+  version: 'version',
+  manifestJson: 'manifestJson',
+  grantedJson: 'grantedJson',
+  bundleHash: 'bundleHash',
+  settingsJson: 'settingsJson',
+  isEnabled: 'isEnabled',
+  installedAt: 'installedAt'
+} as const
+
+export type AddonScalarFieldEnum = (typeof AddonScalarFieldEnum)[keyof typeof AddonScalarFieldEnum]
 
 
 export const DeskSessionScalarFieldEnum = {
@@ -1843,12 +2024,14 @@ export type GlobalOmitConfig = {
   calendarSyncState?: Prisma.CalendarSyncStateOmit
   externalEvent?: Prisma.ExternalEventOmit
   activity?: Prisma.ActivityOmit
+  activitySchedule?: Prisma.ActivityScheduleOmit
   activityWindow?: Prisma.ActivityWindowOmit
   slot?: Prisma.SlotOmit
   slotEvent?: Prisma.SlotEventOmit
   reminder?: Prisma.ReminderOmit
   planRun?: Prisma.PlanRunOmit
-  dashboardModule?: Prisma.DashboardModuleOmit
+  widget?: Prisma.WidgetOmit
+  addon?: Prisma.AddonOmit
   deskSession?: Prisma.DeskSessionOmit
 }
 

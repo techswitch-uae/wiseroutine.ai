@@ -1,4 +1,23 @@
-import { at, atOrNull, ms, msOrNull, type UserDatabase } from "../client";
+import {
+  canPostponeSlot,
+  canRepairSlot,
+  canStartSlot,
+  canStopSlot,
+  dayBounds,
+  localDateOf,
+} from "@wiseroutine/scheduler";
+import {
+  at,
+  atOrNull,
+  isTransaction,
+  ms,
+  msOrNull,
+  type UserDatabase,
+  userTransaction,
+} from "../client";
+
+export class ActionConflict extends Error {}
+
 import type {
   Slot as PrismaSlot,
   SlotEvent as PrismaSlotEvent,
@@ -11,7 +30,22 @@ export type SlotStatus =
   | "completed"
   | "skipped"
   | "missed"
-  | "cancelled";
+  | "cancelled"
+  /**
+   * In the bucket: the day moved under it and there is nowhere we would stand
+   * behind putting it.
+   *
+   * A status rather than a table of its own. A bucketed session is the same
+   * row it always was - same activity, same length, same lifecycle log - it
+   * has simply lost its place on the day, and the log already carries the two
+   * things the bucket has to say: why, and where we would have put it. See
+   * `listBucket`.
+   *
+   * It holds no time, so nothing that draws the day draws it, and nothing that
+   * counts what is scheduled counts it. Giving it a time takes it back out -
+   * see `moveSlot`.
+   */
+  | "bucketed";
 
 export type SlotEventType =
   | "planned"
@@ -21,13 +55,17 @@ export type SlotEventType =
   | "completed"
   | "skipped"
   | "missed"
-  | "cancelled";
+  | "cancelled"
+  | "bucketed";
 
 /**
  * Slots as the application sees them: instants are epoch-ms numbers, which is
  * what the scheduler and every route work in. The Date/number conversion stops
  * here, at the storage boundary.
  */
+/** Who did it. An addon's writes are logged apart from the user's. */
+export type SlotActor = "system" | "user" | "addon";
+
 export interface SlotRow {
   id: string;
   activityId: string | null;
@@ -42,6 +80,8 @@ export interface SlotRow {
   conflictEventId: string | null;
   conflictSeverity: string | null;
   autoMoveCount: number;
+  /** The addon that placed it, or null. Only that addon may change it. */
+  ownerAddonId: string | null;
   planRunId: string | null;
   createdAt: number;
 }
@@ -55,7 +95,7 @@ export interface SlotEventRow {
   reasonText: string | null;
   fromStartsAt: number | null;
   toStartsAt: number | null;
-  actor: "system" | "user";
+  actor: SlotActor;
 }
 
 const toSlot = (row: PrismaSlot): SlotRow => ({
@@ -70,7 +110,7 @@ const toSlot = (row: PrismaSlot): SlotRow => ({
 const toSlotEvent = (row: PrismaSlotEvent): SlotEventRow => ({
   ...row,
   type: row.type as SlotEventType,
-  actor: row.actor as "system" | "user",
+  actor: row.actor as SlotActor,
   at: ms(row.at),
   fromStartsAt: msOrNull(row.fromStartsAt),
   toStartsAt: msOrNull(row.toStartsAt),
@@ -82,7 +122,7 @@ export async function listSlotsForRange(
   to: number,
 ): Promise<SlotRow[]> {
   const rows = await db.slot.findMany({
-    where: { startsAt: { gte: at(from), lt: at(to) } },
+    where: { startsAt: { lt: at(to) }, endsAt: { gt: at(from) } },
     orderBy: { startsAt: "asc" },
   });
   return rows.map(toSlot);
@@ -109,7 +149,7 @@ export async function recordSlotEvent(
   input: {
     slotId: string;
     type: SlotEventType;
-    actor: "system" | "user";
+    actor: SlotActor;
     reasonCode?: string;
     reasonText?: string;
     fromStartsAt?: number;
@@ -142,34 +182,20 @@ export interface PlannedSlot {
   timeZone: string;
 }
 
-/**
- * Replace the unsettled, unlocked slots in a window with a fresh plan.
- *
- * What survives a replan: anything the user pinned (`isLocked`), anything
- * already started or finished, and anything already logged as missed. A replan
- * must never quietly erase history or move a slot the user placed by hand.
- */
-export async function replacePlannedSlots(
+/** Append an explicit placement without deleting accepted appointments or history. */
+export async function insertPlannedSlots(
   db: UserDatabase,
-  params: { from: number; to: number; planRunId: string },
+  params: {
+    planRunId: string;
+  },
   planned: readonly PlannedSlot[],
   now: number,
   newId: () => string,
 ): Promise<{ removed: number; created: number }> {
-  const replaceable = await db.slot.findMany({
-    where: {
-      startsAt: { gte: at(params.from), lt: at(params.to) },
-      isLocked: false,
-      status: "planned",
-    },
-    select: { id: true },
-  });
-
-  const ids = replaceable.map((r) => r.id);
-  if (ids.length > 0) {
-    await db.slotEvent.deleteMany({ where: { slotId: { in: ids } } });
-    await db.slot.deleteMany({ where: { id: { in: ids } } });
-  }
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) =>
+      insertPlannedSlots(tx, params, planned, now, newId),
+    );
 
   for (const slot of planned) {
     const id = newId();
@@ -195,7 +221,7 @@ export async function replacePlannedSlots(
     );
   }
 
-  return { removed: ids.length, created: planned.length };
+  return { removed: 0, created: planned.length };
 }
 
 /**
@@ -213,21 +239,29 @@ export async function replacePlannedSlots(
 export async function placeSlot(
   db: UserDatabase,
   params: {
-    activityId: string;
+    /** Null for a todo put on the day: it has a reminder and no activity. */
+    activityId: string | null;
+    reminderId?: string | null;
     title: string;
     kind: string;
     startsAt: number;
     endsAt: number;
     timeZone: string;
+    /** Set when an addon placed it. */
+    ownerAddonId?: string | null;
   },
   now: number,
   newId: () => string,
 ): Promise<SlotRow> {
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) => placeSlot(tx, params, now, newId));
   const id = newId();
   await db.slot.create({
     data: {
       id,
       activityId: params.activityId,
+      reminderId: params.reminderId ?? null,
+      ownerAddonId: params.ownerAddonId ?? null,
       title: params.title,
       kind: params.kind,
       startsAt: at(params.startsAt),
@@ -244,7 +278,7 @@ export async function placeSlot(
     {
       slotId: id,
       type: "planned",
-      actor: "user",
+      actor: params.ownerAddonId ? "addon" : "user",
       reasonCode: "placed_by_hand",
     },
     now,
@@ -284,8 +318,15 @@ export async function cancelUnstartedSlots(
   const rows = await db.slot.findMany({
     where: {
       activityId: params.activityId,
-      status: { in: ["planned", "live"] },
-      startsAt: { gte: at(params.from) },
+      // Bucket timestamps are day keys, not appointments. Even an older
+      // bucket entry must leave when its activity is archived.
+      OR: [
+        { status: "bucketed" },
+        {
+          status: { in: ["planned", "live"] },
+          startsAt: { gte: at(params.from) },
+        },
+      ],
     },
     select: { id: true },
   });
@@ -310,39 +351,84 @@ export async function cancelUnstartedSlots(
 export async function moveSlot(
   db: UserDatabase,
   params: {
+    /** The account's current zone may differ from the slot's original zone. */
+    timeZone?: string;
     slotId: string;
     startsAt: number;
     endsAt: number;
-    actor: "system" | "user";
+    actor: SlotActor;
     reasonCode?: string;
     reasonText?: string;
   },
   now: number,
   newId: () => string,
 ): Promise<void> {
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) => moveSlot(tx, params, now, newId));
   const current = await getSlot(db, params.slotId);
   if (!current) return;
+  if (expiredRoutineBucket(current, now, params.timeZone))
+    throw new ActionConflict(
+      "This unplaced slot belonged to a previous day. Use today's routine instead.",
+    );
+  if (
+    params.actor === "system"
+      ? current.status !== "bucketed" && !canRepairSlot(current, now)
+      : !canPostponeSlot(current, now)
+  )
+    throw new ActionConflict(
+      "This slot can no longer be moved. You can still mark it done.",
+    );
+  if (current.reminderId) {
+    const todo = await db.reminder.findUnique({
+      where: { id: current.reminderId },
+    });
+    if (todo?.status === "done" || (todo?.slotId && todo.slotId !== current.id))
+      throw new ActionConflict(
+        "This todo has a newer appointment or is already done.",
+      );
+  }
 
   await db.slot.update({
     where: { id: params.slotId },
     data: {
       startsAt: at(params.startsAt),
       endsAt: at(params.endsAt),
-      // A user-placed slot is pinned from then on, so the next replan leaves it
-      // alone. Auto-moves stay movable but count toward the thrash cap.
+      // Provenance for "Placed by you". All accepted appointments survive
+      // explicit placement; the automatic move count is diagnostic history.
       isLocked: params.actor === "user" ? true : current.isLocked,
       autoMoveCount:
         params.actor === "system"
           ? current.autoMoveCount + 1
           : current.autoMoveCount,
+      // A stopped slot moved inside its start window is the same occurrence.
+      // Its earlier Start/Stop events remain in the log, not a duplicate row.
+      status: ["bucketed", "live", "skipped"].includes(current.status)
+        ? "planned"
+        : current.status,
+      // Wherever it has gone, it is not under the meeting it was under. The
+      // marker is a cache of an overlap, and this call just invalidated it -
+      // which was true of a slot dragged clear by hand long before the bucket
+      // existed, and left a stale clash badge on the timeline.
+      conflictEventId: null,
+      conflictSeverity: null,
     },
   });
 
+  if (current.reminderId)
+    await db.reminder.updateMany({
+      where: { id: current.reminderId },
+      data: {
+        slotId: current.id,
+        status: "slotted",
+        estimatedMinutes: Math.ceil((params.endsAt - params.startsAt) / 60_000),
+      },
+    });
   await recordSlotEvent(
     db,
     {
       slotId: params.slotId,
-      type: params.actor === "user" ? "user_moved" : "auto_moved",
+      type: params.actor === "system" ? "auto_moved" : "user_moved",
       actor: params.actor,
       ...(params.reasonCode !== undefined
         ? { reasonCode: params.reasonCode }
@@ -363,17 +449,126 @@ export async function setSlotStatus(
   params: {
     slotId: string;
     status: SlotStatus;
-    actor: "system" | "user";
+    actor: SlotActor;
     reasonCode?: string;
     reasonText?: string;
+    /** Stable client action id: status and deduplication commit together. */
+    actionId?: string;
+    /** Where it was, and where we would have put it. Only the bucket fills
+     *  these in: a suggestion the user has not answered yet is a position, and
+     *  the log is where a position with no slot to sit on lives. */
+    fromStartsAt?: number;
+    toStartsAt?: number;
   },
   now: number,
   newId: () => string,
 ): Promise<void> {
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) => setSlotStatus(tx, params, now, newId));
+  if (params.actionId) {
+    const fingerprint = JSON.stringify([
+      params.slotId,
+      params.status,
+      params.actor,
+      params.reasonCode ?? null,
+      params.reasonText ?? null,
+    ]);
+    const existing = await db.$queryRawUnsafe<{ fingerprint: string }[]>(
+      "SELECT fingerprint FROM _slot_actions WHERE id = ?",
+      params.actionId,
+    );
+    if (existing[0]) {
+      if (existing[0].fingerprint !== fingerprint)
+        throw new ActionConflict(
+          "Action id already used for a different action",
+        );
+      return;
+    }
+    await db.$executeRawUnsafe(
+      "INSERT INTO _slot_actions (id, slot_id, fingerprint) VALUES (?, ?, ?)",
+      params.actionId,
+      params.slotId,
+      fingerprint,
+    );
+  }
+  const slot = await getSlot(db, params.slotId);
+  if (!slot) throw new ActionConflict("Slot no longer exists");
+  if (slot.status === "completed" && params.status !== "completed")
+    throw new ActionConflict("Completed history cannot be changed");
+  // A repeated Start must not reset the stop window, even with a new action id.
+  if (slot.status === "started" && params.status === "started") return;
+  if (slot.status === "started" && params.actor !== "system") {
+    if (["cancelled", "bucketed", "planned", "live"].includes(params.status))
+      throw new ActionConflict(
+        "A started slot cannot be moved or removed. Stop it first while the stop window is open.",
+      );
+    // After its scheduled end, the existing recovery action can still record
+    // that it didn't happen. That is history, not stopping a running session.
+    if (params.status === "skipped" && now < slot.endsAt) {
+      const starts = await slotStartTimes(db, [slot.id]);
+      if (
+        !canStopSlot({ ...slot, startedAt: starts.get(slot.id) ?? null }, now)
+      )
+        throw new ActionConflict(
+          "The stop window has closed. You can create another slot instead.",
+        );
+    }
+  }
+  if (params.status === "started" && !canStartSlot(slot, now))
+    throw new ActionConflict(
+      "This slot can no longer be started or resumed. You can still mark it done.",
+    );
+  if (
+    params.status === "bucketed" &&
+    slot.status !== "bucketed" &&
+    !(params.actor === "system"
+      ? canRepairSlot(slot, now)
+      : canPostponeSlot(slot, now))
+  )
+    throw new ActionConflict(
+      "This slot can no longer be moved. You can still mark it done.",
+    );
+  if (params.status === "started" && slot.reminderId) {
+    const todo = await db.reminder.findUnique({
+      where: { id: slot.reminderId },
+    });
+    if (todo?.status === "done" || (todo?.slotId && todo.slotId !== slot.id))
+      throw new ActionConflict(
+        "This todo is already done or has a newer appointment",
+      );
+    // An early Stop detaches the todo. Resume still belongs to this slot.
+    await db.reminder.updateMany({
+      where: { id: slot.reminderId, slotId: null, status: "open" },
+      data: { slotId: slot.id },
+    });
+  }
+  if (
+    params.status === "started" &&
+    ["completed", "cancelled", "missed", "bucketed"].includes(slot.status)
+  )
+    throw new ActionConflict("This slot cannot be started");
   await db.slot.updateMany({
     where: { id: params.slotId },
     data: { status: params.status },
   });
+  // An old offline action must never finish or reopen a newer appointment.
+  if (slot.reminderId) {
+    const status =
+      params.status === "completed"
+        ? "done"
+        : ["cancelled", "skipped", "missed", "bucketed"].includes(params.status)
+          ? "open"
+          : "slotted";
+    await db.reminder.updateMany({
+      where: { id: slot.reminderId, slotId: slot.id },
+      data: {
+        status,
+        slotId: ["cancelled", "skipped", "missed"].includes(params.status)
+          ? null
+          : slot.id,
+      },
+    });
+  }
 
   const typeByStatus: Partial<Record<SlotStatus, SlotEventType>> = {
     started: "started",
@@ -381,6 +576,7 @@ export async function setSlotStatus(
     skipped: "skipped",
     missed: "missed",
     cancelled: "cancelled",
+    bucketed: "bucketed",
   };
   const type = typeByStatus[params.status];
   if (!type) return;
@@ -397,9 +593,76 @@ export async function setSlotStatus(
       ...(params.reasonText !== undefined
         ? { reasonText: params.reasonText }
         : {}),
+      ...(params.fromStartsAt !== undefined
+        ? { fromStartsAt: params.fromStartsAt }
+        : {}),
+      ...(params.toStartsAt !== undefined
+        ? { toStartsAt: params.toStartsAt }
+        : {}),
     },
     now,
     newId,
+  );
+}
+
+/**
+ * The bucket: sessions the day no longer has room for.
+ *
+ * Ranged like `listMissed`, and for the same reason - the bucket is a thing
+ * about today, and yesterday's is history rather than a backlog. Nothing here
+ * empties it: a session stays until the user gives it a time or drops it, and
+ * freed time is never quietly claimed.
+ *
+ * Filed by the time it *was* due, which is what makes it sortable and is also
+ * the only honest thing to call a session with no place left.
+ */
+export async function listBucket(
+  db: UserDatabase,
+  from?: number,
+  to?: number,
+): Promise<SlotRow[]> {
+  const rows = await db.slot.findMany({
+    where: {
+      ...(from !== undefined && to !== undefined
+        ? { startsAt: { gte: at(from), lt: at(to) } }
+        : {}),
+      status: "bucketed",
+    },
+    orderBy: { startsAt: "asc" },
+  });
+  return rows.map(toSlot);
+}
+
+/** Routine shortfalls belong to a day, unlike explicitly saved one-off work. */
+export async function listBucketForDay(
+  db: UserDatabase,
+  from: number,
+  to: number,
+): Promise<SlotRow[]> {
+  const rows = await db.slot.findMany({
+    where: {
+      status: "bucketed",
+      OR: [
+        { activityId: null },
+        { reminderId: { not: null } },
+        { startsAt: { gte: at(from), lt: at(to) } },
+      ],
+    },
+    orderBy: { startsAt: "asc" },
+  });
+  return rows.map(toSlot);
+}
+
+export function expiredRoutineBucket(
+  slot: SlotRow,
+  now: number,
+  zone = slot.timeZone,
+): boolean {
+  return (
+    slot.status === "bucketed" &&
+    slot.activityId !== null &&
+    slot.reminderId === null &&
+    slot.startsAt < dayBounds(localDateOf(now, zone), zone, 0, 1440).start
   );
 }
 
@@ -433,7 +696,7 @@ export async function markConflicts(
   conflicts: readonly ConflictMark[],
 ): Promise<void> {
   await db.slot.updateMany({
-    where: { startsAt: { gte: at(range.from), lt: at(range.to) } },
+    where: { startsAt: { lt: at(range.to) }, endsAt: { gt: at(range.from) } },
     data: { conflictEventId: null, conflictSeverity: null },
   });
 
@@ -448,57 +711,47 @@ export async function markConflicts(
   }
 }
 
-/**
- * A slot due for a decision, with the two activity fields that make it.
- *
- * The policy and the grace both live on the activity, and the sweep needs them
- * per slot rather than as one number for everyone - a five-minute eye rest
- * that starts itself and a twenty-five minute focus block you have to commit
- * to are the same row with different answers to these two questions.
- */
-export interface DueSlot extends SlotRow {
-  /** "manual" | "auto" | "prompt". Manual for a slot with no activity behind
-   *  it, which is the behaviour that existed before policies did. */
-  startPolicy: string;
-  graceMinutes: number;
-}
-
-export async function slotsPastGrace(
+/** Due guided slots, including a late wake, but never an already ended slot.
+ * Manual slots are deliberately not background work: time passing only changes
+ * their presentation, leaving the user's outcome and offline actions intact. */
+export async function slotsToAutoStart(
   db: UserDatabase,
   now: number,
   limit: number,
-  /**
-   * How far back to look.
-   *
-   * Without it the sweep matched every planned slot ever, however old. A slot
-   * that started this morning is not "just past its grace period": moving it
-   * five minutes on says nothing, and doing that twice buries it in the missed
-   * list. The auto-move is for a slot whose moment is passing right now;
-   * anything older has already been missed, and saying so is the missed list's
-   * job rather than this one's.
-   */
-  window: number,
-): Promise<DueSlot[]> {
+): Promise<SlotRow[]> {
   const rows = await db.slot.findMany({
     where: {
-      status: "planned",
-      startsAt: { lte: at(now), gt: at(now - window) },
-    },
-    // The policy decides what a locked slot gets, so the lock can no longer be
-    // a filter here: a hand-placed eye rest still has to start itself, it just
-    // must never be moved. See `sweepGrace`.
-    include: {
-      activity: { select: { startPolicy: true, graceMinutes: true } },
+      status: { in: ["planned", "live"] },
+      startsAt: { lte: at(now) },
+      endsAt: { gt: at(now) },
+      activity: { isActive: true, startPolicy: "auto" },
     },
     orderBy: { startsAt: "asc" },
     take: limit,
   });
+  return rows.map(toSlot);
+}
 
-  return rows.map(({ activity, ...row }) => ({
-    ...toSlot(row),
-    startPolicy: activity?.startPolicy ?? "manual",
-    graceMinutes: activity?.graceMinutes ?? 0,
-  }));
+/** Only the latest Start determines who owns completion. An earlier automatic
+ * Start must not auto-complete a subsequent manual Resume of the same slot.
+ * Select before LIMIT, so old manual resumes cannot starve current auto work.
+ * rowid breaks ties between actions recorded at the same millisecond. */
+async function automaticStarts(
+  db: UserDatabase,
+  limit: number,
+): Promise<{ id: string }[]> {
+  return db.$queryRawUnsafe<{ id: string }[]>(
+    `
+    SELECT s.id FROM slots AS s
+    JOIN slot_events AS e ON e.rowid = (
+      SELECT rowid FROM slot_events
+      WHERE slot_id = s.id AND type = 'started'
+      ORDER BY at DESC, rowid DESC LIMIT 1
+    )
+    WHERE s.status = 'started' AND e.actor = 'system' AND e.reason_code = 'auto_start'
+    ORDER BY s.ends_at, s.id LIMIT ?`,
+    limit,
+  );
 }
 
 /**
@@ -513,62 +766,45 @@ export async function autoSlotsToComplete(
   now: number,
   limit: number,
 ): Promise<SlotRow[]> {
+  const ids = await automaticStarts(db, limit);
   const rows = await db.slot.findMany({
     where: {
+      id: { in: ids.map((row) => row.id) },
       status: "started",
       endsAt: { lte: at(now) },
-      activity: { startPolicy: "auto" },
     },
     orderBy: { endsAt: "asc" },
-    take: limit,
   });
   return rows.map(toSlot);
 }
 
-/**
- * Sessions that were started by hand and never finished.
- *
- * `started` is the one status with nothing behind it. An `auto` slot is closed
- * at its end by the query above; a manual one is closed by the person doing
- * it, from inside the session - and if the window is shut, the app quit or the
- * machine sleeps, nobody ever closes it. The row then stays `started` for
- * ever: still "running now" a week later, still counted as scheduled by
- * `scheduledForRange`, so the day never asks for the session again either.
- *
- * The grace is long on purpose. A session that ran over, or a laptop lid shut
- * for ten minutes mid-stretch, is someone still doing the activity, and this
- * must not close a session out from under them. An hour past the end is not
- * that.
- *
- * Any policy, deliberately: run this after `autoSlotsToComplete` and the
- * `auto` ones are already gone, so what is left really is abandoned.
- */
-export async function abandonedSlots(
-  db: UserDatabase,
-  now: number,
-  limit: number,
-  grace: number,
-): Promise<SlotRow[]> {
-  const rows = await db.slot.findMany({
-    where: { status: "started", endsAt: { lte: at(now - grace) } },
-    orderBy: { endsAt: "asc" },
-    take: limit,
-  });
-  return rows.map(toSlot);
-}
-
-/** The next moment anything in this database needs attention, so the directory
- *  can be told when to come back. */
+/** The next actual background deadline. Manual starts remain Needs confirmation;
+ * neither their end nor a legacy grace setting is permission to mutate them. */
 export async function nextGraceDeadline(
   db: UserDatabase,
   after: number,
+  allowAutoStart = true,
 ): Promise<number | undefined> {
-  const row = await db.slot.findFirst({
-    where: { status: "planned", startsAt: { gt: at(after) } },
-    orderBy: { startsAt: "asc" },
-    select: { startsAt: true },
-  });
-  return row ? ms(row.startsAt) : undefined;
+  const [pending, automatic] = await Promise.all([
+    allowAutoStart
+      ? db.slot.findFirst({
+          where: {
+            status: { in: ["planned", "live"] },
+            endsAt: { gt: at(after) },
+            activity: { isActive: true, startPolicy: "auto" },
+          },
+          orderBy: { startsAt: "asc" },
+          select: { startsAt: true },
+        })
+      : Promise.resolve(null),
+    automaticStarts(db, 1),
+  ]);
+  const running = automatic[0] ? await getSlot(db, automatic[0].id) : undefined;
+  const deadlines = [
+    pending ? ms(pending.startsAt) : undefined,
+    running?.endsAt,
+  ].filter((deadline): deadline is number => deadline !== undefined);
+  return deadlines.length ? Math.min(...deadlines) : undefined;
 }
 
 /** Progress so far, for the solver's demand calculation. */
@@ -580,6 +816,29 @@ export async function nextGraceDeadline(
  * already sitting on the timeline* - counting only completions would leave the
  * placement tray asking for three more the moment three were placed.
  */
+/** Explicit "not today" choices consume demand, but pauses/archives do not.
+ * Inspect the last cancellation, so an earlier Undo cannot mask a later pause. */
+export async function userDismissedSlots(
+  db: UserDatabase,
+  from: number,
+  to: number,
+): Promise<{ id: string; activityId: string | null }[]> {
+  const rows = await db.slot.findMany({
+    where: { status: "cancelled", startsAt: { gte: at(from), lt: at(to) } },
+    select: {
+      id: true,
+      activityId: true,
+      events: {
+        where: { type: "cancelled" },
+        orderBy: { at: "desc" },
+        take: 1,
+        select: { reasonCode: true },
+      },
+    },
+  });
+  return rows.filter((row) => row.events[0]?.reasonCode === "user_choice");
+}
+
 export async function scheduledForRange(
   db: UserDatabase,
   from: number,
@@ -588,13 +847,17 @@ export async function scheduledForRange(
   const rows = await db.slot.findMany({
     where: {
       startsAt: { gte: at(from), lt: at(to) },
-      status: { in: ["planned", "live", "started"] },
+      // Accounted-for occurrences, including unused attempts and today's
+      // saved shortfalls, must not also appear as fresh Not placed demand.
+      status: {
+        in: ["planned", "live", "started", "bucketed", "skipped", "missed"],
+      },
     },
     select: { activityId: true },
   });
 
   const byActivity = new Map<string, number>();
-  for (const row of rows) {
+  for (const row of [...rows, ...(await userDismissedSlots(db, from, to))]) {
     if (!row.activityId) continue;
     byActivity.set(row.activityId, (byActivity.get(row.activityId) ?? 0) + 1);
   }
@@ -639,6 +902,20 @@ export async function listMissed(
     orderBy: { startsAt: "asc" },
   });
   return rows.map(toSlot);
+}
+
+/** Latest actual Start per slot, from the durable lifecycle log (also on reload). */
+export async function slotStartTimes(
+  db: UserDatabase,
+  slotIds: readonly string[],
+): Promise<Map<string, number>> {
+  if (slotIds.length === 0) return new Map();
+  const rows = await db.slotEvent.findMany({
+    where: { slotId: { in: [...slotIds] }, type: "started" },
+    select: { slotId: true, at: true },
+    orderBy: { at: "asc" },
+  });
+  return new Map(rows.map((row) => [row.slotId, ms(row.at)]));
 }
 
 export async function listSlotEvents(

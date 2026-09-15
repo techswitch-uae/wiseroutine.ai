@@ -1,0 +1,5 @@
+{
+  "extends": "@wiseroutine/typescript-config/vite.json",
+  "compilerOptions": { "types": ["vite/client", "node"] },
+  "include": ["src", "e2e", "*.ts"]
+}

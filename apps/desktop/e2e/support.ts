@@ -1,14 +1,18 @@
 import { test as base, expect } from "@playwright/test";
+import {
+  FEATURE_KEYS,
+  type FeatureOverrides,
+} from "@wiseroutine/plans/features";
 import { API_URL as DEFAULT_API_URL, E2E_SECRET } from "./environment";
 
 /**
  * What a scenario needs before it can start clicking.
  *
- * Two things the app cannot be asked to do in a test: sign in, which is a code
- * emailed to a real address, and connect a calendar, which is a consent screen
- * on Google's servers. Both go through the Worker's seeding routes instead -
- * see `apps/api/src/routes/testing.ts` for why that is a door with three locks
- * rather than a loosened sign-in.
+ * Most scenarios seed auth and calendar consent so they can focus on the day.
+ * authentication.spec.ts instead drives real OTP generation/verification with
+ * a controlled mail sink. Provider-delivery scenarios drive real ingestion
+ * and repair with controlled external pages. No live email/consent is claimed.
+ * See apps/api/src/routes/testing.ts for the three independent test-only locks.
  */
 
 /**
@@ -45,7 +49,7 @@ export interface SeedCalendar {
   events?: { title: string; startsAt: number; endsAt: number }[];
 }
 
-async function seed<T>(
+export async function seed<T>(
   path: string,
   body: unknown,
   token?: string,
@@ -74,16 +78,18 @@ async function seed<T>(
 }
 
 export const test = base.extend<{
+  features: FeatureOverrides | "all";
   /** Nothing left over from the last scenario. It hands the test nothing -
    *  it only has to have run. */
   clean: undefined;
   /** A signed-in user, already in the browser's storage. */
   signIn: (calendars?: SeedCalendar[]) => Promise<SeededUser>;
 }>({
+  features: [{}, { option: true }],
   /**
-   * Empty both databases before every scenario.
+   * Empty all three databases before every scenario.
    *
-   * Not optional: locally one database serves every user, so without this a
+   * Most fixtures share the primary database, so without this a
    * scenario sees whatever the previous one seeded. That is not a quirk of the
    * fixture - it is what the first run of these tests actually did.
    *
@@ -107,7 +113,7 @@ export const test = base.extend<{
     { auto: true },
   ],
 
-  signIn: async ({ page }, use) => {
+  signIn: async ({ page, features }, use) => {
     await use(async (calendars) => {
       // The seeded user lives in this machine's zone, so "noon" means the
       // same thing to the test and to the server. Left at a fixed zone, a
@@ -116,6 +122,10 @@ export const test = base.extend<{
       // nothing to say about calendars.
       const user = await seed<SeededUser>("/seed", {
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        features:
+          features === "all"
+            ? Object.fromEntries(FEATURE_KEYS.map((key) => [key, true]))
+            : features,
       });
 
       if (calendars?.length) {
@@ -138,6 +148,19 @@ export const test = base.extend<{
 });
 
 export { expect };
+
+/** Seed a routine established before today, optionally already placed by its user. */
+export const seedRoutine = (
+  token: string,
+  activity: Record<string, unknown>,
+  options: {
+    place?: boolean;
+    pastUnplaced?: number;
+    slotStartsAt?: number;
+  } = {},
+) => seed<{ id: string }>("/routine", { activity, ...options }, token);
+export const setFeatures = (user: SeededUser, flags: FeatureOverrides) =>
+  seed<void>("/features", flags, user.token);
 
 /**
  * A wall-clock hour today, in the seeded user's zone - which is this machine's.

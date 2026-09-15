@@ -6,15 +6,22 @@ import {
   StateRow,
   Widget,
 } from "@wiseroutine/design";
+import { releasedWidgets } from "@wiseroutine/plans/features";
+import { canPostponeSlot } from "@wiseroutine/scheduler";
 import { useEffect, useState } from "react";
+import { AddonWidgets } from "../addons/widget";
 import { upNextOf } from "../lib/alerts";
 import { type ActivityProgress, api, type MissedItem } from "../lib/api";
+import { useFeatures } from "../lib/features";
+import { usePicked } from "../lib/picked";
 import { startSlot, usePlan } from "../lib/plan-store";
+import { useSlotClock } from "../lib/slot-clock";
+import { Reschedule } from "./reschedule";
 
 /**
  * The rail's modules, and which of them a plan is allowed.
  *
- * `/today` already answers with the list - `visibleModules` filters the seven
+ * `/today` already answers with the list - `visibleWidgets` filters the seven
  * keys down to what the plan permits - so nothing here decides entitlement.
  * This file only knows how to draw each key, and skips any it does not
  * recognise: a module added to the server before it is drawn here should leave
@@ -58,17 +65,19 @@ function progressOf(row: ActivityProgress): { value: string; ratio: number } {
  * left says so by not asking.
  */
 const UpNext: React.FC = () => {
+  const [moving, setMoving] = useState(false);
   const plan = usePlan();
-  // Its own clock: a countdown that only moved when the timeline re-rendered
-  // would sit still for up to a minute at a time.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
+  const picked = usePicked();
+  const nextId = plan ? upNextOf(plan.slots, Date.now()).slotId : undefined;
+  const now = useSlotClock(plan?.slots.find((slot) => slot.id === nextId));
 
   if (!plan) return null;
   const next = upNextOf(plan.slots, now);
+  // Open as This slot, which carries this card's countdown as its tab. Both at
+  // once named one block twice.
+  if (next.id !== undefined && picked === next.id) return null;
+  const slot = plan.slots.find((s) => s.id === next.slotId);
+  const movable = slot && canPostponeSlot(slot, now);
   // Nothing ahead, so nothing to pin. `title` is the test rather than the
   // whole object: `upNextOf` answers `{}` for an empty day, and a next with no
   // name is not something anyone can act on.
@@ -99,6 +108,24 @@ const UpNext: React.FC = () => {
         >
           Start now
         </Button>
+      ) : null}
+      {movable ? (
+        <Button
+          variant="secondary"
+          block
+          style={{ marginTop: 8 }}
+          onClick={() => setMoving(true)}
+        >
+          Postpone / change time
+        </Button>
+      ) : null}
+      {moving && movable ? (
+        <Reschedule
+          key={slot.id}
+          slot={slot}
+          timeZone={plan.timeZone}
+          onClose={() => setMoving(false)}
+        />
       ) : null}
     </Widget>
   );
@@ -194,11 +221,12 @@ const TodaySoFar: React.FC = () => {
 
 export const DashboardWidgets: React.FC = () => {
   const plan = usePlan();
+  const flags = useFeatures();
   if (!plan) return null;
 
   return (
     <>
-      {plan.modules.map((key) => {
+      {releasedWidgets(flags, plan.widgets).map((key) => {
         switch (key) {
           case "up_next":
             return <UpNext key={key} />;
@@ -220,6 +248,15 @@ export const DashboardWidgets: React.FC = () => {
             return null;
         }
       })}
+      {/* Last, and not from `plan.widgets`: the server's list is the four keys
+          it grants by plan, and an addon's card is not one of those - it is on
+          screen because the user switched that addon on. Which is a decision
+          the server does hold, in `addons.is_enabled`; it simply arrives by a
+          different route.
+
+          See the note on `AddonWidgets` for why they are appended rather than
+          ordered with the rest. */}
+      <AddonWidgets />
     </>
   );
 };

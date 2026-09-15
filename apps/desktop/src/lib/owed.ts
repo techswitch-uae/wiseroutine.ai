@@ -12,8 +12,13 @@ import type { ActivityProgress } from "./api";
 export interface Owed {
   id: string;
   name: string;
+  /** What it is drawn as while it is being dragged onto the day. */
+  kind: "recovery" | "focus" | "task";
   /** Sessions left today. Always at least one, or it would not be here. */
   left: number;
+  /** Sessions the day asked for. "2 of 3" reads as progress; "2" alone reads
+   *  as a demand with no end to it. */
+  of: number;
   minutes: number;
 }
 
@@ -33,13 +38,24 @@ export function owedToday(progress: readonly ActivityProgress[]): Owed[] {
       // only completions would leave the tray asking for three more stretches
       // the moment three were put on the afternoon.
       const placed = row.scheduled ?? 0;
+      const of =
+        row.minimumType === "durationPerDay"
+          ? Math.ceil(row.minimumValue / (minutes || 1))
+          : row.minimumValue;
       const left =
         row.minimumType === "durationPerDay"
           ? Math.ceil(
               Math.max(0, row.minimumValue - row.minutes) / (minutes || 1),
             ) - placed
           : row.minimumValue - row.count - placed;
-      return { id: row.id, name: row.name, left: Math.max(0, left), minutes };
+      return {
+        id: row.id,
+        name: row.name,
+        kind: row.kind,
+        left: Math.max(0, left),
+        of,
+        minutes,
+      };
     })
     .filter((row) => row.left > 0);
 }

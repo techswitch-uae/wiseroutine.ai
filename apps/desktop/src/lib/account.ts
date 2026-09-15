@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { onSessionReset } from "./session-lifecycle";
 
 /**
  * The signed-in account, shared by the rail and the account page.
@@ -39,9 +40,11 @@ export interface Account {
   customRangeEndMinutes: number | null;
   dayOpensOn: "working" | "full" | "custom";
   showOutsideRange: boolean;
+  storeEventTitles?: boolean;
 }
 
 let current: Account | null = null;
+onSessionReset(() => setAccount(null));
 const listeners = new Set<() => void>();
 
 export function setAccount(next: Account | null): void {

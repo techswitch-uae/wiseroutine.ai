@@ -1,5 +1,12 @@
 import type { CalendarEvent } from "@wiseroutine/scheduler";
-import { at, atOrNull, ms, type UserDatabase } from "../client";
+import {
+  at,
+  atOrNull,
+  isTransaction,
+  ms,
+  type UserDatabase,
+  userTransaction,
+} from "../client";
 
 export interface NormalisedEvent {
   providerEventId: string;
@@ -16,7 +23,22 @@ export interface NormalisedEvent {
   isCancelled: boolean;
   changeTag?: string | null;
   providerUpdatedAt?: number | null;
+  joinUrl?: string | null;
+  description?: string | null;
 }
+
+/**
+ * A stored event, as everything above the database wants it.
+ *
+ * `CalendarEvent` is the scheduler's, and the solver has no use for a join
+ * link - so rather than push a screen's field into a type that exists to be
+ * free of them, the extra travels alongside.
+ */
+export type StoredEvent = CalendarEvent & {
+  joinUrl: string | null;
+  description: string | null;
+  provider: "google" | "microsoft";
+};
 
 export interface UpsertResult {
   written: number;
@@ -38,24 +60,39 @@ export async function upsertEvents(
   newId: () => string,
 ): Promise<UpsertResult> {
   if (events.length === 0) return { written: 0, skipped: 0 };
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) =>
+      upsertEvents(tx, params, events, now, newId),
+    );
+  // A stale sync target must not undo a privacy preference committed while
+  // the provider fetch was in flight. Check under the same writer lock.
+  const storeTitles = params.storeTitles && (await storesEventDetails(db));
 
   const existing = await db.externalEvent.findMany({
     where: { calendarId: params.calendarId },
-    select: { providerEventId: true, changeTag: true },
+    select: {
+      providerEventId: true,
+      changeTag: true,
+      title: true,
+      joinUrl: true,
+      description: true,
+    },
   });
 
-  const tagById = new Map(
-    existing.map((e) => [e.providerEventId, e.changeTag]),
-  );
+  const byId = new Map(existing.map((e) => [e.providerEventId, e]));
   let written = 0;
   let skipped = 0;
 
   for (const event of events) {
-    const knownTag = tagById.get(event.providerEventId);
+    const known = byId.get(event.providerEventId);
+    // Provider tags describe the original event, not our privacy projection.
+    // An unchanged event must regain erased details after a fresh opt-in.
     if (
-      knownTag !== undefined &&
-      knownTag !== null &&
-      knownTag === event.changeTag
+      known?.changeTag != null &&
+      known.changeTag === event.changeTag &&
+      known.title === (storeTitles ? (event.title ?? null) : null) &&
+      known.joinUrl === (storeTitles ? (event.joinUrl ?? null) : null) &&
+      known.description === (storeTitles ? (event.description ?? null) : null)
     ) {
       skipped++;
       continue;
@@ -68,7 +105,12 @@ export async function upsertEvents(
       seriesMasterId: event.seriesMasterId ?? null,
       // Data minimisation: a user can opt out of storing titles entirely and
       // keep only busy intervals.
-      title: params.storeTitles ? (event.title ?? null) : null,
+      title: storeTitles ? (event.title ?? null) : null,
+      // Under the same opt-out as the title: a join link names the meeting's
+      // host and its room, which is the thing someone turning titles off is
+      // asking us not to keep.
+      joinUrl: storeTitles ? (event.joinUrl ?? null) : null,
+      description: storeTitles ? (event.description ?? null) : null,
       startsAt: at(event.startsAt),
       endsAt: at(event.endsAt),
       timeZone: event.timeZone ?? null,
@@ -130,7 +172,7 @@ export async function listEventsInRange(
   db: UserDatabase,
   from: number,
   to: number,
-): Promise<CalendarEvent[]> {
+): Promise<StoredEvent[]> {
   const rows = await db.externalEvent.findMany({
     where: {
       deletedAt: null,
@@ -138,13 +180,18 @@ export async function listEventsInRange(
       endsAt: { gte: at(from) },
       calendar: { isSelected: true },
     },
+    include: {
+      calendar: { select: { connection: { select: { provider: true } } } },
+    },
   });
 
+  const storeTitles = await storesEventDetails(db);
   return rows.map((row) => ({
     id: row.id,
     calendarId: row.calendarId,
+    provider: row.calendar.connection.provider as StoredEvent["provider"],
     icalUid: row.icalUid ?? undefined,
-    title: row.title ?? undefined,
+    title: storeTitles ? (row.title ?? undefined) : undefined,
     start: ms(row.startsAt),
     end: ms(row.endsAt),
     isAllDay: row.isAllDay,
@@ -152,6 +199,8 @@ export async function listEventsInRange(
     busyStatus: row.busyStatus as CalendarEvent["busyStatus"],
     responseStatus: row.responseStatus as CalendarEvent["responseStatus"],
     isCancelled: row.isCancelled,
+    joinUrl: storeTitles ? (row.joinUrl ?? null) : null,
+    description: storeTitles ? (row.description ?? null) : null,
   }));
 }
 
@@ -166,6 +215,47 @@ export async function pruneEventsBefore(
 
 /** Turning titles off must also remove the ones already stored, or the setting
  *  is a promise we only keep going forward. */
+export async function storesEventDetails(db: UserDatabase): Promise<boolean> {
+  const rows = await db.$queryRawUnsafe<{ store_titles: number }[]>(
+    "SELECT store_titles FROM _event_privacy WHERE id = 1",
+  );
+  return Number(rows[0]?.store_titles) === 1;
+}
+
+export async function setEventPrivacy(
+  db: UserDatabase,
+  storeTitles: boolean,
+): Promise<void> {
+  await userTransaction(db, async (tx) => {
+    const wasEnabled = await storesEventDetails(tx);
+    if (storeTitles && !wasEnabled) {
+      // Incremental feeds do not resend unchanged meetings. Invalidate both
+      // providers' cursors, including deselected calendars for their next sync.
+      // A generation change also fences provider fetches already in flight.
+      const calendars = await tx.calendar.findMany({ select: { id: true } });
+      for (const { id: calendarId } of calendars) {
+        await tx.calendarSyncState.upsert({
+          where: { calendarId },
+          create: { calendarId, syncGeneration: 1 },
+          update: {
+            syncToken: null,
+            deltaLink: null,
+            syncGeneration: { increment: 1 },
+          },
+        });
+      }
+    }
+    await tx.$executeRawUnsafe(
+      "UPDATE _event_privacy SET store_titles = ? WHERE id = 1",
+      storeTitles ? 1 : 0,
+    );
+    if (!storeTitles)
+      await tx.externalEvent.updateMany({
+        data: { title: null, joinUrl: null, description: null },
+      });
+  });
+}
+
 export async function forgetStoredTitles(db: UserDatabase): Promise<void> {
-  await db.externalEvent.updateMany({ data: { title: null } });
+  await setEventPrivacy(db, false);
 }

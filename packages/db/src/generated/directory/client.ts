@@ -73,6 +73,12 @@ export type Account = Prisma.AccountModel
  */
 export type Verification = Prisma.VerificationModel
 /**
+ * Model SocialHandoff
+ * Short-lived desktop OAuth handoffs. Claims are consumed in a directory
+ * write transaction, never read/delete through eventually consistent KV.
+ */
+export type SocialHandoff = Prisma.SocialHandoffModel
+/**
  * Model RateLimit
  * Better Auth's rate-limit counters.
  * 

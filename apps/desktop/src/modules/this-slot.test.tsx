@@ -1,10 +1,23 @@
+import "../test-support/future-features";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { testAddon } from "../addons/fixtures";
+import { seedAddons } from "../addons/installed";
 import type { TodayResponse, TodaySlot } from "../lib/api";
 import { pick } from "../lib/picked";
 import { publishMove, publishPlan, publishStart } from "../lib/plan-store";
 import { ThisSlot } from "./this-slot";
+
+/** Where a press on Join ends up. The real one hands the URL to the operating
+ *  system, which a test has no business doing. */
+const opened: string[] = [];
+vi.mock("../lib/open-external", () => ({
+  openExternal: async (url: string) => {
+    opened.push(url);
+    return true;
+  },
+}));
 
 /**
  * The rail's answer to "what is this block, and what can I do about it".
@@ -29,6 +42,9 @@ const AT = Date.UTC(2026, 7, 11, 9, 0);
  */
 beforeEach(() => {
   vi.useFakeTimers({ now: AT + 60_000, shouldAdvanceTime: true });
+  // Guided sessions are addons, so the rail has nothing to say about one
+  // unless it is installed. The fixture stands in for all four of ours.
+  seedAddons([testAddon()]);
 });
 
 vi.mock("../lib/api", async (importOriginal) => ({
@@ -46,14 +62,15 @@ vi.mock("../lib/notify", async (importOriginal) => ({
 
 const slot = (over: Partial<TodaySlot> = {}): TodaySlot => ({
   id: "s1",
-  title: "Eye rest",
+  title: "Workout",
   kind: "recovery",
   startsAt: AT,
+  startedAt: AT,
   endsAt: AT + 5 * 60_000,
   status: "planned",
   isLocked: false,
   conflictEventId: null,
-  presetKey: "eye_rest",
+  presetKey: "acme.fitness/workout",
   ...over,
 });
 
@@ -69,7 +86,7 @@ const day = (over: Partial<TodayResponse> = {}): TodayResponse =>
     meetings: [],
     outside: { before: [], after: [] },
     syncedAt: null,
-    modules: [],
+    widgets: [],
     progress: [],
     ...over,
   }) as unknown as TodayResponse;
@@ -81,6 +98,7 @@ const show = (response: TodayResponse, picked: string | null = "s1") => {
 };
 
 afterEach(() => {
+  opened.length = 0;
   publishPlan(null);
   pick(null);
   vi.useRealTimers();
@@ -93,9 +111,43 @@ test("nothing is picked, so there is nothing to say", () => {
 
 test("names the block, when it is, and how long it runs", () => {
   show(day());
-  expect(screen.getByText("Eye rest")).toBeTruthy();
+  expect(screen.getByText("Workout")).toBeTruthy();
   expect(screen.getByText(/09:00–09:05/)).toBeTruthy();
   expect(screen.getByText(/· 5 min$/)).toBeTruthy();
+});
+
+// Up next steps out of the rail while its block is open here, so its countdown
+// comes along as the head. Any other block keeps the plain one.
+test("the block up next carries Up next's countdown as its head", () => {
+  const due = show(day());
+  expect(screen.getByText("Up next")).toBeTruthy();
+  expect(screen.getByText("Now")).toBeTruthy();
+  due.unmount();
+
+  const ahead = show(
+    day({
+      slots: [
+        slot({
+          startsAt: AT + 18 * 60_000,
+          endsAt: AT + 28 * 60_000,
+          startedAt: null,
+        }),
+      ],
+    }),
+  );
+  expect(screen.getByText("in 17m")).toBeTruthy();
+  ahead.unmount();
+
+  const later = slot({
+    id: "s2",
+    title: "Walk",
+    startsAt: AT + 30 * 60_000,
+    endsAt: AT + 45 * 60_000,
+    startedAt: null,
+  });
+  show(day({ slots: [slot(), later] }), "s2");
+  expect(screen.getByText("This slot")).toBeTruthy();
+  expect(screen.queryByText("Up next")).toBeNull();
 });
 
 test("a block still ahead of you can be nudged and started", async () => {
@@ -124,13 +176,17 @@ test("a block that has begun or is over offers no nudge", () => {
   }
 });
 
-test("says which of the two reasons it cannot be moved", () => {
+test("shows running and done as accessible cues, not explanatory paragraphs", () => {
   const running = show(day({ slots: [slot({ status: "started" })] }));
-  expect(screen.getByText(/Running now/)).toBeTruthy();
+  expect(screen.getByRole("img", { name: "Running" })).toBeTruthy();
+  expect(screen.queryByText(/Running now/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
   running.unmount();
 
   show(day({ slots: [slot({ status: "completed" })] }));
-  expect(screen.getByText(/^Done\./)).toBeTruthy();
+  expect(screen.getByRole("img", { name: "Done" })).toBeTruthy();
+  expect(screen.queryByText(/^Done/, { selector: "p" })).toBeNull();
+  expect(screen.queryByText(/does not move/)).toBeNull();
 });
 
 /**
@@ -139,6 +195,150 @@ test("says which of the two reasons it cannot be moved", () => {
  * that completes a slot lived inside a session that this activity does not
  * have.
  */
+test.each([1, 3, 4, 10])(
+  "a %i-minute block hides Stop at the exact cutoff without a plan refresh",
+  (minutes) => {
+    vi.useFakeTimers({ now: AT, shouldAdvanceTime: false });
+    const duration = minutes * 60_000;
+    show(
+      day({
+        slots: [
+          slot({ status: "started", presetKey: null, endsAt: AT + duration }),
+        ],
+      }),
+    );
+    expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+    const cutoff = Math.min(duration / 2, 120_000);
+    act(() => vi.advanceTimersByTime(cutoff - 1));
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
+    expect(screen.getByRole("img", { name: "Running" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mark it done" })).toBeTruthy();
+  },
+);
+
+test("completion and Stop wait for the pending Start before sending another action", () => {
+  show(
+    day({
+      slots: [slot({ status: "started", presetKey: null, starting: true })],
+    }),
+  );
+  expect(screen.getByRole("img", { name: "Running" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Mark it done" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(screen.getByRole("button", { name: "Stop" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  act(() =>
+    publishPlan(day({ slots: [slot({ status: "started", presetKey: null })] })),
+  );
+  expect(screen.getByRole("button", { name: "Mark it done" })).toHaveProperty(
+    "disabled",
+    false,
+  );
+  expect(screen.getByRole("button", { name: "Stop" })).toHaveProperty(
+    "disabled",
+    false,
+  );
+});
+
+test("an early Stop unlocks postponement only once the plan confirms it", async () => {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  const { api } = await import("../lib/api");
+  show(day({ slots: [slot({ status: "started", presetKey: null })] }));
+  await user.click(screen.getByRole("button", { name: "Stop" }));
+  expect(api.skipSlot).toHaveBeenCalledWith("s1");
+  expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
+  act(() =>
+    publishPlan(day({ slots: [slot({ status: "skipped", presetKey: null })] })),
+  );
+  expect(screen.getByRole("button", { name: /Postpone/ })).toBeTruthy();
+});
+
+test.each(["planned", "live", "skipped"] as const)(
+  "%s loses movement at the cutoff; first Start stays available until the end",
+  (status) => {
+    vi.useFakeTimers({ now: AT + 119_999, shouldAdvanceTime: false });
+    show(
+      day({
+        slots: [slot({ status, presetKey: null, startedAt: AT - 300_000 })],
+      }),
+    );
+    expect(
+      screen.getByRole("button", {
+        name: status === "skipped" ? "Resume" : "Start",
+      }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Postpone/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Later" })).toBeTruthy();
+    act(() => vi.advanceTimersByTime(1));
+    expect(
+      screen.queryByRole("button", { name: /^(Resume|Earlier|Later)$/ }),
+    ).toBeNull();
+    expect(Boolean(screen.queryByRole("button", { name: "Start" }))).toBe(
+      status !== "skipped",
+    );
+    expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
+    act(() => vi.advanceTimersByTime(slot().endsAt - (AT + 120_000)));
+    expect(
+      screen.queryByRole("button", { name: /^(Start|Resume)$/ }),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Mark it done" })).toBeTruthy();
+  },
+);
+
+test("waking after an early-stopped slot's start cutoff cannot renew Resume or Postpone", () => {
+  vi.useFakeTimers({ now: AT - 300_000, shouldAdvanceTime: false });
+  show(
+    day({
+      slots: [
+        slot({ status: "skipped", presetKey: null, startedAt: AT - 600_000 }),
+      ],
+    }),
+  );
+  expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+  vi.setSystemTime(AT + 120_000);
+  act(() => window.dispatchEvent(new Event("focus")));
+  expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "Mark it done" })).toBeTruthy();
+});
+
+test("a newly selected slot uses its actual Start, not the card's old clock or scheduled start", () => {
+  show(
+    day({
+      slots: [
+        slot({ status: "started", presetKey: null, startedAt: AT + 59_000 }),
+      ],
+    }),
+  );
+  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+  act(() => vi.advanceTimersByTime(60_000));
+  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+  act(() => window.dispatchEvent(new Event("focus")));
+  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+});
+
+test("waking after the cutoff removes Stop even before the next interval", () => {
+  show(day({ slots: [slot({ status: "started", presetKey: null })] }));
+  expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+  vi.setSystemTime(AT + 180_000);
+  act(() => window.dispatchEvent(new Event("focus")));
+  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+});
+
+test("a reloaded expired session cannot gain another stop window", () => {
+  vi.setSystemTime(AT + 180_000);
+  show(day({ slots: [slot({ status: "started", presetKey: null })] }));
+  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+});
+
 test("a running block with no session of its own can be finished here", async () => {
   const { api } = await import("../lib/api");
   const user = userEvent.setup();
@@ -172,14 +372,48 @@ test("marking it done is offered, quietly, beside Start", () => {
   ]);
 });
 
+/**
+ * A different time or day is reached from the time itself, not from a
+ * full-width button that outweighed the stepper. It stays reachable by name.
+ */
+test("the time is the way to postpone a block", () => {
+  show(day());
+  expect(
+    screen.getByRole("button", { name: /^Postpone \/ change time, / }),
+  ).toBeTruthy();
+});
+
+test("the time is plain text once the block cannot move", () => {
+  show(day({ slots: [slot({ status: "completed" })] }));
+  expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
+});
+
 test("nothing is offered for a block that is already over", () => {
   show(day({ slots: [slot({ status: "completed" })] }));
   expect(document.querySelectorAll(".wr-btn")).toHaveLength(0);
 });
 
 test("says what a session is going to do before it is started", () => {
+  // The blurb comes from the addon's manifest, so this is also the check that
+  // the rail reads an addon's own words rather than a table of its own.
   show(day());
-  expect(screen.getByText(/the screen dims/)).toBeTruthy();
+  expect(screen.getByText(/counts you through the set/)).toBeTruthy();
+});
+
+/**
+ * An addon switched off leaves a plain timed block, not a broken one.
+ *
+ * The activity keeps its `presetKey`, so the row still names an addon - the
+ * addon is simply not there to answer. The rail must then offer exactly what
+ * it offers any block with no session: Start, and Mark it done. This is the
+ * user-visible half of the rule the whole boundary rests on.
+ */
+test("a block whose addon is switched off is still a block", () => {
+  seedAddons([]);
+  show(day());
+  expect(screen.queryByText(/counts you through the set/)).toBeNull();
+  expect(screen.getByRole("button", { name: "Start" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Mark it done" })).toBeTruthy();
 });
 
 // Someone else's block. We never write back to the calendar it came from, so
@@ -201,9 +435,45 @@ test("a meeting is described and left alone", () => {
     "m1",
   );
   expect(screen.getByText("Design review")).toBeTruthy();
-  expect(screen.getByText(/never writes back/)).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+  expect(
+    screen.queryByRole("button", {
+      name: /^(Start|Resume|Stop|Postpone|Mark it done)$/,
+    }),
+  ).toBeNull();
 });
+
+test.each(["google", "microsoft"] as const)(
+  "a private meeting keeps its %s provenance but has no activity controls",
+  (provider) => {
+    show(
+      day({
+        slots: [],
+        meetings: [
+          {
+            id: "private",
+            title: null,
+            provider,
+            startsAt: AT,
+            endsAt: AT + 3_600_000,
+            isAllDay: false,
+          },
+        ],
+      }),
+      "private",
+    );
+    expect(screen.getByText("Busy")).toBeTruthy();
+    expect(
+      screen.getByText(
+        `${provider === "google" ? "Google" : "Outlook"} · 09:00–10:00`,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", {
+        name: /^(Start|Resume|Stop|Postpone|Mark it done)$/,
+      }),
+    ).toBeNull();
+  },
+);
 
 // Removed, replanned out, or the day rolled over. There is no block to
 // describe any more, and describing the last one seen would be a lie.
@@ -258,8 +528,9 @@ test("a block left started overnight asks what happened", async () => {
     }),
   );
 
-  // Not running, and not something to carry on with.
-  expect(screen.queryByText(/Running now/)).toBeNull();
+  // The outcome is unknown; don't invent a reason such as closing the app.
+  expect(screen.getByText("Needs confirmation")).toBeTruthy();
+  expect(screen.queryByRole("img", { name: "Running" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
@@ -327,4 +598,171 @@ test("stays quiet when the action actually went through", async () => {
   // absence of a toast - otherwise this passes for the wrong reason.
   await waitFor(() => expect(api.completeSlot).toHaveBeenCalled());
   expect(notify).not.toHaveBeenCalled();
+});
+
+/**
+ * The card is put away by more than its own X: pressing the day behind the
+ * rail, or paging to another day, clears the selection too. Those used to go
+ * from a full card to nothing in one frame, taking the card's height with them
+ * and jumping everything below up.
+ */
+test("collapses when the selection is cleared from outside", () => {
+  show(day());
+  act(() => {
+    pick(null);
+  });
+  // Still mounted, and on its way out.
+  expect(screen.getByText("Workout")).toBeTruthy();
+
+  act(() => {
+    vi.advanceTimersByTime(400);
+  });
+  expect(screen.queryByText("Eye rest")).toBeNull();
+});
+
+/**
+ * The one thing that can be done to someone else's block.
+ *
+ * Both providers have always sent the link; it was read off the wire and
+ * thrown away, so a card could say when a call was and never how to get into
+ * it. It opens in the real browser - the one already signed in to it - and
+ * never in the app's own webview, which would replace the app.
+ */
+test("offers the meeting's own join link, named by where it goes", async () => {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  show(
+    day({
+      slots: [],
+      meetings: [
+        {
+          id: "m1",
+          title: "Design review",
+          startsAt: AT,
+          endsAt: AT + 3_600_000,
+          isAllDay: false,
+          joinUrl: "https://meet.google.com/abc-defg-hij",
+        },
+      ],
+    }),
+    "m1",
+  );
+
+  const join = screen.getByRole("button", { name: "Join Google Meet" });
+  await user.click(join);
+  expect(opened).toEqual(["https://meet.google.com/abc-defg-hij"]);
+});
+
+// Most meetings are in a room. A button that opens nothing is worse than no
+// button.
+test("says nothing about joining a meeting that is not online", () => {
+  show(
+    day({
+      slots: [],
+      meetings: [
+        {
+          id: "m1",
+          title: "Standup",
+          startsAt: AT,
+          endsAt: AT + 900_000,
+          isAllDay: false,
+          joinUrl: null,
+        },
+      ],
+    }),
+    "m1",
+  );
+  expect(screen.queryByRole("button", { name: /^Join/ })).toBeNull();
+});
+
+/**
+ * Everything else the organiser wrote.
+ *
+ * A press away rather than in the rail: the agenda for an hour-long meeting
+ * would push the day itself off the screen. Plain text, because an invitation
+ * body is markup written outside this app and the one safe thing to do with it
+ * is not to render it.
+ */
+test("keeps the meeting's own detail behind a press", async () => {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  show(
+    day({
+      slots: [],
+      meetings: [
+        {
+          id: "m1",
+          title: "Meeting with ArMa Global",
+          startsAt: AT,
+          endsAt: AT + 3_600_000,
+          isAllDay: false,
+          joinUrl: null,
+          description: "Agenda:\n- the deck\n- the numbers",
+        },
+      ],
+    }),
+    "m1",
+  );
+
+  expect(screen.queryByText(/Agenda/)).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Show details" }));
+  expect(screen.getByText(/the numbers/)).toBeTruthy();
+});
+
+// Most meetings say nothing beyond their name. A button that opens an empty
+// sheet is worse than no button.
+test("offers no details for a meeting that has none", () => {
+  show(
+    day({
+      slots: [],
+      meetings: [
+        {
+          id: "m1",
+          title: "Standup",
+          startsAt: AT,
+          endsAt: AT + 900_000,
+          isAllDay: false,
+          joinUrl: null,
+          description: null,
+        },
+      ],
+    }),
+    "m1",
+  );
+  expect(screen.queryByRole("button", { name: "Show details" })).toBeNull();
+});
+
+/**
+ * The organiser's own emphasis and links, as elements.
+ *
+ * The description is stored as a small notation - see `toRichText` - precisely
+ * so that showing it never means parsing markup: a link is a button that hands
+ * the URL to the operating system, exactly like the Join button above it.
+ */
+test("renders the description's links and emphasis", async () => {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  show(
+    day({
+      slots: [],
+      meetings: [
+        {
+          id: "m1",
+          title: "Meeting with ArMa Global",
+          startsAt: AT,
+          endsAt: AT + 3_600_000,
+          isAllDay: false,
+          joinUrl: null,
+          description:
+            "Bring the **deck**.\nNotes: [the brief](https://example.com/brief)",
+        },
+      ],
+    }),
+    "m1",
+  );
+
+  await user.click(screen.getByRole("button", { name: "Show details" }));
+  // The markers are formatting, not text: nobody should read an asterisk.
+  expect(screen.queryByText(/\*\*/)).toBeNull();
+  expect(screen.getByText("deck").tagName).toBe("STRONG");
+
+  await user.click(screen.getByRole("button", { name: "the brief" }));
+  expect(opened).toEqual(["https://example.com/brief"]);
 });

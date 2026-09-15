@@ -1,6 +1,15 @@
 import type { Locator, Page } from "@playwright/test";
 import { API_URL } from "./environment";
-import { dayShown, expect, meetingAt, test } from "./support";
+import {
+  dayShown,
+  expect,
+  meetingAt,
+  seedRoutine,
+  setFeatures,
+  test,
+} from "./support";
+
+test.use({ features: "all" });
 
 /**
  * Activities, from an empty account to blocks on the day.
@@ -34,21 +43,13 @@ async function seedActivity(
   token: string,
   input: Record<string, unknown>,
 ): Promise<void> {
-  const response = await fetch(`${API_URL}/activities`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(input),
-  });
-  if (!response.ok) {
-    throw new Error(`could not seed an activity: ${response.status}`);
-  }
+  await seedRoutine(token, input);
 }
 
 const libraryChip = (page: Page, name: string): Locator =>
-  page.locator(".wr-library-chip", { hasText: name });
+  page
+    .locator(".wr-library-chip", { hasText: name })
+    .locator(".wr-library-pick");
 
 /** One row in "Yours", addressed by the activity's own name. */
 const activity = (page: Page, name: string): Locator =>
@@ -84,7 +85,7 @@ test("the set-up module lists three real steps and cannot be skipped", async ({
   await dayShown(page);
 
   await expect(step(page, "Connect a calendar")).toBeVisible();
-  await expect(step(page, "Add two activities")).toBeVisible();
+  await expect(step(page, "Add your first activity")).toBeVisible();
   await expect(step(page, "Confirm working hours")).toBeVisible();
 
   // Every step is something the app cannot work without, so there is no way
@@ -110,17 +111,17 @@ test("a connected calendar ticks its own step, and activities tick theirs", asyn
   await expect(progress(page)).toHaveText("1 of 3");
 
   // The activities step sends you to the page that fixes it.
-  await step(page, "Add two activities")
+  await step(page, "Add your first activity")
     .getByRole("button", { name: "Add an activity" })
     .click();
   await expect(page).toHaveURL(/\/activities$/);
 
-  await add(page, "Shoulder stretch");
-  await add(page, "Eye rest");
+  // One activity, not two, satisfies the setup target.
+  await add(page, "Stretch");
 
   await page.goto("/");
   await dayShown(page);
-  await expect(step(page, "Add two activities")).toHaveClass(
+  await expect(step(page, "Add your first activity")).toHaveClass(
     /wr-setup-step-done/,
   );
   await expect(progress(page)).toHaveText("2 of 3");
@@ -137,36 +138,37 @@ test("a new account starts with nothing, and the counter says so", async ({
 
   // Six starter activities used to be written into every new database, which
   // made this counter a lie the first time anyone read it.
-  await expect(page.getByText("0 of 2 used")).toBeVisible();
+  await expect(page.getByText("0 of 3 used")).toBeVisible();
   await expect(page.locator(".wr-activity-row")).toHaveCount(0);
 });
 
-test("free keeps two, and removing one makes room for another", async ({
+test("free keeps three, and removing one makes room for another", async ({
   page,
   signIn,
 }) => {
   await signIn();
   await openActivities(page);
 
-  await add(page, "Shoulder stretch");
+  await add(page, "Stretch");
   await add(page, "Eye rest");
-  await expect(page.getByText("2 of 2 used")).toBeVisible();
+  await add(page, "Walk");
+  await expect(page.getByText("3 of 3 used")).toBeVisible();
 
   // At the limit the whole palette is refused, not each chip in turn.
-  await expect(libraryChip(page, "Walk")).toBeDisabled();
-  await expect(page.getByText("Free keeps two active at a time")).toBeVisible();
+  await expect(libraryChip(page, "Water")).toBeDisabled();
+  await expect(
+    page.getByText("Your routine keeps 3 active at a time"),
+  ).toBeVisible();
 
-  // Remove is the only way out for now. Pausing would keep the activity and
-  // free the place, and it is going to be a Pro capability - so it is not
-  // offered to everyone first and taken away afterwards.
+  // Removal frees a place without adding a separate Pause control.
   await activity(page, "Eye rest")
     .getByRole("button", { name: "Remove" })
     .click();
   await expect(activity(page, "Eye rest")).toHaveCount(0);
-  await expect(page.getByText("1 of 2 used")).toBeVisible();
+  await expect(page.getByText("2 of 3 used")).toBeVisible();
 
-  await add(page, "Walk");
-  await expect(page.getByText("2 of 2 used")).toBeVisible();
+  await add(page, "Water");
+  await expect(page.getByText("3 of 3 used")).toBeVisible();
 });
 
 test("an edit survives a reload, and says Update rather than Add", async ({
@@ -175,11 +177,9 @@ test("an edit survives a reload, and says Update rather than Add", async ({
 }) => {
   await signIn();
   await openActivities(page);
-  await add(page, "Shoulder stretch");
+  await add(page, "Stretch");
 
-  await activity(page, "Shoulder stretch")
-    .getByRole("button", { name: "Edit" })
-    .click();
+  await activity(page, "Stretch").getByRole("button", { name: "Edit" }).click();
   await expect(sheet(page)).toBeVisible();
   // Which job the sheet is doing is said on its one committing button.
   await expect(
@@ -187,15 +187,16 @@ test("an edit survives a reload, and says Update rather than Add", async ({
   ).toHaveCount(0);
 
   await sheet(page).getByRole("button", { name: "How long: more" }).click();
-  await sheet(page).getByRole("button", { name: "Mornings" }).click();
+  // Availability alone never grants advanced controls to this Free account.
+  await expect(
+    sheet(page).getByRole("button", { name: "Mornings" }),
+  ).toHaveCount(0);
   await sheet(page).getByRole("button", { name: "Update" }).click();
   await expect(sheet(page)).toBeHidden();
 
   await page.reload();
   await expect(
-    activity(page, "Shoulder stretch").getByText(
-      "15 min · 3 × day · Every day · mornings",
-    ),
+    activity(page, "Stretch").getByText("15 min · 3 × day · Every day"),
   ).toBeVisible();
 });
 
@@ -248,31 +249,47 @@ test("an activity on no days cannot be saved", async ({ page, signIn }) => {
 
 /* ── On the day ──────────────────────────────────────────────────────────── */
 
-test("an added activity is planned onto today", async ({ page, signIn }) => {
-  await signIn(CALENDARS);
+test("a newly added routine starts tomorrow in Not placed, not on today's calendar", async ({
+  page,
+  signIn,
+}) => {
+  const user = await signIn(CALENDARS);
+  await setFeatures(user, { day_view_options: true });
   await openActivities(page);
-  await add(page, "Shoulder stretch");
+  await add(page, "Stretch");
 
   await page.goto("/");
   await dayShown(page);
 
-  // The whole day is planned whatever the clock says, so this holds at nine in
-  // the evening as well as at nine in the morning - which is the bug that
-  // started this: an activity added after six placed nothing, and Today drew
-  // an empty ruler with no explanation on it.
   await expect(
-    page.locator(".wr-daygrid-item", { hasText: "Shoulder stretch" }).first(),
+    page.locator(".wr-daygrid-item", { hasText: "Stretch" }),
+  ).toHaveCount(0);
+  await expect(page.getByText(/Your routine starts on/)).toBeVisible();
+  const response = await page.request.get(`${API_URL}/activities`, {
+    headers: { authorization: `Bearer ${user.token}` },
+  });
+  const rows = await response.json();
+  await page.goto(`/?date=${rows[0].changesFrom}`);
+  await dayShown(page);
+  await expect(
+    page
+      .locator(".wr-widget", {
+        has: page.getByText("Not placed", { exact: true }),
+      })
+      .getByText("Stretch", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.locator(".wr-daygrid-item", { hasText: "Stretch" }),
+  ).toHaveCount(0);
 });
 
-test("opening the day places the activities, with nobody having asked", async ({
+test("an established, already placed routine is shown on Today", async ({
   page,
   signIn,
 }) => {
   const user = await signIn(CALENDARS);
 
-  // Straight into the database, and nothing plans it. Days ahead are never
-  // filled in, so until someone opens this day there is nothing on it.
+  // This fixture begins after the user placed an established routine.
   await seedActivity(user.token, {
     name: "Eye rest",
     sessionMinutes: 5,
@@ -446,22 +463,38 @@ test("a deleted slot stays gone for today, and only for today", async ({
   await page.keyboard.press("Delete");
   await expect(slot).toHaveCount(0);
 
-  // Opening the day re-plans anything missing from it, so this is the test
-  // that "off today" is not silently undone a second later: the cancelled slot
-  // is still a row, which is what keeps the activity from being re-placed.
+  // Reload does not place anything. Explicit placement must also respect
+  // today's dismissal rather than silently replacing the cancelled slot.
   await page.reload();
   await dayShown(page);
   await expect(slot).toHaveCount(0);
 
-  // Tomorrow is a different day and knows nothing about it. Asked of the
-  // server directly, because the day view offers no way to walk to another
-  // date - and "only for today" is a claim about the plan, not about a screen.
+  const headers = { authorization: `Bearer ${user.token}` };
+  await page.request.post(`${API_URL}/plan`, { headers, data: {} });
+  await page.reload();
+  await dayShown(page);
+  await expect(slot).toHaveCount(0);
+
+  // Tomorrow has fresh demand, but reading it must not place that demand.
   const tomorrow = await (
     await fetch(`${API_URL}/today?at=${Date.now() + 86_400_000}`, {
       headers: { authorization: `Bearer ${user.token}` },
     })
   ).json();
-  expect(
-    (tomorrow as { slots: { title: string }[] }).slots.map((s) => s.title),
-  ).toContain("Eye rest");
+  expect(tomorrow.slots).toEqual([]);
+  expect(tomorrow.progress).toMatchObject([
+    { name: "Eye rest", minimumValue: 1, scheduled: 0 },
+  ]);
+  await page.request.post(`${API_URL}/plan`, {
+    headers,
+    data: { at: Date.now() + 86_400_000 },
+  });
+  const placed = await (
+    await page.request.get(`${API_URL}/today?at=${Date.now() + 86_400_000}`, {
+      headers,
+    })
+  ).json();
+  expect(placed.slots.map((s: { title: string }) => s.title)).toContain(
+    "Eye rest",
+  );
 });

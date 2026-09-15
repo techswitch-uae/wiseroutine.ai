@@ -31,6 +31,7 @@ export type UserAvgAggregateOutputType = {
   dayEndMinutes: number | null
   customRangeStartMinutes: number | null
   customRangeEndMinutes: number | null
+  schemaVersion: number | null
 }
 
 export type UserSumAggregateOutputType = {
@@ -38,6 +39,7 @@ export type UserSumAggregateOutputType = {
   dayEndMinutes: number | null
   customRangeStartMinutes: number | null
   customRangeEndMinutes: number | null
+  schemaVersion: number | null
 }
 
 export type UserMinAggregateOutputType = {
@@ -61,6 +63,7 @@ export type UserMinAggregateOutputType = {
   storeEventTitles: boolean | null
   databaseName: string | null
   databaseReady: boolean | null
+  schemaVersion: number | null
   lastSeenAt: Date | null
   createdAt: Date | null
   updatedAt: Date | null
@@ -88,6 +91,7 @@ export type UserMaxAggregateOutputType = {
   storeEventTitles: boolean | null
   databaseName: string | null
   databaseReady: boolean | null
+  schemaVersion: number | null
   lastSeenAt: Date | null
   createdAt: Date | null
   updatedAt: Date | null
@@ -115,6 +119,7 @@ export type UserCountAggregateOutputType = {
   storeEventTitles: number
   databaseName: number
   databaseReady: number
+  schemaVersion: number
   lastSeenAt: number
   createdAt: number
   updatedAt: number
@@ -128,6 +133,7 @@ export type UserAvgAggregateInputType = {
   dayEndMinutes?: true
   customRangeStartMinutes?: true
   customRangeEndMinutes?: true
+  schemaVersion?: true
 }
 
 export type UserSumAggregateInputType = {
@@ -135,6 +141,7 @@ export type UserSumAggregateInputType = {
   dayEndMinutes?: true
   customRangeStartMinutes?: true
   customRangeEndMinutes?: true
+  schemaVersion?: true
 }
 
 export type UserMinAggregateInputType = {
@@ -158,6 +165,7 @@ export type UserMinAggregateInputType = {
   storeEventTitles?: true
   databaseName?: true
   databaseReady?: true
+  schemaVersion?: true
   lastSeenAt?: true
   createdAt?: true
   updatedAt?: true
@@ -185,6 +193,7 @@ export type UserMaxAggregateInputType = {
   storeEventTitles?: true
   databaseName?: true
   databaseReady?: true
+  schemaVersion?: true
   lastSeenAt?: true
   createdAt?: true
   updatedAt?: true
@@ -212,6 +221,7 @@ export type UserCountAggregateInputType = {
   storeEventTitles?: true
   databaseName?: true
   databaseReady?: true
+  schemaVersion?: true
   lastSeenAt?: true
   createdAt?: true
   updatedAt?: true
@@ -326,6 +336,7 @@ export type UserGroupByOutputType = {
   storeEventTitles: boolean
   databaseName: string
   databaseReady: boolean
+  schemaVersion: number
   lastSeenAt: Date | null
   createdAt: Date
   updatedAt: Date
@@ -376,6 +387,7 @@ export type UserWhereInput = {
   storeEventTitles?: Prisma.BoolFilter<"User"> | boolean
   databaseName?: Prisma.StringFilter<"User"> | string
   databaseReady?: Prisma.BoolFilter<"User"> | boolean
+  schemaVersion?: Prisma.IntFilter<"User"> | number
   lastSeenAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"User"> | Date | string
@@ -410,6 +422,7 @@ export type UserOrderByWithRelationInput = {
   storeEventTitles?: Prisma.SortOrder
   databaseName?: Prisma.SortOrder
   databaseReady?: Prisma.SortOrder
+  schemaVersion?: Prisma.SortOrder
   lastSeenAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -447,6 +460,7 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   planExpiresAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   storeEventTitles?: Prisma.BoolFilter<"User"> | boolean
   databaseReady?: Prisma.BoolFilter<"User"> | boolean
+  schemaVersion?: Prisma.IntFilter<"User"> | number
   lastSeenAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"User"> | Date | string
@@ -481,6 +495,7 @@ export type UserOrderByWithAggregationInput = {
   storeEventTitles?: Prisma.SortOrder
   databaseName?: Prisma.SortOrder
   databaseReady?: Prisma.SortOrder
+  schemaVersion?: Prisma.SortOrder
   lastSeenAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -516,6 +531,7 @@ export type UserScalarWhereWithAggregatesInput = {
   storeEventTitles?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
   databaseName?: Prisma.StringWithAggregatesFilter<"User"> | string
   databaseReady?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
+  schemaVersion?: Prisma.IntWithAggregatesFilter<"User"> | number
   lastSeenAt?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"User"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"User"> | Date | string
@@ -543,6 +559,7 @@ export type UserCreateInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -577,6 +594,7 @@ export type UserUncheckedCreateInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -611,6 +629,7 @@ export type UserUpdateInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -645,6 +664,7 @@ export type UserUncheckedUpdateInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -679,6 +699,7 @@ export type UserCreateManyInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -706,6 +727,7 @@ export type UserUpdateManyMutationInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -733,6 +755,7 @@ export type UserUncheckedUpdateManyInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -760,6 +783,7 @@ export type UserCountOrderByAggregateInput = {
   storeEventTitles?: Prisma.SortOrder
   databaseName?: Prisma.SortOrder
   databaseReady?: Prisma.SortOrder
+  schemaVersion?: Prisma.SortOrder
   lastSeenAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -771,6 +795,7 @@ export type UserAvgOrderByAggregateInput = {
   dayEndMinutes?: Prisma.SortOrder
   customRangeStartMinutes?: Prisma.SortOrder
   customRangeEndMinutes?: Prisma.SortOrder
+  schemaVersion?: Prisma.SortOrder
 }
 
 export type UserMaxOrderByAggregateInput = {
@@ -794,6 +819,7 @@ export type UserMaxOrderByAggregateInput = {
   storeEventTitles?: Prisma.SortOrder
   databaseName?: Prisma.SortOrder
   databaseReady?: Prisma.SortOrder
+  schemaVersion?: Prisma.SortOrder
   lastSeenAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -821,6 +847,7 @@ export type UserMinOrderByAggregateInput = {
   storeEventTitles?: Prisma.SortOrder
   databaseName?: Prisma.SortOrder
   databaseReady?: Prisma.SortOrder
+  schemaVersion?: Prisma.SortOrder
   lastSeenAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -832,6 +859,7 @@ export type UserSumOrderByAggregateInput = {
   dayEndMinutes?: Prisma.SortOrder
   customRangeStartMinutes?: Prisma.SortOrder
   customRangeEndMinutes?: Prisma.SortOrder
+  schemaVersion?: Prisma.SortOrder
 }
 
 export type UserScalarRelationFilter = {
@@ -994,6 +1022,7 @@ export type UserCreateWithoutSessionsInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -1027,6 +1056,7 @@ export type UserUncheckedCreateWithoutSessionsInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -1076,6 +1106,7 @@ export type UserUpdateWithoutSessionsInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1109,6 +1140,7 @@ export type UserUncheckedUpdateWithoutSessionsInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1142,6 +1174,7 @@ export type UserCreateWithoutAccountsInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -1175,6 +1208,7 @@ export type UserUncheckedCreateWithoutAccountsInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -1224,6 +1258,7 @@ export type UserUpdateWithoutAccountsInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1257,6 +1292,7 @@ export type UserUncheckedUpdateWithoutAccountsInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1290,6 +1326,7 @@ export type UserCreateWithoutSubscriptionInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -1323,6 +1360,7 @@ export type UserUncheckedCreateWithoutSubscriptionInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -1372,6 +1410,7 @@ export type UserUpdateWithoutSubscriptionInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1405,6 +1444,7 @@ export type UserUncheckedUpdateWithoutSubscriptionInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1438,6 +1478,7 @@ export type UserCreateWithoutPlanGrantsInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -1471,6 +1512,7 @@ export type UserUncheckedCreateWithoutPlanGrantsInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -1520,6 +1562,7 @@ export type UserUpdateWithoutPlanGrantsInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1553,6 +1596,7 @@ export type UserUncheckedUpdateWithoutPlanGrantsInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1586,6 +1630,7 @@ export type UserCreateWithoutScheduledWorkInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -1619,6 +1664,7 @@ export type UserUncheckedCreateWithoutScheduledWorkInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -1668,6 +1714,7 @@ export type UserUpdateWithoutScheduledWorkInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1701,6 +1748,7 @@ export type UserUncheckedUpdateWithoutScheduledWorkInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1734,6 +1782,7 @@ export type UserCreateWithoutWatchChannelsInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -1767,6 +1816,7 @@ export type UserUncheckedCreateWithoutWatchChannelsInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -1816,6 +1866,7 @@ export type UserUpdateWithoutWatchChannelsInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1849,6 +1900,7 @@ export type UserUncheckedUpdateWithoutWatchChannelsInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1882,6 +1934,7 @@ export type UserCreateWithoutDevicesInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -1915,6 +1968,7 @@ export type UserUncheckedCreateWithoutDevicesInput = {
   storeEventTitles?: boolean
   databaseName: string
   databaseReady?: boolean
+  schemaVersion?: number
   lastSeenAt?: Date | string | null
   createdAt: Date | string
   updatedAt: Date | string
@@ -1964,6 +2018,7 @@ export type UserUpdateWithoutDevicesInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1997,6 +2052,7 @@ export type UserUncheckedUpdateWithoutDevicesInput = {
   storeEventTitles?: Prisma.BoolFieldUpdateOperationsInput | boolean
   databaseName?: Prisma.StringFieldUpdateOperationsInput | string
   databaseReady?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  schemaVersion?: Prisma.IntFieldUpdateOperationsInput | number
   lastSeenAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -2106,6 +2162,7 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   storeEventTitles?: boolean
   databaseName?: boolean
   databaseReady?: boolean
+  schemaVersion?: boolean
   lastSeenAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
@@ -2141,6 +2198,7 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   storeEventTitles?: boolean
   databaseName?: boolean
   databaseReady?: boolean
+  schemaVersion?: boolean
   lastSeenAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
@@ -2168,6 +2226,7 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   storeEventTitles?: boolean
   databaseName?: boolean
   databaseReady?: boolean
+  schemaVersion?: boolean
   lastSeenAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
@@ -2195,13 +2254,14 @@ export type UserSelectScalar = {
   storeEventTitles?: boolean
   databaseName?: boolean
   databaseReady?: boolean
+  schemaVersion?: boolean
   lastSeenAt?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   deletedAt?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "avatarUrl" | "emailVerified" | "timeZone" | "locale" | "dayStartMinutes" | "dayEndMinutes" | "customRangeLabel" | "customRangeStartMinutes" | "customRangeEndMinutes" | "dayOpensOn" | "showOutsideRange" | "plan" | "planSource" | "planExpiresAt" | "storeEventTitles" | "databaseName" | "databaseReady" | "lastSeenAt" | "createdAt" | "updatedAt" | "deletedAt", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "email" | "name" | "avatarUrl" | "emailVerified" | "timeZone" | "locale" | "dayStartMinutes" | "dayEndMinutes" | "customRangeLabel" | "customRangeStartMinutes" | "customRangeEndMinutes" | "dayOpensOn" | "showOutsideRange" | "plan" | "planSource" | "planExpiresAt" | "storeEventTitles" | "databaseName" | "databaseReady" | "schemaVersion" | "lastSeenAt" | "createdAt" | "updatedAt" | "deletedAt", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   accounts?: boolean | Prisma.User$accountsArgs<ExtArgs>
   sessions?: boolean | Prisma.User$sessionsArgs<ExtArgs>
@@ -2296,6 +2356,22 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
      * database is not ready yet must not be handed a session.
      */
     databaseReady: boolean
+    /**
+     * How many user-database migrations this user's database has received.
+     * 
+     * Compared against the number the running Worker carries, on the request
+     * path, the same way `planExpiresAt` is: behind means catch up once and
+     * write this, level means do nothing at all. Without it, migrations ran
+     * only at signup - so every migration written after an account was created
+     * reached that account never, and a migration that *renames* something
+     * silently broke it.
+     * 
+     * Not the record of what was applied. The user's own `_migrations` table is
+     * that, and it is what makes catching up idempotent; this is only a cheap
+     * answer to "is there anything to do" that can be read without opening the
+     * database.
+     */
+    schemaVersion: number
     /**
      * Last request from this user's app. Drives how often their calendars are
      * polled - see `syncInterval` in packages/scheduler. Null means they have
@@ -2755,6 +2831,7 @@ export interface UserFieldRefs {
   readonly storeEventTitles: Prisma.FieldRef<"User", 'Boolean'>
   readonly databaseName: Prisma.FieldRef<"User", 'String'>
   readonly databaseReady: Prisma.FieldRef<"User", 'Boolean'>
+  readonly schemaVersion: Prisma.FieldRef<"User", 'Int'>
   readonly lastSeenAt: Prisma.FieldRef<"User", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"User", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"User", 'DateTime'>

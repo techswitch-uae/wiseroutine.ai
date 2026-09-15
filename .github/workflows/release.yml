@@ -1,10 +1,9 @@
 # Versioning and the changelog, driven by what the commits say.
 #
-# Nothing here decides a version number by hand. Release Please reads the
-# conventional-commit prefixes since the last tag, works out whether that is a
-# patch, a minor or a major, and opens a PR carrying the bump and the changelog
-# entry. Merging that PR is the act of releasing: it tags, and it publishes the
-# GitHub Release the desktop build later attaches installers to.
+# Release Please proposes versions from Conventional Commits. The first cut
+# needs an explicit bootstrap commit; see docs/releasing.md. Manual dispatch
+# opens the PR, then a second dispatch after merge creates a DRAFT release.
+# Candidate verification and installer builds never publish that draft.
 #
 # `fix:` -> patch, `feat:` -> minor, `feat!:` or a `BREAKING CHANGE:` footer ->
 # major. A commit with no recognised prefix is not a mistake, it simply does not
@@ -30,17 +29,46 @@ on:
 permissions:
   contents: write
   pull-requests: write
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
+  verify:
+    runs-on: macos-latest
+    steps:
+      - name: Only release reviewed main
+        run: test "$GITHUB_REF" = refs/heads/main
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Turso with formula-scoped Homebrew trust
+        run: bash scripts/install-turso-ci.sh
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm addon:verify
+      - run: pnpm exec turbo run typecheck test --force
+      - run: pnpm test:release
+      - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+      - run: pnpm release:config
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          TAURI_SIGNING_PUBLIC_KEY: ${{ vars.TAURI_SIGNING_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
   release-please:
+    needs: verify
     runs-on: ubuntu-latest
     outputs:
       # Consumed by the build job that will attach installers to the release.
-      # True only on the run that merges the release PR, never on ordinary
-      # pushes to main.
+      # True on the dispatch AFTER the release PR was merged.
       released: ${{ steps.release.outputs.release_created }}
       tag: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
+      id: ${{ steps.release.outputs.id }}
       # The commit the tag points at - the one carrying the version bump.
       # Checking out `main` instead would race any commit merged behind it.
       sha: ${{ steps.release.outputs.sha }}
@@ -50,15 +78,31 @@ jobs:
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+      - name: Require immutable candidate identity
+        if: steps.release.outputs.release_created == 'true'
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+        run: '[[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]'
 
-  # Installers, built only on the run that actually cut a release.
+  # Reuse the complete, secret-free CI contract at the tag's exact commit.
+  # Verifying the dispatch branch alone would race a later merge to main.
+  candidate:
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.release-please.outputs.sha }}
+
+  # Installers, built only after candidate browser/unit/native verification.
   #
   # This is a second job in the same workflow rather than a workflow triggered
   # by the tag, and it has to be: a tag pushed by the default GITHUB_TOKEN does
   # not start another workflow run. A separate `on: push: tags` file would
   # simply never fire.
   build:
-    needs: release-please
+    needs: [release-please, candidate]
     if: needs.release-please.outputs.released == 'true'
     permissions:
       contents: write
@@ -95,8 +139,16 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - run: pnpm release:config
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          TAURI_SIGNING_PUBLIC_KEY: ${{ vars.TAURI_SIGNING_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
       - uses: tauri-apps/tauri-action@v1
         env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          TAURI_SIGNING_PUBLIC_KEY: ${{ vars.TAURI_SIGNING_PUBLIC_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
           # Signs the update artifacts so installed apps will accept them. This
@@ -120,5 +172,8 @@ jobs:
           # The release already exists - Release Please made it. Naming the tag
           # attaches the installers and `latest.json` to that one rather than
           # opening a second, empty release beside it.
+          releaseId: ${{ needs.release-please.outputs.id }}
           tagName: ${{ needs.release-please.outputs.tag }}
-          args: ${{ matrix.args }}
+          # Promotion is a separate, human-approved phase after live acceptance.
+          releaseDraft: true
+          args: ${{ matrix.args }} --config src-tauri/tauri.release.generated.json

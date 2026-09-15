@@ -31,3 +31,7 @@ todos.json
 *.njsproj
 *.sln
 *.sw?
+
+# Built addons, put here by each addon's own build - see addons/*/vite.config.ts.
+# Installing a downloaded addon will write to the same place.
+public/addons/

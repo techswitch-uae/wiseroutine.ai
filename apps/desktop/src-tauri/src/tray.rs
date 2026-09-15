@@ -32,7 +32,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_notification::NotificationExt;
 
-/// One of the day's remaining slots, as the menu bar needs it.
+/// A pending slot or an imported timed meeting, as the menu bar needs it.
 ///
 /// Timestamps rather than the finished sentence, and this is the fix for a
 /// real bug: the webview used to work out "Breathing · now" and push the
@@ -43,14 +43,22 @@ use tauri_plugin_notification::NotificationExt;
 /// since finished. Exactly when the menu bar is the only thing you can see.
 ///
 /// So the webview says what the day *is*, once per change, and the picking and
-/// the counting happen here, on a clock that keeps running. `up_next` below is
-/// `upNextOf` in `lib/alerts.ts`, and the two have to keep agreeing - the
-/// webview still uses its copy to decide what "Start now" starts.
+/// the counting happen here, on a clock that keeps running. Imported meetings
+/// can be next too, but only our own slots offer Start. The menu sends that
+/// exact slot id rather than asking the webview to choose again.
 ///
 /// The start notifications were lost to the same thing, and worse: a menu bar
 /// that is a minute stale is untidy, but an alert that never arrives is the
 /// whole product failing quietly. They were one `setTimeout` per slot in that
 /// same webview. They are `due_starts` below now.
+#[derive(Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EntryKind {
+  #[default]
+  Slot,
+  Meeting,
+}
+
 #[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Entry {
@@ -58,6 +66,9 @@ pub struct Entry {
   pub title: String,
   pub starts_at: i64,
   pub ends_at: i64,
+  // Older webview schedules contain slots only.
+  #[serde(default)]
+  pub kind: EntryKind,
 }
 
 /// The day as last pushed, and what has already been said about it.
@@ -74,11 +85,6 @@ struct DayState {
   /// announced again at its new time - which is the whole point of a plan that
   /// rebuilds itself.
   announced: HashSet<String>,
-  /// Quiet until this instant. Only the speaking is paused, not the plan:
-  /// slots still run, still go live and still count, and the menu bar goes on
-  /// saying what is next. Someone in a meeting wants the day to carry on
-  /// without being told about it.
-  paused_until: i64,
 }
 
 #[derive(Default)]
@@ -88,13 +94,13 @@ struct Day(Mutex<DayState>);
 #[derive(Default)]
 pub struct UpNext {
   /// "Shoulder stretch", or absent when the day has nothing left. Named in the
-  /// menu bar itself and not only in the menu behind it: a bare "18m" says
+  /// menu bar itself and not only in the menu behind it: a bare "18 min" says
   /// something is coming without saying what, which is the one thing worth
   /// knowing without switching apps.
   pub title: Option<String>,
   /// How long it runs, e.g. "10 min". Shown under the name in the menu.
   pub label: Option<String>,
-  /// The countdown drawn next to the icon, e.g. "18m". Absent leaves the menu
+  /// The countdown drawn next to the icon, e.g. "18 min". Absent leaves the menu
   /// bar showing the icon alone, which is the right look for an empty day.
   pub badge: Option<String>,
   /// Present only while a slot is actually startable, which is what decides
@@ -110,12 +116,12 @@ fn now_ms() -> i64 {
     .unwrap_or(0)
 }
 
-/// "18m", or "2h 05m". Rounded up, because a slot 90 seconds away reading
-/// "1m" and then sitting there for the next 89 of them looks stuck.
+/// "18 min", or "2h 05m". Rounded up, because a slot 90 seconds away reading
+/// "1 min" and then sitting there for the next 89 of them looks stuck.
 fn countdown(ms: i64) -> String {
   let minutes = if ms <= 0 { 0 } else { (ms + 59_999) / 60_000 };
   if minutes < 60 {
-    format!("{minutes}m")
+    format!("{minutes} min")
   } else {
     // Both units named. Without the second one this read "9h 10", which is
     // not a duration - it is two numbers, and the eye has to guess which.
@@ -123,15 +129,13 @@ fn countdown(ms: i64) -> String {
   }
 }
 
-/// The one slot worth naming: the earliest that has not finished yet.
-///
-/// Note `ends_at > now` rather than `starts_at > now`. Something running right
-/// now *is* what is up next - dropping it the moment it began would leave the
-/// menu bar naming the thing after it while you were still in this one.
+/// The earliest pending slot or timed meeting that has not ended. The webview
+/// removes started/stopped slots on refresh. Meetings only supply a countdown;
+/// slot Start remains available until the scheduled end, as in the scheduler.
 fn up_next(entries: &[Entry], now: i64) -> UpNext {
   let Some(entry) = entries
     .iter()
-    .filter(|entry| entry.ends_at > now)
+    .filter(|entry| entry.ends_at > now && entry.ends_at > entry.starts_at)
     .min_by_key(|entry| entry.starts_at)
   else {
     return UpNext::default();
@@ -148,8 +152,22 @@ fn up_next(entries: &[Entry], now: i64) -> UpNext {
     }),
     // Only offered while it is actually startable. Starting something an hour
     // early is not a shortcut, it is a different plan.
-    slot_id: live.then(|| entry.id.clone()),
+    slot_id: (live && entry.kind == EntryKind::Slot).then(|| entry.id.clone()),
   }
+}
+
+/// A menu press names the slot the user saw, even if the next native tick has
+/// changed what is up next. Never substitute a different slot or a meeting.
+fn start_slot(entries: &[Entry], id: &str, now: i64) -> Option<String> {
+  entries
+    .iter()
+    .find(|entry| {
+      entry.id == id
+        && entry.kind == EntryKind::Slot
+        && entry.starts_at <= now
+        && now < entry.ends_at
+    })
+    .map(|entry| entry.id.clone())
 }
 
 /// How long a slot runs, in whole minutes.
@@ -176,13 +194,8 @@ fn due_starts(state: &mut DayState, now: i64) -> Vec<Entry> {
   let ready: Vec<Entry> = state
     .entries
     .iter()
-    .filter(|entry| {
-      entry.starts_at <= now
-        && entry.starts_at > now - LATE
-        // A start inside the quiet hour is not announced late afterwards - it
-        // is not announced at all. The slot still runs.
-        && entry.starts_at >= state.paused_until
-    })
+    .filter(|entry| entry.kind == EntryKind::Slot)
+    .filter(|entry| entry.starts_at <= now && entry.starts_at > now - LATE)
     .cloned()
     .collect();
 
@@ -230,7 +243,19 @@ fn menu_bar_title(next: &UpNext) -> Option<String> {
   } else {
     title.to_string()
   };
-  Some(format!("{short} · {badge}"))
+  let separator = if badge == "now" { " · " } else { " in " };
+  Some(format!("{short}{separator}{badge}"))
+}
+
+/// Keep the native write testable without an AppKit event loop.
+fn render_title(
+  next: &UpNext,
+  set_title: impl FnOnce(Option<&str>) -> tauri::Result<()>,
+) -> tauri::Result<()> {
+  let title = menu_bar_title(next);
+  // tray-icon 0.24's macOS setter ignores None, leaving the old text visible.
+  // An explicit empty string clears it while retaining the tray icon.
+  set_title(Some(title.as_deref().unwrap_or_default()))
 }
 
 const TRAY_ID: &str = "menu-bar";
@@ -244,6 +269,10 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
   use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
 
   let Some(tray) = app.tray_by_id(TRAY_ID) else {
+    // Said out loud. A menu bar that stops updating looks exactly like one
+    // with nothing to say, so the one thing that must not happen here is
+    // failing quietly - see the note on `refresh`.
+    eprintln!("tray: no icon with id {TRAY_ID}; menu bar left as it was");
     return Ok(());
   };
 
@@ -258,16 +287,18 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
 
   // Greyed rather than hidden when there is nothing to start: an item that
   // comes and goes makes the menu jump under the cursor.
-  let start = MenuItemBuilder::with_id("start", "Start now")
+  let start_id = next
+    .slot_id
+    .as_ref()
+    .map(|id| format!("start:{id}"))
+    .unwrap_or_else(|| "start-disabled".to_string());
+  let start = MenuItemBuilder::with_id(start_id, "Start now")
     .enabled(next.slot_id.is_some())
     .build(app)?;
 
-  let pause = MenuItemBuilder::with_id("pause", "Pause for an hour").build(app)?;
-
-  // Quit stays, and is not swapped for a Hide. Closing the window already
-  // hides it, and once it is hidden this menu is the only way to stop the app
-  // that is always reachable - Cmd+Q needs the app to be focused, which it
-  // cannot be. Reopening is the dock icon's job; see `RunEvent::Reopen`.
+  // Windows has no dock Reopen event. Always offer a way back, including
+  // when there are no slots or the user is signed out.
+  let show = MenuItemBuilder::with_id("show", "Show Wise Routine").build(app)?;
   let quit = MenuItemBuilder::with_id("quit", "Quit Wise Routine").build(app)?;
 
   let menu = MenuBuilder::new(app)
@@ -275,14 +306,13 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
       &heading,
       &start,
       &PredefinedMenuItem::separator(app)?,
-      &pause,
-      &PredefinedMenuItem::separator(app)?,
+      &show,
       &quit,
     ])
     .build()?;
 
   tray.set_menu(Some(menu))?;
-  tray.set_title(menu_bar_title(next).as_deref())?;
+  render_title(next, |title| tray.set_title(title))?;
   Ok(())
 }
 
@@ -295,13 +325,29 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
 /// returned, so nothing else can claim the same start.
 fn refresh<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
   let now = now_ms();
-  let Ok((entries, due)) = app.state::<Day>().0.lock().map(|mut state| {
+  let (entries, due) = {
+    /*
+     * Taken back off a panic rather than given up on.
+     *
+     * This used to return on a poisoned lock, on the grounds that the panic
+     * was better reported elsewhere. But the tick is the only thing that ever
+     * redraws the bar, so one poisoned lock stopped it redrawing *for the life
+     * of the process* - the menu bar frozen on whatever it happened to be
+     * saying, hours after that was true, on a machine where everything else
+     * still worked. A stale title is indistinguishable from a correct one,
+     * which is what made it so hard to see.
+     *
+     * The state behind the lock is a schedule and a set of ids. A panic
+     * mid-update can leave it out of date, never inconsistent, and the next
+     * push replaces it wholesale.
+     */
+    let day = app.state::<Day>();
+    let mut state = day
+      .0
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner());
     let due = due_starts(&mut state, now);
     (state.entries.clone(), due)
-  }) else {
-    // A poisoned lock means a panic already happened somewhere better placed
-    // to report it. Leaving the menu bar as it was beats taking the app down.
-    return Ok(());
   };
 
   for entry in &due {
@@ -324,27 +370,6 @@ pub fn set_schedule<R: Runtime>(app: AppHandle<R>, entries: Vec<Entry>) -> tauri
   refresh(&app)
 }
 
-/// How long the quiet hour lasts.
-///
-/// ponytail: in memory, so it is forgotten on restart. That is the right
-/// default for an hour-long pause - a machine that has been restarted has
-/// almost certainly outlived the meeting.
-const PAUSE: Duration = Duration::from_secs(60 * 60);
-
-/// Go quiet for an hour, and say until when.
-///
-/// Here rather than in the webview because the webview may be asleep - which
-/// was the bug - and because the press arrives here first: it is a native menu
-/// item. The instant is handed back so the toast can name it without the two
-/// sides having to agree separately on how long an hour is.
-fn pause<R: Runtime>(app: &AppHandle<R>) -> i64 {
-  let until = now_ms() + PAUSE.as_millis() as i64;
-  if let Ok(mut state) = app.state::<Day>().0.lock() {
-    state.paused_until = until;
-  }
-  until
-}
-
 /// How often the app re-reads its own clock.
 ///
 /// Under a minute because that is the menu bar's smallest unit, and well
@@ -365,9 +390,13 @@ fn tick<R: Runtime>(app: &AppHandle<R>) {
       let inner = handle.clone();
       // Menus and tray titles are AppKit objects, and touching them off the
       // main thread is undefined behaviour rather than an error.
-      let _ = handle.run_on_main_thread(move || {
-        let _ = refresh(&inner);
-      });
+      if let Err(error) = handle.run_on_main_thread(move || {
+        if let Err(error) = refresh(&inner) {
+          eprintln!("tray: refresh failed: {error}");
+        }
+      }) {
+        eprintln!("tray: could not reach the main thread: {error}");
+      }
     }
   });
 }
@@ -395,17 +424,20 @@ pub fn install<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
       // accelerator on it: the app menu already owns Cmd+Q, and a second
       // registration of the same chord is a fight nobody wins.
       "quit" => app.exit(0),
+      "show" => show_window(app),
       // Acted on by the webview, which owns the session and the queue that
       // makes these work offline. Rust only carries the press across.
-      "start" => {
-        let _ = app.emit("tray://start", ());
-      }
-      "pause" => {
-        let until = pause(app);
-        show_window(app);
-        // The webview only draws the toast. It is told when the quiet ends
-        // rather than working it out, so there is one definition of an hour.
-        let _ = app.emit("tray://pause", until);
+      id if id.starts_with("start:") => {
+        let requested = &id[6..];
+        let slot_id = app
+          .state::<Day>()
+          .0
+          .lock()
+          .ok()
+          .and_then(|state| start_slot(&state.entries, requested, now_ms()));
+        if let Some(slot_id) = slot_id {
+          let _ = app.emit("tray://start", slot_id);
+        }
       }
       _ => {}
     });
@@ -413,9 +445,12 @@ pub fn install<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
   #[cfg(target_os = "macos")]
   let tray = tray.icon_as_template(true);
 
+  // Before the tray, not after. The menu items and the webview's first push
+  // both read this state, and either arriving in the gap between building the
+  // tray and managing it would panic on a `State` that does not exist yet.
+  app.manage(Day::default());
   tray.build(app)?;
 
-  app.manage(Day::default());
   let handle = app.handle().clone();
   tick(&handle);
   render(&handle, &UpNext::default())
@@ -434,6 +469,7 @@ mod tests {
       title: "Breathing".to_string(),
       starts_at,
       ends_at,
+      kind: EntryKind::Slot,
     }
   }
 
@@ -441,18 +477,166 @@ mod tests {
   /// menu bar, and it must leave on the clock alone - no new push from the
   /// webview, which is the thing that had stopped arriving.
   #[test]
-  fn drops_a_slot_once_it_has_finished() {
+  fn keeps_start_available_until_the_slot_ends() {
     let day = [entry("a", AT, AT + 10 * MIN)];
 
-    let during = up_next(&day, AT + 5 * MIN);
+    let during = up_next(&day, AT + 2 * MIN - 1);
     assert_eq!(during.title.as_deref(), Some("Breathing"));
     assert_eq!(during.badge.as_deref(), Some("now"));
 
+    assert_eq!(up_next(&day, AT + 2 * MIN).slot_id.as_deref(), Some("a"));
+    assert_eq!(
+      up_next(&day, AT + 10 * MIN - 1).slot_id.as_deref(),
+      Some("a")
+    );
     // Same schedule, later clock. Nothing else changed.
-    let after = up_next(&day, AT + 11 * MIN);
+    let after = up_next(&day, AT + 10 * MIN);
     assert_eq!(after.title, None);
     assert_eq!(after.badge, None);
     assert_eq!(menu_bar_title(&after), None);
+    let short = [entry("short", AT, AT + MIN)];
+    assert_eq!(
+      up_next(&short, AT + MIN - 1).slot_id.as_deref(),
+      Some("short")
+    );
+    assert_eq!(up_next(&short, AT + MIN).slot_id, None);
+  }
+
+  // Model the actual tray-icon macOS setter: None is a no-op, not a clear.
+  // Selection-only tests miss this because up_next correctly returns empty.
+  fn native_title(displayed: &mut String, next: &UpNext) {
+    render_title(next, |title| {
+      if let Some(title) = title {
+        *displayed = title.to_string();
+      }
+      Ok(())
+    })
+    .unwrap();
+  }
+
+  #[test]
+  fn clears_the_native_title_when_the_last_slot_expires_without_a_new_schedule() {
+    let mut walk = entry("walk", AT, AT + 20 * MIN);
+    walk.title = "Walk".to_string();
+    let day = [walk];
+    let mut displayed = String::new();
+    native_title(&mut displayed, &up_next(&day, AT));
+    assert_eq!(displayed, "Walk · now");
+
+    for now in [AT + 20 * MIN, AT + 60 * MIN] {
+      let next = up_next(&day, now);
+      native_title(&mut displayed, &next);
+      assert_eq!(displayed, "");
+      assert_eq!(next.slot_id, None);
+    }
+  }
+
+  #[test]
+  fn an_empty_schedule_explicitly_clears_a_previous_native_title() {
+    let mut displayed = "Walk · now".to_string();
+    // Also covers sign-out, completing the last slot, and an empty next day.
+    native_title(&mut displayed, &up_next(&[], AT));
+    assert_eq!(displayed, "");
+  }
+
+  #[test]
+  fn the_native_title_follows_the_next_slot_then_clears() {
+    let day = [
+      entry("a", AT, AT + 10 * MIN),
+      entry("b", AT + 20 * MIN, AT + 30 * MIN),
+    ];
+    let mut displayed = String::new();
+    native_title(&mut displayed, &up_next(&day, AT));
+    assert_eq!(displayed, "Breathing · now");
+    native_title(&mut displayed, &up_next(&day, AT + 10 * MIN));
+    assert_eq!(displayed, "Breathing in 10 min");
+    native_title(&mut displayed, &up_next(&day, AT + 30 * MIN));
+    assert_eq!(displayed, "");
+  }
+
+  #[test]
+  fn uses_in_for_a_future_slot_and_a_dot_once_it_is_due() {
+    let mut walk = entry("walk", AT + 10 * MIN, AT + 20 * MIN);
+    walk.title = "Walk".to_string();
+    let day = [walk];
+    let mut displayed = String::new();
+
+    native_title(&mut displayed, &up_next(&day, AT));
+    assert_eq!(displayed, "Walk in 10 min");
+    native_title(&mut displayed, &up_next(&day, AT + 10 * MIN - 1));
+    assert_eq!(displayed, "Walk in 1 min");
+    native_title(&mut displayed, &up_next(&day, AT + 10 * MIN));
+    assert_eq!(displayed, "Walk · now");
+  }
+
+  #[test]
+  fn imported_meetings_share_the_countdown_but_never_offer_start() {
+    let mut meeting = entry("meeting", AT + 5 * MIN, AT + 15 * MIN);
+    meeting.kind = EntryKind::Meeting;
+    meeting.title = "Design review".to_string();
+    let day = [entry("slot", AT + 20 * MIN, AT + 30 * MIN), meeting];
+    let mut displayed = String::new();
+    native_title(&mut displayed, &up_next(&day, AT));
+    assert_eq!(displayed, "Design review in 5 min");
+    let live = up_next(&day, AT + 5 * MIN);
+    native_title(&mut displayed, &live);
+    assert_eq!(displayed, "Design review · now");
+    assert_eq!(live.slot_id, None);
+    native_title(&mut displayed, &up_next(&day, AT + 15 * MIN));
+    assert_eq!(displayed, "Breathing in 5 min");
+    assert_eq!(
+      up_next(&day, AT + 20 * MIN).slot_id.as_deref(),
+      Some("slot")
+    );
+  }
+
+  #[test]
+  fn imported_meetings_do_not_receive_activity_start_notifications() {
+    let mut meeting = entry("meeting", AT, AT + 30 * MIN);
+    meeting.kind = EntryKind::Meeting;
+    let mut state = day(&[meeting, entry("slot", AT, AT + 10 * MIN)]);
+    let due = due_starts(&mut state, AT);
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].id, "slot");
+  }
+
+  #[test]
+  fn a_stale_start_menu_never_starts_another_slot_or_a_meeting() {
+    let mut meeting = entry("meeting", AT, AT + 30 * MIN);
+    meeting.kind = EntryKind::Meeting;
+    let day = [
+      entry("ended", AT - MIN, AT),
+      meeting,
+      entry("slot", AT, AT + MIN),
+    ];
+    assert_eq!(start_slot(&day, "ended", AT), None);
+    assert_eq!(start_slot(&day, "meeting", AT), None);
+    assert_eq!(start_slot(&day, "missing", AT), None);
+    assert_eq!(start_slot(&day, "slot", AT - 1), None);
+    assert_eq!(start_slot(&day, "slot", AT).as_deref(), Some("slot"));
+    assert_eq!(start_slot(&day, "slot", AT + MIN), None);
+  }
+
+  #[test]
+  fn schedule_kind_is_explicit_with_legacy_slot_compatibility() {
+    let legacy =
+      serde_json::json!({ "id": "a", "title": "Walk", "startsAt": AT, "endsAt": AT + MIN });
+    assert!(
+      serde_json::from_value::<Entry>(legacy.clone())
+        .unwrap()
+        .kind
+        == EntryKind::Slot
+    );
+    let mut meeting = legacy;
+    meeting["kind"] = "meeting".into();
+    assert!(
+      serde_json::from_value::<Entry>(meeting.clone())
+        .unwrap()
+        .kind
+        == EntryKind::Meeting
+    );
+    meeting["kind"] = "unknown".into();
+    assert!(serde_json::from_value::<Entry>(meeting).is_err());
   }
 
   #[test]
@@ -463,7 +647,7 @@ mod tests {
       entry("later", AT + 40 * MIN, AT + 50 * MIN),
     ];
     let next = up_next(&day, AT);
-    assert_eq!(next.badge.as_deref(), Some("1m"));
+    assert_eq!(next.badge.as_deref(), Some("1 min"));
     assert_eq!(next.label.as_deref(), Some("10 min"));
     // Not startable yet, so the menu item stays greyed.
     assert_eq!(next.slot_id, None);
@@ -519,37 +703,39 @@ mod tests {
   }
 
   #[test]
-  fn a_pause_silences_a_start_and_leaves_the_one_after_it() {
-    let mut state = day(&[
-      entry("quiet", AT + 10 * MIN, AT + 20 * MIN),
-      entry("loud", AT + 90 * MIN, AT + 100 * MIN),
-    ]);
-    state.paused_until = AT + 60 * MIN;
+  fn rounds_countdowns_up_and_labels_both_hour_units() {
+    assert_eq!(countdown(90_000), "2 min");
+    assert_eq!(countdown(125 * MIN), "2h 05m");
+    assert_eq!(countdown(-5 * MIN), "0 min");
+  }
 
-    assert_eq!(due_starts(&mut state, AT + 10 * MIN).len(), 0);
-    let after = due_starts(&mut state, AT + 90 * MIN);
-    assert_eq!(after.len(), 1);
-    assert_eq!(after[0].id, "loud");
-
-    // Silenced, not hidden: the menu bar still names it while the quiet lasts.
+  #[test]
+  fn ellipsises_a_long_name_by_character_without_truncating_the_countdown() {
+    let mut activity = entry("a", AT + 10 * MIN, AT + 20 * MIN);
+    activity.title = "Café ☕ and a very long stretch name".to_string();
+    let day = [activity];
     assert_eq!(
-      up_next(&state.entries, AT + 10 * MIN).title.as_deref(),
-      Some("Breathing")
+      menu_bar_title(&up_next(&day, AT)).as_deref(),
+      Some("Café ☕ and a very lon… in 10 min")
+    );
+    assert_eq!(
+      menu_bar_title(&up_next(&day, AT + 10 * MIN)).as_deref(),
+      Some("Café ☕ and a very lon… · now")
     );
   }
 
   #[test]
-  fn counts_the_same_way_the_webview_does() {
-    assert_eq!(countdown(90_000), "2m");
-    assert_eq!(countdown(125 * MIN), "2h 05m");
-    assert_eq!(countdown(-5 * MIN), "0m");
-  }
-
-  #[test]
-  fn ellipsises_a_long_name_by_character() {
-    let mut next = up_next(&[entry("a", AT, AT + MIN)], AT);
-    next.title = Some("Café ☕ and a very long stretch name".to_string());
-    let title = menu_bar_title(&next).unwrap();
-    assert_eq!(title, "Café ☕ and a very lon… · now");
+  fn keeps_a_name_at_the_limit_and_ellipsises_only_longer_names() {
+    let mut next = up_next(&[entry("a", AT + 10 * MIN, AT + 20 * MIN)], AT);
+    next.title = Some("é".repeat(TITLE_MAX));
+    assert_eq!(
+      menu_bar_title(&next),
+      Some(format!("{} in 10 min", "é".repeat(TITLE_MAX)))
+    );
+    next.title.as_mut().unwrap().push('☕');
+    assert_eq!(
+      menu_bar_title(&next),
+      Some(format!("{}… in 10 min", "é".repeat(TITLE_MAX - 1)))
+    );
   }
 }

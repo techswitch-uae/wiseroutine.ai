@@ -148,6 +148,16 @@ model ExternalEvent {
   responseStatus String  @default("none") @map("response_status")
   isCancelled    Boolean @default(false) @map("is_cancelled")
 
+  /// Where the meeting is held: a Meet, Teams or Zoom link off the event.
+  /// Stored with the title, and dropped with it - a calendar the user asked us
+  /// not to keep titles for is not one to keep join links for either.
+  joinUrl String? @map("join_url")
+
+  /// What the organiser wrote, as plain text and capped - see `toPlainText`.
+  /// Under the same opt-out as the title, and for a stronger reason: this is
+  /// the most personal thing a calendar holds.
+  description String? @map("description")
+
   /// Google etag / Graph changeKey. Compared to skip no-op writes, because a
   /// row written costs far more than a row read.
   changeTag         String?   @map("change_tag")
@@ -187,9 +197,19 @@ model Activity {
   /// "low" | "normal" | "high" - wins the gap when two activities compete.
   importance String @default("normal")
 
-  /// Which module runs this activity - "eye_rest", "breathing", "stretch",
-  /// "deep_work". Null is a plain timed slot with no session of its own, which
-  /// is what every activity was before modules existed.
+  /// Which activity type runs this activity, as `addonId/typeKey` -
+  /// "wiseroutine.breathing/pacer", "wiseroutine.deep-work/focus". Null is a
+  /// plain timed slot with no session of its own, which is what every activity
+  /// was before guided sessions existed.
+  ///
+  /// The keys used to be bare - "eye_rest", "stretch" - because the sessions
+  /// were compiled into the app. Every one of them is an addon now, including
+  /// the app's own, and the half before the slash is how the app finds which.
+  /// Migrations 0010 and 0012 moved the existing rows.
+  ///
+  /// Deliberately unvalidated: a key naming an addon that is not installed is
+  /// a real and permanent state, and it degrades to a plain timed slot rather
+  /// than failing. An addon removed must leave a day that still works.
   presetKey String? @map("preset_key")
 
   /// Whether the module's session takes over when the slot starts.
@@ -221,14 +241,50 @@ model Activity {
   writeToCalendar         Boolean @default(false) @map("write_to_calendar")
   writeTargetConnectionId String? @map("write_target_connection_id")
 
+  /// The addon that created this activity, or null for one of the app's own.
+  ///
+  /// Provenance, and the only thing that makes "an addon may change what it
+  /// created, and nothing else" a rule the server can enforce rather than a
+  /// promise the client keeps. Not a foreign key: uninstalling an addon must
+  /// not take the user's history with it.
+  ownerAddonId String? @map("owner_addon_id")
+
+  /// When an addon's switch took this activity off the day, or null.
+  ///
+  /// Distinguishes "the user paused this" from "the addon that runs it was
+  /// switched off", which `isActive` alone cannot - and the difference decides
+  /// what happens when the addon comes back. An activity the user paused stays
+  /// paused; one this column names is switched back on and this is cleared.
+  ///
+  /// Set for activities that *depend on* an addon, which is a wider set than
+  /// the ones an addon created: an activity the user made from an addon's
+  /// activity type has `ownerAddonId` null and a `presetKey` naming the addon,
+  /// and it stops working just as completely when that addon goes away.
+  pausedByAddonAt DateTime? @map("paused_by_addon_at")
+
   createdAt  DateTime  @map("created_at")
   archivedAt DateTime? @map("archived_at")
 
   windows ActivityWindow[]
   slots   Slot[]
+  schedules ActivitySchedule[]
 
   @@index([isActive], map: "activities_active")
   @@map("activities")
+}
+
+/// Effective-dated routine settings. Activity holds the latest editor values;
+/// planning/progress resolve the version for the user's local calendar date.
+model ActivitySchedule {
+  activityId String @map("activity_id")
+  effectiveDate String @map("effective_date")
+  /// Null means this activity had not started its routine yet.
+  settingsJson String? @map("settings_json")
+
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@id([activityId, effectiveDate])
+  @@map("activity_schedules")
 }
 
 model ActivityWindow {
@@ -274,6 +330,14 @@ model Slot {
   /// Capped per day so a slot cannot thrash between filling gaps.
   autoMoveCount Int @default(0) @map("auto_move_count")
 
+  /// The addon that placed this slot.
+  ///
+  /// Usually redundant with the activity's owner, and deliberately stored
+  /// anyway: an addon may place a one-off slot directly rather than through an
+  /// activity, and a slot with no activity would otherwise have no owner to
+  /// check.
+  ownerAddonId String? @map("owner_addon_id")
+
   planRunId String?  @map("plan_run_id")
   createdAt DateTime @map("created_at")
 
@@ -305,7 +369,11 @@ model SlotEvent {
   fromStartsAt DateTime? @map("from_starts_at")
   toStartsAt   DateTime? @map("to_starts_at")
 
-  /// "system" | "user"
+  /// "system" | "user" | "addon"
+  ///
+  /// An addon's writes have to be tellable apart from the user's own: this log
+  /// is the audit trail, and "who moved this" stops being answerable the
+  /// moment a third party can move things and is recorded as the person.
   actor String
 
   slot Slot @relation(fields: [slotId], references: [id])
@@ -319,6 +387,10 @@ model Reminder {
   id String @id
 
   title String
+  notes String @default("")
+  linksJson String @default("[]") @map("links_json")
+  /// Preserve the guided activity when an appointment is skipped or removed.
+  activityId String? @map("activity_id")
   /// "tomorrow" | "this_week" | "date"
   dueWindow String  @map("due_window")
   dueDate   String? @map("due_date")
@@ -359,14 +431,63 @@ model PlanRun {
   @@map("plan_runs")
 }
 
+/// One card in the rail, and where it sits.
+///
 /// Server state, not local UI state - the same set appears in the menu bar and
-/// on the widget.
-model DashboardModule {
-  moduleKey String  @id @map("module_key")
+/// on the widget. `position` is the order the user arranged, and it is read:
+/// `visibleWidgets` returns this list's order rather than the order of the
+/// constant it filters against.
+///
+/// Was `DashboardModule`. "Module" already meant the guided session an
+/// activity runs, and reusing it for a rail card is what made every sentence
+/// about either one ambiguous. A card in the rail is a widget; the package
+/// that ships one is an addon.
+///
+/// `widgetKey` is bare for a first-party widget (`up_next`) and namespaced for
+/// one belonging to an addon (`acme.fitness/next-workout`). No foreign key to
+/// `addons`: a key naming an addon that is not installed draws nothing, which
+/// is the same graceful gap an unrecognised first-party key already leaves.
+model Widget {
+  widgetKey String  @id @map("widget_key")
   position  Int
   isEnabled Boolean @default(true) @map("is_enabled")
 
-  @@map("dashboard_modules")
+  @@map("widgets")
+}
+
+/// An installed addon.
+///
+/// The package, not the card: an addon may contribute widgets, activity types
+/// with their own guided sessions, or both. The desktop app loads what is
+/// listed here and enabled.
+model Addon {
+  /// Reverse-DNS-ish and globally unique, e.g. `acme.fitness`. The half before
+  /// the `/` in every key this addon owns.
+  id String @id
+
+  version String
+  /// The manifest as published, verbatim. Kept locally so the permissions
+  /// screen can say what this addon asked for without a network round trip.
+  manifestJson String @map("manifest_json")
+  /// Which of the capabilities it asked for were actually granted, as JSON.
+  /// Asked-for and granted are different lists, and only this one is a gate.
+  grantedJson String @map("granted_json")
+  /// sha256 of the bundle as published by the registry. Empty for an addon
+  /// that ships inside the app. The desktop app refuses a bundle that does
+  /// not hash to this.
+  bundleHash String @map("bundle_hash")
+
+  /// The addon's own settings, as the user set them, as JSON. Secret fields
+  /// are never stored here; they stay on the device.
+  settingsJson String @default("{}") @map("settings_json")
+
+  /// Off keeps it installed, its settings and its slots. Uninstalling is a
+  /// different act with different consequences.
+  isEnabled Boolean @default(true) @map("is_enabled")
+
+  installedAt DateTime @map("installed_at")
+
+  @@map("addons")
 }
 
 /// Coarse desk sessions for "sitting streak". Deliberately not a presence

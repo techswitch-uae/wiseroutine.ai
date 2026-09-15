@@ -19,10 +19,21 @@
  *     fixtures outlive the run by design.
  *
  * None of that is fixable by resetting harder. It is fixable by not sharing
- * the database, which is what `globalSetup` does: two in-memory `turso dev`
- * servers that exist for the run and die with it. The same reasoning, and
+ * the database, which is what `globalSetup` does: three disposable `turso dev`
+ * servers (directory and two fixture tenants) that exist only for the run. The same reasoning, and
  * almost the same code, as `apps/api/vitest.globalSetup.ts`.
  */
+
+/** Exercise remaining-day placement in a morning timezone, whatever time CI
+ * runs. Browser, fixture dates and seeded accounts use the same zone; the API
+ * clock stays real. Dedicated planner tests cover elapsed/no-space days.
+ * Inherit the chosen zone in workers rather than recomputing across an hour. */
+const offset = ((9 - new Date().getUTCHours() + 36) % 24) - 12;
+export const TIME_ZONE =
+  process.env.WR_E2E_TIME_ZONE ??
+  `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
+process.env.WR_E2E_TIME_ZONE = TIME_ZONE;
+process.env.TZ = TIME_ZONE;
 
 /** One band, so "is this the test stack?" is answerable at a glance. */
 export const PORTS = {
@@ -30,10 +41,12 @@ export const PORTS = {
   user: 41191,
   api: 41192,
   app: 41193,
+  secondUser: 41194,
 } as const;
 
 export const DIRECTORY_URL = `http://127.0.0.1:${PORTS.directory}`;
 export const USER_URL = `http://127.0.0.1:${PORTS.user}`;
+export const SECOND_USER_URL = `http://127.0.0.1:${PORTS.secondUser}`;
 export const API_URL = `http://localhost:${PORTS.api}`;
 export const APP_URL = `http://localhost:${PORTS.app}`;
 

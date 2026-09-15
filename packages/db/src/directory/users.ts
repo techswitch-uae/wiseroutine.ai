@@ -41,10 +41,20 @@ export async function touchLastSeen(
 export async function markDatabaseReady(
   directory: Directory,
   userId: string,
+  /**
+   * How many migrations the database just received.
+   *
+   * Stamped here rather than left at zero so a brand-new account does not
+   * immediately run the whole set a second time on its first request. The
+   * catch-up on the request path would be harmless - `applyMigrations` skips
+   * what is recorded in `_migrations` - but it would open the database and
+   * read from it for nothing, once per signup.
+   */
+  schemaVersion: number,
 ): Promise<void> {
   await directory.user.update({
     where: { id: userId },
-    data: { databaseReady: true },
+    data: { databaseReady: true, schemaVersion },
   });
 }
 
@@ -200,4 +210,5 @@ export const USER_DEFAULTS = {
   plan: "free",
   planSource: "default",
   storeEventTitles: true,
+  schemaVersion: 0,
 } as const;

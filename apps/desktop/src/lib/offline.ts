@@ -1,4 +1,5 @@
 import type { TodayResponse } from "./api";
+import { accountStorageKey } from "./session-lifecycle";
 
 /**
  * Enough of the app to follow your routine with no connection.
@@ -15,6 +16,17 @@ import type { TodayResponse } from "./api";
 
 const PLAN_KEY = "wiseroutine.today";
 const QUEUE_KEY = "wiseroutine.pending";
+
+/** Old builds recorded no owner. Preserve this data for verified recovery,
+ * but never silently attribute it to the next account on this device. */
+export function hasLegacyPending(): boolean {
+  try {
+    const entries: unknown = JSON.parse(store()?.getItem(QUEUE_KEY) ?? "[]");
+    return Array.isArray(entries) && entries.length > 0;
+  } catch {
+    return false;
+  }
+}
 
 export type PendingKind = "start" | "complete" | "skip";
 
@@ -33,26 +45,35 @@ interface CachedPlan {
   cachedAt: number;
 }
 
-const store = (): Storage | undefined => globalThis.localStorage;
+const store = (): Storage | undefined => {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return undefined;
+  }
+};
 
 function read<T>(key: string): T | null {
-  const raw = store()?.getItem(key);
+  const raw = store()?.getItem(accountStorageKey(key));
   if (!raw) return null;
   try {
     return JSON.parse(raw) as T;
   } catch {
     // A half-written or older-format entry is not worth recovering; the next
     // successful request replaces it.
-    store()?.removeItem(key);
+    store()?.removeItem(accountStorageKey(key));
     return null;
   }
 }
 
-function write(key: string, value: unknown): void {
+function write(key: string, value: unknown): boolean {
   try {
-    store()?.setItem(key, JSON.stringify(value));
+    const storage = store();
+    if (!storage) return false;
+    storage.setItem(accountStorageKey(key), JSON.stringify(value));
+    return true;
   } catch {
-    // A full quota must never break the request that triggered the save.
+    return false;
   }
 }
 
@@ -89,9 +110,18 @@ export function cachedPlan(
 }
 
 /** Sign-in and sign-out both change who "today" belongs to. */
+export function clearCachedPlan(): void {
+  try {
+    store()?.removeItem(PLAN_KEY); // Discard pre-account-scoping cache data too.
+    store()?.removeItem(accountStorageKey(PLAN_KEY));
+  } catch {
+    /* Unavailable storage must not prevent local sign-out. */
+  }
+}
+
 export function clearOfflineState(): void {
-  store()?.removeItem(PLAN_KEY);
-  store()?.removeItem(QUEUE_KEY);
+  clearCachedPlan();
+  store()?.removeItem(accountStorageKey(QUEUE_KEY));
 }
 
 /* ── The queue ───────────────────────────────────────────────────────────── */
@@ -100,9 +130,18 @@ export function pending(): PendingAction[] {
   return read<PendingAction[]>(QUEUE_KEY) ?? [];
 }
 
-export function enqueue(action: Omit<PendingAction, "id">): PendingAction {
-  const entry: PendingAction = { id: crypto.randomUUID(), ...action };
-  write(QUEUE_KEY, [...pending(), entry]);
+export function enqueue(
+  action: Omit<PendingAction, "id"> & { id?: string },
+): PendingAction {
+  const entry: PendingAction = {
+    ...action,
+    id: action.id ?? crypto.randomUUID(),
+  };
+  if (!write(QUEUE_KEY, [...pending(), entry])) {
+    throw new Error(
+      "Couldn't save this action: device storage is unavailable or full.",
+    );
+  }
   return entry;
 }
 
@@ -128,24 +167,23 @@ export function withPending(
 ): TodayResponse {
   if (actions.length === 0) return data;
 
-  const latest = new Map<string, PendingKind>();
-  // Later actions win: start then complete on the same slot is completed.
-  for (const action of actions) latest.set(action.slotId, action.kind);
-
-  return {
-    ...data,
-    slots: data.slots.map((slot) => {
-      const kind = latest.get(slot.id);
-      if (!kind) return slot;
-      return {
-        ...slot,
-        status:
-          kind === "start"
-            ? ("started" as const)
-            : kind === "complete"
-              ? ("completed" as const)
-              : ("skipped" as const),
-      };
-    }),
-  };
+  const slots = new Map(data.slots.map((slot) => [slot.id, slot]));
+  // Replay in order, including actual Start times. Repeated Start delivery
+  // must not renew a running slot's stop window; a real resume gets a new one.
+  for (const action of actions) {
+    const slot = slots.get(action.slotId);
+    if (!slot || (action.kind === "start" && slot.status === "started"))
+      continue;
+    slots.set(slot.id, {
+      ...slot,
+      status:
+        action.kind === "start"
+          ? "started"
+          : action.kind === "complete"
+            ? "completed"
+            : "skipped",
+      startedAt: action.kind === "start" ? action.at : null,
+    });
+  }
+  return { ...data, slots: [...slots.values()] };
 }

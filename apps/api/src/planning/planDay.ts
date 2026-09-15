@@ -1,12 +1,17 @@
 import {
   createPlanRun,
+  insertPlannedSlots,
+  isTransaction,
   listActivities,
+  listBucketForDay,
   listEventsInRange,
   listSlotsForRange,
+  moveSlot,
   progressForRange,
-  replacePlannedSlots,
   toSchedulerActivity,
   type UserDatabase,
+  userDismissedSlots,
+  userTransaction,
 } from "@wiseroutine/db";
 import {
   type Demand,
@@ -21,7 +26,7 @@ import {
   toBusyBlocks,
 } from "@wiseroutine/scheduler";
 
-export const ENGINE_VERSION = "1.0.0";
+export const ENGINE_VERSION = "1.4.0";
 
 /** The key a plan run is filed under. Spelled once, because `GET /today` asks
  *  "has this day been planned?" with it and this module answers with it. */
@@ -69,10 +74,14 @@ export async function planDay(
     /** Plan only from here onward, so a mid-day replan cannot place a slot in
      *  the past. */
     from?: number;
+    /** Explicit "Place them for me": retry saved occurrences, never recreate them. */
+    retryUnplaced?: boolean;
   },
   now: number,
   newId: () => string,
 ): Promise<PlanDayResult> {
+  if (!isTransaction(db))
+    return userTransaction(db, (tx) => planDay(tx, params, now, newId));
   const started = Date.now();
   const zone = params.user.timeZone;
   const date = localDateOf(params.onDay, zone);
@@ -82,29 +91,67 @@ export async function planDay(
     params.user.dayStartMinutes,
     params.user.dayEndMinutes,
   );
-  const dayStart = Math.max(bounds.start, params.from ?? bounds.start);
+  const wholeDay = dayBounds(date, zone, 0, 1440);
+  const dayStart = Math.max(bounds.start, params.from ?? now, now);
 
-  const [events, activities, slots] = await Promise.all([
-    listEventsInRange(db, bounds.start, bounds.end),
-    listActivities(db),
-    listSlotsForRange(db, bounds.start, bounds.end),
-  ]);
+  const [events, activities, slots, dismissed, unplacedSlots] =
+    await Promise.all([
+      listEventsInRange(db, bounds.start, bounds.end),
+      listActivities(db, localDateKey(date)),
+      listSlotsForRange(db, wholeDay.start, wholeDay.end),
+      userDismissedSlots(db, wholeDay.start, wholeDay.end),
+      params.retryUnplaced
+        ? listBucketForDay(db, wholeDay.start, wholeDay.end)
+        : Promise.resolve([]),
+    ]);
+  const dismissedIds = new Set(dismissed.map((slot) => slot.id));
 
   const busy = toBusyBlocks(events);
 
-  // Anything pinned, started or already settled survives a replan untouched.
+  // Every accepted appointment is preserved, whether placed by hand or by
+  // the planner. Only collision-driven repair may move one, before its cutoff.
   const locked = slots
-    .filter((s) => s.isLocked || s.status !== "planned")
+    .filter((s) =>
+      ["planned", "live", "started", "completed"].includes(s.status),
+    )
     .map((s) => ({
       activityId: s.activityId ?? s.id,
       start: s.startsAt,
       end: s.endsAt,
     }));
 
+  /**
+   * Sessions already on the day that the replan will keep, per activity.
+   *
+   * The demand below is worked out from what has been *completed*, which was
+   * the whole story for as long as the planner was the only thing that put
+   * anything on a day. It is not: a session dragged onto the timeline by hand
+   * is pinned, so it survives this replan untouched - and asking for three
+   * more on top of it is how "place the rest for me" placed the lot again.
+   *
+   * Completed slots are left out on purpose: they are already counted, in
+   * `completedToday`. Stopped/missed occurrences still consume today's target.
+   * A user dismissal,
+   * unlike a pause/archive, means "not today" and must not be recreated.
+   *
+   * ponytail: sessions, not minutes. A duration minimum whose kept slot was
+   * cut short by hand is a session short of its target, and the day says so
+   * tomorrow rather than quietly placing a fourth block today.
+   */
+  const keptToday = new Map<string, number>();
+  for (const slot of slots) {
+    const keeps =
+      ["planned", "live", "started", "bucketed", "skipped", "missed"].includes(
+        slot.status,
+      ) || dismissedIds.has(slot.id);
+    if (!keeps || !slot.activityId) continue;
+    keptToday.set(slot.activityId, (keptToday.get(slot.activityId) ?? 0) + 1);
+  }
+
   const weekday = localWeekday(dayStart, zone);
   const weekStart = dayStart - weekday * 86_400_000;
   const [todayProgress, weekProgress] = await Promise.all([
-    progressForRange(db, bounds.start, bounds.end),
+    progressForRange(db, wholeDay.start, wholeDay.end),
     progressForRange(db, weekStart, bounds.end),
   ]);
 
@@ -114,33 +161,93 @@ export async function planDay(
     const today = todayProgress.get(row.id) ?? { count: 0, minutes: 0 };
     const week = weekProgress.get(row.id) ?? { count: 0, minutes: 0 };
 
-    const sessionsNeeded = sessionsNeededToday(
-      activity,
-      {
-        completedToday: today.count,
-        completedMinutesToday: today.minutes,
-        completedThisWeek: week.count,
-      },
-      weekday,
+    const occurrences = unplacedSlots.filter(
+      (slot) => slot.activityId === row.id,
     );
-    if (sessionsNeeded === 0) continue;
+    const freshNeeded =
+      sessionsNeededToday(
+        activity,
+        {
+          completedToday: today.count,
+          completedMinutesToday: today.minutes,
+          completedThisWeek: week.count,
+        },
+        weekday,
+      ) - (keptToday.get(row.id) ?? 0);
+    if (!activity.isActive) continue;
+    const sessionsNeeded = Math.max(0, freshNeeded) + occurrences.length;
+    if (sessionsNeeded <= 0) continue;
 
     demands.push({
       activity,
       sessionsNeeded,
+      occurrences: occurrences.map((slot) => ({
+        id: slot.id,
+        minutes: (slot.endsAt - slot.startsAt) / 60_000,
+      })),
       preferredAt: anchorMinutes.map((minutes) =>
         preferredInstant(date, zone, minutes),
       ),
     });
   }
 
-  const result = solve({ dayStart, dayEnd: bounds.end, busy, locked, demands });
+  // One-off slots have no activity definition but are still placeable.
+  for (const slot of unplacedSlots.filter((slot) => !slot.activityId)) {
+    const minutes = (slot.endsAt - slot.startsAt) / 60_000;
+    demands.push({
+      activity: {
+        id: slot.id,
+        name: slot.title,
+        kind: slot.kind as "focus" | "recovery" | "task",
+        isActive: true,
+        minimum: { type: "countPerDay", value: 1 },
+        sessionMinutes: minutes,
+        importance: "normal",
+        bufferBeforeMeetingMinutes: 0,
+        daysOfWeek: 127,
+      },
+      sessionsNeeded: 1,
+      preferredAt: [],
+      occurrences: [{ id: slot.id, minutes }],
+    });
+  }
+
+  const result = solve({
+    dayStart,
+    spreadStart: bounds.start,
+    dayEnd: bounds.end,
+    busy,
+    locked,
+    demands,
+  });
+
+  // Paused/deleted definitions may still have legacy saved slots. Report
+  // them without reviving them or pretending the entire request succeeded.
+  const offered = new Set(
+    demands.flatMap(
+      (demand) => demand.occurrences?.map((slot) => slot.id) ?? [],
+    ),
+  );
+  for (const slot of unplacedSlots.filter((slot) => !offered.has(slot.id))) {
+    const activityId = slot.activityId ?? slot.id;
+    const existing = result.unplaced.find(
+      (item) => item.activityId === activityId,
+    );
+    if (existing) existing.sessions++;
+    else
+      result.unplaced.push({
+        activityId,
+        sessions: 1,
+        reason: "not_scheduled_today",
+      });
+  }
 
   const activityById = new Map(activities.map((a) => [a.row.id, a.row]));
   const planned = result.placed
     // Locked slots came in as input and already exist; only persist new ones.
     .filter(
       (slot) =>
+        !slot.id &&
         !locked.some((l) => l.start === slot.start && l.end === slot.end),
     )
     .map((slot) => {
@@ -165,25 +272,94 @@ export async function planDay(
         busy,
         demands,
         dayStart,
+        spreadStart: bounds.start,
         dayEnd: bounds.end,
+        locked,
       }),
-      placedCount: planned.length,
-      unplacedCount: result.unplaced.length,
+      placedCount:
+        planned.length + result.placed.filter((slot) => slot.id).length,
+      unplacedCount: result.unplaced.reduce(
+        (sum, item) => sum + item.sessions,
+        0,
+      ),
       durationMs: Date.now() - started,
     },
     now,
     newId,
   );
 
-  const written = await replacePlannedSlots(
+  const written = await insertPlannedSlots(
     db,
-    { from: dayStart, to: bounds.end, planRunId },
+    { planRunId },
     planned,
     now,
     newId,
   );
 
-  return { ...result, planRunId, ...written };
+  const restored = result.placed.filter((slot) => slot.id);
+  for (const slot of restored) {
+    if (!slot.id) continue;
+    await moveSlot(
+      db,
+      {
+        slotId: slot.id,
+        startsAt: slot.start,
+        endsAt: slot.end,
+        actor: "system",
+        timeZone: zone,
+        reasonCode: "placed_from_unplaced",
+      },
+      now,
+      newId,
+    );
+  }
+  const restoredIds = new Set(restored.map((slot) => slot.id));
+
+  // A shortfall is a real, recoverable occurrence, not just a number on a
+  // plan run. Bucket rows consume demand on later plans but never hold time.
+  for (const missing of result.unplaced) {
+    const activity = activityById.get(missing.activityId);
+    if (!activity) continue;
+    const alreadySaved = unplacedSlots.filter(
+      (slot) =>
+        slot.activityId === missing.activityId && !restoredIds.has(slot.id),
+    ).length;
+    for (let i = 0; i < missing.sessions - alreadySaved; i++) {
+      await db.slot.create({
+        data: {
+          id: newId(),
+          activityId: activity.id,
+          title: activity.name,
+          kind: activity.kind,
+          // A day key and duration only, not a pretend appointment. The UI
+          // labels initial shortfalls "Not placed" rather than "was 09:00".
+          startsAt: new Date(bounds.start),
+          endsAt: new Date(bounds.start + activity.sessionMinutes * 60_000),
+          timeZone: zone,
+          status: "bucketed",
+          planRunId,
+          createdAt: new Date(now),
+          events: {
+            create: {
+              id: newId(),
+              at: new Date(now),
+              type: "bucketed",
+              actor: "system",
+              reasonCode: missing.reason,
+              reasonText: "initial_placement",
+            },
+          },
+        },
+      });
+    }
+  }
+
+  return {
+    ...result,
+    planRunId,
+    ...written,
+    created: written.created + restored.length,
+  };
 }
 
 /**
@@ -238,7 +414,14 @@ export async function detectConflicts(
   const conflicts: DetectedConflict[] = [];
 
   for (const slot of slots) {
-    if (slot.status === "cancelled" || slot.status === "completed") continue;
+    // Nothing that is not going to happen, and nothing already handed back:
+    // a bucketed session holds no time, so it cannot clash with anything.
+    if (
+      slot.status === "cancelled" ||
+      slot.status === "completed" ||
+      slot.status === "bucketed"
+    )
+      continue;
 
     const block = findOverlap({ start: slot.startsAt, end: slot.endsAt }, busy);
     if (!block) continue;

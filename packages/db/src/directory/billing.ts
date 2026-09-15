@@ -1,4 +1,10 @@
-import { at, atOrNull, type Directory } from "../client";
+import {
+  at,
+  atOrNull,
+  type Directory,
+  directoryTransaction,
+  isTransaction,
+} from "../client";
 import { refreshUserPlan } from "./users";
 
 export interface SubscriptionInput {
@@ -17,14 +23,26 @@ export async function upsertSubscription(
   directory: Directory,
   input: SubscriptionInput,
   now: number,
-) {
+): Promise<Awaited<ReturnType<typeof refreshUserPlan>>> {
+  if (!isTransaction(directory))
+    return directoryTransaction(directory, (tx) =>
+      upsertSubscription(tx, input, now),
+    );
   const data = {
     stripeCustomerId: input.stripeCustomerId,
-    stripeSubscriptionId: input.stripeSubscriptionId ?? null,
-    stripePriceId: input.stripePriceId ?? null,
+    ...(input.stripeSubscriptionId !== undefined
+      ? { stripeSubscriptionId: input.stripeSubscriptionId }
+      : {}),
+    ...(input.stripePriceId !== undefined
+      ? { stripePriceId: input.stripePriceId }
+      : {}),
     status: input.status,
-    currentPeriodEnd: atOrNull(input.currentPeriodEnd),
-    cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? false,
+    ...(input.currentPeriodEnd !== undefined
+      ? { currentPeriodEnd: atOrNull(input.currentPeriodEnd) }
+      : {}),
+    ...(input.cancelAtPeriodEnd !== undefined
+      ? { cancelAtPeriodEnd: input.cancelAtPeriodEnd }
+      : {}),
     updatedAt: at(now),
   };
 
@@ -66,23 +84,22 @@ export function getSubscription(directory: Directory, userId: string) {
  * Lives in the directory because a Stripe event is not scoped to a user we
  * have resolved yet.
  */
-export async function alreadyProcessed(
+export async function processWebhook(
   directory: Directory,
   source: "stripe" | "google" | "microsoft",
   eventId: string,
   now: number,
+  apply: (tx: Directory) => Promise<void>,
 ): Promise<boolean> {
-  const id = `${source}:${eventId}`;
-  const seen = await directory.processedEvent.findUnique({
-    where: { id },
-    select: { id: true },
+  return directoryTransaction(directory, async (tx) => {
+    const id = `${source}:${eventId}`;
+    if (await tx.processedEvent.findUnique({ where: { id } })) return false;
+    await apply(tx);
+    await tx.processedEvent.create({
+      data: { id, source, processedAt: at(now) },
+    });
+    return true;
   });
-  if (seen) return true;
-
-  await directory.processedEvent.create({
-    data: { id, source, processedAt: at(now) },
-  });
-  return false;
 }
 
 export async function pruneProcessedEvents(

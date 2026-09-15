@@ -1,8 +1,11 @@
 import { freeGaps } from "./busy";
+import { ANYWHERE, resolveBreather, searchPlacement } from "./rearrange";
+import { siblingGap } from "./routine";
 import type {
   Demand,
   Importance,
   Instant,
+  Interval,
   PlacedSlot,
   PlanInput,
   PlanResult,
@@ -18,63 +21,14 @@ const IMPORTANCE_RANK: Record<Importance, number> = {
   low: 1,
 };
 
-interface Gap {
-  start: Instant;
-  end: Instant;
-  /** True when this gap butts up against a meeting, so a pre-meeting buffer
-   *  applies to anything placed at its tail. */
-  endsAtMeeting: boolean;
-}
-
 interface Placement {
-  gapIndex: number;
   start: Instant;
-  /** Distance in ms from the nearest preferred time. Lower wins. */
   cost: number;
-}
-
-/** Best position for `duration` inside one gap, or undefined if it won't fit. */
-function fitInGap(
-  gap: Gap,
-  duration: number,
-  bufferMs: number,
-  preferredAt: readonly Instant[],
-): { start: Instant; cost: number } | undefined {
-  const limit = gap.endsAtMeeting ? gap.end - bufferMs : gap.end;
-  const earliest = gap.start;
-  const latest = limit - duration;
-  if (latest < earliest) return undefined;
-
-  if (preferredAt.length === 0) {
-    // No preference: earliest wins, and cost stays neutral so the gap ordering
-    // below falls through to "soonest".
-    return { start: earliest, cost: 0 };
-  }
-
-  let best: { start: Instant; cost: number } | undefined;
-  for (const preferred of preferredAt) {
-    const start = Math.min(Math.max(preferred, earliest), latest);
-    const cost = Math.abs(start - preferred);
-    if (
-      !best ||
-      cost < best.cost ||
-      (cost === best.cost && start < best.start)
-    ) {
-      best = { start, cost };
-    }
-  }
-  return best;
-}
-
-/** Would this session fit anywhere, ignoring buffers? Used to tell "no gap at
- *  all" apart from "a gap existed but the buffer ate it". */
-function fitsIgnoringBuffer(gaps: readonly Gap[], duration: number): boolean {
-  return gaps.some((g) => g.end - g.start >= duration);
 }
 
 function orderDemands(
   demands: readonly Demand[],
-  gaps: readonly Gap[],
+  gaps: readonly Interval[],
 ): Demand[] {
   // Scarcity: an activity that fits in few gaps should claim one before an
   // activity that fits anywhere takes it. Computed once against the initial
@@ -121,6 +75,48 @@ function orderDemands(
  * `dayStart: max(localDayStart, now)`.
  */
 export function plan(input: PlanInput): PlanResult {
+  if (!Number.isFinite(input.dayStart) || !Number.isFinite(input.dayEnd)) {
+    throw new RangeError("Plan bounds must be finite");
+  }
+  // A bad persisted row or a non-HTTP caller must not create an unbounded
+  // loop, even when zero-length placements would never consume a gap.
+  if (
+    input.demands.length > 1000 ||
+    input.busy.length + input.locked.length > 10000 ||
+    input.dayEnd - input.dayStart > 48 * 60 * MINUTE
+  )
+    throw new RangeError("Plan exceeds work bounds");
+  for (const demand of input.demands) {
+    if (
+      !Number.isInteger(demand.sessionsNeeded) ||
+      demand.sessionsNeeded < 0 ||
+      demand.sessionsNeeded > 1440 ||
+      !Number.isFinite(demand.activity.sessionMinutes) ||
+      demand.activity.sessionMinutes < 1 ||
+      demand.activity.sessionMinutes > 1440 ||
+      !Number.isFinite(demand.activity.bufferBeforeMeetingMinutes) ||
+      demand.activity.bufferBeforeMeetingMinutes < 0 ||
+      demand.preferredAt.length > 48 ||
+      demand.preferredAt.some((at) => !Number.isFinite(at)) ||
+      (demand.occurrences?.length ?? 0) > demand.sessionsNeeded ||
+      demand.occurrences?.some(
+        (slot) =>
+          !slot.id ||
+          !Number.isFinite(slot.minutes) ||
+          slot.minutes < 1 ||
+          slot.minutes > 1440,
+      )
+    ) {
+      throw new RangeError("Invalid or excessive placement demand");
+    }
+  }
+  const spreadStart = input.spreadStart ?? input.dayStart;
+  if (
+    !Number.isFinite(spreadStart) ||
+    spreadStart > input.dayStart ||
+    input.dayEnd - spreadStart > 48 * 60 * MINUTE
+  )
+    throw new RangeError("Invalid spread bounds");
   const bounds = { start: input.dayStart, end: input.dayEnd };
   const lockedIntervals = input.locked.map((s) => ({
     start: s.start,
@@ -128,13 +124,15 @@ export function plan(input: PlanInput): PlanResult {
   }));
   const occupied = [...input.busy, ...lockedIntervals];
 
-  let gaps: Gap[] = freeGaps(bounds, occupied).map((g) => ({
-    start: g.start,
-    end: g.end,
-    // A gap that ends before the day does butts up against something busy.
-    endsAtMeeting: g.end < bounds.end,
-  }));
+  let gaps = freeGaps(bounds, occupied);
+  const breather = resolveBreather(undefined);
 
+  let budget = 200_000 - gaps.length * input.demands.length;
+  const spend = (work: number) => {
+    budget -= work;
+    if (budget < 0) throw new RangeError("Plan exceeds work bounds");
+  };
+  if (budget < 0) throw new RangeError("Plan exceeds work bounds");
   const initialGaps = gaps.map((g) => ({ ...g }));
   const placed: PlacedSlot[] = [...input.locked];
   const shortfall = new Map<
@@ -144,62 +142,117 @@ export function plan(input: PlanInput): PlanResult {
 
   for (const demand of orderDemands(input.demands, initialGaps)) {
     const { activity } = demand;
-    const duration = activity.sessionMinutes * MINUTE;
+    const duration =
+      Math.max(
+        activity.sessionMinutes,
+        ...(demand.occurrences ?? []).map((slot) => slot.minutes),
+      ) * MINUTE;
     const bufferMs = activity.bufferBeforeMeetingMinutes * MINUTE;
+    const siblings = placed.filter((slot) => slot.activityId === activity.id);
+    const count = siblings.length + demand.sessionsNeeded;
+    const span = input.dayEnd - spreadStart;
+    const separation = siblingGap(span, count);
+    // If the spacing floor needs more room than equal cells leave, borrow
+    // from the day edges before declaring a shortfall (e.g. four 30-minute
+    // sessions in a four-hour day). Do not sacrifice a session to padding.
+    const step = Math.max(span / Math.max(1, count), duration + separation);
+    const padding = Math.max(0, (span - duration - (count - 1) * step) / 2);
+    // One target per occurrence, distributed across the working day.
+    // A kept/manual/completed occurrence consumes its nearest target first.
+    const targets =
+      count > 1
+        ? Array.from({ length: count }, (_, i) => {
+            const from = spreadStart + (span * i) / count;
+            const to = spreadStart + (span * (i + 1)) / count - duration;
+            const preferred = demand.preferredAt.length
+              ? demand.preferredAt.reduce((best, at) =>
+                  Math.abs(at - (from + to) / 2) <
+                  Math.abs(best - (from + to) / 2)
+                    ? at
+                    : best,
+                )
+              : spreadStart + padding + i * step;
+            const target = demand.preferredAt.length
+              ? Math.max(from, Math.min(to, preferred))
+              : preferred;
+            return Math.round(target / MINUTE) * MINUTE;
+          })
+        : [];
+    for (const slot of siblings) {
+      const nearest = targets.reduce(
+        (best, at, i) =>
+          Math.abs(at - slot.start) <
+          Math.abs((targets[best] ?? Infinity) - slot.start)
+            ? i
+            : best,
+        0,
+      );
+      targets.splice(nearest, 1);
+    }
 
     for (let session = 0; session < demand.sessionsNeeded; session++) {
+      if (--budget < 0) throw new RangeError("Plan exceeds work bounds");
+      const occurrence = demand.occurrences?.[session];
+      const duration =
+        (occurrence?.minutes ?? activity.sessionMinutes) * MINUTE;
       let best: Placement | undefined;
 
-      for (const [index, gap] of gaps.entries()) {
-        const fit = fitInGap(gap, duration, bufferMs, demand.preferredAt);
-        if (!fit) continue;
+      const preferred =
+        targets[session] === undefined
+          ? demand.preferredAt
+          : [targets[session] as number];
+      // The same candidate search as repair: spacing is required, breathing
+      // room (including the activity buffer) is preferred. Initial placement
+      // measures drift from its target; repair measures it from its old time.
+      for (const origin of preferred.length ? preferred : [input.dayStart]) {
+        const found = searchPlacement(gaps, {
+          duration,
+          bufferMs,
+          policy: ANYWHERE,
+          origin,
+          occupied,
+          breather,
+          siblings,
+          requiredGap: separation,
+          spend,
+        });
+        if ("failed" in found) continue;
+        const fit = found.best;
         if (
           !best ||
           fit.cost < best.cost ||
           (fit.cost === best.cost && fit.start < best.start)
-        ) {
-          best = { gapIndex: index, start: fit.start, cost: fit.cost };
-        }
+        )
+          best = fit;
       }
 
       if (!best) {
-        const reason: UnplacedReason = fitsIgnoringBuffer(gaps, duration)
-          ? "buffer_blocked"
+        const reason: UnplacedReason = gaps.some(
+          (gap) => gap.end - gap.start >= duration,
+        )
+          ? "spacing_blocked"
           : "no_gap";
         const existing = shortfall.get(activity.id);
         shortfall.set(activity.id, {
-          sessions:
-            (existing?.sessions ?? 0) + (demand.sessionsNeeded - session),
+          sessions: (existing?.sessions ?? 0) + 1,
           reason: existing?.reason ?? reason,
         });
-        break;
+        // A longer saved occurrence may fail while the next, shorter one fits.
+        continue;
       }
 
       const end = best.start + duration;
-      placed.push({ activityId: activity.id, start: best.start, end });
+      const slot = {
+        activityId: activity.id,
+        start: best.start,
+        end,
+        ...(occurrence ? { id: occurrence.id } : {}),
+      };
+      placed.push(slot);
+      siblings.push(slot);
 
-      // Split the consumed gap into whatever is left either side.
-      const gap = gaps[best.gapIndex] as Gap;
-      const remainder: Gap[] = [];
-      if (best.start > gap.start) {
-        remainder.push({
-          start: gap.start,
-          end: best.start,
-          endsAtMeeting: false,
-        });
-      }
-      if (end < gap.end) {
-        remainder.push({
-          start: end,
-          end: gap.end,
-          endsAtMeeting: gap.endsAtMeeting,
-        });
-      }
-      gaps = [
-        ...gaps.slice(0, best.gapIndex),
-        ...remainder,
-        ...gaps.slice(best.gapIndex + 1),
-      ];
+      occupied.push({ start: slot.start, end: slot.end });
+      gaps = freeGaps(bounds, occupied);
     }
   }
 

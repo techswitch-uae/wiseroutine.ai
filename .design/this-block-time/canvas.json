@@ -1,0 +1,15 @@
+{
+  "artboards": [
+    { "file": "Current.dc.html", "x": 0, "y": 0, "w": 612, "h": 470, "title": "Current" },
+    { "file": "Main.dc.html", "x": 692, "y": 0, "w": 612, "h": 470, "title": "Option A - one control" },
+    { "file": "OptionB.dc.html", "x": 1384, "y": 0, "w": 612, "h": 470, "title": "Option B - the time is the button" },
+    { "file": "OptionC.dc.html", "x": 2076, "y": 0, "w": 612, "h": 470, "title": "Option C - a link beside the stepper" }
+  ],
+  "annotations": [
+    { "id": "current", "x": 0, "y": 520, "w": 612, "text": "Left: a block you can move. Right: a missed one, where only Postpone shows.\n\nTwo controls for one job (changing the time), stacked, and the bigger one is the less common path. The pill also pushes the stepper and Start down, so the card's real action sits at the bottom." },
+    { "id": "option-a", "x": 692, "y": 520, "w": 612, "text": "Option A - merge. The stepper grows to the card's width and gains a calendar segment after a divider: nudge with - and +, jump with the calendar. One object, one row. The note under it says both jobs.\n\nMissed state: no stepper to join, so the calendar stands alone as a small chip.\n\nTradeoff: an icon-only segment needs its tooltip and label to carry \"Postpone / change time\"." },
+    { "id": "option-b", "x": 1384, "y": 520, "w": 612, "text": "Option B - edit where the time is. The time line becomes a soft pill with a chevron; pressing it opens the same dialog. Stepper unchanged, big button gone.\n\nMissed state: the same pill, so there is one place for changing the time in every state.\n\nTradeoff: the least discoverable - nothing reads as a button until you hover or already know." },
+    { "id": "option-c", "x": 2076, "y": 520, "w": 612, "text": "Option C - demote to a link. The stepper's note becomes two lines: \"5 min steps\" and an underlined \"Other time…\", borrowing the kit's linklike style.\n\nMissed state: \"Postpone…\" joins the quiet action row beside Mark it done.\n\nTradeoff: smallest change, but the two states put the same action in two different places." }
+  ],
+  "launch": { "view": "canvas" }
+}

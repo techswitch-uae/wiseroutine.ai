@@ -24,6 +24,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/node": "^26.2.0",
     "@cloudflare/workers-types": "^5.20260823.1",
     "@wiseroutine/typescript-config": "workspace:*",
     "prisma": "^7.9.1",

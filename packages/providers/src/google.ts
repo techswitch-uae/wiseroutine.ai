@@ -4,7 +4,13 @@ import type {
   ProviderCalendar,
   SyncPage,
 } from "./types";
-import { ProviderError, SyncTokenExpired } from "./types";
+import {
+  joinableUrl,
+  meetingLinkIn,
+  ProviderError,
+  SyncTokenExpired,
+  toRichText,
+} from "./types";
 
 /**
  * Google Calendar, over plain `fetch`.
@@ -202,6 +208,30 @@ function parseTime(value: unknown): {
   };
 }
 
+/**
+ * The video link on a Google event.
+ *
+ * `conferenceData` is where it lives now, and it holds every way into the
+ * meeting - dial-in numbers and SIP addresses among them - so the video entry
+ * is picked by name rather than by being first. `hangoutLink` is the older
+ * field, still sent for events created before conferenceData and still the
+ * only link on some of them.
+ */
+function joinLinkOf(raw: Record<string, unknown>): string | null {
+  const conference = (raw.conferenceData ?? {}) as Record<string, unknown>;
+  const entries = (conference.entryPoints ?? []) as Record<string, unknown>[];
+  const video = entries.find((entry) => entry.entryPointType === "video");
+  return (
+    joinableUrl(video?.uri) ??
+    joinableUrl(raw.hangoutLink) ??
+    // And then the description, which is where a meeting booked by anything
+    // other than Google itself puts its link - Calendly, HubSpot, a Zoom
+    // scheduler. `conferenceData` is only filled in by Google's own
+    // conferencing, so a diary full of Zoom calls has none of it at all.
+    meetingLinkIn(raw.description)
+  );
+}
+
 export function normaliseGoogleEvent(
   raw: Record<string, unknown>,
 ): NormalisedEvent {
@@ -223,6 +253,8 @@ export function normaliseGoogleEvent(
     isCancelled: raw.status === "cancelled",
     changeTag: raw.etag ? String(raw.etag) : null,
     providerUpdatedAt: raw.updated ? Date.parse(String(raw.updated)) : null,
+    joinUrl: joinLinkOf(raw),
+    description: toRichText(raw.description),
   };
 }
 

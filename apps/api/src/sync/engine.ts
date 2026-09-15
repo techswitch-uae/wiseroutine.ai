@@ -1,13 +1,18 @@
 import {
+  type Directory,
+  type getCalendarForSync,
   getSyncState,
   getTokens,
+  getUser,
   markNeedsReauth,
   saveSyncState,
   saveTokens,
   tombstoneEvents,
   type UserDatabase,
   upsertEvents,
+  userTransaction,
 } from "@wiseroutine/db";
+import type { PlanId } from "@wiseroutine/plans";
 import {
   googleRefresh,
   googleSyncPage,
@@ -15,10 +20,12 @@ import {
   microsoftSyncPage,
   type NormalisedEvent,
   ProviderError,
+  type SyncPage,
   SyncTokenExpired,
 } from "@wiseroutine/providers";
 import { dayBounds, localDateOf } from "@wiseroutine/scheduler";
 import { open, seal } from "../crypto";
+import { realignAfterSync } from "./realign";
 
 /** How far either side of today we keep concrete event instances. Chosen once:
  *  on Google the window is baked into the sync token forever, so changing it
@@ -71,6 +78,12 @@ export interface SyncDeps {
   /** Envelope-encryption keys are per user, so the id is part of the context. */
   userId: string;
   rootKey: string;
+  /** Controlled provider-page boundary for acceptance tests; not a placement substitute. */
+  readPage?: (page: {
+    pageToken?: string;
+    syncToken?: string;
+    deltaLink?: string;
+  }) => Promise<SyncPage>;
   clientIds: {
     google: { clientId: string; clientSecret: string };
     microsoft: { clientId: string; clientSecret: string };
@@ -83,6 +96,8 @@ export interface SyncTarget {
   provider: "google" | "microsoft";
   providerCalendarId: string;
   storeTitles: boolean;
+  /** Captured before reading the directory preference, to fence opt-in races. */
+  syncGeneration?: number;
   /**
    * The earliest instant this sync may reach - see `syncWindowStart`.
    *
@@ -100,6 +115,8 @@ export interface SyncOutcome {
   deleted: number;
   fullResync: boolean;
   pages: number;
+  /** A newer sync/privacy choice won; this fetch made no storage changes. */
+  superseded?: boolean;
 }
 
 /**
@@ -156,10 +173,21 @@ export async function accessTokenFor(
   });
 
   const credentials = deps.clientIds[provider];
-  const refreshed =
-    provider === "google"
-      ? await googleRefresh({ refreshToken, ...credentials })
-      : await microsoftRefresh({ refreshToken, ...credentials });
+  /**
+   * A refresh that fails on the grant itself is the third way a connection
+   * dies, and the commonest: the user removed our access, or the grant aged
+   * out. It reaches here rather than the catch in `syncCalendar`, which begins
+   * after this call - so without this the connection stayed "active" forever
+   * and the only trace was `invalid_grant` in a log the user cannot see.
+   */
+  const refreshed = await (provider === "google"
+    ? googleRefresh({ refreshToken, ...credentials })
+    : microsoftRefresh({ refreshToken, ...credentials })
+  ).catch(async (error: unknown) => {
+    if (error instanceof ProviderError && error.needsReauth)
+      await markNeedsReauth(deps.db, connectionId);
+    throw error;
+  });
 
   const sealedAccess = await seal(
     deps.rootKey,
@@ -204,13 +232,8 @@ export async function syncCalendar(
   now: number,
   newId: () => string,
 ): Promise<SyncOutcome> {
-  const accessToken = await accessTokenFor(
-    deps,
-    target.connectionId,
-    target.provider,
-    now,
-  );
   const state = await getSyncState(deps.db, target.calendarId);
+  const generation = state?.syncGeneration ?? 0;
 
   const stale =
     state?.windowRebasedAt != null &&
@@ -228,6 +251,26 @@ export async function syncCalendar(
     pages: 0,
   };
 
+  if (
+    target.syncGeneration !== undefined &&
+    target.syncGeneration !== generation
+  )
+    return { ...outcome, superseded: true };
+
+  const accessToken = deps.readPage
+    ? ""
+    : await accessTokenFor(deps, target.connectionId, target.provider, now);
+
+  // Events and cursor advance together. A privacy opt-in or a competing sync
+  // must not have its full-refresh request overwritten by an old delta fetch.
+  const commit = (write: (db: UserDatabase) => Promise<void>) =>
+    userTransaction(deps.db, async (db) => {
+      const latest = await getSyncState(db, target.calendarId);
+      if ((latest?.syncGeneration ?? 0) !== generation) return false;
+      await write(db);
+      return true;
+    });
+
   // The caller supplies the floor because it is the caller that knows the
   // account's zone; without one this is the window it always was.
   const timeMin = new Date(
@@ -243,8 +286,9 @@ export async function syncCalendar(
   try {
     // Bounded so a pathological calendar cannot spin forever inside one job.
     for (let page = 0; page < 40; page++) {
-      const result =
-        target.provider === "google"
+      const result = deps.readPage
+        ? await deps.readPage({ pageToken, syncToken: token, deltaLink: link })
+        : target.provider === "google"
           ? await googleSyncPage({
               accessToken,
               calendarId: target.providerCalendarId,
@@ -276,12 +320,19 @@ export async function syncCalendar(
     if (error instanceof SyncTokenExpired) {
       // Expected, not exceptional: an ACL change or an evicted token. Clear and
       // start over on the next pass rather than failing the job.
-      await saveSyncState(deps.db, target.calendarId, {
-        syncToken: null,
-        deltaLink: null,
-        windowRebasedAt: now,
-      });
-      return { ...outcome, fullResync: true };
+      const committed = await commit((db) =>
+        saveSyncState(db, target.calendarId, {
+          syncToken: null,
+          deltaLink: null,
+          windowRebasedAt: now,
+          syncGeneration: generation + 1,
+        }),
+      );
+      return {
+        ...outcome,
+        fullResync: true,
+        ...(!committed ? { superseded: true } : {}),
+      };
     }
     if (error instanceof ProviderError && error.needsReauth) {
       await markNeedsReauth(deps.db, target.connectionId);
@@ -289,30 +340,81 @@ export async function syncCalendar(
     throw error;
   }
 
-  const upserted = await upsertEvents(
-    deps.db,
-    { calendarId: target.calendarId, storeTitles: target.storeTitles },
-    collected,
+  const committed = await commit(async (db) => {
+    const upserted = await upsertEvents(
+      db,
+      { calendarId: target.calendarId, storeTitles: target.storeTitles },
+      collected,
+      now,
+      newId,
+    );
+    outcome.written = upserted.written;
+    outcome.skipped = upserted.skipped;
+
+    if (deleted.length > 0) {
+      await tombstoneEvents(db, target.calendarId, deleted, now);
+      outcome.deleted = deleted.length;
+    }
+
+    await saveSyncState(db, target.calendarId, {
+      ...(target.provider === "google"
+        ? { syncToken: nextSyncToken ?? token ?? null }
+        : { deltaLink: nextSyncToken ?? link ?? null }),
+      lastIncrementalAt: now,
+      ...(fullResync ? { lastFullSyncAt: now, windowRebasedAt: now } : {}),
+      consecutiveFailures: 0,
+      syncGeneration: generation + 1,
+    });
+  });
+
+  return { ...outcome, ...(!committed ? { superseded: true } : {}) };
+}
+
+/** One ingestion → privacy fence → collision repair pipeline for worker jobs
+ * and controlled provider deliveries in browser acceptance tests. */
+export async function syncCalendarAndRepair(
+  deps: SyncDeps & { directory: Directory },
+  target: NonNullable<Awaited<ReturnType<typeof getCalendarForSync>>>,
+  now: number,
+  newId: () => string,
+) {
+  const syncGeneration =
+    (await getSyncState(deps.db, target.calendarId))?.syncGeneration ?? 0;
+  const user = await getUser(deps.directory, deps.userId);
+  const sync = await syncCalendar(
+    deps,
+    {
+      calendarId: target.calendarId,
+      connectionId: target.connectionId,
+      provider: target.provider,
+      providerCalendarId: target.providerCalendarId,
+      storeTitles: user?.storeEventTitles ?? true,
+      syncGeneration,
+      windowStart: syncWindowStart(
+        now,
+        target.connectedAt,
+        user?.timeZone ?? "UTC",
+      ),
+    },
     now,
     newId,
   );
-  outcome.written = upserted.written;
-  outcome.skipped = upserted.skipped;
-
-  if (deleted.length > 0) {
-    await tombstoneEvents(deps.db, target.calendarId, deleted, now);
-    outcome.deleted = deleted.length;
-  }
-
-  await saveSyncState(deps.db, target.calendarId, {
-    ...(target.provider === "google"
-      ? { syncToken: nextSyncToken ?? state?.syncToken ?? null }
-      : { deltaLink: nextSyncToken ?? state?.deltaLink ?? null }),
-    lastIncrementalAt: now,
-    ...(fullResync ? { lastFullSyncAt: now, windowRebasedAt: now } : {}),
-    consecutiveFailures: 0,
-    syncGeneration: (state?.syncGeneration ?? 0) + 1,
-  });
-
-  return outcome;
+  const repair = user
+    ? await realignAfterSync(
+        {
+          db: deps.db,
+          directory: deps.directory,
+          userId: deps.userId,
+          plan: user.plan as PlanId,
+          user: {
+            timeZone: user.timeZone,
+            dayStartMinutes: user.dayStartMinutes,
+            dayEndMinutes: user.dayEndMinutes,
+          },
+        },
+        now,
+        newId,
+      )
+    : null;
+  return { sync, repair, lastSeenAt: user?.lastSeenAt?.getTime() ?? null };
 }

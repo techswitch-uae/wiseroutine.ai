@@ -6,22 +6,38 @@
   "build": {
     "beforeDevCommand": "pnpm dev:vite",
     "devUrl": "http://localhost:41000",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm -w release:frontend",
     "frontendDist": "../.output/public"
   },
   "app": {
+    "withGlobalTauri": false,
     "windows": [
       {
         "title": "Wise Routine",
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
+        "dragDropEnabled": false,
         "width": 1180,
         "height": 820,
         "backgroundColor": "#eee7db"
       }
     ],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self'",
+        "connect-src": "'self' ipc: http://ipc.localhost https://api.wiseroutine.ai https://api-dev.wiseroutine.ai http://localhost:8787",
+        "img-src": "'self' data: blob: https:",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self' data:",
+        "frame-src": "https://open.spotify.com addon: http://addon.localhost",
+        "media-src": "'self' data:",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "frame-ancestors": "'none'"
+      },
+      "capabilities": [
+        "default"
+      ]
     }
   },
   "bundle": {

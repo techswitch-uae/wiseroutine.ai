@@ -1,28 +1,37 @@
+import { addonModuleFor, addonModules } from "../../addons/activity-type";
 import type { TodaySlot } from "../../lib/api";
-import { breathing } from "./breathing";
-import { deepWork } from "./deep-work";
-import { eyeRest } from "./eye-rest";
-import { stretch } from "./stretch";
+import { featureSnapshot } from "../../lib/features";
 
 /**
  * What an activity does when its slot is running.
  *
- * A plain object keyed by string, not a plugin system. Every benefit of one -
- * a per-activity experience, a settings form that belongs to the module rather
- * than to the activity sheet, room for a marketplace later - falls out of a
- * typed record, and none of the cost does: no loader, no manifest, no version
- * negotiation, no sandbox, and nothing to secure. A new module is a file and
- * one line here.
+ * Every one of them is an addon now, including the four Wise Routine ships.
+ * There is no built-in table left and no first-party shortcut into this
+ * lookup - `moduleFor` asks the installed addons and nothing else.
+ *
+ * That is the whole point, and it cost four files to get: an extension point
+ * the app itself does not use is an extension point nobody maintains. The
+ * breathing pacer, the eye rest, the guided stretch and the deep work block
+ * are loaded from a registry, sandboxed in a frame with an opaque origin,
+ * hold exactly the capabilities their manifests declare, and are switched off
+ * by the same toggle a stranger's addon will be. When somebody outside this
+ * repo writes their first one, the path it takes has been in production for
+ * months.
+ *
+ * `ActivityModule` survives as the *internal* shape a running session wears,
+ * which is why the rename left it alone: everything that consults a module -
+ * the session overlay, the activity sheet, the Start button's explanation, the
+ * library - goes on calling `moduleFor` and gets back this, so none of them
+ * ever learned that addons exist.
  *
  * Kept deliberately small. `Config` renders inside the existing activity form;
  * `Session` is the full-window takeover a running slot puts on screen. Both
  * are optional, because an activity with a module but no session - a walk,
  * say - is a real thing and should not have to supply an empty component.
  *
- * `config` is `unknown` on the way in and parsed by the module itself. The
- * server stores it as opaque JSON text and never looks inside, so the module
- * that wrote it is the only thing that knows its shape, and the only thing
- * that should.
+ * `config` is `unknown` on the way in and parsed against the addon's declared
+ * settings schema. The server stores it as opaque JSON text and never looks
+ * inside; the host reads it without executing a line of the addon.
  */
 
 export type StartPolicy = "manual" | "auto" | "prompt";
@@ -60,35 +69,46 @@ export interface ActivityModule<C = unknown> {
     config: C;
   };
   /** Turn whatever was stored into something this module can render. Must
-   *  never throw: a config written by an older version of the module is a
+   *  never throw: a config written by an older version of the addon is a
    *  thing that happens, and a crash in a session is worse than a default. */
   parse: (raw: unknown) => C;
   Config?: React.FC<ConfigProps<C>>;
   Session?: React.FC<SessionProps<C>>;
 }
 
-// Each module is typed against its own config; the registry is the one place
-// those types are erased, and the alternative is a generic parameter threaded
-// through every lookup site for no reader's benefit.
-// biome-ignore lint/suspicious/noExplicitAny: erased on purpose, see above
-export const MODULES: Record<string, ActivityModule<any>> = {
-  [eyeRest.key]: eyeRest,
-  [breathing.key]: breathing,
-  [stretch.key]: stretch,
-  [deepWork.key]: deepWork,
-};
+/**
+ * Every activity type every enabled addon defines.
+ *
+ * Named `MODULES` no longer, because it is not a table anyone edits - it is a
+ * view over what is installed, and it changes when an addon is switched on or
+ * off. Callers that want one key should use `moduleFor`; this is for the two
+ * places that genuinely need the whole set, both of them galleries.
+ */
+export const allModules = (): Record<string, ActivityModule> =>
+  featureSnapshot().guided_sessions ? addonModules() : {};
 
-/** The module a slot runs under, or undefined for a plain timed slot. */
+/**
+ * The module a slot runs under, or undefined for a plain timed slot.
+ *
+ * Undefined for a key nobody claims, which is a real and permanent state
+ * rather than an error: an addon can be switched off or removed while the
+ * activities it ran are still on the day, and those have to keep running as
+ * plain timed blocks. Everything downstream already draws nothing for a key it
+ * does not recognise, which is what makes an uninstall safe.
+ */
 export const moduleFor = (
   presetKey: string | null | undefined,
-): ActivityModule | undefined => (presetKey ? MODULES[presetKey] : undefined);
+): ActivityModule | undefined =>
+  featureSnapshot().guided_sessions && presetKey
+    ? addonModuleFor(presetKey)
+    : undefined;
 
 /**
  * The stored settings, as the module wants them.
  *
- * Parsing failures are settings, not errors: an activity configured by a
- * newer version of the app, or by hand, still has to run. Every module's
- * `parse` falls back to its own defaults rather than throwing.
+ * Parsing failures are settings, not errors: an activity configured by a newer
+ * version of an addon, or by hand, still has to run. Every `parse` falls back
+ * to the schema's own defaults rather than throwing.
  */
 export function configFor(
   /**

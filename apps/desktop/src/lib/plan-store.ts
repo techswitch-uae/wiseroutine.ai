@@ -18,8 +18,36 @@
 
 import { useSyncExternalStore } from "react";
 import type { TodayResponse } from "./api";
+import { onPrivacyRestricted, redactPlan } from "./privacy";
+import { onSessionReset } from "./session-lifecycle";
 
-let plan: TodayResponse | null = null;
+/** The day as Today publishes it, plus where it came from: `stale` when it
+ *  was read back from storage rather than the server, `cachedAt` when. */
+export type PublishedPlan = TodayResponse & {
+  stale?: boolean;
+  cachedAt?: number;
+};
+
+onPrivacyRestricted(() => {
+  if (plan) plan = redactPlan(plan);
+  if (todayPlan) todayPlan = redactPlan(todayPlan);
+  for (const listen of listeners) listen();
+});
+
+onSessionReset(resetPlans);
+let operationalOwner = false;
+export function manageToday(): () => void {
+  operationalOwner = true;
+  return () => {
+    operationalOwner = false;
+  };
+}
+export function publishTodayPlan(next: PublishedPlan | null): void {
+  todayPlan = next;
+  for (const listen of listeners) listen();
+}
+
+let plan: PublishedPlan | null = null;
 /**
  * The last plan that was actually about today, kept alongside the one on
  * screen.
@@ -32,7 +60,7 @@ let plan: TodayResponse | null = null;
  * one thing that answers "what now" without switching apps, and it has to keep
  * answering while you read next week.
  */
-let todayPlan: TodayResponse | null = null;
+let todayPlan: PublishedPlan | null = null;
 const listeners = new Set<() => void>();
 
 /**
@@ -43,7 +71,7 @@ const listeners = new Set<() => void>();
  * plan stale at seven in the evening, which is exactly when someone most wants
  * to know what is left.
  */
-const isToday = (candidate: TodayResponse, now: number): boolean => {
+export const isToday = (candidate: TodayResponse, now: number): boolean => {
   const here = new Intl.DateTimeFormat("en-CA", {
     timeZone: candidate.timeZone,
     year: "numeric",
@@ -73,19 +101,32 @@ let start: (slotId: string) => void = () => undefined;
 
 /** Called by Today whenever it has a new answer. */
 export function publishPlan(
-  next: TodayResponse | null,
+  next: PublishedPlan | null,
   now: number = Date.now(),
 ): void {
   plan = next;
-  // Only ever replaced by another plan for today - never cleared by one for
-  // another day. Paging forward is looking, and looking must not cost the menu
-  // bar the day it is reporting on.
-  if (next && isToday(next, now)) todayPlan = next;
+  /**
+   * Only ever replaced by another plan for today - never cleared by one for
+   * another day. Paging forward is looking, and looking must not cost the menu
+   * bar the day it is reporting on.
+   *
+   * But a day ends. Held with no expiry, the plan that *was* today went on
+   * being today's plan after midnight, so the menu bar kept being armed from a
+   * day that had finished - naming slots nobody could still do anything about,
+   * on a day whose own slots had not been placed yet. Yesterday's plan is not
+   * "no plan for today", and the difference is the whole bug: the first says
+   * something is coming, the second says nothing is.
+   */
+  if (todayPlan && !isToday(todayPlan, now)) todayPlan = null;
+  if (!operationalOwner && next && isToday(next, now)) todayPlan = next;
   for (const listen of listeners) listen();
 }
 
-export function publishStart(fn: (slotId: string) => void): void {
+export function publishStart(fn: (slotId: string) => void): () => void {
   start = fn;
+  return () => {
+    if (start === fn) start = () => undefined;
+  };
 }
 
 export const startSlot = (slotId: string): void => start(slotId);
@@ -104,8 +145,11 @@ let move: (slotId: string, startsAt: number, endsAt: number) => void = () =>
 
 export function publishMove(
   fn: (slotId: string, startsAt: number, endsAt: number) => void,
-): void {
+): () => void {
   move = fn;
+  return () => {
+    if (move === fn) move = () => undefined;
+  };
 }
 
 export const moveSlotTo = (
@@ -123,8 +167,11 @@ export const moveSlotTo = (
  */
 let reload: () => void = () => undefined;
 
-export function publishReload(fn: () => void): void {
+export function publishReload(fn: () => void): () => void {
   reload = fn;
+  return () => {
+    if (reload === fn) reload = () => undefined;
+  };
 }
 
 export const reloadPlan = (): void => reload();
@@ -136,16 +183,26 @@ function subscribe(listen: () => void): () => void {
   };
 }
 
-const snapshot = (): TodayResponse | null => plan;
+/**
+ * The same subscription, for a reader that is not a React component.
+ *
+ * The addon host, which pushes a "the day changed" message down each addon's
+ * port so a rail card does not have to poll for it. It cannot use
+ * `useSyncExternalStore`: it lives on the far side of a `MessagePort`, in code
+ * that runs once when a frame is served rather than on every render.
+ */
+export const subscribePlan = subscribe;
+
+const snapshot = (): PublishedPlan | null => plan ?? todayPlan;
 
 /** The day as Today last saw it, or null before the first load. The server
  *  snapshot is null too: nothing has been fetched during a render. */
-export const usePlan = (): TodayResponse | null =>
+export const usePlan = (): PublishedPlan | null =>
   useSyncExternalStore(subscribe, snapshot, () => null);
 
 /** Today's plan, read outside React - which is where the menu bar's own
  *  bookkeeping and every test of it live. */
-export const todaySnapshot = (): TodayResponse | null => todayPlan;
+export const todaySnapshot = (): PublishedPlan | null => todayPlan;
 
 /**
  * Today's plan, whatever day is on screen.
@@ -155,7 +212,7 @@ export const todaySnapshot = (): TodayResponse | null => todayPlan;
  * happening", and after the day view learned to page forward those stopped
  * being the same question.
  */
-export const useTodayPlan = (): TodayResponse | null =>
+export const useTodayPlan = (): PublishedPlan | null =>
   useSyncExternalStore(subscribe, todaySnapshot, () => null);
 
 /** Test seam. Module state has to outlive every page, which means a test
@@ -163,4 +220,9 @@ export const useTodayPlan = (): TodayResponse | null =>
 export function resetPlans(): void {
   plan = null;
   todayPlan = null;
+  operationalOwner = false;
+  start = () => undefined;
+  move = () => undefined;
+  reload = () => undefined;
+  for (const listen of listeners) listen();
 }

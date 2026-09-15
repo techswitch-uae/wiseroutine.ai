@@ -17,7 +17,7 @@ const day = (over: Partial<TodayResponse> = {}): TodayResponse => ({
   meetings: [],
   outside: { before: [], after: [] },
   syncedAt: null,
-  modules: [],
+  widgets: [],
   progress: [],
   ...over,
 });
@@ -135,11 +135,34 @@ describe("owedToday", () => {
  *
  * Dragging is how a slot is rescheduled, so it has to stop being offered the
  * moment there is nothing left to reschedule. A slot that has started is
- * happening now; a completed, skipped or missed one is the record that it
- * happened - or did not - at a particular time, and both the missed list and
- * every progress number are read back out of those rows.
+ * happening now; a completed one is fixed history. Early-stopped slots move
+ * in place only before the scheduled start cutoff; missed history never moves.
  */
 describe("buildTimeline", () => {
+  it("labels imported meetings by provider, including Busy, without guessing old cache provenance", () => {
+    const rows = buildTimeline(
+      day({
+        meetings: [
+          { ...meeting(H(10), H(11), "google"), provider: "google" },
+          {
+            ...meeting(H(11), H(12), "outlook"),
+            provider: "microsoft",
+            title: null,
+          },
+          meeting(H(12), H(13), "legacy"),
+        ],
+      }),
+      H(9),
+    );
+    expect(rows.map(({ title, meta }) => ({ title, meta }))).toEqual([
+      { title: "Design review", meta: "Google · 60 min" },
+      { title: "Busy", meta: "Outlook · 60 min" },
+      { title: "Design review", meta: "60 min" },
+    ]);
+    expect(
+      rows.every((row) => !row.slotId && !row.startable && !row.movable),
+    ).toBe(true);
+  });
   const status = (value: string) =>
     buildTimeline(
       day({
@@ -153,10 +176,82 @@ describe("buildTimeline", () => {
     expect(status("live")?.movable).toBe(true);
   });
 
-  it("pins one that has begun or is over", () => {
-    for (const value of ["started", "completed", "skipped", "missed"]) {
+  it("pins started and completed work", () => {
+    for (const value of ["started", "completed"]) {
       expect(status(value)?.movable).toBe(false);
     }
+  });
+
+  it("lets early-stopped slots move in place, but never moves missed history", () => {
+    expect(status("skipped")?.movable).toBe(true);
+    expect(status("missed")?.movable).toBe(false);
+  });
+
+  it("distinguishes approaching, due, running and done instead of treating them all as startable", () => {
+    const row = (status: "planned" | "started" | "completed", now: number) =>
+      buildTimeline(
+        day({ slots: [{ ...slot(H(10), H(11)), status }] }),
+        now,
+      )[0];
+    expect(row("planned", H(9))).toMatchObject({
+      startable: true,
+      running: false,
+    });
+    expect(row("planned", H(9))?.variant).not.toBe("live");
+    expect(row("planned", H(10))).toMatchObject({
+      variant: "live",
+      startable: true,
+      running: false,
+    });
+    // Starting early is still a real start, not a future play button.
+    for (const now of [H(9), H(10)]) {
+      expect(row("started", now)).toMatchObject({
+        variant: "live",
+        startable: false,
+        running: true,
+        movable: false,
+      });
+    }
+    expect(row("completed", H(10))).toMatchObject({
+      done: true,
+      startable: false,
+      running: false,
+    });
+    expect(row("completed", H(10))?.variant).not.toBe("live");
+    expect(row("started", H(11))).toMatchObject({
+      startable: false,
+      running: false,
+    });
+    expect(row("planned", H(10) + 120_000)).toMatchObject({
+      startable: true,
+      movable: false,
+    });
+  });
+
+  it("offers resume only before the scheduled cutoff, and never starts missed work", () => {
+    const stopped = (now: number) =>
+      buildTimeline(
+        day({ slots: [{ ...slot(H(10), H(11)), status: "skipped" }] }),
+        now,
+      )[0];
+    expect(stopped(H(10))).toMatchObject({
+      variant: "live",
+      resumable: true,
+      startable: true,
+      running: false,
+    });
+    expect(stopped(H(10) + 120_000)).toMatchObject({
+      movable: false,
+      resumable: false,
+      startable: false,
+      running: false,
+    });
+    const missed = buildTimeline(
+      day({ slots: [{ ...slot(H(10), H(11)), status: "missed" }] }),
+      H(10),
+    )[0];
+    expect(missed).toMatchObject({ startable: false, running: false });
+    expect(missed?.variant).not.toBe("live");
   });
 
   // We never write back to the calendar it came from, so a block that slides

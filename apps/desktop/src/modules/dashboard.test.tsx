@@ -1,6 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { TodayResponse, TodaySlot } from "../lib/api";
+import { pick } from "../lib/picked";
 import { publishPlan } from "../lib/plan-store";
 import { DashboardWidgets } from "./dashboard";
 
@@ -17,7 +18,9 @@ const AT = Date.UTC(2026, 7, 11, 9, 0);
 
 vi.mock("../lib/api", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  api: { missed: vi.fn(async () => []) },
+  api: {
+    missed: vi.fn(async () => []),
+  },
 }));
 
 const slot = (over: Partial<TodaySlot> = {}): TodaySlot => ({
@@ -44,7 +47,7 @@ const day = (over: Partial<TodayResponse> = {}): TodayResponse =>
     meetings: [],
     outside: { before: [], after: [] },
     syncedAt: null,
-    modules: ["up_next"],
+    widgets: ["up_next"],
     progress: [],
     ...over,
   }) as unknown as TodayResponse;
@@ -55,6 +58,7 @@ beforeEach(() => {
 
 afterEach(() => {
   publishPlan(null);
+  pick(null);
   vi.useRealTimers();
 });
 
@@ -86,12 +90,68 @@ test("offers a start only once the block is actually due", () => {
   expect(screen.getByRole("button", { name: "Start now" })).toBeTruthy();
 });
 
+test("Up next expires Postpone at the cutoff but Start only at the end", () => {
+  vi.useFakeTimers({ now: AT + 120_000 - 1 });
+  show(day({ slots: [slot({ startsAt: AT, endsAt: AT + 600_000 })] }));
+  expect(screen.getByRole("button", { name: "Start now" })).toBeTruthy();
+  act(() => vi.advanceTimersByTime(1));
+  expect(screen.getByRole("button", { name: "Start now" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
+  act(() => vi.advanceTimersByTime(480_000));
+  expect(screen.queryByRole("button", { name: "Start now" })).toBeNull();
+});
+
+test("Up next withdraws Start as soon as the slot starts, then follows the next activity", () => {
+  const current = slot({ startsAt: AT, endsAt: AT + 10 * 60_000 });
+  const later = slot({ id: "s2", title: "Walk" });
+  show(day({ slots: [current, later] }));
+  expect(screen.getByRole("button", { name: "Start now" })).toBeTruthy();
+  act(() =>
+    publishPlan(day({ slots: [{ ...current, status: "started" }, later] })),
+  );
+  expect(screen.queryByRole("button", { name: "Start now" })).toBeNull();
+  expect(screen.queryByText("Shoulder stretch")).toBeNull();
+  expect(screen.getByText("Walk")).toBeTruthy();
+});
+
 // It used to render an ink card reading "Nothing left today." The loudest
 // surface in the rail is the wrong place to say nothing: with no name and no
 // button on it, it reads as something that failed to load, and it takes the
-// top of the rail from the modules that do have something to say.
+// top of the rail from the widgets that do have something to say.
 test("stands down entirely when the day is done", () => {
   const { container } = show(day({ slots: [slot({ status: "completed" })] }));
   expect(container.querySelector(".wr-widget-attention")).toBeNull();
   expect(screen.queryByText("Up next")).toBeNull();
+});
+
+// Pressing the block it names opens This slot, which takes this card's
+// countdown as its tab. Both at once named one block twice.
+test("steps aside while its block is open as This slot", () => {
+  pick("s1");
+  show(day());
+  expect(screen.queryByText("Shoulder stretch")).toBeNull();
+  act(() => pick(null));
+  expect(screen.getByText("Shoulder stretch")).toBeTruthy();
+});
+
+/**
+ * The day card moved out of this file entirely.
+ *
+ * It is `addons/day-so-far` now - a widget-only addon, drawn in a sandboxed
+ * frame from data it reads over the port. Its rules are asserted directly in
+ * `addons/day-so-far/src/day.test.ts`, which is the better test: they are
+ * rules about counting, and they were being checked here by reading a sentence
+ * off a screen.
+ *
+ * What is left in this file is the four first-party keys the *plan* grants,
+ * which is what `DashboardWidgets` still decides. An addon's card is not one
+ * of those - it is on screen because the user switched that addon on - so
+ * nothing here can assert it without mounting a frame jsdom will not run.
+ */
+
+test("dashboard modules do not mount a second unplaced-slots widget", () => {
+  show(day());
+  expect(screen.queryByText("Unscheduled slots")).toBeNull();
+  expect(screen.queryByText("To place")).toBeNull();
+  expect(screen.queryByText("Not placed")).toBeNull();
 });

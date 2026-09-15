@@ -4,23 +4,21 @@ import {
   DIRECTORY_MIGRATIONS,
   USER_MIGRATIONS,
 } from "@wiseroutine/db";
-import { DIRECTORY_URL, PORTS, USER_URL } from "./environment";
+import { DIRECTORY_URL, PORTS, SECOND_USER_URL, USER_URL } from "./environment";
 
 /**
- * Two libSQL servers that live for exactly one run.
+ * Three libSQL servers that live for exactly one run.
  *
  * Turso is an HTTP service rather than a Worker binding, so the Worker under
  * test needs real endpoints - it cannot be handed a file. `turso dev` serves
- * one database per instance, hence two: one for the directory, one for user
- * data. In memory, so there is nothing left on disk afterwards and nothing to
+ * one database per instance: one directory and two independent fixture tenants.
+ * In memory, so there is nothing left on disk afterwards and nothing to
  * inherit from the run before.
  *
- * What this does *not* isolate is one test user from another: a local server
- * has no concept of multiple databases, so every seeded user resolves to the
- * same user database. That is why `/test/reset` still runs before every
- * scenario. The two-tier split is genuinely exercised - a directory query
- * cannot see user data - but tenant separation is not, and these tests should
- * never be cited as evidence for it.
+ * Ordinary fixtures still use the primary tenant. Cross-account scenarios
+ * explicitly select the second tenant through a guarded test-only mapping.
+ * `/test/reset` clears all three databases before each scenario. This exercises
+ * independent datasets, not production Turso hostname routing or authorization.
  */
 
 const servers: ChildProcess[] = [];
@@ -99,13 +97,19 @@ export default async function globalSetup(): Promise<() => void> {
   await Promise.all([
     assertPortFree(PORTS.directory),
     assertPortFree(PORTS.user),
+    assertPortFree(PORTS.secondUser),
   ]);
 
   startServer(PORTS.directory);
   startServer(PORTS.user);
+  startServer(PORTS.secondUser);
 
   try {
-    await Promise.all([waitForServer(DIRECTORY_URL), waitForServer(USER_URL)]);
+    await Promise.all([
+      waitForServer(DIRECTORY_URL),
+      waitForServer(USER_URL),
+      waitForServer(SECOND_USER_URL),
+    ]);
 
     // The same migrations the application applies in production, so the tests
     // cannot drift from the schema they are meant to protect. Nothing else
@@ -113,6 +117,7 @@ export default async function globalSetup(): Promise<() => void> {
     // than going through the provisioning that would have migrated for it.
     await applyMigrations({ url: DIRECTORY_URL }, DIRECTORY_MIGRATIONS);
     await applyMigrations({ url: USER_URL }, USER_MIGRATIONS);
+    await applyMigrations({ url: SECOND_USER_URL }, USER_MIGRATIONS);
   } catch (error) {
     // A half-started stack must not outlive the failure that stopped it.
     stopServers();

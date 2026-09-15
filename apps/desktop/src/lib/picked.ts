@@ -15,6 +15,9 @@
  */
 
 import { useSyncExternalStore } from "react";
+import { onSessionReset } from "./session-lifecycle";
+
+onSessionReset(() => pick(null));
 
 let picked: string | null = null;
 const listeners = new Set<() => void>();

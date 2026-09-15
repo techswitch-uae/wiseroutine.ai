@@ -9,6 +9,7 @@ target
 .DS_Store
 .turbo
 src/generated
+apps/desktop/src-tauri/tauri.release.generated.json
 .prisma-shadow.db
 .shadow-*.db
 
@@ -39,3 +40,5 @@ blob-report
 # Claude Design project they came from — the project is the source, not these.
 Wise Routine*.html
 *.dc.html
+
+.design/

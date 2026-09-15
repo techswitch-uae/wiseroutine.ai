@@ -14,7 +14,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, getSessionToken, type ScopeResponse } from "../lib/api";
 import { dayOf, todayOf, weekLabel } from "../lib/scope";
 import { weekDaysFrom } from "../lib/scope-view";
-import { DAY_HOURS_ANCHOR } from "./_app.settings";
+import { DAY_HOURS_ANCHOR } from "../lib/settings-sections";
+import { FeaturePage } from "../modules/feature-page";
 
 /** When to look again after asking for a sync - the day's own cadence, and
  *  for the same reason: `POST /sync` schedules and returns, and the fetching
@@ -201,5 +202,9 @@ export const Route = createFileRoute("/_app/week")({
   staticData: { fullWidth: true },
   validateSearch: (search: Record<string, unknown>) =>
     typeof search.start === "string" ? { start: search.start } : {},
-  component: Week,
+  component: () => (
+    <FeaturePage feature="week_view">
+      <Week />
+    </FeaturePage>
+  ),
 });

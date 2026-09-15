@@ -1,3 +1,6 @@
 packages:
   - apps/*
   - packages/*
+  # Addons are neither: an addon is a package somebody outside this repo
+  # wrote. `addons/breathing` is ours, built the way theirs will be.
+  - addons/*

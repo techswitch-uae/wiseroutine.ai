@@ -1,46 +1,84 @@
 import {
+  type AddonCapability,
+  canAddon,
+  canonicalJSON,
+  coveredBy,
+  isAddonId,
+  isGrantable,
+  parseCapabilities,
+  parseConfig,
+  parseManifest,
+} from "@wiseroutine/addons";
+import {
+  activityPatchSchema,
+  addonImpact,
   archiveActivity,
   cancelWork,
   connectedSince,
   countActiveActivities,
   createActivity,
+  createReminder,
   deleteConnection,
+  dependentsOf,
+  directoryTransaction,
+  expiredRoutineBucket,
   forgetStoredTitles,
+  getAddon,
   getCalendarForSync,
+  getReminder,
+  getSlot,
+  getUser,
+  installAddon,
   lastSyncedAt,
   listActivities,
+  listAddons,
+  listBucketForDay,
   listCalendars,
   listConnections,
   listEventsInRange,
   listMissed,
+  listOpenReminders,
   listSlotEvents,
   listSlotsForRange,
   moveSlot,
+  pauseDependents,
   placeSlot,
   progressForRange,
+  removeAddon,
+  resumeDependents,
+  scheduleActivityChanges,
   scheduledForRange,
   scheduleWork,
   setActivityActive,
   setActivityWindows,
+  setAddonEnabled,
+  setAddonSettings,
   setCalendarSelected,
+  setEventPrivacy,
+  setReminderStatus,
   setSlotStatus,
+  slotStartTimes,
   toSchedulerActivity,
   touchLastSeen,
   updateActivity,
   updateUserSettings,
   upsertCalendars,
+  userTransaction,
 } from "@wiseroutine/db";
-import { can, visibleModules } from "@wiseroutine/plans";
+import { visibleWidgets } from "@wiseroutine/plans";
+import { addonReleased, releasedWidgets } from "@wiseroutine/plans/features";
 import {
   googleListCalendars,
   microsoftListCalendars,
 } from "@wiseroutine/providers";
 import {
+  canPostponeSlot,
   dayBounds,
   isBusy,
   type LocalDate,
   localDateOf,
   localWeekday,
+  maxDailySessions,
   replayedAt,
   runsOn,
   shouldSyncOnForeground,
@@ -49,6 +87,14 @@ import {
 } from "@wiseroutine/scheduler";
 import { Hono, type MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
+import {
+  bundledEntries,
+  entryFor,
+  isApproved,
+  registry,
+  releaseFor,
+  releaseWithHash,
+} from "../addons/registry";
 import {
   type App,
   type Ctx,
@@ -63,9 +109,15 @@ import {
   FULL_DAY_MINUTES,
   resolveRange,
 } from "../dayRanges";
-import { detectConflicts, planDay } from "../planning/planDay";
+import { requireFeature } from "../features";
+import { planAndSchedule, scheduleGrace } from "../planning/commands";
+import { validatePlacement } from "../planning/placement";
+import { detectConflicts } from "../planning/planDay";
+import { enforceActivityFeatures, releaseGates } from "../release-gates";
 import { accessTokenFor, type SyncDeps } from "../sync/engine";
 import { ensureWatch, stopWatch, type WatchDeps } from "../sync/watch";
+import { providerTestCalendars } from "../testing-runtime";
+import { captureRoutes, updateTodoStatus } from "./capture";
 
 export const app = new Hono<App>();
 /**
@@ -189,7 +241,444 @@ const foreground: MiddlewareHandler<App> = async (c, next) => {
 };
 
 app.use("*", requireUser);
+app.use("*", releaseGates);
 app.use("*", foreground);
+
+/**
+ * Requests the desktop host makes for an addon carry `x-wr-addon`. The addon
+ * must be installed, on, and still listed. Its grant is read here once and
+ * checked by the routes it touches. Without the header the request is the
+ * user's own.
+ */
+const asAddon: MiddlewareHandler<App> = async (c, next) => {
+  const id = c.req.header("x-wr-addon");
+  if (id === undefined) {
+    c.set("addon", null);
+    await next();
+    return;
+  }
+  if (!isAddonId(id))
+    throw new HTTPException(400, { message: "Not an addon id" });
+  const outerDb = c.get("db");
+  await userTransaction(outerDb, async (db) => {
+    c.set("db", db);
+    const row = await getAddon(db, id);
+    const release = row ? releaseFor(id, row.version) : undefined;
+    if (
+      !row?.isEnabled ||
+      !release ||
+      !(await isApproved(release)) ||
+      row.bundleHash !== release.bundleHash ||
+      canonicalJSON(parseManifest(JSON.parse(row.manifestJson))) !==
+        canonicalJSON(release.manifest)
+    ) {
+      throw new HTTPException(403, { message: "That addon is not running" });
+    }
+    const granted = parseCapabilities(JSON.parse(row.grantedJson));
+    if (granted === null) {
+      throw new HTTPException(403, {
+        message: "That addon has no valid grant",
+      });
+    }
+    const allowed =
+      (c.req.method === "POST" &&
+        /^\/slots(?:\/[^/]+\/(?:complete|skip))?$/.test(c.req.path)) ||
+      (["GET", "POST"].includes(c.req.method) && c.req.path === "/todos") ||
+      (c.req.method === "PATCH" && /^\/todos\/[^/]+$/.test(c.req.path));
+    if (!allowed)
+      throw new HTTPException(403, {
+        message: "This endpoint is not part of the addon API",
+      });
+    c.set("addon", { id, granted });
+    await next();
+    if (c.error) throw c.error;
+  }).finally(() => c.set("db", outerDb));
+};
+app.use("*", asAddon);
+
+app.get("/features", (c) => {
+  c.header("cache-control", "no-store");
+  return c.json({ features: c.get("features") });
+});
+
+/** Refuse unless the addon making this request holds the capability. A
+ *  request with no addon passes. */
+function requireAddon(c: Ctx, capability: AddonCapability): void {
+  const addon = c.get("addon");
+  if (!addon) return;
+  const decision = canAddon(addon.granted, capability);
+  if (!decision.ok) throw new HTTPException(403, { message: decision.reason });
+}
+
+/** The slot, and only if the addon making the request placed it. */
+async function ownSlot(c: Ctx, slotId: string) {
+  const addon = c.get("addon");
+  if (!addon) return;
+  requireAddon(c, { kind: "write:own" });
+  const slot = await getSlot(c.get("db"), slotId);
+  if (!slot || slot.ownerAddonId !== addon.id) {
+    throw new HTTPException(403, {
+      message: "This addon may only change slots it placed.",
+    });
+  }
+}
+
+/* ── Addons ──────────────────────────────────────────────────────────────── */
+
+/**
+ * What may be installed.
+ *
+ * Served by us rather than fetched from wherever the bundles live, so that an
+ * addon approved last month can stop being installable today - see the note in
+ * `addons/registry`. Not gated on a plan: `packages/plans` has the hook for it
+ * and it is deliberately left open, so the policy is a one-line change on the
+ * day it is decided rather than a thing to unpick.
+ */
+app.get("/addons/available", async (c) => {
+  const approved = await Promise.all(
+    registry()
+      .filter((entry) => addonReleased(c.get("features"), entry.id))
+      .map(async (entry) => ((await isApproved(entry)) ? entry : null)),
+  );
+  return c.json({
+    addons: approved
+      .filter((entry) => entry !== null)
+      .map((entry) => ({
+        id: entry.id,
+        version: entry.version,
+        author: entry.author,
+        bundleUrl: entry.bundleUrl,
+        bundleHash: entry.bundleHash,
+        manifest: entry.manifest,
+        approval: entry.approval,
+      })),
+  });
+});
+
+app.get("/addons/bundles/:hash", async (c) => {
+  const entry = releaseWithHash(c.req.param("hash"));
+  if (
+    !entry ||
+    !addonReleased(c.get("features"), entry.id) ||
+    !(await isApproved(entry))
+  )
+    throw new HTTPException(404);
+  const bucket = c.env.ADDON_BUNDLES;
+  if (!bucket)
+    throw new HTTPException(503, {
+      message: "Addon distribution is not configured",
+    });
+  const object = await bucket.get(`${entry.bundleHash}.js`);
+  if (!object) throw new HTTPException(404);
+  if (object.size > 2 * 1024 * 1024) throw new HTTPException(413);
+  return new Response(object.body, {
+    headers: {
+      "content-type": "application/javascript; charset=utf-8",
+      "x-content-type-options": "nosniff",
+      "cache-control": "private, max-age=3600",
+    },
+  });
+});
+
+/**
+ * What this user has installed.
+ *
+ * `revoked` is carried on each one rather than filtered out. An addon
+ * withdrawn after it was installed is exactly the case the user has to be told
+ * about - dropping it from the list would take it off their screen while it
+ * was still on their disk.
+ */
+app.get("/addons", async (c) => {
+  await ensureBundled(c);
+
+  let installed = await listAddons(c.get("db"));
+  let reconciled = false;
+  for (const row of installed) {
+    if (!row.isEnabled || (await isApproved(releaseFor(row.id, row.version))))
+      continue;
+    await userTransaction(c.get("db"), async (db) => {
+      const current = await getAddon(db, row.id);
+      if (
+        !current?.isEnabled ||
+        (await isApproved(releaseFor(current.id, current.version)))
+      )
+        return;
+      await setAddonEnabled(db, current.id, false);
+      await pauseDependents(db, current.id, c.get("now"), newId);
+      reconciled = true;
+    });
+  }
+  if (reconciled) installed = await listAddons(c.get("db"));
+  return c.json({
+    addons: await Promise.all(
+      installed
+        .filter((row) => addonReleased(c.get("features"), row.id))
+        .map(async (row) => ({
+          bundleUrl: releaseFor(row.id, row.version)?.bundleUrl,
+          bundleHash: row.bundleHash,
+          approval: releaseFor(row.id, row.version)?.approval,
+          id: row.id,
+          version: row.version,
+          isEnabled: row.isEnabled,
+          installedAt: row.installedAt,
+          granted: JSON.parse(row.grantedJson) as unknown,
+          manifest: JSON.parse(row.manifestJson) as unknown,
+          settings: JSON.parse(row.settingsJson) as unknown,
+          revoked: !(await isApproved(releaseFor(row.id, row.version))),
+          bundled: entryFor(row.id)?.bundled === true,
+        })),
+    ),
+  });
+});
+
+/**
+ * Record the addons that ship inside the app as installed.
+ *
+ * Their bundles are already on the machine, so the user sees a switch rather
+ * than an Install button. The row is still needed: it holds the grant, the
+ * enabled flag and the version. Runs on every read of the list so an addon
+ * added in a later release reaches older accounts. The upsert keeps
+ * `isEnabled`, and an upgrade keeps the previous grant: a new version that
+ * asks for more waits for the user to allow it on the Addons page.
+ */
+async function ensureBundled(c: Ctx): Promise<void> {
+  const installed = await listAddons(c.get("db"));
+  const known = new Map(installed.map((row) => [row.id, row]));
+
+  for (const entry of bundledEntries()) {
+    if (!addonReleased(c.get("features"), entry.id)) continue;
+    const existing = known.get(entry.id);
+    if (existing) continue; // Versions change only through explicit installation, never a background read.
+
+    // The same policy gate as the install route. Ours is not exempt.
+    if (entry.manifest.capabilities.some((cap) => !isGrantable(cap).ok)) {
+      continue;
+    }
+
+    await installAddon(
+      c.get("db"),
+      {
+        id: entry.id,
+        version: entry.version,
+        manifestJson: JSON.stringify(entry.manifest),
+        grantedJson: JSON.stringify(entry.manifest.capabilities),
+        bundleHash: entry.bundleHash,
+      },
+      c.get("now"),
+    );
+  }
+}
+
+/**
+ * What switching this addon off would cost.
+ *
+ * Asked before the switch is thrown, so the confirmation can name the
+ * activities rather than a number. This is the piece that makes the Addons
+ * page and the Activities page one system instead of two: an activity whose
+ * session comes from an addon stops working when that addon does, and the only
+ * honest moment to say so is before it happens.
+ */
+app.get("/addons/:id/impact", async (c) => {
+  const existing = await getAddon(c.get("db"), c.req.param("id"));
+  if (!existing) throw new HTTPException(404, { message: "Not installed" });
+
+  return c.json(await addonImpact(c.get("db"), existing.id, c.get("now")));
+});
+
+/**
+ * Install, upgrade, or allow more of what an installed addon asks for.
+ *
+ * The manifest comes from the registry, never from the request. The body may
+ * carry `granted`: the subset of the manifest's capabilities the user
+ * approved. It can never be wider than the manifest. Without it, a fresh
+ * install grants everything the manifest asks for, and an upgrade keeps the
+ * grant it already had. Every capability also passes `isGrantable`, the
+ * policy gate.
+ */
+app.post("/addons/:id/install", async (c) =>
+  userTransaction(c.get("db"), async (db) => {
+    const body = await c.req
+      .json<{ granted?: unknown; version?: string }>()
+      .catch(() => ({}) as { granted?: unknown; version?: string });
+    const entry = body.version
+      ? releaseFor(c.req.param("id"), body.version)
+      : entryFor(c.req.param("id"));
+    if (
+      !entry ||
+      !addonReleased(c.get("features"), entry.id) ||
+      !(await isApproved(entry))
+    ) {
+      throw new HTTPException(404, { message: "No such addon" });
+    }
+
+    if (!entry.bundled && !body.version)
+      throw new HTTPException(409, {
+        message: "Choose the reviewed version explicitly",
+      });
+    const prior = await getAddon(db, entry.id);
+    if (!prior && (await db.addon.count()) >= 32)
+      throw new HTTPException(400, {
+        message: "At most 32 addons can be installed",
+      });
+    if (
+      prior &&
+      prior.version !== entry.version &&
+      (await db.slot.count({
+        where: {
+          status: "started",
+          activity: { presetKey: { startsWith: `${entry.id}/` } },
+        },
+      }))
+    ) {
+      throw new HTTPException(409, {
+        message: "Finish the running session before changing addon versions",
+      });
+    }
+
+    let granted: readonly AddonCapability[];
+    if (body.granted !== undefined) {
+      const parsed = parseCapabilities(body.granted);
+      if (parsed === null) {
+        throw new HTTPException(400, {
+          message: "granted is not a capability list",
+        });
+      }
+      const covered = coveredBy(parsed, entry.manifest.capabilities);
+      if (!covered.ok)
+        throw new HTTPException(400, { message: covered.reason });
+      granted = parsed;
+    } else {
+      const existing = prior;
+      granted = existing
+        ? (parseCapabilities(JSON.parse(existing.grantedJson)) ?? []).filter(
+            (cap) => canAddon(entry.manifest.capabilities, cap).ok,
+          )
+        : entry.manifest.capabilities;
+    }
+
+    for (const capability of granted) {
+      const decision = isGrantable(capability);
+      if (!decision.ok) {
+        throw new HTTPException(400, { message: decision.reason });
+      }
+    }
+
+    const row = await installAddon(
+      db,
+      {
+        id: entry.id,
+        version: entry.version,
+        manifestJson: JSON.stringify(entry.manifest),
+        grantedJson: JSON.stringify(granted),
+        bundleHash: entry.bundleHash,
+      },
+      c.get("now"),
+    );
+
+    return c.json({ id: row.id, version: row.version }, 201);
+  }),
+);
+
+/**
+ * Switched off, or back on.
+ *
+ * Off is not merely a flag. An activity whose guided session comes from this
+ * addon stops working the moment the addon does - the slot would still be
+ * placed on the day, and pressing Start on it would open nothing - so
+ * switching off takes those activities off the day too, by the same rule
+ * removing does: **take the future, leave the past.** The client asks
+ * `/impact` first and confirms, so this is never a surprise.
+ *
+ * On restores exactly what off took, and only that. `pausedByAddonAt` is what
+ * separates an activity this switch paused from one the user paused
+ * themselves; without it, "off" would be a one-way door wearing a toggle's
+ * clothes, and re-enabling would switch on things the user had deliberately
+ * switched off.
+ *
+ * The counts come back so the client can say what happened rather than
+ * silently changing the user's day.
+ */
+app.patch("/addons/:id", async (c) =>
+  userTransaction(c.get("db"), async (db) => {
+    type Body = { isEnabled?: boolean; settings?: unknown };
+    const body = await c.req.json<Body>().catch(() => ({}) as Body);
+
+    const existing = await getAddon(db, c.req.param("id"));
+    if (!existing) throw new HTTPException(404, { message: "Not installed" });
+
+    // Settings, checked against the manifest's schema. Secrets never arrive
+    // here; the schema has no value for them, so `parseConfig` drops any.
+    if (body.settings !== undefined) {
+      const manifest = parseManifest(JSON.parse(existing.manifestJson));
+      if (!manifest) throw new HTTPException(500, { message: "Bad manifest" });
+      const settings = parseConfig(manifest, body.settings);
+      await setAddonSettings(db, existing.id, JSON.stringify(settings));
+      if (typeof body.isEnabled !== "boolean") return c.body(null, 204);
+    }
+
+    if (typeof body.isEnabled !== "boolean") {
+      throw new HTTPException(400, { message: "isEnabled must be a boolean" });
+    }
+
+    if (body.isEnabled) {
+      if (!(await isApproved(releaseFor(existing.id, existing.version))))
+        throw new HTTPException(403, {
+          message: "This addon release is no longer approved",
+        });
+      const returning = await db.activity.count({
+        where: {
+          ...dependentsOf(existing.id),
+          isActive: false,
+          pausedByAddonAt: { not: null },
+        },
+      });
+      if (returning > 0)
+        enforce(c, {
+          kind: "activity.create",
+          activeCount: (await countActiveActivities(db)) + returning - 1,
+        });
+    }
+    await setAddonEnabled(db, existing.id, body.isEnabled);
+
+    if (body.isEnabled) {
+      const { resumed } = await resumeDependents(db, existing.id);
+      return c.json({ paused: 0, cancelled: 0, resumed });
+    }
+
+    const result = await pauseDependents(db, existing.id, c.get("now"), newId);
+    return c.json({ ...result, resumed: 0 });
+  }),
+);
+
+/**
+ * Take the future it claimed, leave the past. See `removeAddon`.
+ *
+ * Refused for an addon that ships inside the app. Its bundle is part of the
+ * app and cannot be deleted from it, so `ensureBundled` would record it again
+ * on the very next read of the list - a Remove button whose effect lasts until
+ * the page reloads is worse than no Remove button. Those are switched off
+ * instead, which does everything a user wants from removing one: the
+ * activities come off the day, the sessions stop running, and nothing of
+ * theirs is on the screen.
+ */
+app.delete("/addons/:id", async (c) => {
+  const existing = await getAddon(c.get("db"), c.req.param("id"));
+  if (!existing) throw new HTTPException(404, { message: "Not installed" });
+
+  if (entryFor(existing.id)?.bundled) {
+    throw new HTTPException(400, {
+      message: "This addon ships with the app. Switch it off instead.",
+    });
+  }
+
+  const result = await removeAddon(
+    c.get("db"),
+    existing.id,
+    c.get("now"),
+    newId,
+  );
+  return c.json(result);
+});
 
 /**
  * Sync now, whatever the debounce thinks.
@@ -244,16 +733,23 @@ async function rediscoverCalendars(c: Ctx): Promise<void> {
   for (const connection of await listConnections(db)) {
     if (connection.status !== "active") continue;
     try {
-      const accessToken = await accessTokenFor(
-        deps,
+      let calendars = await providerTestCalendars(
+        env,
+        c.env.CONFIG,
         connection.id,
-        connection.provider as "google" | "microsoft",
-        now,
       );
-      const calendars =
-        connection.provider === "google"
-          ? await googleListCalendars(accessToken)
-          : await microsoftListCalendars(accessToken);
+      if (calendars === undefined) {
+        const accessToken = await accessTokenFor(
+          deps,
+          connection.id,
+          connection.provider as "google" | "microsoft",
+          now,
+        );
+        calendars =
+          connection.provider === "google"
+            ? await googleListCalendars(accessToken)
+            : await microsoftListCalendars(accessToken);
+      }
 
       await upsertCalendars(
         db,
@@ -482,8 +978,13 @@ function modulePatch(body: Record<string, unknown>): Record<string, unknown> {
 
 app.get("/activities", async (c) => {
   const rows = await listActivities(c.get("db"));
+  const today = isoOfLocalDate(
+    localDateOf(c.get("now"), c.get("user").timeZone),
+  );
   return c.json(
-    rows.map(({ row, anchorMinutes }) => ({
+    rows.map(({ row, anchorMinutes, effectiveDate }) => ({
+      changesFrom:
+        effectiveDate && effectiveDate > today ? effectiveDate : null,
       id: row.id,
       name: row.name,
       kind: row.kind,
@@ -506,86 +1007,177 @@ app.get("/activities", async (c) => {
   );
 });
 
-app.post("/activities", async (c) => {
-  const db = c.get("db");
+function activityBody(value: unknown): Record<string, unknown> {
+  const parsed = activityPatchSchema.safeParse(value);
+  if (!parsed.success)
+    throw new HTTPException(400, {
+      message: parsed.error.issues
+        .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+        .join("; "),
+    });
+  return parsed.data;
+}
 
-  // The free limit counts ACTIVE activities, so pausing one frees a slot.
-  const activeCount = await countActiveActivities(db);
-  enforce(c, { kind: "activity.create", activeCount });
+/** Check the merged configuration, not a duration or frequency in isolation. */
+function validateDailyFrequency(
+  body: Record<string, unknown>,
+  previous?: {
+    minimumType: string;
+    minimumValue: number;
+    sessionMinutes: number;
+  },
+): void {
+  if (
+    previous &&
+    !["minimumType", "minimumValue", "sessionMinutes"].some(
+      (key) => body[key] !== undefined,
+    )
+  )
+    return;
+  const type = body.minimumType ?? previous?.minimumType ?? "countPerDay";
+  const minutes = Number(body.sessionMinutes ?? previous?.sessionMinutes ?? 10);
+  const count = Number(body.minimumValue ?? previous?.minimumValue ?? 1);
+  const max = maxDailySessions(minutes);
+  if (type === "countPerDay" && count > max)
+    throw new HTTPException(400, {
+      message: `At ${minutes} minutes, choose up to ${max} times a day (two hours per activity).`,
+    });
+}
 
-  const body = await c.req.json<Record<string, unknown>>();
-  const id = await createActivity(
-    db,
-    {
-      name: String(body.name ?? "Activity"),
-      kind: String(body.kind ?? "recovery"),
-      minimumType: String(body.minimumType ?? "countPerDay"),
-      minimumValue: Number(body.minimumValue ?? 1),
-      sessionMinutes: Number(body.sessionMinutes ?? 10),
-      daysOfWeek: daysOfWeek(body.daysOfWeek, 0b1111111),
-      importance: String(body.importance ?? "normal"),
-      graceMinutes: Number(body.graceMinutes ?? 3),
-      bufferBeforeMeetingMinutes: Number(body.bufferBeforeMeetingMinutes ?? 0),
-      anchorMinutes: (body.preferredWindows as number[] | undefined) ?? [],
-      ...modulePatch(body),
-    },
-    c.get("now"),
-    newId,
+/** Calendar arithmetic, not +24 hours: tomorrow can be 23 or 25 hours away. */
+function nextRoutineDate(c: Ctx): string {
+  return isoOfLocalDate(
+    addLocalDays(localDateOf(c.get("now"), c.get("user").timeZone), 1),
   );
+}
 
-  return c.json({ id }, 201);
-});
-
-app.patch("/activities/:id", async (c) => {
-  const db = c.get("db");
-  const body = await c.req.json<Record<string, unknown>>();
-
-  // Re-activating counts against the plan limit; pausing never does.
-  if (body.isActive === true) {
+app.post("/activities", async (c) =>
+  userTransaction(c.get("db"), async (db) => {
+    // The free limit counts ACTIVE activities, so pausing one frees a slot.
     const activeCount = await countActiveActivities(db);
     enforce(c, { kind: "activity.create", activeCount });
-  }
 
-  if (typeof body.isActive === "boolean") {
-    await setActivityActive(db, c.req.param("id"), body.isActive);
-  }
-
-  const patch: Record<string, unknown> = {};
-  for (const key of [
-    "name",
-    "kind",
-    "minimumType",
-    "minimumValue",
-    "sessionMinutes",
-    "importance",
-    "graceMinutes",
-    "bufferBeforeMeetingMinutes",
-  ]) {
-    if (body[key] !== undefined) patch[key] = body[key];
-  }
-  Object.assign(patch, modulePatch(body));
-  // Checked rather than copied through: the same rule the create path applies.
-  if (body.daysOfWeek !== undefined) {
-    patch.daysOfWeek = daysOfWeek(body.daysOfWeek, 0b1111111);
-  }
-  if (Object.keys(patch).length > 0) {
-    await updateActivity(db, c.req.param("id"), patch);
-  }
-
-  // Absent leaves the windows alone; an empty array clears them. The two are
-  // different answers - "I did not say" and "nowhere in particular" - and
-  // collapsing them would wipe a preference on every unrelated edit.
-  if (Array.isArray(body.preferredWindows)) {
-    await setActivityWindows(
+    const body = activityBody(await c.req.json().catch(() => null));
+    enforceActivityFeatures(c, body);
+    validateDailyFrequency(body);
+    const id = await createActivity(
       db,
-      c.req.param("id"),
-      body.preferredWindows as number[],
+      {
+        name: String(body.name ?? "Activity"),
+        kind: String(body.kind ?? "recovery"),
+        minimumType: String(body.minimumType ?? "countPerDay"),
+        minimumValue: Number(body.minimumValue ?? 1),
+        sessionMinutes: Number(body.sessionMinutes ?? 10),
+        daysOfWeek: daysOfWeek(body.daysOfWeek, 0b1111111),
+        importance: String(body.importance ?? "normal"),
+        graceMinutes: Number(body.graceMinutes ?? 3),
+        bufferBeforeMeetingMinutes: Number(
+          body.bufferBeforeMeetingMinutes ?? 0,
+        ),
+        anchorMinutes: (body.preferredWindows as number[] | undefined) ?? [],
+        ...modulePatch(body),
+      },
+      c.get("now"),
       newId,
     );
-  }
 
-  return c.body(null, 204);
-});
+    await scheduleActivityChanges(db, id, nextRoutineDate(c));
+    return c.json({ id }, 201);
+  }),
+);
+
+app.patch("/activities/:id", async (c) =>
+  userTransaction(c.get("db"), async (db) => {
+    const body = activityBody(await c.req.json().catch(() => null));
+    const previous = (await listActivities(db)).find(
+      ({ row }) => row.id === c.req.param("id"),
+    );
+    if (!previous)
+      throw new HTTPException(404, { message: "No such activity" });
+    enforceActivityFeatures(c, body, {
+      ...previous.row,
+      preferredWindows: previous.anchorMinutes,
+    });
+
+    validateDailyFrequency(body, previous.row);
+
+    // Re-activating counts against the plan limit; pausing never does.
+    if (body.isActive === true && !previous.row.isActive) {
+      const activeCount = await countActiveActivities(db);
+      enforce(c, { kind: "activity.create", activeCount });
+    }
+
+    if (typeof body.isActive === "boolean") {
+      await setActivityActive(db, c.req.param("id"), body.isActive);
+      if (!body.isActive) {
+        const future = await db.slot.findMany({
+          where: {
+            activityId: previous.row.id,
+            status: "planned",
+            startsAt: { gte: new Date(c.get("now")) },
+          },
+        });
+        for (const slot of future)
+          await setSlotStatus(
+            db,
+            {
+              slotId: slot.id,
+              status: "cancelled",
+              actor: "user",
+              reasonCode: "activity_paused",
+            },
+            c.get("now"),
+            newId,
+          );
+      }
+    }
+
+    const patch: Record<string, unknown> = {};
+    for (const key of [
+      "name",
+      "kind",
+      "minimumType",
+      "minimumValue",
+      "sessionMinutes",
+      "importance",
+      "graceMinutes",
+      "bufferBeforeMeetingMinutes",
+    ]) {
+      if (body[key] !== undefined) patch[key] = body[key];
+    }
+    Object.assign(patch, modulePatch(body));
+    // Checked rather than copied through: the same rule the create path applies.
+    if (body.daysOfWeek !== undefined) {
+      patch.daysOfWeek = daysOfWeek(body.daysOfWeek, 0b1111111);
+    }
+    if (Object.keys(patch).length > 0) {
+      // Guided policy changes are immediate, but do not run the planner.
+      // Register the wake-up before committing a newly automatic policy.
+      if (body.startPolicy !== undefined) await scheduleGrace(c);
+      await updateActivity(db, c.req.param("id"), patch);
+    }
+
+    // Absent leaves the windows alone; an empty array clears them. The two are
+    // different answers - "I did not say" and "nowhere in particular" - and
+    // collapsing them would wipe a preference on every unrelated edit.
+    if (Array.isArray(body.preferredWindows)) {
+      await setActivityWindows(
+        db,
+        c.req.param("id"),
+        body.preferredWindows as number[],
+        newId,
+      );
+    }
+
+    await scheduleActivityChanges(
+      db,
+      previous.row.id,
+      nextRoutineDate(c),
+      previous,
+    );
+    return c.body(null, 204);
+  }),
+);
 
 /**
  * Archived, not deleted - see `archiveActivity`. The slots it already produced
@@ -629,6 +1221,17 @@ app.patch("/settings", async (c) => {
     storeEventTitles?: boolean;
   };
   const body: SettingsBody = await c.req.json<SettingsBody>();
+  const currentSettings = c.get("user");
+  for (const key of [
+    "customRangeLabel",
+    "customRangeStartMinutes",
+    "customRangeEndMinutes",
+    "dayOpensOn",
+    "showOutsideRange",
+  ] as const) {
+    if (body[key] !== undefined && body[key] !== currentSettings[key])
+      requireFeature(c, "day_view_options");
+  }
 
   /**
    * A zone the platform actually knows.
@@ -730,17 +1333,41 @@ app.patch("/settings", async (c) => {
     throw new HTTPException(400, { message: "Unknown range" });
   }
 
-  await updateUserSettings(c.get("directory"), c.get("user").userId, {
+  if (
+    body.storeEventTitles !== undefined &&
+    typeof body.storeEventTitles !== "boolean"
+  ) {
+    throw new HTTPException(400, {
+      message: "storeEventTitles must be a boolean",
+    });
+  }
+  const patch = {
     ...body,
     // Store the name the user sees, without the whitespace they did not mean
     // to type - it is rendered in a picker row, where a leading space shows.
     ...(typeof body.customRangeLabel === "string"
       ? { customRangeLabel: body.customRangeLabel.trim() }
       : {}),
-  });
-
+  };
+  const userId = c.get("user").userId;
   if (body.storeEventTitles === false) {
-    await forgetStoredTitles(c.get("db"));
+    // Serialize preference writers. Failure leaves the local fence closed,
+    // never open under a directory preference that still says private.
+    await directoryTransaction(c.get("directory"), async (directory) => {
+      await forgetStoredTitles(c.get("db"));
+      await updateUserSettings(directory, userId, patch);
+    });
+  } else {
+    await updateUserSettings(c.get("directory"), userId, patch);
+    if (body.storeEventTitles === true) {
+      // Enable only after the opt-in committed, and recheck under the writer
+      // lock: a newer opt-out may have won while this request was in flight.
+      await directoryTransaction(c.get("directory"), async (directory) => {
+        if ((await getUser(directory, userId))?.storeEventTitles) {
+          await setEventPrivacy(c.get("db"), true);
+        }
+      });
+    }
   }
 
   return c.body(null, 204);
@@ -765,102 +1392,17 @@ const localDay = (c: Ctx, at: number): { start: number; end: number } => {
 const isOver = (c: Ctx, day: { end: number }): boolean =>
   day.end <= c.get("now");
 
-/**
- * Put on the day whatever the day is missing.
- *
- * Activities repeat - "three times a day, every weekday" - and the obvious way
- * to honour that is to write slots for every day ahead. That is a table
- * growing forever with a plan nobody has seen, every row of it already wrong
- * the moment a meeting moves. So nothing is written ahead: a day is filled in
- * when it is opened.
- *
- * The trigger is the plain one, and it is the rule a user would state: an
- * activity that should run today and has no slot on today is missing, and a
- * day with anything missing gets planned. That is why adding an activity and
- * walking back to Today places it, with nobody having pressed anything - and
- * why opening the same day twice does not move what is already on it, so a
- * slot dragged somewhere by hand stays there.
- *
- * The whole working day is fair game, not just what is left of it. Someone
- * opening the app at nine in the evening still wants to see the shape their
- * day was meant to have, and a screen that answers an empty ruler reads as the
- * app being broken rather than as the day being over.
- *
- * ponytail: which means slots can land in the past, and an activity that does
- * not fit stays missing so every load re-solves it. Both are the "for now"
- * shape - one in-memory solve over one day. Plan from `now` and say what
- * happened to the rest once there is a mid-day story to tell.
- */
-async function fillDay(
-  c: Ctx,
-  /** The whole local day. `end` is the midnight after it. */
-  wholeDay: { start: number; end: number },
-): Promise<void> {
-  const db = c.get("db");
-  const now = c.get("now");
-  const user = c.get("user");
-
-  if (isOver(c, wholeDay)) return;
-
-  /**
-   * Only Pro has its day filled in without being asked.
-   *
-   * This used to run for everyone on every load, which quietly undercut the
-   * whole pricing line: if the day is already placed by the time you look at
-   * it, "Pro does the placing for you" is selling something you already have.
-   * On Free the day stays as the user left it and a rail module offers to fill
-   * it - one press, when they want it, not before they have seen the day.
-   *
-   * It also answers the week/month/year question by not asking it. Nothing is
-   * materialised ahead of today, so opening a month cannot write a month of
-   * rows.
-   */
-  if (!can(user.plan, { kind: "plan.adaptive" }).ok) return;
-
-  const [activities, slots] = await Promise.all([
-    listActivities(db),
-    listSlotsForRange(db, wholeDay.start, wholeDay.end),
-  ]);
-
-  const weekday = localWeekday(wholeDay.start, user.timeZone);
-  const due = activities.filter(
-    ({ row }) => row.isActive && runsOn(toSchedulerActivity(row), weekday),
-  );
-  if (due.length === 0) return;
-
-  /**
-   * Once a day, at the start of it.
-   *
-   * This used to fill in any activity that had no slot yet, which meant an
-   * activity added at eleven in the morning was already on the day by the
-   * time you walked back to Today - the day rearranging itself behind you,
-   * which is the opposite of what filling it is for. A day with anything on
-   * it has already been filled; whatever is added after that is owed, and the
-   * "To place today" module offers it with a button.
-   */
-  if (slots.length > 0) return;
-
-  await planDay(
-    db,
-    {
-      user,
-      // Midnight of the day itself. Its `end` is the first instant of the day
-      // *after* it, and passing that planned tomorrow while filing the run
-      // under today - so every open planned again, one day out.
-      onDay: wholeDay.start,
-      trigger: "morning",
-    },
-    now,
-    newId,
-  );
-}
-
 app.get("/today", async (c) => {
   const db = c.get("db");
   const user = c.get("user");
   const at = Number(c.req.query("at") ?? c.get("now"));
 
   const date = localDateOf(at, user.timeZone);
+  if (
+    JSON.stringify(date) !==
+    JSON.stringify(localDateOf(c.get("now"), user.timeZone))
+  )
+    requireFeature(c, "day_view_options");
   // The client may ask for a range; if it asks for one that no longer exists
   // it gets the working hours rather than an error - see `resolveRange`.
   const range = resolveRange(user, c.req.query("range"));
@@ -882,20 +1424,24 @@ app.get("/today", async (c) => {
    */
   const wholeDay = dayBounds(date, user.timeZone, 0, FULL_DAY_MINUTES);
 
-  // Before the read, not after: the whole point is that the slots this answer
-  // carries are the ones this call just decided on.
-  await fillDay(c, wholeDay);
+  // Reading any date is side-effect-free. Not placed is a choice, including
+  // future-day views: only an explicit placement may create appointments.
 
-  const [slots, events, syncedAt, activities, done, scheduled] =
+  const [slots, events, syncedAt, activities, done, scheduled, configured] =
     await Promise.all([
       listSlotsForRange(db, bounds.start, bounds.end),
       listEventsInRange(db, wholeDay.start, wholeDay.end),
       lastSyncedAt(db),
-      listActivities(db),
+      listActivities(db, isoOfLocalDate(date)),
       progressForRange(db, wholeDay.start, wholeDay.end),
       scheduledForRange(db, wholeDay.start, wholeDay.end),
+      listActivities(db),
     ]);
 
+  const starts = await slotStartTimes(
+    db,
+    slots.filter((s) => s.status === "started").map((s) => s.id),
+  );
   const busy = toBusyBlocks(events);
 
   // Only what the timeline needs to draw meetings; nothing extra leaves here.
@@ -903,10 +1449,15 @@ app.get("/today", async (c) => {
     .filter((e) => busy.some((b) => e.start < b.end && b.start < e.end))
     .map((e) => ({
       id: e.id,
-      title: e.title ?? null,
+      provider: e.provider,
+      title: user.storeEventTitles ? (e.title ?? null) : null,
       startsAt: e.start,
       endsAt: e.end,
       isAllDay: e.isAllDay,
+      // The one thing a block on the day could not answer: where the call is.
+      // Null for the many meetings that are in a room.
+      joinUrl: user.storeEventTitles ? e.joinUrl : null,
+      description: user.storeEventTitles ? e.description : null,
     }));
 
   // Half-open against the visible window: a meeting that ends exactly as the
@@ -922,34 +1473,51 @@ app.get("/today", async (c) => {
     dayEnd: bounds.end,
     range: range.key,
     ranges: dayRanges(user),
-    slots: slots.map((s) => {
-      // The module a slot runs under, carried on the slot rather than looked
-      // up by the client. A session opens the moment a slot starts, and a
-      // second request to find out *what* to open would put a round trip in
-      // the middle of pressing Start.
-      const activity = s.activityId
-        ? activities.find((a) => a.row.id === s.activityId)
-        : undefined;
-      return {
-        id: s.id,
-        title: s.title,
-        kind: s.kind,
-        startsAt: s.startsAt,
-        endsAt: s.endsAt,
-        status: s.status,
-        isLocked: s.isLocked,
-        conflictEventId: s.conflictEventId,
-        // Null when the activity has no module, and also when its session is
-        // switched off - the slot then behaves like any other timed slot, and
-        // the client needs no second field to work that out.
-        presetKey:
-          activity?.row.sessionEnabled === false
-            ? null
-            : (activity?.row.presetKey ?? null),
-        startPolicy: activity?.row.startPolicy ?? "manual",
-        configJson: activity?.row.configJson ?? null,
-      };
-    }),
+    // A bucketed session holds no time - it is in the rail, not on the ruler.
+    // Drawing it at the hour it *was* due would put it back under the meeting
+    // that displaced it, which is the one thing bucketing it decided not to do.
+    slots: slots
+      .filter((s) => s.status !== "bucketed")
+      .map((s) => {
+        // The module a slot runs under, carried on the slot rather than looked
+        // up by the client. A session opens the moment a slot starts, and a
+        // second request to find out *what* to open would put a round trip in
+        // the middle of pressing Start.
+        const activity = s.activityId
+          ? activities.find((a) => a.row.id === s.activityId)
+          : undefined;
+        return {
+          id: s.id,
+          title: s.title,
+          kind: s.kind,
+          startsAt: s.startsAt,
+          endsAt: s.endsAt,
+          status: s.status,
+          startedAt: starts.get(s.id) ?? null,
+          isLocked: s.isLocked,
+          conflictEventId: s.conflictEventId,
+          ownerAddonId: s.ownerAddonId,
+          reminderId: s.reminderId,
+          // Null when the activity has no module, and also when its session is
+          // switched off - the slot then behaves like any other timed slot, and
+          // the client needs no second field to work that out.
+          presetKey:
+            !c.get("features").guided_sessions ||
+            !addonReleased(
+              c.get("features"),
+              activity?.row.presetKey?.split("/")[0] ?? "",
+            ) ||
+            activity?.row.sessionEnabled === false
+              ? null
+              : (activity?.row.presetKey ?? null),
+          startPolicy: c.get("features").guided_sessions
+            ? (activity?.row.startPolicy ?? "manual")
+            : "manual",
+          configJson: c.get("features").guided_sessions
+            ? (activity?.row.configJson ?? null)
+            : null,
+        };
+      }),
     meetings: inside,
     // The one thing the refresh button could never say for itself: whether
     // what is on screen is current. Null until a calendar has been read once.
@@ -962,7 +1530,17 @@ app.get("/today", async (c) => {
           after: meetings.filter((m) => m.startsAt >= bounds.end),
         }
       : { before: [], after: [] },
-    modules: visibleModules(user.plan, []),
+    widgets: releasedWidgets(c.get("features"), visibleWidgets(user.plan, [])),
+    routineStartsOn:
+      configured
+        .filter(
+          (a) =>
+            a.row.isActive &&
+            a.effectiveDate &&
+            a.effectiveDate > isoOfLocalDate(date),
+        )
+        .map((a) => a.effectiveDate)
+        .sort()[0] ?? null,
     /**
      * Progress against today's minimums, for the "Today so far" module.
      *
@@ -999,8 +1577,8 @@ app.get("/today", async (c) => {
         sessionMinutes: a.row.sessionMinutes,
         count: done.get(a.row.id)?.count ?? 0,
         minutes: done.get(a.row.id)?.minutes ?? 0,
-        // Placed but not yet done. What separates "two stretches left" from
-        // "two stretches left, and both are already on your afternoon".
+        // Already accounted for: placements, saved shortfalls and stopped/
+        // missed occurrences. Completion is counted separately above.
         scheduled: scheduled.get(a.row.id) ?? 0,
       })),
   });
@@ -1160,6 +1738,8 @@ app.get("/scope", async (c) => {
         .filter(
           (slot) =>
             slot.status !== "cancelled" &&
+            // In the rail, not on the ruler - see `/today`.
+            slot.status !== "bucketed" &&
             slot.startsAt < day.end &&
             slot.endsAt > day.start,
         )
@@ -1178,9 +1758,10 @@ app.get("/scope", async (c) => {
         .filter((event) => event.start < day.end && event.end > day.start)
         .map((event) => ({
           id: event.id,
+          provider: event.provider,
           // Null when the account stores busy intervals without titles. The
           // client says "Busy"; nothing here invents a name for it.
-          title: event.title ?? null,
+          title: user.storeEventTitles ? (event.title ?? null) : null,
           startsAt: event.start,
           endsAt: event.end,
           isAllDay: event.isAllDay,
@@ -1197,7 +1778,17 @@ app.post("/plan", async (c) => {
     .json<PlanBody>()
     .catch(() => ({}) as PlanBody);
 
-  // Free users get one placement each morning; live re-adaptation is pro.
+  // Legacy trigger names remain accepted as telemetry, not alternative
+  // scheduling algorithms. This endpoint always explicitly fills remaining work.
+  if (
+    body.trigger !== undefined &&
+    !["morning", "calendar_change", "user_request", "missed_replan"].includes(
+      body.trigger,
+    )
+  )
+    throw new HTTPException(400, { message: "Unknown placement trigger" });
+  if (body.at !== undefined && !Number.isFinite(body.at))
+    throw new HTTPException(400, { message: "Invalid placement date" });
   const trigger = (body.trigger ?? "user_request") as
     | "morning"
     | "calendar_change"
@@ -1208,30 +1799,22 @@ app.post("/plan", async (c) => {
   }
 
   const onDay = body.at ?? now;
+  if (
+    JSON.stringify(localDateOf(onDay, user.timeZone)) !==
+    JSON.stringify(localDateOf(now, user.timeZone))
+  )
+    requireFeature(c, "weekly_planning");
   if (isOver(c, localDay(c, onDay))) {
     return c.json({ planRunId: null, placed: 0, removed: 0, unplaced: [] });
   }
 
-  const result = await planDay(
-    c.get("db"),
-    // No `from`: the whole working day, the same rule `fillDay` uses. Two
-    // different answers to "where does this go" depending on which door the
-    // request came through is the kind of difference nobody can debug.
-    { user, onDay, trigger },
-    now,
-    newId,
-  );
-
-  // Newly planned slots have grace periods, and the sweep is driven from the
-  // directory - so a plan has to leave a marker there or nothing will fire.
-  if (result.created > 0) {
-    await scheduleWork(
-      c.get("directory"),
-      { userId: user.userId, kind: "grace_sweep", dueAt: now + 60_000 },
-      now,
-      newId,
-    );
-  }
+  const result = await planAndSchedule(c, {
+    user,
+    onDay,
+    trigger,
+    from: now,
+    retryUnplaced: true,
+  });
 
   return c.json({
     planRunId: result.planRunId,
@@ -1252,6 +1835,15 @@ app.post("/plan", async (c) => {
  * computed from - becomes fiction. `replayedAt` is what keeps that claim
  * inside something a genuine offline stretch could produce.
  */
+function actionIdentity(c: Ctx): { actionId?: string } {
+  const actionId = c.req.header("idempotency-key");
+  if (actionId === undefined) return {};
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(actionId)) {
+    throw new HTTPException(400, { message: "Invalid idempotency key" });
+  }
+  return { actionId };
+}
+
 async function actionAt(c: Ctx): Promise<number> {
   const body = await c.req
     .json<{ at?: number }>()
@@ -1262,7 +1854,12 @@ async function actionAt(c: Ctx): Promise<number> {
 app.post("/slots/:id/start", async (c) => {
   await setSlotStatus(
     c.get("db"),
-    { slotId: c.req.param("id"), status: "started", actor: "user" },
+    {
+      slotId: c.req.param("id"),
+      status: "started",
+      actor: "user",
+      ...actionIdentity(c),
+    },
     await actionAt(c),
     newId,
   );
@@ -1270,9 +1867,15 @@ app.post("/slots/:id/start", async (c) => {
 });
 
 app.post("/slots/:id/complete", async (c) => {
+  await ownSlot(c, c.req.param("id"));
   await setSlotStatus(
     c.get("db"),
-    { slotId: c.req.param("id"), status: "completed", actor: "user" },
+    {
+      slotId: c.req.param("id"),
+      status: "completed",
+      actor: c.get("addon") ? "addon" : "user",
+      ...actionIdentity(c),
+    },
     await actionAt(c),
     newId,
   );
@@ -1284,12 +1887,14 @@ app.post("/slots/:id/skip", async (c) => {
   const body: SkipBody = await c.req
     .json<SkipBody>()
     .catch(() => ({}) as SkipBody);
+  await ownSlot(c, c.req.param("id"));
   await setSlotStatus(
     c.get("db"),
     {
       slotId: c.req.param("id"),
       status: "skipped",
-      actor: "user",
+      actor: c.get("addon") ? "addon" : "user",
+      ...actionIdentity(c),
       reasonCode: "dismissed",
       ...(body.reason !== undefined ? { reasonText: body.reason } : {}),
     },
@@ -1319,70 +1924,192 @@ app.post("/slots", async (c) => {
   const now = c.get("now");
 
   const body = await c.req.json<{
-    activityId: string;
+    activityId?: string;
+    /** A todo instead of an activity: the slot takes its title, and the todo
+     *  is marked slotted. One or the other, never both. */
+    todoId?: string;
+    /** An addon's own slot: a title and a kind, no activity. Addons only. */
+    title?: string;
+    kind?: string;
     startsAt: number;
     endsAt?: number;
   }>();
 
-  if (!body.activityId || !Number.isFinite(body.startsAt)) {
+  const addon = c.get("addon");
+  const own = addon && typeof body.title === "string";
+  if (
+    (!body.activityId && !body.todoId && !own) ||
+    !Number.isFinite(body.startsAt)
+  ) {
     throw new HTTPException(400, {
-      message: "activityId and startsAt are required",
+      message: "activityId or todoId, and startsAt, are required",
     });
   }
+  if (
+    [Boolean(body.activityId), Boolean(body.todoId), Boolean(own)].filter(
+      Boolean,
+    ).length !== 1
+  )
+    throw new HTTPException(400, { message: "Choose one activity or todo" });
+  if (addon && body.activityId) {
+    throw new HTTPException(403, {
+      message: "An addon may not place the user's activities.",
+    });
+  }
+  if (body.todoId) {
+    requireFeature(c, "quick_capture");
+    requireAddon(c, { kind: "write:todos" });
+  }
+  if (own) requireAddon(c, { kind: "write:own" });
 
-  const activities = await listActivities(db);
-  const activity = activities.find((a) => a.row.id === body.activityId);
-  if (!activity) {
-    throw new HTTPException(404, { message: "No such activity" });
-  }
-  if (!activity.row.isActive) {
-    throw new HTTPException(409, {
-      message: `${activity.row.name} is paused. Turn it back on to place it.`,
-    });
+  /** What the slot is made from - an activity or a todo, resolved to the
+   *  three things `placeSlot` needs to know. */
+  let subject: {
+    activityId: string | null;
+    reminderId: string | null;
+    title: string;
+    kind: "recovery" | "focus" | "task";
+    minutes: number;
+  };
+
+  if (own) {
+    const title = (body.title ?? "").trim().slice(0, 200);
+    const kind = body.kind;
+    if (title.length === 0) {
+      throw new HTTPException(400, { message: "A slot needs a title" });
+    }
+    if (kind !== "recovery" && kind !== "focus" && kind !== "task") {
+      throw new HTTPException(400, {
+        message: "kind must be recovery, focus or task",
+      });
+    }
+    if (body.endsAt === undefined) {
+      throw new HTTPException(400, { message: "endsAt is required" });
+    }
+    subject = { activityId: null, reminderId: null, title, kind, minutes: 0 };
+  } else if (body.todoId) {
+    const todo = await getReminder(db, body.todoId);
+    if (!todo) throw new HTTPException(404, { message: "No such todo" });
+    if (todo.status !== "open") {
+      throw new HTTPException(409, {
+        message: "That todo is already on the day, or done.",
+      });
+    }
+    const linked = todo.activityId
+      ? await db.activity.findUnique({ where: { id: todo.activityId } })
+      : null;
+    subject = {
+      activityId: todo.activityId,
+      reminderId: todo.id,
+      title: todo.title,
+      kind: linked
+        ? (linked.kind as "focus" | "recovery" | "task")
+        : todo.needsFocus
+          ? "focus"
+          : "task",
+      // ponytail: a todo with no length gets a quarter hour. Refusing would
+      // leave it stuck in the list; a length is one keypress to fix.
+      minutes: todo.estimatedMinutes ?? 15,
+    };
+  } else {
+    const activities = await listActivities(
+      db,
+      isoOfLocalDate(localDateOf(body.startsAt, user.timeZone)),
+    );
+    const activity = activities.find((a) => a.row.id === body.activityId);
+    if (!activity) {
+      throw new HTTPException(404, { message: "No such activity" });
+    }
+    if (!activity.row.isActive) {
+      throw new HTTPException(409, {
+        message: `${activity.row.name} is paused or hasn't started its routine yet.`,
+      });
+    }
+    subject = {
+      activityId: activity.row.id,
+      reminderId: null,
+      title: activity.row.name,
+      kind: activity.row.kind as "recovery" | "focus" | "task",
+      minutes: activity.row.sessionMinutes,
+    };
   }
 
   // The activity's own session length unless the caller says otherwise, so a
   // plain "put this here" needs one number rather than two.
-  const endsAt =
-    body.endsAt ?? body.startsAt + activity.row.sessionMinutes * 60_000;
+  const endsAt = body.endsAt ?? body.startsAt + subject.minutes * 60_000;
   if (endsAt <= body.startsAt) {
     throw new HTTPException(400, { message: "endsAt must be after startsAt" });
   }
 
-  const date = localDateOf(body.startsAt, user.timeZone);
-  const wholeDay = dayBounds(date, user.timeZone, 0, FULL_DAY_MINUTES);
-  const events = await listEventsInRange(db, wholeDay.start, wholeDay.end);
-  const clash = toBusyBlocks(events).find(
-    (b) => body.startsAt < b.end && b.start < endsAt,
-  );
-  if (clash) {
-    throw new HTTPException(409, {
-      message: "Something is already booked then. Pick another gap.",
-    });
-  }
+  await scheduleGrace(c);
+  const slot = await userTransaction(db, async (tx) => {
+    await validatePlacement(tx, body.startsAt, endsAt, now);
+    if (subject.activityId) {
+      const current = await tx.activity.findUnique({
+        where: { id: subject.activityId },
+      });
+      if (!current?.isActive || current.archivedAt)
+        throw new HTTPException(409, {
+          message: "This activity is no longer active",
+        });
+    }
+    if (subject.reminderId) {
+      const current = await getReminder(tx, subject.reminderId);
+      if (current?.status !== "open")
+        throw new HTTPException(409, {
+          message: "That todo is already on the day, or done.",
+        });
+      const previous = current.slotId
+        ? await getSlot(tx, current.slotId)
+        : null;
+      if (
+        previous?.status === "bucketed" &&
+        previous.reminderId === current.id
+      ) {
+        await moveSlot(
+          tx,
+          {
+            slotId: previous.id,
+            startsAt: body.startsAt,
+            endsAt,
+            actor: addon ? "addon" : "user",
+            reasonCode: "planned_from_inbox",
+          },
+          now,
+          newId,
+        );
+        const restored = await getSlot(tx, previous.id);
+        if (!restored) throw new Error("Restored slot disappeared");
+        return restored;
+      }
+    }
+    const placed = await placeSlot(
+      tx,
+      {
+        activityId: subject.activityId,
+        reminderId: subject.reminderId,
+        title: subject.title,
+        kind: subject.kind,
+        startsAt: body.startsAt,
+        endsAt,
+        timeZone: user.timeZone,
+        ownerAddonId: own && addon ? addon.id : null,
+      },
+      now,
+      newId,
+    );
 
-  const slot = await placeSlot(
-    db,
-    {
-      activityId: activity.row.id,
-      title: activity.row.name,
-      kind: activity.row.kind,
-      startsAt: body.startsAt,
-      endsAt,
-      timeZone: user.timeZone,
-    },
-    now,
-    newId,
-  );
-
-  // A placed slot has a grace period like any other, and the sweep is driven
-  // from the directory - without this marker nothing would ever move it on.
-  await scheduleWork(
-    c.get("directory"),
-    { userId: user.userId, kind: "grace_sweep", dueAt: now + 60_000 },
-    now,
-    newId,
-  );
+    if (subject.reminderId) {
+      await setReminderStatus(
+        tx,
+        subject.reminderId,
+        "slotted",
+        placed.id,
+        Math.ceil((endsAt - body.startsAt) / 60_000),
+      );
+    }
+    return placed;
+  });
 
   return c.json(
     {
@@ -1394,9 +2121,89 @@ app.post("/slots", async (c) => {
       status: slot.status,
       isLocked: slot.isLocked,
       conflictEventId: slot.conflictEventId,
+      ownerAddonId: slot.ownerAddonId,
     },
     201,
   );
+});
+
+/* ── Todos ─────────────────────────────────────────────────────────────── */
+
+/**
+ * The list of things with no time yet.
+ *
+ * Open ones only. A todo that was put on the day is a slot now and is drawn
+ * there; one that is done or dropped is history. Both keep their row, so a
+ * view of "placed beside unplaced" costs a query and nothing else.
+ */
+app.get("/todos", async (c) => {
+  requireAddon(c, { kind: "read:todos" });
+  const rows = await listOpenReminders(c.get("db"));
+  return c.json(
+    rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      minutes: row.estimatedMinutes,
+      needsFocus: row.needsFocus,
+      createdAt: row.createdAt,
+    })),
+  );
+});
+
+app.post("/todos", async (c) => {
+  requireAddon(c, { kind: "write:todos" });
+  const body = await c.req.json<{
+    title?: unknown;
+    minutes?: unknown;
+    needsFocus?: unknown;
+  }>();
+  const title = typeof body.title === "string" ? body.title.trim() : "";
+  if (title.length === 0 || title.length > 200) {
+    throw new HTTPException(400, { message: "A todo needs a title" });
+  }
+  const minutes =
+    typeof body.minutes === "number" && Number.isFinite(body.minutes)
+      ? Math.max(5, Math.min(480, Math.round(body.minutes)))
+      : null;
+
+  const row = await createReminder(
+    c.get("db"),
+    { title, estimatedMinutes: minutes, needsFocus: body.needsFocus === true },
+    c.get("now"),
+    newId,
+  );
+  return c.json(
+    {
+      id: row.id,
+      title: row.title,
+      minutes: row.estimatedMinutes,
+      needsFocus: row.needsFocus,
+      createdAt: row.createdAt,
+    },
+    201,
+  );
+});
+
+/** Done, or dropped. Placing one on the day is `POST /slots` with `todoId`. */
+app.patch("/todos/:id", async (c) => {
+  requireAddon(c, { kind: "write:todos" });
+  const db = c.get("db");
+  const body = await c.req.json<{ status?: unknown }>();
+  if (body.status !== "done" && body.status !== "dropped") {
+    throw new HTTPException(400, {
+      message: "A todo may be done or dropped, nothing else",
+    });
+  }
+  const todo = await getReminder(db, c.req.param("id"));
+  if (!todo) throw new HTTPException(404, { message: "No such todo" });
+  await updateTodoStatus(
+    db,
+    todo.id,
+    body.status,
+    c.get("now"),
+    c.get("addon") ? "addon" : "user",
+  );
+  return c.body(null, 204);
 });
 
 /**
@@ -1405,7 +2212,7 @@ app.post("/slots", async (c) => {
  * Cancelled rather than deleted, and deliberately not the same thing as
  * skipped: skipping is a decision the missed list reports on, and this is "not
  * today, thanks". The row survives, which is what makes both the undo below
- * and "today only" work - `fillDay` re-plans an activity that has no slot on
+ * and "today only" work - explicit placement otherwise replenishes demand on
  * the day, and a cancelled slot is still a slot, so the activity stays gone
  * until tomorrow rather than reappearing on the next page load.
  */
@@ -1426,12 +2233,44 @@ app.post("/slots/:id/cancel", async (c) => {
 
 /** The way back from the above, for as long as the toast offering it is up. */
 app.post("/slots/:id/restore", async (c) => {
-  await setSlotStatus(
-    c.get("db"),
-    { slotId: c.req.param("id"), status: "planned", actor: "user" },
-    c.get("now"),
-    newId,
-  );
+  await scheduleGrace(c);
+  await userTransaction(c.get("db"), async (db) => {
+    const slot = await getSlot(db, c.req.param("id"));
+    if (!slot) throw new HTTPException(404);
+    if (slot.status !== "cancelled")
+      throw new HTTPException(409, {
+        message: "Only a removed slot can be restored",
+      });
+    await validatePlacement(
+      db,
+      slot.startsAt,
+      slot.endsAt,
+      // Undo restores the same appointment; keep its one-minute grace.
+      // New placements, moves and reschedules always use the strict clock.
+      c.get("now") - 60_000,
+      slot.id,
+    );
+    if (slot.reminderId) {
+      const todo = await getReminder(db, slot.reminderId);
+      if (todo?.status !== "open" || todo.slotId)
+        throw new HTTPException(409, {
+          message: "This todo has changed since removal",
+        });
+      await setReminderStatus(
+        db,
+        todo.id,
+        "slotted",
+        slot.id,
+        Math.ceil((slot.endsAt - slot.startsAt) / 60_000),
+      );
+    }
+    await setSlotStatus(
+      db,
+      { slotId: slot.id, status: "planned", actor: "user" },
+      c.get("now"),
+      newId,
+    );
+  });
   return c.body(null, 204);
 });
 
@@ -1446,18 +2285,48 @@ app.post("/slots/:id/move", async (c) => {
     throw new HTTPException(400, { message: "endsAt must be after startsAt" });
   }
 
-  await moveSlot(
-    c.get("db"),
-    {
-      slotId: c.req.param("id"),
-      startsAt: body.startsAt,
-      endsAt: body.endsAt,
-      actor: "user",
-      reasonCode: "user_choice",
-    },
-    c.get("now"),
-    newId,
-  );
+  await scheduleGrace(c);
+  await userTransaction(c.get("db"), async (db) => {
+    const slot = await getSlot(db, c.req.param("id"));
+    if (!slot) throw new HTTPException(404);
+    if (
+      !canPostponeSlot(slot, c.get("now")) ||
+      expiredRoutineBucket(slot, c.get("now"), c.get("user").timeZone)
+    )
+      throw new HTTPException(409, {
+        message:
+          "This slot can no longer be moved. You can still mark it done.",
+      });
+    if (slot.activityId) {
+      const activity = await db.activity.findUnique({
+        where: { id: slot.activityId },
+      });
+      if (!activity?.isActive || activity.archivedAt)
+        throw new HTTPException(409, {
+          message: "Enable this activity before moving it.",
+        });
+    }
+    await validatePlacement(
+      db,
+      body.startsAt,
+      body.endsAt,
+      c.get("now"),
+      slot.id,
+    );
+    await moveSlot(
+      db,
+      {
+        slotId: slot.id,
+        startsAt: body.startsAt,
+        endsAt: body.endsAt,
+        actor: "user",
+        timeZone: c.get("user").timeZone,
+        reasonCode: "user_choice",
+      },
+      c.get("now"),
+      newId,
+    );
+  });
   return c.body(null, 204);
 });
 
@@ -1502,6 +2371,71 @@ app.get("/missed", async (c) => {
     }),
   );
 });
+
+/**
+ * The bucket: sessions the day no longer has room for.
+ *
+ * Filled by `realignAfterSync` when a synced meeting lands on a slot and
+ * `rearrange` will not place it silently - either because the only position
+ * left is a different plan rather than a nudge (a suggestion, which arrives
+ * with the position attached) or because there is no position at all.
+ *
+ * Read the same way `/missed` is: the status says a session is here, the
+ * lifecycle log says why and where. Routine shortfalls belong to their local
+ * day; old ones are history, not extra demand tomorrow. Explicit one-off work
+ * remains saved. Freed time is never quietly claimed on the user's behalf.
+ */
+app.get("/bucket", async (c) => {
+  const db = c.get("db");
+  const user = c.get("user");
+  const at = Number(c.req.query("at") ?? c.get("now"));
+  const date = localDateOf(at, user.timeZone);
+  const bounds = dayBounds(date, user.timeZone, 0, 24 * 60);
+
+  const slots = await listBucketForDay(db, bounds.start, bounds.end);
+  const events = await listSlotEvents(
+    db,
+    slots.map((s) => s.id),
+  );
+
+  return c.json(
+    slots.map((slot) => {
+      const last = events
+        .filter((e) => e.slotId === slot.id && e.type === "bucketed")
+        .at(-1);
+      const length = slot.endsAt - slot.startsAt;
+      return {
+        id: slot.id,
+        /** So the rail can fold several sessions of one activity into one
+         *  row, and drag them onto the day one at a time. */
+        activityId: slot.activityId,
+        title: slot.title,
+        kind: slot.kind,
+        /** The hour it was due at before the day moved under it. */
+        wasAt: slot.startsAt,
+        startsAt: slot.startsAt,
+        endsAt: slot.endsAt,
+        reminderId: slot.reminderId,
+        reasonCode: last?.reasonCode ?? null,
+        initiallyUnplaced: last?.reasonText === "initial_placement",
+        /**
+         * Where we would have put it, ready to hand straight to
+         * `/slots/:id/move` - or null when there was nowhere at all.
+         *
+         * The length is the slot's own: `rearrange` never shortens a session
+         * to make it fit, because a twenty-minute stretch squeezed into ten is
+         * a different session wearing the same name.
+         */
+        suggested:
+          last?.toStartsAt != null
+            ? { startsAt: last.toStartsAt, endsAt: last.toStartsAt + length }
+            : null,
+      };
+    }),
+  );
+});
+
+app.route("/", captureRoutes);
 
 app.get("/conflicts", async (c) => {
   const user = c.get("user");

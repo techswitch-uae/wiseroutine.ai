@@ -4,6 +4,8 @@
   "packages": {
     ".": {
       "release-type": "node",
+      "draft": true,
+      "force-tag-creation": true,
       "package-name": "wiseroutine",
       "changelog-path": "CHANGELOG.md",
       "include-component-in-tag": false,
@@ -17,6 +19,11 @@
           "type": "toml",
           "path": "apps/desktop/src-tauri/Cargo.toml",
           "jsonpath": "$.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "apps/desktop/src-tauri/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value=='wiseroutine')].version"
         }
       ]
     }

@@ -116,7 +116,7 @@ const SignIn: React.FC = () => {
       return "Too many attempts. Wait a minute and try again.";
     }
     if (cause instanceof ApiError && cause.status >= 500) {
-      return "Something is wrong on our side - this isn't you. The server log says why.";
+      return "Something went wrong on our side. Try again in a moment.";
     }
     return sent
       ? "That code didn't work. Check it, or ask for a new one."
@@ -165,9 +165,17 @@ const SignIn: React.FC = () => {
       .catch((cause: unknown) => {
         // Better Auth burns the code once it is expired or out of attempts;
         // either way the only way forward is a new one.
+        const errorCode =
+          cause instanceof ApiError
+            ? (cause.body as { code?: string })?.code
+            : undefined;
         const gone =
           cause instanceof ApiError &&
-          (cause.status === 403 || cause.status === 404);
+          (cause.status === 403 ||
+            cause.status === 404 ||
+            errorCode === "OTP_EXPIRED" ||
+            errorCode === "OTP_NOT_FOUND" ||
+            errorCode === "TOO_MANY_ATTEMPTS");
         if (gone) setExpired(true);
         else if (cause instanceof ApiError && cause.status === 400) {
           setWrong(true);
@@ -232,6 +240,7 @@ const SignIn: React.FC = () => {
         <CheckEmailScreen
           email={email}
           code={code}
+          {...(problem ? { problem } : {})}
           minutes={OTP_MINUTES}
           onCodeChange={(next) => {
             setCode(next);

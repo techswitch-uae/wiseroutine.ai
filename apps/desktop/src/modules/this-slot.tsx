@@ -1,11 +1,27 @@
-import { Button, TimeStepper, Widget } from "@wiseroutine/design";
+import {
+  Button,
+  ChevronDownGlyph,
+  Modal,
+  RichText,
+  SlotStatusMark,
+  TimeStepper,
+  Widget,
+} from "@wiseroutine/design";
+import { canPostponeSlot, canStopSlot } from "@wiseroutine/scheduler";
 import { useEffect, useRef, useState } from "react";
-import { api, type TodayResponse } from "../lib/api";
+import { upNextOf } from "../lib/alerts";
+import { api, calendarProviderLabel, type TodayResponse } from "../lib/api";
+import { captureError } from "../lib/capture";
+import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
+import { openExternal } from "../lib/open-external";
 import { pick, usePicked } from "../lib/picked";
 import { moveSlotTo, reloadPlan, startSlot, usePlan } from "../lib/plan-store";
+import { useSlotClock } from "../lib/slot-clock";
 import { slotState } from "../lib/slot-state";
 import { moduleFor } from "./activities";
+import { Reschedule } from "./reschedule";
+import { TodoDetails } from "./todo-details";
 
 /**
  * The block you just pressed, and everything you can do to it.
@@ -37,8 +53,34 @@ const clock = (at: number, timeZone: string): string =>
     hourCycle: "h23",
   }).format(new Date(at));
 
-const Row: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+/**
+ * The card's actions.
+ *
+ * `flush` is for a row that holds nothing but quiet buttons. A quiet button is
+ * text with 11x16 of padding around it, and that padding is air rather than
+ * substance: left as-is, "Mark it done" began 35px from the card's edge (19px
+ * of card padding plus its own 16px) while the eyebrow, title, time and note
+ * all began at 19px, and the same 11px below it made the card bottom-heavy
+ * against its own top. The negatives take that padding back out of the layout
+ * without shrinking the target, which still reaches into the card's padding.
+ *
+ * A row with a filled button in it keeps the padding: there the pill's edge is
+ * the thing that has to line up, and it already does.
+ */
+const Row: React.FC<{ children: React.ReactNode; flush?: boolean }> = ({
+  children,
+  flush,
+}) => (
+  <div
+    style={{
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      marginTop: flush ? 4 : 12,
+      marginLeft: flush ? -16 : 0,
+      marginBottom: flush ? -6 : 0,
+    }}
+  >
     {children}
   </div>
 );
@@ -47,9 +89,9 @@ const Note: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <p
     className="wr-body"
     style={{
-      marginTop: 8,
+      marginTop: 10,
       marginBottom: 0,
-      font: "400 12.5px/1.45 var(--font-body)",
+      font: "400 12.5px/1.5 var(--font-body)",
     }}
   >
     {children}
@@ -63,36 +105,120 @@ const Meeting: React.FC<{
   timeZone: string;
   leaving: boolean;
   onClose: () => void;
-}> = ({ meeting, timeZone, leaving, onClose }) => (
-  <Widget eyebrow="This block" leaving={leaving} onClose={onClose}>
-    <h3 className="wr-widget-title">{meeting.title ?? "Busy"}</h3>
-    <div className="wr-widget-time">
-      {clock(meeting.startsAt, timeZone)}–{clock(meeting.endsAt, timeZone)}
-    </div>
-    <Note>
-      From your calendar. Wise Routine plans around this one and never writes
-      back to it, so it can only be moved where it came from.
-    </Note>
-  </Widget>
-);
+}> = ({ meeting, timeZone, leaving, onClose }) => {
+  const [details, setDetails] = useState(false);
+  const when = `${clock(meeting.startsAt, timeZone)}–${clock(meeting.endsAt, timeZone)}`;
+  const provider = calendarProviderLabel(meeting.provider);
+
+  return (
+    <Widget eyebrow="Meeting" leaving={leaving} onClose={onClose}>
+      <h3 className="wr-widget-title">{meeting.title ?? "Busy"}</h3>
+      <div className="wr-widget-time">
+        {provider ? `${provider} · ` : null}
+        {when}
+      </div>
+      {/* The one thing that can be *done* to someone else's block. It is not a
+        link: the app's own webview must not navigate away from the app, and a
+        meeting opens in the browser that is already signed in to it - see
+        `lib/open-external`. */}
+      {meeting.joinUrl ? (
+        <Button
+          variant="primary"
+          block
+          style={{ marginTop: 12 }}
+          onClick={() => {
+            const url = meeting.joinUrl;
+            if (!url) return;
+            void openExternal(url).then((opened) => {
+              if (!opened) notify("Couldn't open that meeting link.");
+            });
+          }}
+        >
+          {joinLabel(meeting.joinUrl)}
+        </Button>
+      ) : null}
+      {/* Quiet, and next to the loud one. The card says the four things worth
+        knowing at a glance; everything else the organiser wrote is a press
+        away rather than in the rail, where it would push the day off screen. */}
+      {meeting.description ? (
+        <Button
+          variant="secondary"
+          block
+          style={{ marginTop: 8 }}
+          onClick={() => setDetails(true)}
+        >
+          Show details
+        </Button>
+      ) : null}
+
+      {details ? (
+        <Modal
+          title={meeting.title ?? "Busy"}
+          subtitle={when}
+          onClose={() => setDetails(false)}
+        >
+          {/* The organiser's own emphasis and links, rendered as elements
+            from the notation `toRichText` stored - never as markup. A link
+            opens in the real browser, like the Join button above. */}
+          <RichText
+            text={meeting.description ?? ""}
+            onLink={(url) => {
+              void openExternal(url).then((opened) => {
+                if (!opened) notify("Couldn't open that link.");
+              });
+            }}
+          />
+        </Modal>
+      ) : null}
+    </Widget>
+  );
+};
+
+/**
+ * What to call the button.
+ *
+ * The call service comes from the link, not the calendar's provider: an
+ * Outlook calendar can hold a Zoom link. Naming it is the difference between
+ * "Join" and knowing whether this is the
+ * call you already have Teams open for. Anything unrecognised stays a plain
+ * "Join" rather than naming a hostname, which is not a product anyone has
+ * heard of.
+ */
+const HOSTS: Record<string, string> = {
+  "meet.google.com": "Google Meet",
+  "teams.microsoft.com": "Teams",
+  "teams.live.com": "Teams",
+  "zoom.us": "Zoom",
+};
+
+function joinLabel(url: string): string {
+  try {
+    const host = new URL(url).hostname;
+    const match = Object.keys(HOSTS).find(
+      (known) => host === known || host.endsWith(`.${known}`),
+    );
+    return match ? `Join ${HOSTS[match]}` : "Join";
+  } catch {
+    return "Join";
+  }
+}
 
 /** As long as the card takes to collapse - see `useWidgetEntrance`. */
 const LEAVE_MS = 200;
 
-/** How often the card re-reads the clock. What is true of a block changes as
- *  its window closes - see `slotState` - and a card that only re-rendered when
- *  the plan did would go on offering Start for a minute after the moment
- *  passed. */
-const TICK_MS = 30_000;
-
 export const ThisSlot: React.FC = () => {
+  const flags = useFeatures();
   const plan = usePlan();
   const picked = usePicked();
-  const [now, setNow] = useState(() => Date.now());
+  const [moving, setMoving] = useState(false);
+  const [details, setDetails] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const pending = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A new selection closes dialogs for the previous slot, even though the reset value is constant.
   useEffect(() => {
-    const tick = setInterval(() => setNow(Date.now()), TICK_MS);
-    return () => clearInterval(tick);
-  }, []);
+    setMoving(false);
+    setDetails(false);
+  }, [picked]);
   /**
    * Closed, but still on screen.
    *
@@ -100,22 +226,32 @@ export const ThisSlot: React.FC = () => {
    * below jumps up. Held for the length of the collapse instead, which is the
    * only part of this the widget cannot do for itself: it does not own the
    * state that decides whether it exists.
+   *
+   * Held here rather than behind the X, because the X is not the only way the
+   * card is put away: pressing the day behind the rail, or paging to another
+   * day, clears the selection too - see `pick`. Those went straight from a
+   * full card to nothing. Watching the id go null covers every one of them,
+   * and it is less code than the timer it replaces.
    */
-  const [leaving, setLeaving] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
+  const [shown, setShown] = useState(picked);
+  const leaving = picked === null && shown !== null;
+  useEffect(() => {
+    if (picked !== null) {
+      setShown(picked);
+      return;
+    }
+    if (shown === null) return;
+    const timer = setTimeout(() => setShown(null), LEAVE_MS);
+    return () => clearTimeout(timer);
+  }, [picked, shown]);
 
-  const close = () => {
-    setLeaving(true);
-    timer.current = setTimeout(() => {
-      setLeaving(false);
-      pick(null);
-    }, LEAVE_MS);
-  };
+  const close = () => pick(null);
+  const slot = plan?.slots.find((s) => s.id === shown);
+  const now = useSlotClock(slot);
 
-  if (!plan || !picked) return null;
+  if (!plan || !shown) return null;
 
-  const meeting = plan.meetings.find((m) => m.id === picked);
+  const meeting = plan.meetings.find((m) => m.id === shown);
   if (meeting) {
     return (
       <Meeting
@@ -127,14 +263,19 @@ export const ThisSlot: React.FC = () => {
     );
   }
 
-  const slot = plan.slots.find((s) => s.id === picked);
   // Gone: removed, replanned out, or the day rolled over. Saying nothing is
   // the right answer - there is no block to describe any more.
   if (!slot) return null;
 
   const state = slotState(slot, now);
   const minutes = Math.round((slot.endsAt - slot.startsAt) / 60_000);
+  const times = `${clock(slot.startsAt, plan.timeZone)}–${clock(slot.endsAt, plan.timeZone)}`;
   const module = moduleFor(slot.presetKey);
+  // The block Up next is already counting down to. This card takes that
+  // countdown as an ink tab and the module steps aside - see `UpNext`. Once it
+  // starts it is no longer next, and the tab goes with it.
+  const next = upNextOf(plan.slots, now);
+  const upNext = next.id === slot.id;
 
   const nudge = (direction: -1 | 1) => {
     const by = direction * STEP_MINUTES * 60_000;
@@ -155,6 +296,20 @@ export const ThisSlot: React.FC = () => {
    * button must never have.
    */
   const finish = (how: "complete" | "skip") => {
+    if (pending.current || slot.starting) return;
+    // Recheck on the press too: suspended webviews can wake after the cutoff.
+    if (
+      how === "skip" &&
+      Date.now() < slot.endsAt &&
+      !canStopSlot(slot, Date.now())
+    ) {
+      notify(
+        "The stop window has closed. You can create another slot instead.",
+      );
+      return;
+    }
+    pending.current = true;
+    setSaving(true);
     const action = how === "complete" ? api.completeSlot : api.skipSlot;
     void action(slot.id)
       .then(({ queued }) => {
@@ -165,24 +320,104 @@ export const ThisSlot: React.FC = () => {
               : "Saved offline. It will sync when you reconnect.",
           );
       })
-      .catch(() =>
-        notify(
-          "Couldn't record that just now. It will sync when you reconnect.",
-        ),
+      .catch((error) =>
+        notify(captureError(error, "Couldn't record that. Please try again.")),
       )
-      .finally(() => reloadPlan());
+      .finally(() => {
+        pending.current = false;
+        setSaving(false);
+        reloadPlan();
+      });
   };
 
   return (
-    <Widget eyebrow="This block" leaving={leaving} onClose={close}>
-      <h3 className="wr-widget-title">{slot.title}</h3>
-      <div className="wr-widget-time">
-        {clock(slot.startsAt, plan.timeZone)}–
-        {clock(slot.endsAt, plan.timeZone)}
-        <span className="wr-widget-time-soft"> · {minutes} min</span>
+    <Widget
+      eyebrow={upNext ? "Up next" : "This slot"}
+      leaving={leaving}
+      onClose={close}
+      {...(upNext
+        ? {
+            tab: (
+              <span
+                className={
+                  next.badge === "now"
+                    ? "wr-widget-time wr-widget-tab-now"
+                    : "wr-widget-time"
+                }
+              >
+                {next.badge === "now" ? "Now" : `in ${next.badge}`}
+              </span>
+            ),
+          }
+        : {})}
+    >
+      <div className="wr-widget-title-row">
+        <h3 className="wr-widget-title">{slot.title}</h3>
+        {slot.status === "completed" || state.running ? (
+          <SlotStatusMark
+            status={slot.status === "completed" ? "done" : "running"}
+          />
+        ) : null}
       </div>
+      {/* The time is the way to a different time. It used to be read here and
+          changed by a full-width "Postpone / change time" button further
+          down, which outweighed the stepper doing the everyday version of the
+          same job. Now the small nudge is the stepper and the big jump is the
+          value itself - and a block that can no longer move shows the time as
+          plain text, so nothing looks pressable that is not. */}
+      {canPostponeSlot(slot, now) ? (
+        <button
+          type="button"
+          className="wr-widget-time wr-widget-time-btn"
+          title="Postpone / change time"
+          aria-label={`Postpone / change time, ${times}`}
+          onClick={() => {
+            if (canPostponeSlot(slot, Date.now())) setMoving(true);
+          }}
+        >
+          <span>
+            {times}
+            <span className="wr-widget-time-soft"> · {minutes} min</span>
+          </span>
+          <ChevronDownGlyph aria-hidden="true" />
+        </button>
+      ) : (
+        <div className="wr-widget-time">
+          {times}
+          <span className="wr-widget-time-soft"> · {minutes} min</span>
+        </div>
+      )}
 
-      <Note>{state.note}</Note>
+      {state.label && !state.running && slot.status !== "completed" ? (
+        <Note>{state.label}</Note>
+      ) : null}
+      {flags.inbox && slot.reminderId ? (
+        <Button
+          variant="secondary"
+          block
+          style={{ marginTop: 14 }}
+          onClick={() => setDetails(true)}
+        >
+          Open todo, links and files
+        </Button>
+      ) : null}
+      {moving && canPostponeSlot(slot, now) ? (
+        <Reschedule
+          key={slot.id}
+          slot={slot}
+          timeZone={plan.timeZone}
+          onClose={() => setMoving(false)}
+          onSaved={close}
+        />
+      ) : null}
+      {flags.inbox && details && slot.reminderId ? (
+        <TodoDetails
+          key={slot.reminderId}
+          id={slot.reminderId}
+          timeZone={plan.timeZone}
+          onClose={() => setDetails(false)}
+        />
+      ) : null}
 
       {/* What pressing Start is actually going to do. A session takes the
           whole window over, and that is worth knowing before you press it. */}
@@ -200,7 +435,7 @@ export const ThisSlot: React.FC = () => {
         </div>
       ) : null}
 
-      <Row>
+      <Row flush={!state.startable}>
         {state.startable ? (
           <Button variant="primary" onClick={() => startSlot(slot.id)}>
             {slot.status === "skipped" ? "Resume" : "Start"}
@@ -211,16 +446,27 @@ export const ThisSlot: React.FC = () => {
             the stretch away from the desk, or you did it an hour ago - but the
             session is the thing worth entering, and a Done button as loud as
             Start is an invitation to skip the part that matters. */}
-        {state.startable || state.running || state.unresolved ? (
-          <Button variant="quiet" onClick={() => finish("complete")}>
+        {state.startable ||
+        state.running ||
+        state.unresolved ||
+        ["planned", "live", "missed", "skipped"].includes(slot.status) ? (
+          <Button
+            variant="quiet"
+            disabled={saving || slot.starting}
+            onClick={() => finish("complete")}
+          >
             Mark it done
           </Button>
         ) : null}
         {/* Stopping a running block that has no session of its own. One that
             has a session is stopped from inside it, and two ways to end the
             same thing is how "done" and "gave up" start disagreeing. */}
-        {state.running && !module?.Session ? (
-          <Button variant="quiet" onClick={() => finish("skip")}>
+        {canStopSlot(slot, now) && !module?.Session ? (
+          <Button
+            variant="quiet"
+            disabled={saving || slot.starting}
+            onClick={() => finish("skip")}
+          >
             Stop
           </Button>
         ) : null}
@@ -230,7 +476,11 @@ export const ThisSlot: React.FC = () => {
             the day that has already gone. The only honest question left is
             whether it happened. */}
         {state.unresolved ? (
-          <Button variant="quiet" onClick={() => finish("skip")}>
+          <Button
+            variant="quiet"
+            disabled={saving || slot.starting}
+            onClick={() => finish("skip")}
+          >
             It didn't happen
           </Button>
         ) : null}

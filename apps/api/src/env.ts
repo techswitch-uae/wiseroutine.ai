@@ -6,6 +6,8 @@ import {
 } from "@wiseroutine/db";
 import { composeEnv, coreKeys, required, z } from "@wiseroutine/env";
 import { providerKeys } from "@wiseroutine/providers";
+import { configurationProblems, SECRET_KEYS } from "./deployment";
+export { SECRET_KEYS } from "./deployment";
 
 /**
  * This app's environment, composed from the packages it uses.
@@ -44,6 +46,8 @@ const env = composeEnv({
   ...billingKeys,
   ...emailKeys,
   ...notificationKeys,
+  // Optional local test tenant, never selected in production.
+  E2E_SECOND_USER_URL: z.string().url().optional(),
 });
 
 export const serverEnvSchema = env.schema;
@@ -62,18 +66,7 @@ export type ServerEnv = ReturnType<typeof env.parse>;
  * Anything *not* in this list is a var: public, environment-specific, and
  * committed in `wrangler.jsonc` where it can be read at a glance.
  */
-export const SECRET_KEYS = [
-  "TURSO_AUTH_TOKEN",
-  "TURSO_PLATFORM_TOKEN",
-  "TOKEN_ROOT_KEY",
-  "SESSION_SECRET",
-  "GOOGLE_CLIENT_SECRET",
-  "MICROSOFT_CLIENT_SECRET",
-  "STRIPE_SECRET_KEY",
-  "STRIPE_WEBHOOK_SECRET",
-  "RESEND_API_KEY",
-  "ONESIGNAL_API_KEY",
-] as const;
+// The local preflight uses this same contract without reading secret values.
 
 /** A Secrets Store binding: an object whose value must be awaited. */
 interface SecretBinding {
@@ -88,8 +81,8 @@ const isSecretBinding = (value: unknown): value is SecretBinding =>
 /**
  * Resolved once per isolate, not once per request.
  *
- * Reading ten Secrets Store bindings is ten awaits; doing that on every
- * request would put them in front of every route. Keyed on the bindings
+ * Reading every declared Secrets Store binding on every request would put
+ * those awaits in front of every route. Keyed on the bindings
  * object itself so a different environment - the test runner's, say - cannot
  * pick up another one's cached answer, and so nothing is retained after the
  * isolate goes away.
@@ -131,8 +124,9 @@ export function resolveServerEnv(
  * Everything a deployed environment must have.
  *
  * The package fragments mark secrets optional so a half-configured laptop can
- * still boot the parts it is working on. That leniency must not reach a
- * deployment, so this is the second gate: `pnpm deploy:*` calls it through
+ * still boot the parts it is working on. Core M0 services must be configured
+ * in deployments; billing and remote push remain optional. This is the second
+ * gate: `pnpm deploy:*` calls it through
  * `/health/config` right after uploading, and a failure fails the deploy.
  *
  * It checks presence; the fragments' own rules (a `re_` prefix, 32 bytes of
@@ -142,34 +136,7 @@ export function resolveServerEnv(
  * compare it against the vault.
  */
 export function assertConfigured(config: ServerEnv): void {
-  const missing = [
-    ...SECRET_KEYS,
-    "TURSO_DIRECTORY_URL",
-    "TURSO_USER_HOST",
-    "TURSO_ORG",
-    "TURSO_GROUP",
-    "GOOGLE_CLIENT_ID",
-    "MICROSOFT_CLIENT_ID",
-    "STRIPE_PRO_PRICE_ID",
-    "RESEND_FROM",
-    "ONESIGNAL_APP_ID",
-  ].filter((key) => {
-    const value = (config as unknown as Record<string, unknown>)[key];
-    return value === undefined || value === null || value === "";
-  });
-
-  // A var still holding its scaffold value is not configuration, it is a
-  // reminder - and an empty check waves it through. `wrangler.jsonc` ships
-  // with a REPLACE_WITH_* for every value that has to be filled in, so the
-  // marker is worth failing on explicitly.
-  const unfilled = Object.entries(config as unknown as Record<string, unknown>)
-    .filter(([, value]) => String(value ?? "").startsWith("REPLACE_WITH"))
-    .map(([key]) => key);
-
-  const problems = [
-    ...missing.map((key) => `${key} (missing)`),
-    ...unfilled.map((key) => `${key} (still a placeholder)`),
-  ];
+  const problems = configurationProblems(config);
 
   if (problems.length > 0) {
     throw new Error(`Configuration not ready: ${problems.sort().join(", ")}`);
@@ -195,10 +162,16 @@ export function userCredentials(
   databaseName: string,
 ): Credentials {
   return {
-    url: userDatabaseUrl(
-      databaseName,
-      required(env.TURSO_USER_HOST, "TURSO_USER_HOST"),
-    ),
+    url:
+      env.ENVIRONMENT !== "production" &&
+      env.E2E_SECRET &&
+      databaseName === "wr-e2e-secondary" &&
+      env.E2E_SECOND_USER_URL
+        ? env.E2E_SECOND_USER_URL
+        : userDatabaseUrl(
+            databaseName,
+            required(env.TURSO_USER_HOST, "TURSO_USER_HOST"),
+          ),
     authToken: env.TURSO_AUTH_TOKEN,
   };
 }

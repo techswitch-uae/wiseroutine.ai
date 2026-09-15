@@ -8,23 +8,41 @@
  */
 
 import { freeGaps } from "@wiseroutine/scheduler";
+import { notify } from "./notify";
 import {
   cachedPlan,
   cachePlan,
-  clearOfflineState,
+  clearCachedPlan,
   enqueue,
   forget,
+  hasLegacyPending,
   type PendingKind,
   pending,
   withPending,
 } from "./offline";
+import {
+  eventDetailsAllowed,
+  redactPlan,
+  setEventDetailsAllowed,
+} from "./privacy";
+import {
+  assertSessionScope,
+  captureSessionScope,
+  changeSession,
+  identifySession,
+  invalidateServerState,
+  onSessionReset,
+  SessionChangedError,
+  type SessionScope,
+  sessionGeneration,
+  sessionSignal,
+  sessionToken,
+} from "./session-lifecycle";
+
+import { slotState } from "./slot-state";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8787";
-const TOKEN_KEY = "wiseroutine.session";
-
-export function getSessionToken(): string | null {
-  return globalThis.localStorage?.getItem(TOKEN_KEY) ?? null;
-}
+export const getSessionToken = sessionToken;
 
 /**
  * The zone this device believes it is in.
@@ -42,8 +60,7 @@ export function deviceTimeZone(): string {
 }
 
 export function setSessionToken(token: string | null): void {
-  if (token) globalThis.localStorage?.setItem(TOKEN_KEY, token);
-  else globalThis.localStorage?.removeItem(TOKEN_KEY);
+  changeSession(token);
 }
 
 /** No response at all, as opposed to a response we did not like. Only this
@@ -73,6 +90,7 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly body: unknown,
+    readonly retryAfterMs = 0,
   ) {
     super(`API ${status}`);
     this.name = "ApiError";
@@ -118,13 +136,28 @@ async function refusal(response: Response): Promise<unknown> {
   }
 }
 
-async function send(path: string, init: RequestInit = {}): Promise<Response> {
+async function send(
+  path: string,
+  init: RequestInit = {},
+  scope: SessionScope = captureSessionScope(),
+): Promise<Response> {
   const token = getSessionToken();
+  if (scope) {
+    assertSessionScope(scope);
+    if (token !== scope.token) throw new SessionChangedError();
+  }
+  const generation = sessionGeneration();
+  const signal = AbortSignal.any([
+    sessionSignal(),
+    AbortSignal.timeout(15_000),
+    ...(init.signal ? [init.signal] : []),
+  ]);
 
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {
       ...init,
+      signal,
       headers: {
         "content-type": "application/json",
         ...(token ? { authorization: `Bearer ${token}` } : {}),
@@ -132,21 +165,50 @@ async function send(path: string, init: RequestInit = {}): Promise<Response> {
       },
     });
   } catch {
+    if (generation !== sessionGeneration()) throw new SessionChangedError();
     // fetch only rejects when the request never completed - no DNS, no route,
     // no server. That is the one case worth retrying later.
     throw new OfflineError();
   }
 
+  if (generation !== sessionGeneration()) throw new SessionChangedError();
+  if (scope) assertSessionScope(scope);
   if (!response.ok) {
-    throw new ApiError(response.status, await refusal(response));
+    const retry = response.headers.get("retry-after");
+    const delay = retry
+      ? Number.isFinite(Number(retry))
+        ? Number(retry) * 1000
+        : Date.parse(retry) - Date.now()
+      : 0;
+    const body = await refusal(response);
+    assertSessionScope(scope);
+    throw new ApiError(response.status, body, Math.max(0, delay || 0));
   }
+  if (
+    init.method &&
+    init.method !== "GET" &&
+    !/^\/(?:captures\/[^/]+\/files(?:\/[^/]+)?|todos\/[^/]+\/files\/[^/]+)$/.test(
+      path,
+    )
+  )
+    invalidateServerState();
   return response;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await send(path, init);
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  scope: SessionScope = captureSessionScope(),
+): Promise<T> {
+  const generation = sessionGeneration();
+  const response = await send(path, init, scope);
+  if (scope) assertSessionScope(scope);
+  if (generation !== sessionGeneration()) throw new SessionChangedError();
   if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  const data = await response.json();
+  if (scope) assertSessionScope(scope);
+  if (generation !== sessionGeneration()) throw new SessionChangedError();
+  return data as T;
 }
 
 const post = (body: unknown): RequestInit => ({
@@ -163,9 +225,16 @@ export type SlotStatus =
   | "completed"
   | "skipped"
   | "missed"
-  | "cancelled";
+  | "cancelled"
+  /** In the bucket, so off the ruler entirely - `/today` and `/scope` filter
+   *  these out. Listed because a cached day may still carry one. */
+  | "bucketed";
 
 export interface TodaySlot {
+  /** Client-only: wait for Start to settle before sending completion/stop. */
+  starting?: boolean;
+  /** Actual latest Start from the lifecycle log; absent on older caches. */
+  startedAt?: number | null;
   id: string;
   title: string;
   kind: "recovery" | "focus" | "task";
@@ -178,18 +247,44 @@ export interface TodaySlot {
    *  the slot so pressing Start does not need a second request to find out
    *  what to open. */
   presetKey?: string | null;
+  reminderId?: string | null;
   /** "manual" | "auto" | "prompt". */
   startPolicy?: string;
   /** The module's own settings, as the JSON text it wrote. */
   configJson?: string | null;
+  /** The addon that placed it, or null. */
+  ownerAddonId?: string | null;
 }
 
 export interface TodayMeeting {
   id: string;
+  /** Calendar provenance, independent of meeting details. Absent in old caches. */
+  provider?: "google" | "microsoft";
   title: string | null;
   startsAt: number;
   endsAt: number;
   isAllDay: boolean;
+  /**
+   * Where the call is - a Meet, Teams or Zoom link off the event itself.
+   *
+   * Optional as well as nullable: a day restored from the offline cache may
+   * have been written before this field existed, and the block that draws it
+   * should offer nothing rather than crash on it.
+   */
+  joinUrl?: string | null;
+  /** What the organiser wrote, as plain text. Optional for the same reason as
+   *  `joinUrl`: a day out of the offline cache may predate it. */
+  description?: string | null;
+}
+
+export function calendarProviderLabel(
+  provider: TodayMeeting["provider"],
+): string | undefined {
+  return provider === "google"
+    ? "Google"
+    : provider === "microsoft"
+      ? "Outlook"
+      : undefined;
 }
 
 /** One of the day view's ranges, as the server derives them. */
@@ -216,7 +311,16 @@ export interface TodayResponse {
   outside: { before: TodayMeeting[]; after: TodayMeeting[] };
   /** When a calendar was last read, or null if none ever has been. */
   syncedAt: number | null;
-  modules: string[];
+  /**
+   * The rail, in the order to draw it. Server-authoritative: the plan
+   * filter and the user's saved order are both applied there, so the
+   * client only has to know how to draw each key - see `visibleWidgets`.
+   *
+   * `string[]` rather than `WidgetKey[]` on purpose. A key naming an
+   * addon is not in that union and never will be, and an unrecognised
+   * key is already a gap rather than a crash.
+   */
+  widgets: string[];
   /**
    * Per-day minimums and how much of each has been done. Weekly activities are
    * left out - see the note on the server.
@@ -225,6 +329,8 @@ export interface TodayResponse {
    * written by a version that did not send it. Read it as `?? []`.
    */
   progress?: ActivityProgress[];
+  /** Earliest pending routine configuration, in the account's local date. */
+  routineStartsOn?: string | null;
 }
 
 /** One day of `GET /scope`. The server has already bucketed it and resolved
@@ -306,12 +412,14 @@ export interface SessionResponse {
     customRangeEndMinutes: number | null;
     dayOpensOn: string;
     showOutsideRange: boolean;
+    storeEventTitles?: boolean;
   };
 }
 
 /** Everything `PATCH /settings` accepts. The three custom-range fields move
  *  together - all set, or all null to clear it. */
 export interface SettingsPatch {
+  storeEventTitles?: boolean;
   timeZone?: string;
   dayStartMinutes?: number;
   dayEndMinutes?: number;
@@ -350,6 +458,72 @@ export interface CalendarSummary {
   accessRole: string;
 }
 
+/**
+ * An addon the registry offers, or one already installed.
+ *
+ * `manifest` is `unknown` here on purpose. It is the addon's document, parsed
+ * and validated by `parseManifest` in `@wiseroutine/addons` - the one place
+ * that knows its shape - and a second hand-written mirror of it in this file
+ * would be a second thing to keep in step.
+ */
+export interface AvailableAddon {
+  id: string;
+  version: string;
+  author: string;
+  /** Where to fetch the bundle. Relative for one bundled with the app. */
+  bundleUrl: string;
+  /** sha256 hex of the bundle. Empty for a bundled addon. */
+  bundleHash: string;
+  manifest: unknown;
+  approval?: import("@wiseroutine/addons").ApprovedRelease;
+}
+
+export interface InstalledAddonRow {
+  bundleHash?: string;
+  bundleUrl?: string;
+  approval?: import("@wiseroutine/addons").ApprovedRelease;
+  id: string;
+  version: string;
+  isEnabled: boolean;
+  installedAt: number;
+  /** What was granted, which is not always what the manifest now asks for. */
+  granted: unknown;
+  manifest: unknown;
+  /** Addon-level settings, as the user set them. */
+  settings: unknown;
+  /**
+   * Ships inside the app, so it is switched rather than installed or removed.
+   *
+   * The user-facing difference and the only one: bundled addons get a toggle,
+   * community ones get Install and Remove. Everything else - the permissions,
+   * the sandbox, the capability checks, the uninstall rule - is identical.
+   */
+  bundled: boolean;
+  /** Withdrawn from the registry after it was installed. Still on disk. */
+  revoked: boolean;
+}
+
+/** What removing or switching off an addon took with it. */
+export interface AddonRemoval {
+  /** Activities that depended on it, now paused. */
+  paused: number;
+  /** Slots ahead of the clock that came off the day. */
+  cancelled: number;
+  /** Activities switched back on. Only ever non-zero for switching *on*. */
+  resumed?: number;
+}
+
+/**
+ * What switching an addon off would cost, asked before switching it off.
+ *
+ * The activities are named rather than counted, because a dialog that says
+ * "2 activities" is asking somebody to confirm a number they cannot check.
+ */
+export interface AddonImpact {
+  activities: { id: string; name: string }[];
+  futureSlots: number;
+}
+
 export interface CalendarsResponse {
   connections: CalendarConnection[];
   calendars: CalendarSummary[];
@@ -369,6 +543,8 @@ export interface ActivityResponse {
   kind: "recovery" | "focus" | "task";
   isActive: boolean;
   minimum: { type: string; value: number };
+  /** The displayed editor values take effect on this local date. */
+  changesFrom?: string | null;
   sessionMinutes: number;
   daysOfWeek: number;
   importance: string;
@@ -407,6 +583,76 @@ export interface ActivityInput {
   configJson?: string | null;
 }
 
+/**
+ * One session the day no longer has room for.
+ *
+ * Two kinds in one list. With `suggested` it is a question with the answer
+ * attached - accept it by moving the slot there. Without, there was nowhere at
+ * all, and the only answers are a time the user picks or dropping it.
+ */
+export interface BucketItem {
+  /** No previous appointment: the initial planner could not place it. */
+  initiallyUnplaced?: boolean;
+  id: string;
+  /** Absent from a server that predates it; then each slot is its own row. */
+  activityId?: string | null;
+  title: string;
+  kind: "recovery" | "focus" | "task";
+  /** The hour it was due at before the day moved under it. */
+  wasAt: number;
+  startsAt: number;
+  endsAt: number;
+  reminderId?: string | null;
+  /** The engine's reason - `no_gap`, `too_close`, `large_drift`,
+   *  `outside_window`, `day_over`. Comma-joined when there was more than one. */
+  reasonCode: string | null;
+  suggested: { startsAt: number; endsAt: number } | null;
+}
+
+/**
+ * A todo: something with no time yet.
+ *
+ * No `startsAt`, on purpose. The moment it gets one it becomes a slot and
+ * leaves this list - see `POST /slots` with `todoId`.
+ */
+export interface Todo {
+  id: string;
+  title: string;
+  /** How long it needs, or null for "no idea yet". */
+  minutes: number | null;
+  needsFocus: boolean;
+  createdAt: number;
+}
+
+export interface TodoFile {
+  id: string;
+  name: string;
+  size: number;
+}
+export interface InboxItem extends Todo {
+  status: "open" | "slotted" | "done" | "dropped";
+  slotId: string | null;
+  startsAt?: number | null;
+  endsAt?: number | null;
+}
+export interface TodoDetails extends InboxItem {
+  notes: string;
+  links: string[];
+  files: TodoFile[];
+  slot: TodaySlot | null;
+}
+export interface CaptureInput {
+  id: string;
+  title: string;
+  notes: string;
+  links: string[];
+  minutes: number;
+  fileIds: string[];
+  activityId?: string;
+  todoId?: string;
+  startsAt?: number;
+}
+
 export interface MissedItem {
   id: string;
   title: string;
@@ -425,20 +671,41 @@ export interface MissedItem {
  * a routine followed on a plane keeps its real shape instead of collapsing
  * into the minute the connection came back.
  */
+/** The header that names the addon a request is made for. The server reads
+ *  the addon's grant and checks ownership. */
+const forAddon = (addonId: string | undefined): Record<string, string> =>
+  addonId ? { "x-wr-addon": addonId } : {};
+
 async function slotAction(
   slotId: string,
   kind: PendingKind,
   reason?: string,
+  addonId?: string,
 ): Promise<{ queued: boolean }> {
   const at = Date.now();
+  const generation = sessionGeneration();
+  const actionId = crypto.randomUUID();
   const body = { at, ...(reason !== undefined ? { reason } : {}) };
 
   try {
-    await send(`/slots/${slotId}/${kind}`, post(body));
+    await send(`/slots/${slotId}/${kind}`, {
+      ...post(body),
+      headers: { ...forAddon(addonId), "idempotency-key": actionId },
+    });
     return { queued: false };
   } catch (error) {
-    if (!(error instanceof OfflineError)) throw error;
-    enqueue({ slotId, kind, at, ...(reason !== undefined ? { reason } : {}) });
+    if (generation !== sessionGeneration() || !retryable(error)) throw error;
+    // An addon's write is not queued: the queue replays as the user, and the
+    // server would then check the wrong grant.
+    if (addonId) throw error;
+    enqueue({
+      id: actionId,
+      slotId,
+      kind,
+      at,
+      ...(reason !== undefined ? { reason } : {}),
+    });
+    if (error instanceof ApiError) pauseReplay(error);
     return { queued: true };
   }
 }
@@ -451,31 +718,87 @@ async function slotAction(
  * replanned or the day rolled over, and a queue that cannot drain is a queue
  * that blocks every later action behind it.
  */
-export async function flushPending(): Promise<number> {
+const retryable = (error: unknown): boolean =>
+  error instanceof OfflineError ||
+  (error instanceof ApiError &&
+    (error.status === 401 ||
+      error.status === 408 ||
+      error.status === 429 ||
+      error.status >= 500));
+let draining: Promise<number> | null = null;
+let retryAt = 0;
+let awaitingAuth = false;
+onSessionReset(() => {
+  draining = null;
+  retryAt = 0;
+  awaitingAuth = false;
+});
+
+function pauseReplay(error: unknown): void {
+  retryAt =
+    Date.now() +
+    Math.max(5000, error instanceof ApiError ? error.retryAfterMs : 0);
+  if (error instanceof ApiError && error.status === 401) {
+    awaitingAuth = true;
+    notify(
+      "Your changes are saved on this device. Sign in again to sync them.",
+    );
+  }
+}
+
+export function flushPending(): Promise<number> {
+  if (draining) return draining;
+  if (awaitingAuth || Date.now() < retryAt || !getSessionToken())
+    return Promise.resolve(0);
+  const operation = drainPending();
+  draining = operation;
+  const finished = () => {
+    if (draining === operation) draining = null;
+  };
+  void operation.then(finished, finished);
+  return operation;
+}
+
+async function drainPending(): Promise<number> {
+  const generation = sessionGeneration();
   const queue = pending();
   if (queue.length === 0) return 0;
 
   const done: string[] = [];
-
+  let sent = 0;
   for (const action of queue) {
+    if (generation !== sessionGeneration()) return sent;
     try {
-      await send(
-        `/slots/${action.slotId}/${action.kind}`,
-        post({
+      await send(`/slots/${action.slotId}/${action.kind}`, {
+        ...post({
           at: action.at,
           ...(action.reason !== undefined ? { reason: action.reason } : {}),
         }),
-      );
+        headers: { "idempotency-key": action.id },
+      });
       done.push(action.id);
+      sent++;
     } catch (error) {
-      if (error instanceof OfflineError) break;
-      console.warn("dropping unsendable action", action.kind, action.slotId);
+      if (generation !== sessionGeneration()) return sent;
+      if (retryable(error)) {
+        pauseReplay(error);
+        break;
+      }
+      // Unknown client errors are not proof that the action was rejected.
+      if (
+        !(error instanceof ApiError) ||
+        ![400, 403, 404, 409, 410, 422].includes(error.status)
+      )
+        break;
+      notify(
+        error.detail ??
+          `A saved ${action.kind} could not be applied. The slot may have changed.`,
+      );
       done.push(action.id);
     }
   }
-
-  forget(done);
-  return done.length;
+  if (generation === sessionGeneration()) forget(done);
+  return sent;
 }
 
 /**
@@ -511,7 +834,6 @@ export const api = {
     );
     const token = response.headers.get("set-auth-token");
     if (!token) throw new ApiError(500, { error: "no_session_token" });
-    clearOfflineState();
     setSessionToken(token);
     await announceTimeZone();
   },
@@ -561,9 +883,9 @@ export const api = {
         | { status: "expired" }
       >("/signin/social/claim", post({ ticket }));
 
+      if (signal?.aborted) return;
       if (result.status === "pending") continue;
       if (result.status === "ready") {
-        clearOfflineState();
         setSessionToken(result.token);
         await announceTimeZone();
         return;
@@ -595,11 +917,20 @@ export const api = {
     request<unknown>("/auth/unlink-account", post({ accountId })),
 
   async signOut(): Promise<void> {
-    await send("/auth/sign-out", post({})).catch(() => undefined);
+    const token = getSessionToken();
+    clearCachedPlan();
     setSessionToken(null);
-    // Whose "today" this is has changed; a leftover plan or queued action
-    // would belong to the previous account.
-    clearOfflineState();
+    // Local teardown is immediate even when the server is unreachable. Revoke
+    // only the old token; never let a late response affect a new session.
+    if (token)
+      void fetch(`${API_URL}/auth/sign-out`, {
+        ...post({}),
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
+        signal: AbortSignal.timeout(5000),
+      }).catch(() => undefined);
   },
 
   /**
@@ -611,7 +942,23 @@ export const api = {
    * assumes a user here reads `.user` off null and throws somewhere far away
    * from the cause.
    */
-  session: () => request<SessionResponse | null>("/auth/get-session"),
+  session: async () => {
+    const generation = sessionGeneration();
+    const result = await request<SessionResponse | null>("/auth/get-session");
+    if (generation !== sessionGeneration()) throw new SessionChangedError();
+    if (result?.user) {
+      identifySession(result.user.id);
+      if (hasLegacyPending())
+        notify(
+          "Older unsynced actions remain on this device. Their account must be verified before replay.",
+        );
+      if (result.user.storeEventTitles !== undefined)
+        setEventDetailsAllowed(result.user.storeEventTitles);
+    }
+    return result;
+  },
+
+  features: () => request<{ features: unknown }>("/features"),
 
   /** Mint a consent URL for the signed-in account. Authenticated, so which
    *  account the calendar attaches to is never a query parameter. */
@@ -631,18 +978,26 @@ export const api = {
     options: { at?: number; range?: string } = {},
   ): Promise<TodayResponse & { stale: boolean; cachedAt: number }> {
     const now = Date.now();
+    const scope = captureSessionScope();
     const query = new URLSearchParams();
     if (options.at) query.set("at", String(options.at));
     if (options.range) query.set("range", options.range);
     const suffix = query.size > 0 ? `?${query}` : "";
 
     try {
-      const data = await request<TodayResponse>(`/today${suffix}`);
+      const response = await request<TodayResponse>(
+        `/today${suffix}`,
+        {},
+        scope,
+      );
+      assertSessionScope(scope);
+      const data = eventDetailsAllowed() ? response : redactPlan(response);
       cachePlan(data, now);
       return { ...withPending(data, pending()), stale: false, cachedAt: now };
     } catch (error) {
       if (!(error instanceof OfflineError)) throw error;
 
+      assertSessionScope(scope);
       const saved = cachedPlan(now);
       // Nothing saved, or saved for a day that has ended: there is no honest
       // plan to show, so this is a plain failure.
@@ -688,11 +1043,19 @@ export const api = {
   /** Everything else on the settings page. One route, because the server
    *  validates the day's window against the row as it will be - see
    *  `PATCH /settings`. */
-  updateSettings: (patch: SettingsPatch) =>
-    request<void>("/settings", {
+  updateSettings: async (patch: SettingsPatch) => {
+    const generation = sessionGeneration();
+    if (patch.storeEventTitles === false) {
+      clearCachedPlan();
+      setEventDetailsAllowed(false);
+    }
+    await request<void>("/settings", {
       method: "PATCH",
       body: JSON.stringify(patch),
-    }),
+    });
+    if (generation !== sessionGeneration()) throw new SessionChangedError();
+    if (patch.storeEventTitles === true) setEventDetailsAllowed(true);
+  },
 
   /** Every connected account and the calendars under it, selected or not. */
   calendars: () => request<CalendarsResponse>("/calendars"),
@@ -755,14 +1118,27 @@ export const api = {
   restoreSlot: (id: string) => request<void>(`/slots/${id}/restore`, post({})),
 
   missed: () => request<MissedItem[]>("/missed"),
-  plan: (trigger = "user_request") =>
-    request<{ planRunId: string; placed: number; unplaced: unknown[] }>(
-      "/plan",
-      {
-        method: "POST",
-        body: JSON.stringify({ trigger }),
-      },
-    ),
+  /** The bucket. Emptied by `moveSlot` (accept) or `cancelSlot` (drop) - it
+   *  has no mutations of its own, because both already exist. */
+  bucket: (at?: number) =>
+    request<BucketItem[]>(at === undefined ? "/bucket" : `/bucket?at=${at}`),
+  /**
+   * Fill a day.
+   *
+   * `at` is any instant inside the day to plan, and is what makes this usable
+   * from a day view that has paged forward - without it the server plans the
+   * day it is currently in, so pressing "Place them for me" while looking at
+   * Thursday quietly filled today instead.
+   */
+  plan: (trigger = "user_request", at?: number) =>
+    request<{
+      planRunId: string | null;
+      placed: number;
+      unplaced: { activityId: string; sessions: number; reason: string }[];
+    }>("/plan", {
+      method: "POST",
+      body: JSON.stringify({ trigger, ...(at !== undefined ? { at } : {}) }),
+    }),
   /**
    * 5c - place an activity at a time you chose.
    *
@@ -781,9 +1157,190 @@ export const api = {
         ...(endsAt !== undefined ? { endsAt } : {}),
       }),
     }),
+  /* ── Todos ───────────────────────────────────────────────────────────── */
+
+  todos: () => request<Todo[]>("/todos"),
+  capture: (input: CaptureInput, scope?: SessionScope) =>
+    request<{ todoId: string; slotId: string | null }>(
+      "/capture",
+      post(input),
+      scope,
+    ),
+  uploadCaptureFile: (
+    captureId: string,
+    id: string,
+    file: File,
+    scope?: SessionScope,
+  ) =>
+    request<TodoFile>(
+      `/captures/${captureId}/files/${id}`,
+      {
+        method: "PUT",
+        body: file,
+        headers: {
+          "content-type": "application/octet-stream",
+          "x-file-name": encodeURIComponent(file.name),
+        },
+      },
+      scope,
+    ),
+  discardCaptureFiles: (captureId: string, scope?: SessionScope) =>
+    request<void>(`/captures/${captureId}/files`, { method: "DELETE" }, scope),
+  inbox: (cursor?: string, done = false, query = "") =>
+    request<{ items: InboxItem[]; nextCursor: string | null }>(
+      `/inbox?done=${done ? 1 : 0}&q=${encodeURIComponent(query)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
+  todoDetails: (id: string, scope?: SessionScope) =>
+    request<TodoDetails>(`/todos/${id}/details`, {}, scope),
+  editTodo: (
+    id: string,
+    input: { title: string; notes: string; links: string[]; minutes: number },
+    scope?: SessionScope,
+  ) =>
+    request<void>(
+      `/todos/${id}/details`,
+      {
+        method: "PUT",
+        body: JSON.stringify(input),
+      },
+      scope,
+    ),
+  addTodoFile: (todoId: string, id: string, file: File, scope?: SessionScope) =>
+    request<TodoFile>(
+      `/todos/${todoId}/files/${id}`,
+      {
+        method: "PUT",
+        body: file,
+        headers: {
+          "content-type": "application/octet-stream",
+          "x-file-name": encodeURIComponent(file.name),
+        },
+      },
+      scope,
+    ),
+  todoFile: async (todoId: string, id: string, scope?: SessionScope) => {
+    const generation = sessionGeneration();
+    const blob = await (
+      await send(`/todos/${todoId}/files/${id}`, {}, scope)
+    ).blob();
+    if (scope) assertSessionScope(scope);
+    if (generation !== sessionGeneration()) throw new SessionChangedError();
+    if (blob.size > 5 * 1024 * 1024)
+      throw new Error("Attachment exceeds the download limit");
+    return blob;
+  },
+  deleteTodoFile: (todoId: string, id: string, scope?: SessionScope) =>
+    request<void>(`/todos/${todoId}/files/${id}`, { method: "DELETE" }, scope),
+  slotDetails: (id: string) => request<TodaySlot>(`/slots/${id}/details`),
+  rescheduleSlot: (
+    id: string,
+    input: { startsAt: number; endsAt: number } | { bucket: true },
+    actionId = crypto.randomUUID(),
+    scope?: SessionScope,
+  ) =>
+    request<{ slotId: string }>(
+      `/slots/${id}/reschedule`,
+      {
+        ...post(input),
+        headers: { "idempotency-key": actionId },
+      },
+      scope,
+    ),
+  /** `addonId` names the addon writing, so the server checks its grant. */
+  createTodo: (
+    input: { title: string; minutes?: number | null },
+    addonId?: string,
+  ) => request<Todo>("/todos", { ...post(input), headers: forAddon(addonId) }),
+  setTodo: (
+    id: string,
+    status: "done" | "dropped",
+    addonId?: string,
+    scope?: SessionScope,
+  ) =>
+    request<void>(
+      `/todos/${id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+        headers: forAddon(addonId),
+      },
+      scope,
+    ),
+  /** The todo becomes a slot. Same route as `placeSlot`, same refusals. */
+  placeTodo: (
+    todoId: string,
+    startsAt: number,
+    endsAt?: number,
+    addonId?: string,
+  ) =>
+    request<TodaySlot>("/slots", {
+      method: "POST",
+      body: JSON.stringify({
+        todoId,
+        startsAt,
+        ...(endsAt !== undefined ? { endsAt } : {}),
+      }),
+      headers: forAddon(addonId),
+    }),
+  /** A slot of the addon's own: a title and a kind, no activity. */
+  placeOwnSlot: (
+    addonId: string,
+    input: {
+      title: string;
+      kind: "recovery" | "focus" | "task";
+      startsAt: number;
+      endsAt: number;
+    },
+  ) =>
+    request<TodaySlot>("/slots", {
+      method: "POST",
+      body: JSON.stringify(input),
+      headers: forAddon(addonId),
+    }),
+
+  /* ── Addons ──────────────────────────────────────────────────────────── */
+
+  availableAddons: () =>
+    request<{ addons: AvailableAddon[] }>("/addons/available"),
+  installedAddons: () => request<{ addons: InstalledAddonRow[] }>("/addons"),
+  /** `granted` is the subset of the manifest's capabilities the user
+   *  approved. Omitted, a fresh install grants all and an upgrade keeps
+   *  what it had. */
+  addonBundle: (hash: string) =>
+    send(`/addons/bundles/${encodeURIComponent(hash)}`),
+  installAddon: (id: string, granted?: unknown, version?: string) =>
+    request<{ id: string; version: string }>(
+      `/addons/${encodeURIComponent(id)}/install`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...(granted !== undefined ? { granted } : {}),
+          ...(version ? { version } : {}),
+        }),
+      },
+    ),
+  setAddonSettings: (id: string, settings: unknown) =>
+    request<void>(`/addons/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ settings }),
+    }),
+  addonImpact: (id: string) =>
+    request<AddonImpact>(`/addons/${encodeURIComponent(id)}/impact`),
+  setAddonEnabled: (id: string, isEnabled: boolean) =>
+    request<AddonRemoval>(`/addons/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ isEnabled }),
+    }),
+  removeAddon: (id: string) =>
+    request<AddonRemoval>(`/addons/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
+
   startSlot: (id: string) => slotAction(id, "start"),
-  completeSlot: (id: string) => slotAction(id, "complete"),
-  skipSlot: (id: string, reason?: string) => slotAction(id, "skip", reason),
+  completeSlot: (id: string, addonId?: string) =>
+    slotAction(id, "complete", undefined, addonId),
+  skipSlot: (id: string, reason?: string, addonId?: string) =>
+    slotAction(id, "skip", reason, addonId),
   pendingCount: () => pending().length,
 };
 
@@ -797,6 +1354,8 @@ export interface TimelineRow {
   title: string;
   meta?: string;
   done?: boolean;
+  running?: boolean;
+  startable?: boolean;
   slotId?: string;
   /**
    * Ours, and not yet begun, so it can be moved.
@@ -842,7 +1401,18 @@ export const MIN_GAP_MINUTES = 5;
  * from being two different answers.
  */
 export function openGaps(
-  data: TodayResponse,
+  // Only what the sum needs, so a `ScopeDay` - tomorrow, as the week view
+  // reads it - can be asked the same question as today.
+  data: {
+    dayStart: number;
+    dayEnd: number;
+    slots: readonly { startsAt: number; endsAt: number; status: string }[];
+    meetings: readonly {
+      startsAt: number;
+      endsAt: number;
+      isAllDay: boolean;
+    }[];
+  },
   now: number,
   minMinutes = MIN_GAP_MINUTES,
 ): OpenGap[] {
@@ -873,9 +1443,11 @@ export function buildTimeline(data: TodayResponse, now: number): TimelineRow[] {
   const rows: TimelineRow[] = [];
 
   for (const slot of data.slots) {
-    if (slot.status === "cancelled") continue;
+    if (slot.status === "cancelled" || slot.status === "bucketed") continue;
+    const state = slotState(slot, now);
     const isLive =
-      slot.startsAt <= now && now < slot.endsAt && slot.status !== "completed";
+      state.running ||
+      (state.startable && slot.startsAt <= now && now < slot.endsAt);
 
     rows.push({
       key: slot.id,
@@ -884,12 +1456,18 @@ export function buildTimeline(data: TodayResponse, now: number): TimelineRow[] {
       endsAt: slot.endsAt,
       variant: isLive ? "live" : slot.kind === "focus" ? "focus" : "recovery",
       title: slot.title,
-      meta: `${Math.round((slot.endsAt - slot.startsAt) / 60_000)} min`,
+      // A live block says how much of itself is left rather than how long it
+      // was: while it is running, the length it was planned at is the one
+      // thing about it you can no longer act on. Rounded up and floored at a
+      // minute, so it never reads "0 min left" while it is still going.
+      meta: isLive
+        ? `${Math.max(1, Math.ceil((slot.endsAt - now) / 60_000))} min left`
+        : `${Math.round((slot.endsAt - slot.startsAt) / 60_000)} min`,
       done: slot.status === "completed",
-      // Only while it is still ahead of you. `started` is left out on purpose
-      // as well as the three terminal ones - see `movable` above.
-      movable: slot.status === "planned" || slot.status === "live",
-      resumable: slot.status === "skipped",
+      running: state.running,
+      startable: state.startable,
+      movable: state.movable,
+      resumable: state.startable && slot.status === "skipped",
     });
   }
 
@@ -903,7 +1481,12 @@ export function buildTimeline(data: TodayResponse, now: number): TimelineRow[] {
       // A null title means the user opted out of storing titles, or we only
       // have free/busy access on that calendar.
       title: meeting.title ?? "Busy",
-      meta: `${Math.round((meeting.endsAt - meeting.startsAt) / 60_000)} min`,
+      meta: [
+        calendarProviderLabel(meeting.provider),
+        `${Math.round((meeting.endsAt - meeting.startsAt) / 60_000)} min`,
+      ]
+        .filter(Boolean)
+        .join(" · "),
     });
   }
 

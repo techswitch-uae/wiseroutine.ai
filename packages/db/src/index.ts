@@ -3,6 +3,7 @@ export * from "./client";
 // coordination table the cron ticker reads.
 export * from "./directory/billing";
 export * from "./directory/schedule";
+export * from "./directory/social-handoffs";
 export * from "./directory/users";
 export * from "./directory/watch";
 export type {
@@ -12,6 +13,10 @@ export type {
 export * from "./keys";
 // User tier - one database per person. Everything they own.
 export * from "./user/activities";
+export * from "./user/activity-input";
+export * from "./user/addons";
 export * from "./user/calendars";
+export * from "./user/capture";
 export * from "./user/events";
+export * from "./user/reminders";
 export * from "./user/slots";

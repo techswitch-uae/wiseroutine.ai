@@ -8,10 +8,13 @@ import type { ServerEnv } from "./env";
  * `createFetchHttpClient` is mandatory - the SDK otherwise reaches for Node's
  * `http`, which does not exist here.
  */
-export function stripeClient(env: ServerEnv): Stripe {
+export function stripeClient(env: ServerEnv, transactional = false): Stripe {
   return new Stripe(required(env.STRIPE_SECRET_KEY, "STRIPE_SECRET_KEY"), {
     apiVersion: "2026-07-29.dahlia",
     httpClient: Stripe.createFetchHttpClient(),
+    // Canonical webhook reads run within a DB transaction. Bound their idle
+    // time; let Stripe retry the delivery rather than holding a writer open.
+    ...(transactional ? { timeout: 2000, maxNetworkRetries: 0 } : {}),
   });
 }
 

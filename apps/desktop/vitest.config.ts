@@ -7,9 +7,17 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
-    // `e2e/` belongs to Playwright, which needs a real browser and both
-    // servers running. Vitest collecting those specs turns `pnpm test` red
-    // for a reason that has nothing to do with the code.
-    exclude: ["**/node_modules/**", "**/dist/**", "e2e/**"],
+    // Unit tests live in src/. Browser suites belong to Playwright and need
+    // real browsers/servers. An explicit include also keeps future e2e folders
+    // from being collected by Vitest accidentally.
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "e2e/**",
+      "e2e-addons/**",
+      "e2e-production/**",
+      ".playwright/**",
+    ],
   },
 });

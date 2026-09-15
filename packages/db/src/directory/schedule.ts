@@ -23,6 +23,7 @@ export interface DueWork {
   targetId: string;
   dueAt: number;
   failures: number;
+  revision: number;
 }
 
 export async function scheduleWork(
@@ -46,7 +47,12 @@ export async function scheduleWork(
         targetId,
       },
     },
-    update: { dueAt: at(input.dueAt), backoffUntil: null, failures: 0 },
+    update: {
+      dueAt: at(input.dueAt),
+      backoffUntil: null,
+      failures: 0,
+      revision: { increment: 1 },
+    },
     create: {
       id: newId(),
       userId: input.userId,
@@ -86,6 +92,7 @@ export async function dueWork(
     targetId: row.targetId,
     dueAt: ms(row.dueAt),
     failures: row.failures,
+    revision: row.revision,
   }));
 }
 
@@ -93,9 +100,12 @@ export async function completeWork(
   directory: Directory,
   id: string,
   nextDueAt: number,
+  revision?: number,
 ): Promise<void> {
-  await directory.scheduledWork.update({
-    where: { id },
+  // A consumer must not erase work scheduled while it was running. Deletion
+  // is also a legitimate race (e.g. a disconnected calendar).
+  await directory.scheduledWork.updateMany({
+    where: { id, ...(revision === undefined ? {} : { revision }) },
     data: { dueAt: at(nextDueAt), backoffUntil: null, failures: 0 },
   });
 }
@@ -106,16 +116,19 @@ export async function failWork(
   directory: Directory,
   id: string,
   now: number,
+  revision?: number,
 ): Promise<number> {
   const current = await directory.scheduledWork.findUnique({
     where: { id },
-    select: { failures: true },
+    select: { failures: true, revision: true },
   });
+  if (!current || (revision !== undefined && current.revision !== revision))
+    return 0;
   const failures = (current?.failures ?? 0) + 1;
   const delay = Math.min(2 ** failures * 60_000, 6 * 60 * 60_000);
 
-  await directory.scheduledWork.update({
-    where: { id },
+  await directory.scheduledWork.updateMany({
+    where: { id, revision: current.revision, failures: current.failures },
     data: { failures, backoffUntil: at(now + delay), dueAt: at(now + delay) },
   });
 

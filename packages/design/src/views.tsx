@@ -10,6 +10,7 @@ import {
 } from "./calendar";
 import { IconButton } from "./components";
 import { layoutDay } from "./daygrid";
+import { ChevronLeftGlyph, ChevronRightGlyph } from "./icons";
 import { clockOf } from "./time";
 
 /**
@@ -50,11 +51,14 @@ export const ScopeSwitcher: React.FC<{
   /** The period on screen, on whichever entry is active. */
   periodLabel?: string;
   onSelect?: (scope: Scope) => void;
-}> = ({ active, dayLabel, periodLabel, onSelect }) => (
+  available?: readonly Scope[];
+}> = ({ active, dayLabel, periodLabel, onSelect, available }) => (
   <div className="wr-scope">
     <div className="wr-scope-label">Calendar view</div>
     <div className="wr-scope-items">
-      {SCOPES.map((scope) => {
+      {SCOPES.filter(
+        (scope) => !available || available.includes(scope.key),
+      ).map((scope) => {
         // The active scope names what is on screen. Day also names itself when
         // it is not active, because it is the one entry that is a promise
         // about where it goes rather than a label for where you are.
@@ -86,37 +90,16 @@ export const ScopeSwitcher: React.FC<{
   </div>
 );
 
-const ChevronLeft: React.FC = () => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.75"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="m15 18-6-6 6-6" />
-  </svg>
-);
-
-const ChevronRight: React.FC = () => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.75"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="m9 18 6-6-6-6" />
-  </svg>
-);
+/**
+ * The two arrows, from the kit's icon set rather than drawn here.
+ *
+ * They used to be two inline paths, at a stroke weight that happened not to
+ * match the ones in `components.tsx` - which is the failure mode of drawing
+ * icons by hand across files, and the reason all of them now come from one
+ * place. See the note above `CheckGlyph`.
+ */
+const ChevronLeft = ChevronLeftGlyph;
+const ChevronRight = ChevronRightGlyph;
 
 /**
  * Back, Today, forward - the same object in every view.
@@ -154,7 +137,7 @@ export const ScopeNav: React.FC<{
       disabled={atToday}
       onClick={onToday}
     >
-      Today
+      {unit === "day" ? "Today" : `This ${unit}`}
     </button>
     <IconButton label={`Next ${unit}`} onClick={onForward}>
       <ChevronRight />

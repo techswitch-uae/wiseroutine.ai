@@ -57,12 +57,14 @@ export const ModelName = {
   CalendarSyncState: 'CalendarSyncState',
   ExternalEvent: 'ExternalEvent',
   Activity: 'Activity',
+  ActivitySchedule: 'ActivitySchedule',
   ActivityWindow: 'ActivityWindow',
   Slot: 'Slot',
   SlotEvent: 'SlotEvent',
   Reminder: 'Reminder',
   PlanRun: 'PlanRun',
-  DashboardModule: 'DashboardModule',
+  Widget: 'Widget',
+  Addon: 'Addon',
   DeskSession: 'DeskSession'
 } as const
 
@@ -154,6 +156,8 @@ export const ExternalEventScalarFieldEnum = {
   busyStatus: 'busyStatus',
   responseStatus: 'responseStatus',
   isCancelled: 'isCancelled',
+  joinUrl: 'joinUrl',
+  description: 'description',
   changeTag: 'changeTag',
   providerUpdatedAt: 'providerUpdatedAt',
   deletedAt: 'deletedAt',
@@ -182,11 +186,22 @@ export const ActivityScalarFieldEnum = {
   bufferBeforeMeetingMinutes: 'bufferBeforeMeetingMinutes',
   writeToCalendar: 'writeToCalendar',
   writeTargetConnectionId: 'writeTargetConnectionId',
+  ownerAddonId: 'ownerAddonId',
+  pausedByAddonAt: 'pausedByAddonAt',
   createdAt: 'createdAt',
   archivedAt: 'archivedAt'
 } as const
 
 export type ActivityScalarFieldEnum = (typeof ActivityScalarFieldEnum)[keyof typeof ActivityScalarFieldEnum]
+
+
+export const ActivityScheduleScalarFieldEnum = {
+  activityId: 'activityId',
+  effectiveDate: 'effectiveDate',
+  settingsJson: 'settingsJson'
+} as const
+
+export type ActivityScheduleScalarFieldEnum = (typeof ActivityScheduleScalarFieldEnum)[keyof typeof ActivityScheduleScalarFieldEnum]
 
 
 export const ActivityWindowScalarFieldEnum = {
@@ -212,6 +227,7 @@ export const SlotScalarFieldEnum = {
   conflictEventId: 'conflictEventId',
   conflictSeverity: 'conflictSeverity',
   autoMoveCount: 'autoMoveCount',
+  ownerAddonId: 'ownerAddonId',
   planRunId: 'planRunId',
   createdAt: 'createdAt'
 } as const
@@ -237,6 +253,9 @@ export type SlotEventScalarFieldEnum = (typeof SlotEventScalarFieldEnum)[keyof t
 export const ReminderScalarFieldEnum = {
   id: 'id',
   title: 'title',
+  notes: 'notes',
+  linksJson: 'linksJson',
+  activityId: 'activityId',
   dueWindow: 'dueWindow',
   dueDate: 'dueDate',
   estimatedMinutes: 'estimatedMinutes',
@@ -264,13 +283,27 @@ export const PlanRunScalarFieldEnum = {
 export type PlanRunScalarFieldEnum = (typeof PlanRunScalarFieldEnum)[keyof typeof PlanRunScalarFieldEnum]
 
 
-export const DashboardModuleScalarFieldEnum = {
-  moduleKey: 'moduleKey',
+export const WidgetScalarFieldEnum = {
+  widgetKey: 'widgetKey',
   position: 'position',
   isEnabled: 'isEnabled'
 } as const
 
-export type DashboardModuleScalarFieldEnum = (typeof DashboardModuleScalarFieldEnum)[keyof typeof DashboardModuleScalarFieldEnum]
+export type WidgetScalarFieldEnum = (typeof WidgetScalarFieldEnum)[keyof typeof WidgetScalarFieldEnum]
+
+
+export const AddonScalarFieldEnum = {
+  id: 'id',
+  version: 'version',
+  manifestJson: 'manifestJson',
+  grantedJson: 'grantedJson',
+  bundleHash: 'bundleHash',
+  settingsJson: 'settingsJson',
+  isEnabled: 'isEnabled',
+  installedAt: 'installedAt'
+} as const
+
+export type AddonScalarFieldEnum = (typeof AddonScalarFieldEnum)[keyof typeof AddonScalarFieldEnum]
 
 
 export const DeskSessionScalarFieldEnum = {

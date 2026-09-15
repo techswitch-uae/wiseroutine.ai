@@ -16,10 +16,18 @@
     {
       "identifier": "opener:allow-open-url",
       "allow": [
-        { "url": "x-apple.systempreferences:*" },
-        { "url": "spotify:*" },
-        { "url": "music:*" },
-        { "url": "apple-music:*" }
+        {
+          "url": "x-apple.systempreferences:*"
+        },
+        {
+          "url": "spotify:*"
+        },
+        {
+          "url": "music:*"
+        },
+        {
+          "url": "apple-music:*"
+        }
       ]
     },
     "updater:default",

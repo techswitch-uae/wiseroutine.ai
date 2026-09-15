@@ -13,9 +13,12 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as DesignRouteImport } from './routes/design'
 import { Route as DesignSessionsRouteImport } from './routes/design-sessions'
 import { Route as SigninRouteImport } from './routes/signin'
+import { Route as SimRouteImport } from './routes/sim'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppActivitiesRouteImport } from './routes/_app.activities'
+import { Route as AppAddonsRouteImport } from './routes/_app.addons'
 import { Route as AppCalendarsRouteImport } from './routes/_app.calendars'
+import { Route as AppInboxRouteImport } from './routes/_app.inbox'
 import { Route as AppMonthRouteImport } from './routes/_app.month'
 import { Route as AppSettingsRouteImport } from './routes/_app.settings'
 import { Route as AppWeekRouteImport } from './routes/_app.week'
@@ -40,6 +43,11 @@ const SigninRoute = SigninRouteImport.update({
   path: '/signin',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SimRoute = SimRouteImport.update({
+  id: '/sim',
+  path: '/sim',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -50,9 +58,19 @@ const AppActivitiesRoute = AppActivitiesRouteImport.update({
   path: '/activities',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAddonsRoute = AppAddonsRouteImport.update({
+  id: '/addons',
+  path: '/addons',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppCalendarsRoute = AppCalendarsRouteImport.update({
   id: '/calendars',
   path: '/calendars',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInboxRoute = AppInboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
   getParentRoute: () => AppRoute,
 } as any)
 const AppMonthRoute = AppMonthRouteImport.update({
@@ -81,8 +99,11 @@ export interface FileRoutesByFullPath {
   '/design': typeof DesignRoute
   '/design-sessions': typeof DesignSessionsRoute
   '/signin': typeof SigninRoute
+  '/sim': typeof SimRoute
   '/activities': typeof AppActivitiesRoute
+  '/addons': typeof AppAddonsRoute
   '/calendars': typeof AppCalendarsRoute
+  '/inbox': typeof AppInboxRoute
   '/month': typeof AppMonthRoute
   '/settings': typeof AppSettingsRoute
   '/week': typeof AppWeekRoute
@@ -92,8 +113,11 @@ export interface FileRoutesByTo {
   '/design': typeof DesignRoute
   '/design-sessions': typeof DesignSessionsRoute
   '/signin': typeof SigninRoute
+  '/sim': typeof SimRoute
   '/activities': typeof AppActivitiesRoute
+  '/addons': typeof AppAddonsRoute
   '/calendars': typeof AppCalendarsRoute
+  '/inbox': typeof AppInboxRoute
   '/month': typeof AppMonthRoute
   '/settings': typeof AppSettingsRoute
   '/week': typeof AppWeekRoute
@@ -106,8 +130,11 @@ export interface FileRoutesById {
   '/design': typeof DesignRoute
   '/design-sessions': typeof DesignSessionsRoute
   '/signin': typeof SigninRoute
+  '/sim': typeof SimRoute
   '/_app/activities': typeof AppActivitiesRoute
+  '/_app/addons': typeof AppAddonsRoute
   '/_app/calendars': typeof AppCalendarsRoute
+  '/_app/inbox': typeof AppInboxRoute
   '/_app/month': typeof AppMonthRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/week': typeof AppWeekRoute
@@ -121,8 +148,11 @@ export interface FileRouteTypes {
     | '/design'
     | '/design-sessions'
     | '/signin'
+    | '/sim'
     | '/activities'
+    | '/addons'
     | '/calendars'
+    | '/inbox'
     | '/month'
     | '/settings'
     | '/week'
@@ -132,8 +162,11 @@ export interface FileRouteTypes {
     | '/design'
     | '/design-sessions'
     | '/signin'
+    | '/sim'
     | '/activities'
+    | '/addons'
     | '/calendars'
+    | '/inbox'
     | '/month'
     | '/settings'
     | '/week'
@@ -145,8 +178,11 @@ export interface FileRouteTypes {
     | '/design'
     | '/design-sessions'
     | '/signin'
+    | '/sim'
     | '/_app/activities'
+    | '/_app/addons'
     | '/_app/calendars'
+    | '/_app/inbox'
     | '/_app/month'
     | '/_app/settings'
     | '/_app/week'
@@ -159,6 +195,7 @@ export interface RootRouteChildren {
   DesignRoute: typeof DesignRoute
   DesignSessionsRoute: typeof DesignSessionsRoute
   SigninRoute: typeof SigninRoute
+  SimRoute: typeof SimRoute
   AuthCompleteRoute: typeof AuthCompleteRoute
 }
 
@@ -192,6 +229,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SigninRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sim': {
+      id: '/sim'
+      path: '/sim'
+      fullPath: '/sim'
+      preLoaderRoute: typeof SimRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/': {
       id: '/_app/'
       path: '/'
@@ -206,11 +250,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppActivitiesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/addons': {
+      id: '/_app/addons'
+      path: '/addons'
+      fullPath: '/addons'
+      preLoaderRoute: typeof AppAddonsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/calendars': {
       id: '/_app/calendars'
       path: '/calendars'
       fullPath: '/calendars'
       preLoaderRoute: typeof AppCalendarsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/inbox': {
+      id: '/_app/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof AppInboxRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/month': {
@@ -246,7 +304,9 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppActivitiesRoute: typeof AppActivitiesRoute
+  AppAddonsRoute: typeof AppAddonsRoute
   AppCalendarsRoute: typeof AppCalendarsRoute
+  AppInboxRoute: typeof AppInboxRoute
   AppMonthRoute: typeof AppMonthRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppWeekRoute: typeof AppWeekRoute
@@ -255,7 +315,9 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppActivitiesRoute: AppActivitiesRoute,
+  AppAddonsRoute: AppAddonsRoute,
   AppCalendarsRoute: AppCalendarsRoute,
+  AppInboxRoute: AppInboxRoute,
   AppMonthRoute: AppMonthRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppWeekRoute: AppWeekRoute,
@@ -269,6 +331,7 @@ const rootRouteChildren: RootRouteChildren = {
   DesignRoute: DesignRoute,
   DesignSessionsRoute: DesignSessionsRoute,
   SigninRoute: SigninRoute,
+  SimRoute: SimRoute,
   AuthCompleteRoute: AuthCompleteRoute,
 }
 export const routeTree = rootRouteImport

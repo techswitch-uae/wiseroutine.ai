@@ -37,6 +37,9 @@ export type ReminderSumAggregateOutputType = {
 export type ReminderMinAggregateOutputType = {
   id: string | null
   title: string | null
+  notes: string | null
+  linksJson: string | null
+  activityId: string | null
   dueWindow: string | null
   dueDate: string | null
   estimatedMinutes: number | null
@@ -49,6 +52,9 @@ export type ReminderMinAggregateOutputType = {
 export type ReminderMaxAggregateOutputType = {
   id: string | null
   title: string | null
+  notes: string | null
+  linksJson: string | null
+  activityId: string | null
   dueWindow: string | null
   dueDate: string | null
   estimatedMinutes: number | null
@@ -61,6 +67,9 @@ export type ReminderMaxAggregateOutputType = {
 export type ReminderCountAggregateOutputType = {
   id: number
   title: number
+  notes: number
+  linksJson: number
+  activityId: number
   dueWindow: number
   dueDate: number
   estimatedMinutes: number
@@ -83,6 +92,9 @@ export type ReminderSumAggregateInputType = {
 export type ReminderMinAggregateInputType = {
   id?: true
   title?: true
+  notes?: true
+  linksJson?: true
+  activityId?: true
   dueWindow?: true
   dueDate?: true
   estimatedMinutes?: true
@@ -95,6 +107,9 @@ export type ReminderMinAggregateInputType = {
 export type ReminderMaxAggregateInputType = {
   id?: true
   title?: true
+  notes?: true
+  linksJson?: true
+  activityId?: true
   dueWindow?: true
   dueDate?: true
   estimatedMinutes?: true
@@ -107,6 +122,9 @@ export type ReminderMaxAggregateInputType = {
 export type ReminderCountAggregateInputType = {
   id?: true
   title?: true
+  notes?: true
+  linksJson?: true
+  activityId?: true
   dueWindow?: true
   dueDate?: true
   estimatedMinutes?: true
@@ -206,6 +224,9 @@ export type ReminderGroupByArgs<ExtArgs extends runtime.Types.Extensions.Interna
 export type ReminderGroupByOutputType = {
   id: string
   title: string
+  notes: string
+  linksJson: string
+  activityId: string | null
   dueWindow: string
   dueDate: string | null
   estimatedMinutes: number | null
@@ -241,6 +262,9 @@ export type ReminderWhereInput = {
   NOT?: Prisma.ReminderWhereInput | Prisma.ReminderWhereInput[]
   id?: Prisma.StringFilter<"Reminder"> | string
   title?: Prisma.StringFilter<"Reminder"> | string
+  notes?: Prisma.StringFilter<"Reminder"> | string
+  linksJson?: Prisma.StringFilter<"Reminder"> | string
+  activityId?: Prisma.StringNullableFilter<"Reminder"> | string | null
   dueWindow?: Prisma.StringFilter<"Reminder"> | string
   dueDate?: Prisma.StringNullableFilter<"Reminder"> | string | null
   estimatedMinutes?: Prisma.IntNullableFilter<"Reminder"> | number | null
@@ -253,6 +277,9 @@ export type ReminderWhereInput = {
 export type ReminderOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   title?: Prisma.SortOrder
+  notes?: Prisma.SortOrder
+  linksJson?: Prisma.SortOrder
+  activityId?: Prisma.SortOrderInput | Prisma.SortOrder
   dueWindow?: Prisma.SortOrder
   dueDate?: Prisma.SortOrderInput | Prisma.SortOrder
   estimatedMinutes?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -268,6 +295,9 @@ export type ReminderWhereUniqueInput = Prisma.AtLeast<{
   OR?: Prisma.ReminderWhereInput[]
   NOT?: Prisma.ReminderWhereInput | Prisma.ReminderWhereInput[]
   title?: Prisma.StringFilter<"Reminder"> | string
+  notes?: Prisma.StringFilter<"Reminder"> | string
+  linksJson?: Prisma.StringFilter<"Reminder"> | string
+  activityId?: Prisma.StringNullableFilter<"Reminder"> | string | null
   dueWindow?: Prisma.StringFilter<"Reminder"> | string
   dueDate?: Prisma.StringNullableFilter<"Reminder"> | string | null
   estimatedMinutes?: Prisma.IntNullableFilter<"Reminder"> | number | null
@@ -280,6 +310,9 @@ export type ReminderWhereUniqueInput = Prisma.AtLeast<{
 export type ReminderOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   title?: Prisma.SortOrder
+  notes?: Prisma.SortOrder
+  linksJson?: Prisma.SortOrder
+  activityId?: Prisma.SortOrderInput | Prisma.SortOrder
   dueWindow?: Prisma.SortOrder
   dueDate?: Prisma.SortOrderInput | Prisma.SortOrder
   estimatedMinutes?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -300,6 +333,9 @@ export type ReminderScalarWhereWithAggregatesInput = {
   NOT?: Prisma.ReminderScalarWhereWithAggregatesInput | Prisma.ReminderScalarWhereWithAggregatesInput[]
   id?: Prisma.StringWithAggregatesFilter<"Reminder"> | string
   title?: Prisma.StringWithAggregatesFilter<"Reminder"> | string
+  notes?: Prisma.StringWithAggregatesFilter<"Reminder"> | string
+  linksJson?: Prisma.StringWithAggregatesFilter<"Reminder"> | string
+  activityId?: Prisma.StringNullableWithAggregatesFilter<"Reminder"> | string | null
   dueWindow?: Prisma.StringWithAggregatesFilter<"Reminder"> | string
   dueDate?: Prisma.StringNullableWithAggregatesFilter<"Reminder"> | string | null
   estimatedMinutes?: Prisma.IntNullableWithAggregatesFilter<"Reminder"> | number | null
@@ -312,6 +348,9 @@ export type ReminderScalarWhereWithAggregatesInput = {
 export type ReminderCreateInput = {
   id: string
   title: string
+  notes?: string
+  linksJson?: string
+  activityId?: string | null
   dueWindow: string
   dueDate?: string | null
   estimatedMinutes?: number | null
@@ -324,6 +363,9 @@ export type ReminderCreateInput = {
 export type ReminderUncheckedCreateInput = {
   id: string
   title: string
+  notes?: string
+  linksJson?: string
+  activityId?: string | null
   dueWindow: string
   dueDate?: string | null
   estimatedMinutes?: number | null
@@ -336,6 +378,9 @@ export type ReminderUncheckedCreateInput = {
 export type ReminderUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
+  notes?: Prisma.StringFieldUpdateOperationsInput | string
+  linksJson?: Prisma.StringFieldUpdateOperationsInput | string
+  activityId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   dueWindow?: Prisma.StringFieldUpdateOperationsInput | string
   dueDate?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   estimatedMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -348,6 +393,9 @@ export type ReminderUpdateInput = {
 export type ReminderUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
+  notes?: Prisma.StringFieldUpdateOperationsInput | string
+  linksJson?: Prisma.StringFieldUpdateOperationsInput | string
+  activityId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   dueWindow?: Prisma.StringFieldUpdateOperationsInput | string
   dueDate?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   estimatedMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -360,6 +408,9 @@ export type ReminderUncheckedUpdateInput = {
 export type ReminderCreateManyInput = {
   id: string
   title: string
+  notes?: string
+  linksJson?: string
+  activityId?: string | null
   dueWindow: string
   dueDate?: string | null
   estimatedMinutes?: number | null
@@ -372,6 +423,9 @@ export type ReminderCreateManyInput = {
 export type ReminderUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
+  notes?: Prisma.StringFieldUpdateOperationsInput | string
+  linksJson?: Prisma.StringFieldUpdateOperationsInput | string
+  activityId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   dueWindow?: Prisma.StringFieldUpdateOperationsInput | string
   dueDate?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   estimatedMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -384,6 +438,9 @@ export type ReminderUpdateManyMutationInput = {
 export type ReminderUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   title?: Prisma.StringFieldUpdateOperationsInput | string
+  notes?: Prisma.StringFieldUpdateOperationsInput | string
+  linksJson?: Prisma.StringFieldUpdateOperationsInput | string
+  activityId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   dueWindow?: Prisma.StringFieldUpdateOperationsInput | string
   dueDate?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   estimatedMinutes?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
@@ -396,6 +453,9 @@ export type ReminderUncheckedUpdateManyInput = {
 export type ReminderCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   title?: Prisma.SortOrder
+  notes?: Prisma.SortOrder
+  linksJson?: Prisma.SortOrder
+  activityId?: Prisma.SortOrder
   dueWindow?: Prisma.SortOrder
   dueDate?: Prisma.SortOrder
   estimatedMinutes?: Prisma.SortOrder
@@ -412,6 +472,9 @@ export type ReminderAvgOrderByAggregateInput = {
 export type ReminderMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   title?: Prisma.SortOrder
+  notes?: Prisma.SortOrder
+  linksJson?: Prisma.SortOrder
+  activityId?: Prisma.SortOrder
   dueWindow?: Prisma.SortOrder
   dueDate?: Prisma.SortOrder
   estimatedMinutes?: Prisma.SortOrder
@@ -424,6 +487,9 @@ export type ReminderMaxOrderByAggregateInput = {
 export type ReminderMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   title?: Prisma.SortOrder
+  notes?: Prisma.SortOrder
+  linksJson?: Prisma.SortOrder
+  activityId?: Prisma.SortOrder
   dueWindow?: Prisma.SortOrder
   dueDate?: Prisma.SortOrder
   estimatedMinutes?: Prisma.SortOrder
@@ -450,6 +516,9 @@ export type NullableIntFieldUpdateOperationsInput = {
 export type ReminderSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   title?: boolean
+  notes?: boolean
+  linksJson?: boolean
+  activityId?: boolean
   dueWindow?: boolean
   dueDate?: boolean
   estimatedMinutes?: boolean
@@ -462,6 +531,9 @@ export type ReminderSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
 export type ReminderSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   title?: boolean
+  notes?: boolean
+  linksJson?: boolean
+  activityId?: boolean
   dueWindow?: boolean
   dueDate?: boolean
   estimatedMinutes?: boolean
@@ -474,6 +546,9 @@ export type ReminderSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Exte
 export type ReminderSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   title?: boolean
+  notes?: boolean
+  linksJson?: boolean
+  activityId?: boolean
   dueWindow?: boolean
   dueDate?: boolean
   estimatedMinutes?: boolean
@@ -486,6 +561,9 @@ export type ReminderSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Exte
 export type ReminderSelectScalar = {
   id?: boolean
   title?: boolean
+  notes?: boolean
+  linksJson?: boolean
+  activityId?: boolean
   dueWindow?: boolean
   dueDate?: boolean
   estimatedMinutes?: boolean
@@ -495,7 +573,7 @@ export type ReminderSelectScalar = {
   createdAt?: boolean
 }
 
-export type ReminderOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "title" | "dueWindow" | "dueDate" | "estimatedMinutes" | "needsFocus" | "status" | "slotId" | "createdAt", ExtArgs["result"]["reminder"]>
+export type ReminderOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "title" | "notes" | "linksJson" | "activityId" | "dueWindow" | "dueDate" | "estimatedMinutes" | "needsFocus" | "status" | "slotId" | "createdAt", ExtArgs["result"]["reminder"]>
 
 export type $ReminderPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "Reminder"
@@ -503,6 +581,12 @@ export type $ReminderPayload<ExtArgs extends runtime.Types.Extensions.InternalAr
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     title: string
+    notes: string
+    linksJson: string
+    /**
+     * Preserve the guided activity when an appointment is skipped or removed.
+     */
+    activityId: string | null
     /**
      * "tomorrow" | "this_week" | "date"
      */
@@ -941,6 +1025,9 @@ export interface Prisma__ReminderClient<T, Null = never, ExtArgs extends runtime
 export interface ReminderFieldRefs {
   readonly id: Prisma.FieldRef<"Reminder", 'String'>
   readonly title: Prisma.FieldRef<"Reminder", 'String'>
+  readonly notes: Prisma.FieldRef<"Reminder", 'String'>
+  readonly linksJson: Prisma.FieldRef<"Reminder", 'String'>
+  readonly activityId: Prisma.FieldRef<"Reminder", 'String'>
   readonly dueWindow: Prisma.FieldRef<"Reminder", 'String'>
   readonly dueDate: Prisma.FieldRef<"Reminder", 'String'>
   readonly estimatedMinutes: Prisma.FieldRef<"Reminder", 'Int'>

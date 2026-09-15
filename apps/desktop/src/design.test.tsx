@@ -71,6 +71,29 @@ const handle = (container: HTMLElement, name: string): Element => {
   return el;
 };
 
+test("keyboard moves clamp ahead of the clock and an elapsed day accepts no drop", () => {
+  const moves: number[] = [];
+  const draw = (moveFrom: number) => (
+    <DayGrid
+      dayStart={at(9)}
+      dayEnd={at(17)}
+      timeZone="UTC"
+      moveFrom={moveFrom}
+      onMove={(_key, start) => moves.push(start)}
+      items={[block("Stretch", at(10), at(10, 10), true)]}
+    />
+  );
+  const { container, rerender } = render(draw(at(9, 58)));
+  fireEvent.keyDown(handle(container, "Stretch"), { key: "ArrowUp" });
+  // Snaps up to 10:00, not down into the past. Same position = no write.
+  expect(moves).toEqual([]);
+  fireEvent.keyDown(handle(container, "Stretch"), { key: "ArrowDown" });
+  expect(moves).toEqual([at(10, 5)]);
+  rerender(draw(at(17)));
+  fireEvent.keyDown(handle(container, "Stretch"), { key: "ArrowDown" });
+  expect(moves).toEqual([at(10, 5)]);
+});
+
 test("everything happening at once gets its own column, shortest first", () => {
   const { container } = render(
     <DayGrid
@@ -611,6 +634,68 @@ test("a resumable block is offered a resume, not a start", () => {
     "Resume",
   );
   expect(container.querySelector(".wr-btn-word")?.textContent).toBe("Resume");
+});
+
+test("a live card replaces its play action with a running cue, then a done cue", () => {
+  const { container, rerender } = render(
+    <Slot
+      variant="live"
+      time="11:00"
+      name="Stretch"
+      onStart={() => undefined}
+    />,
+  );
+  expect(container.querySelector('button[aria-label="Start"]')).toBeTruthy();
+
+  rerender(
+    <Slot
+      variant="live"
+      time="11:00"
+      name="Stretch"
+      running
+      grace={0.5}
+      autoMove="Moves soon"
+      onStart={() => undefined}
+    />,
+  );
+  expect(container.querySelector("button")).toBeNull();
+  expect(
+    container.querySelector('[role="img"][aria-label="Running"]'),
+  ).toBeTruthy();
+  expect(container.querySelector(".wr-bar")).toBeNull();
+  expect(container.querySelector(".wr-slot-automove")).toBeNull();
+
+  rerender(
+    <Slot
+      variant="live"
+      time="11:00"
+      name="Stretch"
+      done
+      onStart={() => undefined}
+    />,
+  );
+  expect(container.querySelector("button")).toBeNull();
+  expect(
+    container.querySelector('[role="img"][aria-label="Done"]'),
+  ).toBeTruthy();
+  expect(container.querySelector('[aria-label="Running"]')).toBeNull();
+});
+
+test("an explicitly unavailable action never draws a play button", () => {
+  const { container } = render(
+    <Slot variant="live" time="11:00" name="Stretch" action={null} />,
+  );
+  expect(container.querySelector("button")).toBeNull();
+});
+
+test("status cues also work outside the live visual variant", () => {
+  const { container, rerender } = render(
+    <Slot variant="focus" time="11:00" name="Read" running />,
+  );
+  expect(container.querySelector('[aria-label="Running"]')).toBeTruthy();
+  rerender(<Slot variant="recovery" time="11:00" name="Stretch" done />);
+  expect(container.querySelector('[aria-label="Done"]')).toBeTruthy();
+  expect(container.querySelector("button")).toBeNull();
 });
 
 test("the start button keeps its name when the word is hidden", () => {

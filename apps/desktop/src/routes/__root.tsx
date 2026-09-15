@@ -2,6 +2,16 @@ import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 
 import appCss from "../styles.css?url";
 
+// The webview's own menu (Reload, Back, Inspect) belongs to a browser, not an
+// app. Dev keeps it for Inspect; the web build keeps it because it is a browser.
+// Text fields keep theirs so copy and paste still work.
+if (import.meta.env.PROD && "__TAURI_INTERNALS__" in globalThis) {
+  document.addEventListener("contextmenu", (event) => {
+    const target = event.target as HTMLElement;
+    if (!target.closest("input, textarea, [contenteditable='true']")) event.preventDefault();
+  });
+}
+
 const RootDocument = ({ children }: { children: React.ReactNode }) => {
   return (
     <html lang="en">

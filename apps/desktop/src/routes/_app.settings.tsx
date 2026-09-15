@@ -1,4 +1,8 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  useLocation,
+  useNavigate,
+} from "@tanstack/react-router";
 import {
   AccountScreen,
   type DayHoursBlock,
@@ -7,7 +11,7 @@ import {
   type LinkedAccount,
   type SocialProvider,
 } from "@wiseroutine/design";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import {
   type Account,
   patchAccount,
@@ -21,7 +25,14 @@ import {
   OfflineError,
   type SettingsPatch,
 } from "../lib/api";
+import { setDayRange } from "../lib/day-range";
+import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
+import { sessionGeneration } from "../lib/session-lifecycle";
+import { CALENDARS_ANCHOR, DAY_HOURS_ANCHOR } from "../lib/settings-sections";
+import { CalendarSettings } from "../modules/calendar-settings";
+import { NotificationSettings } from "../modules/notification-settings";
+import { PrivacySettings } from "../modules/privacy-settings";
 
 /**
  * Every zone this runtime knows, for the picker.
@@ -46,10 +57,6 @@ function timeZoneOptions(): string[] {
  * specific: an anchor the popover can send someone to is the whole reason this
  * page has headings at all.
  */
-
-/** The id the day view's popover links to. Shared with the Today page through
- *  the URL hash, so both spell it once. */
-export const DAY_HOURS_ANCHOR = "day-view-hours";
 
 /** The other section. A constant only so the anchor is written once - these
  *  are link targets, so `useId` is exactly the wrong tool: the whole point is
@@ -94,6 +101,10 @@ const draftFrom = (account: Account): DayHoursDraft => ({
 
 const Settings: React.FC = () => {
   const navigate = useNavigate();
+  const calendarsHeading = useId();
+  const hash = useLocation({ select: (location) => location.hash });
+  const [calendarsReady, setCalendarsReady] = useState(false);
+  const onCalendarsReady = useCallback(() => setCalendarsReady(true), []);
 
   // The rail shows the same name and this page can change it, so neither owns
   // it - see lib/account. Saving here updates the rail with no refetch.
@@ -130,6 +141,8 @@ const Settings: React.FC = () => {
         ];
       }),
     );
+    // A later load that works retires an earlier one's failure.
+    setProblem(null);
   }, []);
 
   useEffect(() => {
@@ -148,33 +161,52 @@ const Settings: React.FC = () => {
    * The store fills in after mount and the section only renders once it has,
    * so scrolling on mount alone lands on a page that is still a paragraph
    * tall. Keyed on the account instead: by the time there is one, the heading
-   * exists to scroll to.
+   * exists to scroll to. A boolean, not the account itself - every save
+   * patches the account, and each one would scroll back and re-light it.
    */
+  const ready = Boolean(account) && calendarsReady;
+  const [active, setActive] = useState<string | null>(null);
   useEffect(() => {
-    if (!account || globalThis.location?.hash !== `#${DAY_HOURS_ANCHOR}`)
-      return;
+    if (!ready || ![DAY_HOURS_ANCHOR, CALENDARS_ANCHOR].includes(hash)) return;
     document
-      .getElementById(DAY_HOURS_ANCHOR)
+      .getElementById(hash)
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [account]);
+    // Only hours are lit: they are the one section the app links to. Calendars
+    // is reached by old `/calendars` bookmarks alone, which just scroll.
+    if (hash === DAY_HOURS_ANCHOR) setActive(hash);
+  }, [ready, hash]);
+
+  // The landed section stays lit until the first press anywhere outside it.
+  useEffect(() => {
+    if (!active) return;
+    const release = (event: PointerEvent) => {
+      if (!document.getElementById(active)?.contains(event.target as Node))
+        setActive(null);
+    };
+    document.addEventListener("pointerdown", release, true);
+    return () => document.removeEventListener("pointerdown", release, true);
+  }, [active]);
 
   const saveName = () => {
+    const generation = sessionGeneration();
     const next = draftName.trim();
     setSavingName(true);
     api
       .updateName(next)
       .then(() => {
+        if (generation !== sessionGeneration()) return;
         // One write, both screens: the rail re-renders from the same store.
         patchAccount({ name: next });
         setDraftName(next);
       })
-      .catch((cause: unknown) =>
+      .catch((cause: unknown) => {
+        if (generation !== sessionGeneration()) return;
         notify(
           cause instanceof OfflineError
             ? "No connection - your name wasn't saved."
             : "Couldn't save that name. Try again.",
-        ),
-      )
+        );
+      })
       .finally(() => setSavingName(false));
   };
 
@@ -220,9 +252,11 @@ const Settings: React.FC = () => {
             // Optimistic: the picker should not lag behind the click. A refusal
             // puts the old value back, so the screen never claims a zone the
             // server rejected.
+            const generation = sessionGeneration();
             const previous = account?.timeZone;
             patchAccount({ timeZone: zone });
             api.setTimeZone(zone).catch(() => {
+              if (generation !== sessionGeneration()) return;
               if (previous) patchAccount({ timeZone: previous });
               notify("Couldn't change your time zone. Try again.");
             });
@@ -235,8 +269,35 @@ const Settings: React.FC = () => {
         />
       </section>
 
-      <section id={DAY_HOURS_ANCHOR} className="wr-settings-section">
-        <h2 className="wr-settings-title">Day view hours</h2>
+      <section
+        id={CALENDARS_ANCHOR}
+        aria-labelledby={calendarsHeading}
+        className="wr-settings-section"
+      >
+        <h2 id={calendarsHeading} className="wr-settings-title">
+          Calendars
+        </h2>
+        <CalendarSettings onReady={onCalendarsReady} />
+      </section>
+
+      <section className="wr-settings-section">
+        <h2 className="wr-settings-title">Calendar privacy</h2>
+        {account ? (
+          <PrivacySettings
+            storeDetails={account.storeEventTitles !== false}
+            onSaved={(enabled) => patchAccount({ storeEventTitles: enabled })}
+          />
+        ) : null}
+      </section>
+
+      <NotificationSettings />
+
+      <section
+        id={DAY_HOURS_ANCHOR}
+        className="wr-settings-section"
+        data-active={active === DAY_HOURS_ANCHOR || undefined}
+      >
+        <h2 className="wr-settings-title">Day working hours</h2>
         {account ? <DayHours account={account} /> : null}
       </section>
     </div>
@@ -255,6 +316,7 @@ const Settings: React.FC = () => {
  * See `DayHoursSection` for why; this side is where the optimism lives.
  */
 const DayHours: React.FC<{ account: Account }> = ({ account }) => {
+  const flags = useFeatures();
   const saved = draftFrom(account);
   const [draft, setDraft] = useState<DayHoursDraft>(saved);
   const [saving, setSaving] = useState<DayHoursBlock | null>(null);
@@ -264,11 +326,15 @@ const DayHours: React.FC<{ account: Account }> = ({ account }) => {
   const asPatch = (next: DayHoursDraft): SettingsPatch => ({
     dayStartMinutes: next.dayStartMinutes,
     dayEndMinutes: next.dayEndMinutes,
-    customRangeLabel: next.custom?.label.trim() ?? null,
-    customRangeStartMinutes: next.custom?.startMinutes ?? null,
-    customRangeEndMinutes: next.custom?.endMinutes ?? null,
-    dayOpensOn: next.dayOpensOn,
-    showOutsideRange: next.showOutsideRange,
+    ...(flags.day_view_options
+      ? {
+          customRangeLabel: next.custom?.label.trim() ?? null,
+          customRangeStartMinutes: next.custom?.startMinutes ?? null,
+          customRangeEndMinutes: next.custom?.endMinutes ?? null,
+          dayOpensOn: next.dayOpensOn,
+          showOutsideRange: next.showOutsideRange,
+        }
+      : {}),
   });
 
   /** What the store has to learn for Today to open on the right range. */
@@ -308,28 +374,47 @@ const DayHours: React.FC<{ account: Account }> = ({ account }) => {
     setDraft(next);
     remember(next);
 
-    api.updateSettings(asPatch(next)).catch((cause: unknown) => {
-      setDraft(previous);
-      remember(previous);
-      notify(excuse(cause));
-    });
+    const generation = sessionGeneration();
+    api
+      .updateSettings(asPatch(next))
+      .then(() => {
+        // Explicitly choosing a default in Settings supersedes this device's
+        // last view. Other settings edits must leave that choice alone.
+        if (
+          patch.dayOpensOn !== undefined &&
+          generation === sessionGeneration()
+        )
+          setDayRange(null);
+      })
+      .catch((cause: unknown) => {
+        if (generation !== sessionGeneration()) return;
+        setDraft(previous);
+        remember(previous);
+        notify(excuse(cause));
+      });
   };
 
   /** A typed value, committed on purpose. Not optimistic: the user is looking
    *  at the button they just pressed, so the button is where the wait shows. */
   const save = (block: DayHoursBlock) => {
+    const generation = sessionGeneration();
     setSaving(block);
     api
       .updateSettings(asPatch(draft))
-      .then(() => remember(draft))
+      .then(() => {
+        if (generation === sessionGeneration()) remember(draft);
+      })
       // The draft is left alone on failure - the typed values stay on screen,
-      // the same promise the calendars page makes about unsaved ticks.
-      .catch((cause: unknown) => notify(excuse(cause)))
+      // the same promise the calendar section makes about unsaved ticks.
+      .catch((cause: unknown) => {
+        if (generation === sessionGeneration()) notify(excuse(cause));
+      })
       .finally(() => setSaving(null));
   };
 
   return (
     <DayHoursSection
+      advanced={flags.day_view_options}
       saved={saved}
       draft={draft}
       onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}

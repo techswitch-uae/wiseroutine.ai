@@ -10,6 +10,7 @@ Cloudflare Workers + Turso (libSQL) on the back.
 ```
 apps/
   desktop/     Tauri 2 + TanStack Start (React 19, Vite)
+  web/         TanStack Start marketing site, SSR + interactive sample day
   api/         Cloudflare Worker - Hono, Queues, cron, webhooks
 packages/
   design/      tokens, CSS and React primitives (the Organic system + our layer)
@@ -27,6 +28,8 @@ packages/
 | --- | --- |
 | `pnpm design` | component gallery at <http://localhost:3100/design> |
 | `pnpm dev` | `tauri dev` - the desktop app |
+| `pnpm web` | marketing site at <http://localhost:42000> |
+| `pnpm test:e2e` | full-stack app journeys + production marketing-site browser tests |
 | `pnpm api` | `wrangler dev` - the Worker |
 | `pnpm build` | web build of every app |
 | `pnpm bundle` | `tauri build` - the desktop binary |
@@ -36,6 +39,34 @@ packages/
 run **in workerd** via `@cloudflare/vitest-pool-workers`, against real D1 and KV
 bindings and the same migrations wrangler applies in production - not a jsdom
 approximation.
+
+## Marketing site and browser coverage
+
+[`apps/web`](apps/web/README.md) is the launch site for **wiseroutine.ai**.
+It reuses the app’s calendar components, fonts and scheduler, with a clearly
+labeled synthetic day. The page leads with the sample and offers a quiet path
+to existing account signup. Installer availability stays in preview until reviewed platforms
+and download URLs are supplied.
+
+See [browser testing](docs/testing.md) for setup, coverage, isolated test ports,
+CI artifacts and the live-provider/native checks automation does not replace.
+The [remaining first-release checklist](docs/first-release-audit.md) tracks what to do next;
+the [core acceptance contract](docs/release-contract.md) maps release promises to tests.
+
+## Product strategy
+
+[Launch: strategy, release controls, and acceptance](docs/launch.md): the free
+core, ordered feature releases, future Free/Pro packaging, founding-user offer,
+milestone communications, all-off launch defaults,
+`pnpm features enable m1 --env local`, per-account previews, and
+built/missing/manual-acceptance status for every milestone. Open M0 and M1 work
+is on the [board](https://github.com/users/techswitch-uae/projects/1/views/1).
+
+## Addons
+
+Every guided session and rail card is an addon, written against
+`@wiseroutine/addon-sdk` and sandboxed in its own frame. What an addon can do,
+how the boundary works, and how to write one: [docs/addons.md](docs/addons.md).
 
 ## The parts worth knowing
 

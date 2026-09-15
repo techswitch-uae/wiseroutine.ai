@@ -101,13 +101,11 @@
 				"TURSO_USER_HOST": "techswitch.turso.io",
 				"TURSO_ORG": "techswitch",
 				"TURSO_GROUP": "users-dev",
-				// Public identifiers, not secrets: they ship in the consent URL, the
-				// checkout session and the From header respectively.
+				// M0: calendar consent and email only. Billing/remote push stay
+				// undeclared, including their secret bindings.
 				"GOOGLE_CLIENT_ID": "640812709495-80ja6bdimbmrimr9ktngj4o5v9tclocu.apps.googleusercontent.com",
 				"MICROSOFT_CLIENT_ID": "7e6e7dff-e3a7-4d5c-a2c4-e2149df1b00b",
-				"STRIPE_PRO_PRICE_ID": "REPLACE_WITH_TEST_PRICE_ID",
-				"RESEND_FROM": "dev@wiseroutine.ai",
-				"ONESIGNAL_APP_ID": "f7b14b9d-83f3-4ea6-8d34-a3836dc48950"
+				"RESEND_FROM": "dev@wiseroutine.ai"
 			},
 			"secrets_store_secrets": [
 				{
@@ -141,24 +139,9 @@
 					"secret_name": "WR_DEV_MICROSOFT_CLIENT_SECRET"
 				},
 				{
-					"binding": "STRIPE_SECRET_KEY",
-					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
-					"secret_name": "WR_DEV_STRIPE_SECRET_KEY"
-				},
-				{
-					"binding": "STRIPE_WEBHOOK_SECRET",
-					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
-					"secret_name": "WR_DEV_STRIPE_WEBHOOK_SECRET"
-				},
-				{
 					"binding": "RESEND_API_KEY",
 					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
 					"secret_name": "WR_DEV_RESEND_API_KEY"
-				},
-				{
-					"binding": "ONESIGNAL_API_KEY",
-					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
-					"secret_name": "WR_DEV_ONESIGNAL_API_KEY"
 				}
 			]
 		},
@@ -204,9 +187,7 @@
 				"TURSO_GROUP": "users",
 				"GOOGLE_CLIENT_ID": "640812709495-80ja6bdimbmrimr9ktngj4o5v9tclocu.apps.googleusercontent.com",
 				"MICROSOFT_CLIENT_ID": "7e6e7dff-e3a7-4d5c-a2c4-e2149df1b00b",
-				"STRIPE_PRO_PRICE_ID": "REPLACE_WITH_LIVE_PRICE_ID",
-				"RESEND_FROM": "support@wiseroutine.ai",
-				"ONESIGNAL_APP_ID": "f7b14b9d-83f3-4ea6-8d34-a3836dc48950"
+				"RESEND_FROM": "support@wiseroutine.ai"
 			},
 			"secrets_store_secrets": [
 				{
@@ -240,24 +221,9 @@
 					"secret_name": "WR_PROD_MICROSOFT_CLIENT_SECRET"
 				},
 				{
-					"binding": "STRIPE_SECRET_KEY",
-					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
-					"secret_name": "WR_PROD_STRIPE_SECRET_KEY"
-				},
-				{
-					"binding": "STRIPE_WEBHOOK_SECRET",
-					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
-					"secret_name": "WR_PROD_STRIPE_WEBHOOK_SECRET"
-				},
-				{
 					"binding": "RESEND_API_KEY",
 					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
 					"secret_name": "WR_PROD_RESEND_API_KEY"
-				},
-				{
-					"binding": "ONESIGNAL_API_KEY",
-					"store_id": "8edcf4c1ac534aaea54bc99c6cefaec2",
-					"secret_name": "WR_PROD_ONESIGNAL_API_KEY"
 				}
 			]
 		}

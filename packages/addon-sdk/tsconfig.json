@@ -1,0 +1,11 @@
+{
+  "extends": "@wiseroutine/typescript-config/base.json",
+  "compilerOptions": {
+    // An addon runs in a sandboxed iframe, so it has the WHATWG globals -
+    // `MessagePort`, `MessageEvent`, `Response`, `fetch` - and it has a DOM.
+    // `DOM` is correct here in a way it is not for `@wiseroutine/addons`,
+    // which is shared with the Worker.
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -10,7 +10,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [
     cloudflareTest({
-      singleWorker: true,
       wrangler: { configPath: "./wrangler.jsonc" },
       miniflare: {
         bindings: {
@@ -20,6 +19,10 @@ export default defineConfig({
           // path. Throwaway values - real ones never leave Cloudflare.
           TOKEN_ROOT_KEY: "dGVzdC1yb290LWtleS0zMi1ieXRlcy1sb25nLXh4eHg=",
           SESSION_SECRET: "test-session-secret-at-least-32-chars-long",
+          GOOGLE_CLIENT_ID: "test-google-client",
+          GOOGLE_CLIENT_SECRET: "test-google-secret",
+          MICROSOFT_CLIENT_ID: "test-microsoft-client",
+          MICROSOFT_CLIENT_SECRET: "test-microsoft-secret",
           APP_URL: "http://localhost:41000",
           API_URL: "http://localhost:8787",
           TURSO_DIRECTORY_URL: "http://127.0.0.1:41090",
@@ -31,5 +34,23 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     globalSetup: ["./vitest.globalSetup.ts"],
+    // The Workers pool otherwise imports/transforms the entrypoint lazily on
+    // the first worker.default.fetch(), charging cold compilation to that
+    // test's 5s timeout. Load the same module in setup, without sending a
+    // request or weakening the handler assertions/timeouts.
+    setupFiles: ["./src/index.ts"],
+    /**
+     * One file at a time.
+     *
+     * `turso dev` serves one database per instance, so every test file shares
+     * the same pair - and each one that touches them empties them first (see
+     * `resetDatabases`). Two running at once delete each other's users, which
+     * surfaces as "Failed to get session" in whichever lost the race.
+     *
+     * This was true all along and cost nothing while `api.test.ts` was the
+     * only file to open a database; the second one to do it is what made the
+     * constraint show. The suite runs in seconds either way.
+     */
+    fileParallelism: false,
   },
 });

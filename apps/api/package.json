@@ -7,18 +7,28 @@
     "dev": "wrangler dev",
     "dev:remote": "wrangler dev --env dev --remote",
     "dev:vars": "node scripts/dev-vars.mjs",
-    "deploy:dev": "node scripts/check-secrets.mjs --env dev && wrangler deploy --env dev && curl -fsS https://api-dev.wiseroutine.ai/health/config",
-    "deploy:prod": "node scripts/check-secrets.mjs --env production && wrangler deploy --env production && curl -fsS https://api.wiseroutine.ai/health/config",
+    "deploy:dev": "pnpm preflight:dev && node scripts/check-secrets.mjs --env dev && pnpm --filter @wiseroutine/db generate && pnpm typecheck && wrangler deploy --env dev && curl -fsS https://api-dev.wiseroutine.ai/health/config",
+    "deploy:prod": "pnpm preflight:prod && node scripts/check-secrets.mjs --env production && pnpm --filter @wiseroutine/db generate && pnpm typecheck && wrangler deploy --env production && curl -fsS https://api.wiseroutine.ai/health/config",
+    "preflight:dev": "node scripts/preflight.mjs --env dev",
+    "preflight:prod": "node scripts/preflight.mjs --env production",
     "secrets:push:dev": "node scripts/push-secrets.mjs --env dev",
     "secrets:push:prod": "node scripts/push-secrets.mjs --env production",
     "secrets:check:dev": "node scripts/check-secrets.mjs --env dev",
     "secrets:check:prod": "node scripts/check-secrets.mjs --env production",
-    "test": "vitest run",
+    "test": "vitest run && pnpm test:cold-start",
+    "test:cold-start": "vitest run --config vitest.cold-start.config.ts",
     "typecheck": "tsc --noEmit",
     "clean": "git clean -xdf .cache .turbo dist node_modules",
     "grant": "node scripts/grant.mjs"
   },
   "dependencies": {
+    "@wiseroutine/addon-breathing": "workspace:*",
+    "@wiseroutine/addon-day-so-far": "workspace:*",
+    "@wiseroutine/addon-deep-work": "workspace:*",
+    "@wiseroutine/addon-eye-rest": "workspace:*",
+    "@wiseroutine/addon-stretch": "workspace:*",
+    "@wiseroutine/addon-todos": "workspace:*",
+    "@wiseroutine/addons": "workspace:*",
     "@wiseroutine/db": "workspace:*",
     "@wiseroutine/env": "workspace:*",
     "@wiseroutine/plans": "workspace:*",
@@ -35,6 +45,6 @@
     "@wiseroutine/typescript-config": "workspace:*",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10",
-    "wrangler": "^4.125.0"
+    "wrangler": "^4.131.2"
   }
 }

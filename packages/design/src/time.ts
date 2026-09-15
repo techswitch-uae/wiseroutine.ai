@@ -104,3 +104,15 @@ export const agoOf = (at: number, now: number): string => {
   const days = Math.round(hours / 24);
   return days === 1 ? "yesterday" : `${days} days ago`;
 };
+
+/** One minute at a time under five, then five - so "1 min" is reachable and
+ *  an hour is not forty presses away. `max` is the caller's ceiling: two
+ *  hours for an activity, eight for a slot being moved by hand. */
+export const stepMinutes = (
+  value: number,
+  direction: -1 | 1,
+  max = 120,
+): number => {
+  const step = value < 5 || (direction === -1 && value <= 5) ? 1 : 5;
+  return Math.min(max, Math.max(1, value + step * direction));
+};

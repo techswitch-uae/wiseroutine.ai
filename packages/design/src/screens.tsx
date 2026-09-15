@@ -1,3 +1,4 @@
+import { maxDailySessions } from "@wiseroutine/scheduler";
 import type React from "react";
 import {
   Avatar,
@@ -28,7 +29,9 @@ import {
   Widget,
   WidgetEmpty,
 } from "./components";
+import { SettingsGlyph } from "./icons";
 import { AppFrame, AuthFrame, PageHead, Sidebar, UserMenu } from "./layout";
+import { stepMinutes } from "./time";
 
 /**
  * The collection: whole screens, composed only from the kit.
@@ -287,7 +290,7 @@ export const AccountScreen: React.FC<{
         </div>
       </div>
 
-      <Card>
+      <div className="wr-blocks">
         <Block
           title="Name"
           note="Providers give us a name when you sign in with them. This overrides it."
@@ -411,7 +414,7 @@ export const AccountScreen: React.FC<{
             Sign out
           </Button>
         </Block>
-      </Card>
+      </div>
     </div>
   );
 };
@@ -481,7 +484,17 @@ export const DayHoursSection: React.FC<{
   /** Throw them away and go back to `saved`. */
   onCancel?: (block: DayHoursBlock) => void;
   saving?: DayHoursBlock | null;
-}> = ({ saved, draft, onChange, onCommit, onSave, onCancel, saving }) => {
+  advanced?: boolean;
+}> = ({
+  saved,
+  draft,
+  onChange,
+  onCommit,
+  onSave,
+  onCancel,
+  saving,
+  advanced = true,
+}) => {
   const custom = draft.custom;
 
   /** Update and Cancel, or nothing at all when there is nothing to commit. */
@@ -511,10 +524,10 @@ export const DayHoursSection: React.FC<{
 
   return (
     <div className="wr-account">
-      <Card>
+      <div className="wr-blocks">
         <Block
           title="Working hours"
-          note="Also the hours slots are placed in"
+          note="Activities are scheduled between these times. Changing the hours shown in Today does not change this schedule."
           {...commit(
             "working",
             draft.dayStartMinutes !== saved.dayStartMinutes ||
@@ -536,89 +549,95 @@ export const DayHoursSection: React.FC<{
           </div>
         </Block>
 
-        <Block
-          title="Custom range"
-          note={
-            custom
-              ? "The label is what appears in the day view picker."
-              : "A second window to switch the day to - your evenings, or the hours you are on call."
-          }
-          action={
-            <Toggle
-              label="Use a custom range"
-              checked={custom !== null}
-              // Saved on click, with a range already in it: a switch that
-              // turned on and then needed a second press to exist is how the
-              // range ended up missing from the day view's picker.
-              onChange={(on) =>
-                onCommit?.({ custom: on ? { ...NEW_CUSTOM_RANGE } : null })
+        {advanced ? (
+          <>
+            <Block
+              title="Custom range"
+              note={
+                custom
+                  ? "This name appears in Today's hours menu. This changes the view, not your schedule."
+                  : "An extra view of the day, such as evenings. It does not change when activities are scheduled."
+              }
+              action={
+                <Toggle
+                  label="Use a custom range"
+                  checked={custom !== null}
+                  // Saved on click, with a range already in it: a switch that
+                  // turned on and then needed a second press to exist is how the
+                  // range ended up missing from the day view's picker.
+                  onChange={(on) =>
+                    onCommit?.({ custom: on ? { ...NEW_CUSTOM_RANGE } : null })
+                  }
+                />
+              }
+              {...(custom
+                ? commit(
+                    "custom",
+                    JSON.stringify(custom) !== JSON.stringify(saved.custom),
+                  )
+                : {})}
+            >
+              {custom ? (
+                <div className="wr-hours-row">
+                  <Field
+                    aria-label="Custom range name"
+                    className="wr-hours-name-field"
+                    value={custom.label}
+                    placeholder="Name this range"
+                    onChange={(event) =>
+                      onChange?.({
+                        custom: { ...custom, label: event.target.value },
+                      })
+                    }
+                  />
+                  <TimeField
+                    label="Custom range start"
+                    minutes={custom.startMinutes}
+                    onChange={(startMinutes) =>
+                      onChange?.({ custom: { ...custom, startMinutes } })
+                    }
+                  />
+                  <span className="wr-hours-to">to</span>
+                  <TimeField
+                    label="Custom range end"
+                    minutes={custom.endMinutes}
+                    onChange={(endMinutes) =>
+                      onChange?.({ custom: { ...custom, endMinutes } })
+                    }
+                  />
+                </div>
+              ) : null}
+            </Block>
+
+            <Block
+              title="Day opens on"
+              note="Choose which hours Today shows when you open it."
+              action={
+                <Segmented
+                  label="Day opens on"
+                  options={OPENS_ON}
+                  value={draft.dayOpensOn}
+                  onChange={(dayOpensOn) => onCommit?.({ dayOpensOn })}
+                />
               }
             />
-          }
-          {...(custom
-            ? commit(
-                "custom",
-                JSON.stringify(custom) !== JSON.stringify(saved.custom),
-              )
-            : {})}
-        >
-          {custom ? (
-            <div className="wr-hours-row">
-              <Field
-                aria-label="Custom range name"
-                className="wr-hours-name-field"
-                value={custom.label}
-                placeholder="Name this range"
-                onChange={(event) =>
-                  onChange?.({
-                    custom: { ...custom, label: event.target.value },
-                  })
-                }
-              />
-              <TimeField
-                label="Custom range start"
-                minutes={custom.startMinutes}
-                onChange={(startMinutes) =>
-                  onChange?.({ custom: { ...custom, startMinutes } })
-                }
-              />
-              <span className="wr-hours-to">to</span>
-              <TimeField
-                label="Custom range end"
-                minutes={custom.endMinutes}
-                onChange={(endMinutes) =>
-                  onChange?.({ custom: { ...custom, endMinutes } })
-                }
-              />
-            </div>
-          ) : null}
-        </Block>
 
-        <Block
-          title="Day opens on"
-          note="The range the timeline shows each morning"
-          action={
-            <Segmented
-              label="Day opens on"
-              options={OPENS_ON}
-              value={draft.dayOpensOn}
-              onChange={(dayOpensOn) => onCommit?.({ dayOpensOn })}
+            <Block
+              title="Show meetings outside the range"
+              note="Show a small summary of meetings outside the hours you are viewing."
+              action={
+                <Toggle
+                  label="Show meetings outside the range"
+                  checked={draft.showOutsideRange}
+                  onChange={(showOutsideRange) =>
+                    onCommit?.({ showOutsideRange })
+                  }
+                />
+              }
             />
-          }
-        />
-
-        <Block
-          title="Show meetings outside the range"
-          note="Collapsed into a line at the top and bottom of the day"
-          action={
-            <Toggle
-              label="Show meetings outside the range"
-              checked={draft.showOutsideRange}
-              onChange={(showOutsideRange) => onCommit?.({ showOutsideRange })}
-            />
-          }
-        />
-      </Card>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 };
@@ -650,6 +669,8 @@ export const CheckEmailScreen: React.FC<{
   /** The code did not match. Digits stay put. */
   wrong?: boolean;
   attemptsLeft?: number;
+  /** Transport/provisioning failures are not a wrong code. */
+  problem?: string;
   /** The code is past its ten minutes; only a new one will do. */
   expired?: boolean;
   busy?: boolean;
@@ -665,6 +686,7 @@ export const CheckEmailScreen: React.FC<{
   resendIn = 0,
   wrong,
   attemptsLeft,
+  problem,
   expired,
   busy,
   minutes = 10,
@@ -688,6 +710,11 @@ export const CheckEmailScreen: React.FC<{
       )}
     </p>
 
+    {problem ? (
+      <p className="wr-auth-problem" role="alert">
+        {problem}
+      </p>
+    ) : null}
     {expired ? (
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 22 }}>
         <Button variant="primary" onClick={onResend} disabled={busy}>
@@ -824,7 +851,7 @@ export const TodayScreen: React.FC<{
         <Widget variant="attention" eyebrow="Up next · 11:00">
           <div className="wr-display-21">Back &amp; shoulder stretch</div>
           <div className="wr-slot-meta" style={{ marginTop: 5 }}>
-            10 min, guided. Ends before your 11:25 focus block.
+            10 min, guided. Ends before your 11:25 focus slot.
           </div>
           <Button variant="primary" block style={{ marginTop: 14 }}>
             Start now
@@ -984,6 +1011,85 @@ export interface ActivityTemplate extends ActivityDraft {
 }
 
 /**
+ * What the app knows about a template that this package does not.
+ *
+ * Every guided session in Wise Routine comes from an addon, and an addon can
+ * be switched off - at which point its template is still a perfectly good
+ * plain timed block, but the session behind it is gone and the chip should say
+ * so rather than quietly offering less than it did yesterday.
+ *
+ * Passed in as a lookup rather than folded into `ActivityTemplate`, because
+ * this package draws forms and has no business knowing what an addon is. It
+ * is handed a label and a callback; what they mean is the app's affair.
+ */
+export interface TemplateNote {
+  /** Opens whatever configures this template - the Addons page, for one from
+   *  an addon. Drawn as a cog beside the name. */
+  onConfigure?: () => void;
+  /** The cog's accessible name. Required if `onConfigure` is given, because a
+   *  button whose only content is an icon has no name without it. */
+  configureLabel?: string;
+  /**
+   * Set when the template is still pickable but will do less than it says.
+   *
+   * Shown on the chip rather than discovered afterwards. Not `disabled`: a
+   * stretch with its addon switched off is still a ten-minute block somebody
+   * may legitimately want, and refusing the whole chip would take away more
+   * than the addon did.
+   */
+  caveat?: string;
+  /**
+   * The heading this template sits under.
+   *
+   * Templates with no group, and any the caller says nothing about, fall into
+   * one unlabelled group at the end - so a library that groups nothing looks
+   * exactly as it did before, and grouping is something the caller opts into
+   * rather than something every caller has to answer.
+   *
+   * The kit does not know what the groups mean. The app's are "this comes from
+   * an addon" and "this is just a block of time", which is a distinction about
+   * addons, and addons are not this package's business.
+   */
+  group?: string;
+}
+
+/**
+ * The templates, split into the groups the caller named.
+ *
+ * First-seen order, so the caller decides which heading comes first by the
+ * order of the templates rather than by sorting a second list. Everything the
+ * caller said nothing about falls into one unlabelled group, and that group is
+ * always last - it is where "Something else" lives, and a heading over a
+ * single unnamed chip would be noise.
+ *
+ * A library whose caller passes no `noteFor` comes out as exactly one
+ * unlabelled group, which renders identically to the flat list this replaced.
+ */
+function groupsOf(
+  templates: readonly ActivityTemplate[],
+  noteFor?: (template: ActivityTemplate) => TemplateNote | undefined,
+): { heading: string | null; members: ActivityTemplate[] }[] {
+  const named = new Map<string, ActivityTemplate[]>();
+  const rest: ActivityTemplate[] = [];
+
+  for (const template of templates) {
+    const heading = noteFor?.(template)?.group;
+    if (heading === undefined) {
+      rest.push(template);
+      continue;
+    }
+    const members = named.get(heading);
+    if (members) members.push(template);
+    else named.set(heading, [template]);
+  }
+
+  return [
+    ...[...named].map(([heading, members]) => ({ heading, members })),
+    { heading: null, members: rest },
+  ];
+}
+
+/**
  * The library, and the way out of it.
  *
  * Chips rather than a list of cards: these are starting points, not things
@@ -993,14 +1099,16 @@ export interface ActivityTemplate extends ActivityDraft {
  */
 export const ActivityLibrary: React.FC<{
   templates: readonly ActivityTemplate[];
-  /** Shown against the title, e.g. "0 of 2 used". Omit on an unlimited plan. */
+  /** Shown against the title, e.g. "0 of 3 used". Omit on an unlimited plan. */
   used?: string;
   /** Null is "something else" - the caller starts an empty draft. */
   onPick: (template: ActivityTemplate | null) => void;
   /** Greys the whole library out at the plan's limit, so the choice is made
    *  in one place rather than refused after the fact. */
   disabled?: boolean;
-}> = ({ templates, used, onPick, disabled }) => (
+  /** Per-template extras the app supplies. See `TemplateNote`. */
+  noteFor?: (template: ActivityTemplate) => TemplateNote | undefined;
+}> = ({ templates, used, onPick, disabled, noteFor }) => (
   <Card
     title="Add an activity"
     note="Start from one of these and adjust it, or describe your own. Everything is editable afterwards."
@@ -1008,27 +1116,68 @@ export const ActivityLibrary: React.FC<{
       ? { action: <span className="wr-setup-count">{used}</span> }
       : {})}
   >
-    <div className="wr-library">
-      {templates.map((template) => (
-        <button
-          key={template.key}
-          type="button"
-          className="wr-chip wr-chip-dashed wr-library-chip"
-          disabled={disabled}
-          onClick={() => onPick(template)}
-        >
-          <b>{template.name}</b> {template.sessionMinutes} min
-        </button>
-      ))}
-      <button
-        type="button"
-        className="wr-chip wr-chip-dashed wr-library-chip"
-        disabled={disabled}
-        onClick={() => onPick(null)}
-      >
-        <b>Something else</b>
-      </button>
-    </div>
+    {groupsOf(templates, noteFor).map(({ heading, members }) => (
+      <div key={heading ?? "ungrouped"} className="wr-library-group">
+        {heading ? <span className="wr-label">{heading}</span> : null}
+        <div className="wr-library">
+          {members.map((template) => {
+            const note = noteFor?.(template);
+
+            // A chip with a cog is two controls, so it cannot be one button - a
+            // button inside a button is invalid and the inner one is unreachable
+            // by keyboard. The wrapper carries the chip's own styling and the two
+            // buttons sit inside it.
+            return (
+              <span
+                key={template.key}
+                className="wr-chip wr-chip-dashed wr-library-chip"
+                data-disabled={disabled ? "" : undefined}
+              >
+                <button
+                  type="button"
+                  className="wr-library-pick"
+                  disabled={disabled}
+                  onClick={() => onPick(template)}
+                >
+                  <b>{template.name}</b> {template.sessionMinutes} min
+                  {note?.caveat ? (
+                    <em className="wr-library-caveat">{note.caveat}</em>
+                  ) : null}
+                </button>
+                {note?.onConfigure ? (
+                  <button
+                    type="button"
+                    className="wr-library-cog"
+                    aria-label={note.configureLabel ?? "Configure"}
+                    title={note.configureLabel ?? "Configure"}
+                    onClick={note.onConfigure}
+                  >
+                    {/* The label is on the button, so the glyph's own title would
+                        be read out twice. */}
+                    <SettingsGlyph aria-hidden />
+                  </button>
+                ) : null}
+              </span>
+            );
+          })}
+          {/* Last, and in the last group: it is the door out of the library
+              rather than a thing in it, and every group above is a kind of
+              activity while this is the absence of one. */}
+          {heading === null ? (
+            <span className="wr-chip wr-chip-dashed wr-library-chip">
+              <button
+                type="button"
+                className="wr-library-pick"
+                disabled={disabled}
+                onClick={() => onPick(null)}
+              >
+                <b>Something else</b>
+              </button>
+            </span>
+          ) : null}
+        </div>
+      </div>
+    ))}
   </Card>
 );
 
@@ -1054,6 +1203,8 @@ export const ActivityForm: React.FC<{
    * anything else has to be given one by the person describing it.
    */
   named?: boolean;
+  advanced?: boolean;
+  showFrequency?: boolean;
   /**
    * Appended below the standing fields.
    *
@@ -1063,11 +1214,27 @@ export const ActivityForm: React.FC<{
    * forms, and has no business knowing that breathing has patterns.
    */
   children?: React.ReactNode;
-}> = ({ draft, onChange, named, children }) => {
+}> = ({
+  draft,
+  onChange,
+  named,
+  children,
+  advanced = true,
+  showFrequency = true,
+}) => {
   const set = <K extends keyof ActivityDraft>(
     key: K,
     value: ActivityDraft[K],
-  ) => onChange({ ...draft, [key]: value });
+  ) => {
+    const next = { ...draft, [key]: value };
+    if (showFrequency)
+      next.perDay = Math.min(
+        next.perDay,
+        maxDailySessions(next.sessionMinutes),
+      );
+    onChange(next);
+  };
+  const maxPerDay = maxDailySessions(draft.sessionMinutes);
 
   // One stack with one gap, rather than each field remembering to space itself
   // off the one above it. That is how the day picker ended up flush against
@@ -1095,14 +1262,23 @@ export const ActivityForm: React.FC<{
             set("sessionMinutes", stepMinutes(draft.sessionMinutes, direction))
           }
         />
-        <Stepper
-          label="How often"
-          value={`${draft.perDay} × day`}
-          canDecrease={draft.perDay > 1}
-          canIncrease={draft.perDay < 12}
-          onStep={(direction) => set("perDay", draft.perDay + direction)}
-        />
+        {showFrequency ? (
+          <Stepper
+            label="How often"
+            value={`${draft.perDay} × day`}
+            canDecrease={draft.perDay > 1}
+            canIncrease={draft.perDay < maxPerDay}
+            onStep={(direction) => set("perDay", draft.perDay + direction)}
+          />
+        ) : null}
       </div>
+
+      {showFrequency ? (
+        <p className="wr-activity-hint" aria-live="polite">
+          Up to {maxPerDay} × day at this length · 2 h per activity.
+          {draft.perDay > 1 ? " Spread across your working day." : ""}
+        </p>
+      ) : null}
 
       <DayPicker
         label="Which days"
@@ -1110,38 +1286,32 @@ export const ActivityForm: React.FC<{
         onChange={(days) => set("days", days)}
       />
 
-      <div className="wr-field">
-        <span className="wr-label">When it should land</span>
-        <Segmented
-          label="When it should land"
-          options={LANDINGS}
-          value={draft.land}
-          onChange={(value) => set("land", value)}
-        />
-        <p className="wr-activity-hint">
-          A preference, not a rule - it lands as close to that as the day
-          allows.
-        </p>
-      </div>
+      {advanced ? (
+        <div className="wr-field">
+          <span className="wr-label">When it should land</span>
+          <Segmented
+            label="When it should land"
+            options={LANDINGS}
+            value={draft.land}
+            onChange={(value) => set("land", value)}
+          />
+          <p className="wr-activity-hint">
+            A preference, not a rule - it lands as close to that as the day
+            allows.
+          </p>
+        </div>
+      ) : null}
 
       {children}
     </div>
   );
 };
 
-/** One minute at a time under five, then five - so "1 min" is reachable and
- *  an hour is not forty presses away. */
-const stepMinutes = (value: number, direction: -1 | 1): number => {
-  const step = value < 5 || (direction === -1 && value <= 5) ? 1 : 5;
-  return Math.min(120, Math.max(1, value + step * direction));
-};
-
 /**
  * An activity that exists, in the list of them.
  *
- * Pause rather than delete is the first way out, because the free limit counts
- * active ones - pausing is the swap the plan note talks about, and it keeps
- * the history the missed list reads.
+ * Editing and removing are the user-facing controls. Inactive records can
+ * still exist after an addon is disabled; hiding a control must not erase them.
  */
 export const ActivityRow: React.FC<{
   name: string;
@@ -1149,25 +1319,19 @@ export const ActivityRow: React.FC<{
   meta: string;
   isActive: boolean;
   onEdit?: () => void;
-  onToggle?: () => void;
   onRemove?: () => void;
   busy?: boolean;
-}> = ({ name, meta, isActive, onEdit, onToggle, onRemove, busy }) => (
+}> = ({ name, meta, isActive, onEdit, onRemove, busy }) => (
   <div className="wr-activity-row">
     <span className={isActive ? "wr-rule" : "wr-rule wr-rule-neutral"} />
     <div className="wr-activity-body">
       <div className="wr-slot-name">{name}</div>
       <div className="wr-slot-meta">{meta}</div>
     </div>
-    {isActive ? null : <Chip variant="static">Paused</Chip>}
+    {isActive ? null : <Chip variant="static">Not scheduled</Chip>}
     {onEdit ? (
       <Button variant="quiet" onClick={onEdit}>
         Edit
-      </Button>
-    ) : null}
-    {onToggle ? (
-      <Button variant="secondary" disabled={busy} onClick={onToggle}>
-        {isActive ? "Pause" : "Resume"}
       </Button>
     ) : null}
     {onRemove ? (

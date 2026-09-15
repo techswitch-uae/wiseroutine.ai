@@ -11,6 +11,15 @@ import {
   yOf,
 } from "./daygrid";
 import {
+  CheckGlyph,
+  CloseGlyph,
+  HoursGlyph,
+  IconArrowRight,
+  PlayGlyph,
+  ResumeGlyph,
+  RunningGlyph,
+} from "./icons";
+import {
   clockOf,
   DAY_NAMES,
   daysLabel,
@@ -22,108 +31,6 @@ import {
 
 const cx = (...parts: (string | false | undefined)[]): string =>
   parts.filter(Boolean).join(" ");
-
-/** The one glyph the kit uses inline. Everything else is Lucide at
- *  stroke-width 2.75 - add `lucide-react` when the first screen needs it. */
-/**
- * Done.
- *
- * A stroke rather than a character, because "✓" is a font's opinion - it
- * arrives at a different weight and a different height on every machine, and
- * this one has to sit centred inside a 16px disc.
- */
-export const CheckGlyph: React.FC = () => (
-  <svg
-    width="9"
-    height="8"
-    viewBox="0 0 9 8"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.8"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    role="img"
-  >
-    <title>Done</title>
-    <path d="M1 4.2 3.4 6.6 8 1.6" />
-  </svg>
-);
-
-/**
- * Pick it back up.
- *
- * A distinct mark from the play triangle on purpose: one of them means "this
- * has not happened yet" and the other means "you stopped this and can go
- * back to it". The same glyph for both left someone looking at a block they
- * had already been in and being offered a start.
- */
-export const ResumeGlyph: React.FC = () => (
-  <svg
-    width="11"
-    height="11"
-    viewBox="0 0 11 11"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    role="img"
-  >
-    <title>Resume</title>
-    <path d="M1.6 5.5a3.9 3.9 0 1 0 1.5-3.1" />
-    <path d="M1.2 1.1v2.6h2.6" />
-  </svg>
-);
-
-export const PlayGlyph: React.FC = () => (
-  <svg
-    width="10"
-    height="12"
-    viewBox="0 0 10 12"
-    fill="currentColor"
-    role="img"
-  >
-    <title>Start</title>
-    <polygon points="0,0 10,6 0,12" />
-  </svg>
-);
-
-/** The second inline glyph. Still no icon dependency: two shapes do not earn
- *  one, and a dependency for an arrow is a dependency to keep updated. */
-export const RefreshGlyph: React.FC = () => (
-  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" role="img">
-    <title>Sync</title>
-    <path
-      d="M14 8a6 6 0 1 1-1.76-4.24M14 2v4h-4"
-      stroke="currentColor"
-      strokeWidth="2.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
-/** The third and last inline glyph: the day-view hours control. Two ruled
- *  lines with a handle on each, which is the range being moved. */
-export const HoursGlyph: React.FC = () => (
-  <svg
-    width="15"
-    height="15"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.75"
-    strokeLinecap="round"
-    role="img"
-  >
-    <title>Hours shown</title>
-    <path d="M4 8h10" />
-    <path d="M18 8h2" />
-    <path d="M4 16h4" />
-    <path d="M12 16h8" />
-    <circle cx="16" cy="8" r="2.2" />
-    <circle cx="10" cy="16" r="2.2" />
-  </svg>
-);
 
 /**
  * One end of a window.
@@ -535,20 +442,7 @@ export const HoursMenu: React.FC<{
               }}
             >
               Edit hours and ranges
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M5 12h14" />
-                <path d="M13 6l6 6-6 6" />
-              </svg>
+              <IconArrowRight size={14} stroke={2.4} aria-hidden="true" />
             </button>
           </div>
 
@@ -643,14 +537,24 @@ export type ToggleProps = {
   checked: boolean;
   onChange?: (next: boolean) => void;
   label: string;
+  disabled?: boolean;
+  describedBy?: string;
 };
 
-export const Toggle: React.FC<ToggleProps> = ({ checked, onChange, label }) => (
+export const Toggle: React.FC<ToggleProps> = ({
+  checked,
+  onChange,
+  label,
+  disabled,
+  describedBy,
+}) => (
   <button
     type="button"
     role="switch"
     aria-checked={checked}
     aria-label={label}
+    aria-describedby={describedBy}
+    disabled={disabled}
     className="wr-toggle"
     onClick={() => onChange?.(!checked)}
   />
@@ -717,13 +621,35 @@ export type SlotVariant =
    *  lift. Free shows a `DashedRow` in the same position instead. */
   | "suggested";
 
+/** The same non-interactive state cue on a timeline slot and its detail widget. */
+export const SlotStatusMark: React.FC<{ status: "running" | "done" }> = ({
+  status,
+}) => {
+  const label = status === "done" ? "Done" : "Running";
+  return (
+    <span
+      className={status === "done" ? "wr-done" : "wr-running"}
+      role="img"
+      aria-label={label}
+      title={label}
+    >
+      {status === "done" ? (
+        <CheckGlyph aria-hidden="true" />
+      ) : (
+        <RunningGlyph aria-hidden="true" />
+      )}
+    </span>
+  );
+};
+
 export type SlotProps = {
   variant: SlotVariant;
   time: string;
   name: string;
   meta?: string;
-  /** focus/recovery: the trailing element. Done state is a chip - never dim. */
+  /** Lifecycle cues are independent of the card's visual variant. */
   done?: boolean;
+  running?: boolean;
   /** meeting: the provider mark, e.g. "G" or "O". */
   source?: string;
   /** live: the auto-move sentence and the draining grace bar (0–1). Omit the
@@ -733,13 +659,13 @@ export type SlotProps = {
   grace?: number;
   onStart?: () => void;
   /**
-   * live: what the button offers.
+   * live: what the button offers; null means no start/resume action.
    *
    * "resume" for a block that was started and stopped and whose time is still
    * running. Play means "this has not happened yet", and using it for both
    * offered a start on something already half-done.
    */
-  action?: "start" | "resume";
+  action?: "start" | "resume" | null;
   /** suggested: the trailing label. Defaults to "Suggested". */
   badge?: string;
 };
@@ -750,6 +676,7 @@ export const Slot: React.FC<SlotProps> = ({
   name,
   meta,
   done,
+  running,
   source,
   autoMove,
   grace,
@@ -772,7 +699,7 @@ export const Slot: React.FC<SlotProps> = ({
                 {meta ? <div className="wr-slot-meta">{meta}</div> : null}
               </div>
               <div className="wr-slot-trailing">
-                {autoMove ? (
+                {autoMove && !running && !done ? (
                   <div className="wr-slot-automove">{autoMove}</div>
                 ) : null}
                 {/* The word is a separate element so a narrow home for this
@@ -780,19 +707,27 @@ export const Slot: React.FC<SlotProps> = ({
                     `.wr-daygrid-item` in app.css. `aria-label` carries the
                     name either way, because a hidden word is a button with no
                     name to anyone not looking at it. */}
-                <Button
-                  variant="primary"
-                  aria-label={resuming ? "Resume" : "Start"}
-                  onClick={onStart}
-                >
-                  {resuming ? <ResumeGlyph /> : <PlayGlyph />}
-                  <span className="wr-btn-word">
-                    {resuming ? "Resume" : "Start"}
-                  </span>
-                </Button>
+                {done || running ? (
+                  <SlotStatusMark status={done ? "done" : "running"} />
+                ) : action !== null ? (
+                  <Button
+                    variant="primary"
+                    aria-label={resuming ? "Resume" : "Start"}
+                    onClick={onStart}
+                  >
+                    {resuming ? (
+                      <ResumeGlyph aria-hidden="true" />
+                    ) : (
+                      <PlayGlyph aria-hidden="true" />
+                    )}
+                    <span className="wr-btn-word">
+                      {resuming ? "Resume" : "Start"}
+                    </span>
+                  </Button>
+                ) : null}
               </div>
             </div>
-            {grace === undefined ? null : (
+            {grace === undefined || running || done ? null : (
               <div className="wr-bar" style={{ marginTop: 12 }}>
                 <div
                   className="wr-bar-fill"
@@ -828,15 +763,9 @@ export const Slot: React.FC<SlotProps> = ({
               <span className="wr-slot-trailing">
                 <span className="wr-badge">{badge}</span>
               </span>
-            ) : done ? (
+            ) : done || running ? (
               <span className="wr-slot-trailing">
-                {/* A mark, not a word. It has to read at a glance and fit a
-                    block whose height is its own duration - and a chip
-                    spelling "Done" was the widest thing in the shortest
-                    card. The name is still spoken. */}
-                <span className="wr-done" role="img" aria-label="Done">
-                  <CheckGlyph />
-                </span>
+                <SlotStatusMark status={done ? "done" : "running"} />
               </span>
             ) : null}
           </>
@@ -895,6 +824,15 @@ export type DayGridProps = {
    *  the line is live and keeps its own minute-aligned clock - see `NowLine`.
    *  Either way it is drawn only when it falls inside the window. */
   now?: number;
+  /**
+   * Scroll the now line into view once, when this grid first appears.
+   *
+   * Off by default, and asked for rather than assumed: the gallery and the
+   * tests both draw a day, and neither wants the page moved under it. Today
+   * asks; a day the user has navigated to does not, because the line is not
+   * drawn on a day that is not today.
+   */
+  revealNow?: boolean;
   /** Height of a quarter-hour. The scale, and the only one there is. */
   quarterStep?: number;
   /** The shortest a block may be drawn - see `DayScale.minHeight`. */
@@ -902,6 +840,21 @@ export type DayGridProps = {
   /** Fires once, on drop, with instants already snapped to the ruler. Without
    *  it nothing is draggable however the items are marked. */
   onMove?: (key: string, startsAt: number, endsAt: number) => void;
+  /** Earliest manual drop, normally now. Past days cannot accept a move. */
+  moveFrom?: number;
+  /**
+   * A block being dragged in from outside the grid, and where the cursor is.
+   *
+   * The block itself is passed in `items` like any other - it is the drop the
+   * grid would produce, so it must be laid out by the same rules - and this
+   * says which one it is. Drawn exactly as a block being moved is: the outline
+   * where it would land, and the card under the cursor with its range on it.
+   * Anything else would teach two placements for one gesture.
+   *
+   * The grid still owns none of it: what is dragged, what happens on release
+   * and when this clears are all the caller's - see `modules/not-placed`.
+   */
+  placing?: { key: string; x: number; y: number } | null;
   /** A press on the day itself rather than on anything in it. What "click
    *  somewhere empty to put it away" is made of. */
   onBackdrop?: () => void;
@@ -933,8 +886,40 @@ const NowLine: React.FC<{
   dayEnd: number;
   scale: DayScale;
   label: Intl.DateTimeFormat;
-}> = ({ at, dayStart, dayEnd, scale, label }) => {
+  reveal?: boolean;
+}> = ({ at, dayStart, dayEnd, scale, label, reveal = false }) => {
   const [tick, setTick] = useState(() => Date.now());
+
+  /**
+   * Bring the line into view when the day is first opened.
+   *
+   * The day is a ruled surface from the start of the window to the end of it,
+   * which is taller than any screen, and it opened at the top - so a day
+   * opened at four in the afternoon showed the morning, and the first thing
+   * anyone did was scroll. What someone wants from Today is where they have
+   * got to.
+   *
+   * Once, on mount, and only when asked: a line that re-centred itself every
+   * minute would drag the page out from under someone reading the evening.
+   * `scrollIntoView` rather than arithmetic on a scroller, because the line
+   * is inside two of them and the browser already knows which ones move.
+   *
+   * Instant rather than smooth. This runs as the page appears, and a page
+   * that arrives already sliding reads as a page that has not settled.
+   */
+  const line = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!reveal) return;
+    // Null on a day that is not today: this component draws nothing then, so
+    // there is no line to bring into view and nothing to do.
+    // jsdom has no layout and no implementation of `scrollIntoView`.
+    line.current?.scrollIntoView?.({ block: "center", behavior: "instant" });
+    // Keyed to the day rather than to the mount. Navigating to tomorrow and
+    // back is opening today again and should land in the same place; the
+    // minute tick is state, not a dependency, so the line does not drag the
+    // page along with it as it moves.
+  }, [reveal, dayStart]);
 
   useEffect(() => {
     // Pinned: there is nothing to follow.
@@ -977,7 +962,7 @@ const NowLine: React.FC<{
     Math.abs(yOf(hour, scale) - top) < LABEL_CLEARANCE;
 
   return (
-    <div className="wr-daygrid-now" style={{ top }}>
+    <div ref={line} className="wr-daygrid-now" style={{ top }}>
       {crowded ? null : (
         <span className="wr-daygrid-now-label">
           {label.format(new Date(now))}
@@ -1047,10 +1032,13 @@ export const DayGrid: React.FC<DayGridProps> = ({
   timeZone,
   items,
   now,
+  revealNow = false,
   quarterStep = 64,
   minBlockHeight = 46,
   onMove,
+  moveFrom = dayStart,
   onBackdrop,
+  placing,
 }) => {
   const label = new Intl.DateTimeFormat("en-GB", {
     timeZone,
@@ -1133,7 +1121,13 @@ export const DayGrid: React.FC<DayGridProps> = ({
     const from = items.find((item) => item.key === key);
     // A press that never moved is a press, and must not spend a write saying
     // nothing changed.
-    if (from && from.startsAt !== startsAt) onMove?.(key, startsAt, endsAt);
+    if (
+      from &&
+      canMove(from) &&
+      startsAt >= moveFrom &&
+      from.startsAt !== startsAt
+    )
+      onMove?.(key, startsAt, endsAt);
   };
 
   const handles = (item: DayGridItem) => ({
@@ -1228,6 +1222,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
         item,
         scale,
         dayEnd,
+        moveFrom,
       );
       commit(item.key, moved.startsAt, moved.endsAt);
     },
@@ -1242,9 +1237,9 @@ export const DayGrid: React.FC<DayGridProps> = ({
    * every render it causes - so they cannot close over props. A ref updated on
    * every render is the smallest thing that keeps them current.
    */
-  const latest = useRef({ items, scale, dayEnd, onMove, drag });
+  const latest = useRef({ items, scale, dayEnd, onMove, moveFrom, drag });
   useEffect(() => {
-    latest.current = { items, scale, dayEnd, onMove, drag };
+    latest.current = { items, scale, dayEnd, onMove, moveFrom, drag };
   });
 
   /**
@@ -1286,24 +1281,35 @@ export const DayGrid: React.FC<DayGridProps> = ({
           live,
           x: event.clientX,
           y: event.clientY,
-          ...dropAt(topOf(event.clientY, current.grabY), current, at, end),
+          ...dropAt(
+            topOf(event.clientY, current.grabY),
+            current,
+            at,
+            end,
+            latest.current.moveFrom,
+          ),
         };
       });
     };
 
     const onPointerUp = () => {
-      setDrag((current) => {
-        if (current?.live === true) {
-          const { items: shown, onMove: move } = latest.current;
-          const from = shown.find((item) => item.key === current.key);
-          // A press that never moved is a press, and must not spend a write
-          // saying nothing changed.
-          if (from && from.startsAt !== current.startsAt) {
-            move?.(current.key, current.startsAt, current.endsAt);
-          }
-        }
-        return null;
-      });
+      const {
+        drag: current,
+        items: shown,
+        onMove: move,
+        moveFrom: floor,
+      } = latest.current;
+      setDrag(null);
+      if (!current?.live) return;
+      const from = shown.find((item) => item.key === current.key);
+      // Permissions can change during a drag. Commit outside a React updater
+      // so StrictMode cannot issue the same move twice.
+      if (
+        from?.movable &&
+        current.startsAt >= floor &&
+        from.startsAt !== current.startsAt
+      )
+        move?.(current.key, current.startsAt, current.endsAt);
     };
 
     // Losing the pointer - a system gesture, a window switch - is not a drop.
@@ -1348,7 +1354,13 @@ export const DayGrid: React.FC<DayGridProps> = ({
         const { scale: at, dayEnd: end } = latest.current;
         return {
           ...held,
-          ...dropAt(topOf(held.y, held.grabY), held, at, end),
+          ...dropAt(
+            topOf(held.y, held.grabY),
+            held,
+            at,
+            end,
+            latest.current.moveFrom,
+          ),
         };
       });
     });
@@ -1372,7 +1384,31 @@ export const DayGrid: React.FC<DayGridProps> = ({
     // drag would detach them in the middle of the gesture they are running.
   }, [dragging, topOf]);
 
-  const dragged = drag?.live === true ? drag : null;
+  /**
+   * The one block that is in the air, however it got there.
+   *
+   * A drag started on the grid carries its own grab point; one arriving from
+   * the rail was picked up by a handle that is not this block, so the card
+   * hangs from the cursor instead. Everything below reads this and cannot tell
+   * the two apart, which is the point.
+   */
+  const outside = placing
+    ? items.find((item) => item.key === placing.key)
+    : undefined;
+  const dragged =
+    drag?.live === true
+      ? drag
+      : outside && placing
+        ? {
+            key: outside.key,
+            x: placing.x,
+            y: placing.y,
+            grabX: 0,
+            grabY: 0,
+            startsAt: outside.startsAt,
+            endsAt: outside.endsAt,
+          }
+        : null;
 
   return (
     <div
@@ -1415,6 +1451,7 @@ export const DayGrid: React.FC<DayGridProps> = ({
         dayEnd={dayEnd}
         scale={scale}
         label={label}
+        reveal={revealNow}
       />
 
       <div className="wr-daygrid-lanes">
@@ -1514,6 +1551,61 @@ const floatBox = (
   };
 };
 
+/**
+ * The little notation a calendar description is stored in, as elements.
+ *
+ * `**bold**`, `_italic_`, `[label](url)` and bare links - see `toRichText` in
+ * the providers package, which is the only thing that writes it. Deliberately
+ * not markdown: it is three shapes, matched in one pass, and anything it does
+ * not recognise stays the characters it already was.
+ *
+ * The point of the notation is that this function exists. An invitation body
+ * is markup written by a stranger, and the safe way to show it is to never
+ * parse it as markup again - so nothing here touches `innerHTML`, and a
+ * hostile description can do no more than show its own asterisks.
+ *
+ * A link is a button, not an anchor, for the reason `.wr-linklike` exists:
+ * nothing in this app navigates, and the URL is handed to the operating
+ * system by whoever passed `onLink`.
+ */
+const RICH =
+  /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*\n]+)\*\*|_([^_\n]+)_|(https?:\/\/[^\s)]+)/g;
+
+export const RichText: React.FC<{
+  text: string;
+  onLink?: (url: string) => void;
+}> = ({ text, onLink }) => {
+  const nodes: React.ReactNode[] = [];
+  let at = 0;
+
+  const link = (url: string, label: string, key: number) => (
+    <button
+      key={key}
+      type="button"
+      className="wr-linklike"
+      onClick={() => onLink?.(url)}
+    >
+      {label}
+    </button>
+  );
+
+  for (const match of text.matchAll(RICH)) {
+    const index = match.index ?? 0;
+    if (index > at) nodes.push(text.slice(at, index));
+    const [whole, label, href, bold, italic, bare] = match;
+    if (href && label) nodes.push(link(href, label, index));
+    else if (bare) nodes.push(link(bare, bare, index));
+    else if (bold) nodes.push(<strong key={index}>{bold}</strong>);
+    else if (italic) nodes.push(<em key={index}>{italic}</em>);
+    at = index + whole.length;
+  }
+  nodes.push(text.slice(at));
+
+  // `pre-wrap`: the line breaks are the organiser's own, and a description
+  // reflowed into one paragraph loses the agenda it was written as.
+  return <div className="wr-rich">{nodes}</div>;
+};
+
 export const DashedRow: React.FC<{
   children: React.ReactNode;
   gutter?: boolean;
@@ -1553,6 +1645,14 @@ export type WidgetProps = {
    * way to lose a part of the rail with no way to get it back.
    */
   onClose?: () => void;
+  /**
+   * Draws the head as an ink tab, with this beside the eyebrow.
+   *
+   * For This slot on the block Up next is counting down to: the card carries
+   * that module's ink and countdown so the rail names the block once, while
+   * every control below stays on the sand it was drawn for.
+   */
+  tab?: React.ReactNode;
   /**
    * On its way out.
    *
@@ -1669,19 +1769,24 @@ export const Widget: React.FC<WidgetProps> = ({
   style,
   onClose,
   leaving,
+  tab,
 }) => (
   <div ref={useWidgetEntrance(leaving)} className="wr-widget-slot">
     <section
       className={cx(
         "wr-widget",
         variant === "attention" && "wr-widget-attention",
+        tab !== undefined && "wr-widget-tabbed",
         className,
       )}
       style={style}
     >
       {eyebrow ? (
-        <div className="wr-widget-head">
+        <div
+          className={cx("wr-widget-head", tab !== undefined && "wr-widget-tab")}
+        >
           <span className="wr-label">{eyebrow}</span>
+          {tab}
           {count !== undefined ? <Chip variant="static">{count}</Chip> : null}
           {onClose ? (
             <button
@@ -1690,7 +1795,7 @@ export const Widget: React.FC<WidgetProps> = ({
               aria-label="Close"
               onClick={onClose}
             >
-              ×
+              <CloseGlyph aria-hidden="true" />
             </button>
           ) : null}
         </div>
@@ -1782,7 +1887,11 @@ const markStroke = (size: number): number =>
  * Colours are literal rather than tokens on purpose. A logo that changes
  * because someone retuned the interface palette is not a logo.
  */
-export const BrandMark: React.FC<{ size?: number }> = ({ size = 28 }) => (
+export const BrandMark: React.FC<{
+  size?: number;
+  /** The arcs turn about the disc's centre - the mark as a loader. */
+  spin?: boolean;
+}> = ({ size = 28, spin }) => (
   <svg
     width={size}
     height={size}
@@ -1794,6 +1903,7 @@ export const BrandMark: React.FC<{ size?: number }> = ({ size = 28 }) => (
   >
     <circle cx="60" cy="60" r="58" fill="#c67139" />
     <g
+      className={spin ? "wr-mark-spin" : undefined}
       transform="rotate(-90 60 60)"
       fill="none"
       strokeWidth={markStroke(size)}
@@ -1944,11 +2054,18 @@ export const Toasts: React.FC<{
  * `role="status"` rather than `alert`: a screen reader should hear this when
  * it gets to it, not have the current sentence interrupted for it.
  */
-export const Loading: React.FC<{ children?: React.ReactNode }> = ({
-  children,
-}) => (
-  <div className="wr-loading" role="status">
-    <span className="wr-loading-spin" aria-hidden="true" />
+export const Loading: React.FC<{
+  children?: React.ReactNode;
+  /** The mark's size: 24 for a page, 40 for the first open, 16 inline. */
+  size?: number;
+  /** A row in the flow of a list or panel, rather than centred in a page. */
+  inline?: boolean;
+}> = ({ children, inline, size = inline ? 16 : 24 }) => (
+  <div
+    className={cx("wr-loading", inline && "wr-loading-inline")}
+    role="status"
+  >
+    <BrandMark size={size} spin />
     {children ? <span className="wr-loading-text">{children}</span> : null}
   </div>
 );
@@ -2238,14 +2355,12 @@ export const ProviderChoice: React.FC<{
     </ul>
 
     <div className="wr-provider-terms">
-      <div className="wr-provider-terms-title">
-        What we take, in plain terms
-      </div>
+      <div className="wr-provider-terms-title">Read-only access</div>
       <p>
-        Event titles, times and busy status - that is all we read. We never
-        write to your calendar, never open attachments, notes or attendee lists,
-        and nothing leaves your machine except the times we need to schedule
-        around.
+        Wise Routine saves busy times on its servers to plan your activities. If
+        saving meeting details is enabled, it also saves names, notes, and call
+        links. We never change your calendar or open its attachments. You can
+        remove saved meeting details in Settings.
       </p>
     </div>
   </>
@@ -2400,7 +2515,13 @@ export const StateRow: React.FC<{
   leading: React.ReactNode;
   trailing: React.ReactNode;
   recessed?: boolean;
-}> = ({ name, leading, trailing, recessed }) => (
+  /** A second line under the name - a length, a count, what it costs. Absent
+   *  leaves the row exactly as tall as it was. */
+  meta?: string;
+  /** Buttons for this row, on a line of their own under the name. In a 250px
+   *  rail, actions beside the name left the name no room at all. */
+  actions?: React.ReactNode;
+}> = ({ name, leading, trailing, recessed, meta, actions }) => (
   // Fluid, not 236px. It was a fixed width taken from the widget it was first
   // drawn in, which is 250px wide and spends 38 of them on padding - so every
   // row in "To place today" hung 24px out of the card it was inside. A row
@@ -2409,8 +2530,10 @@ export const StateRow: React.FC<{
     {leading}
     <div className="wr-staterow-name">
       <div className="wr-slot-name">{name}</div>
+      {meta ? <div className="wr-slot-meta">{meta}</div> : null}
     </div>
     {trailing}
+    {actions ? <div className="wr-staterow-actions">{actions}</div> : null}
   </div>
 );
 

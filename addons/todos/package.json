@@ -1,0 +1,26 @@
+{
+  "name": "@wiseroutine/addon-todos",
+  "version": "1.0.0",
+  "description": "The things with no time yet.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "git clean -xdf .cache .turbo dist node_modules"
+  },
+  "dependencies": {
+    "@wiseroutine/addon-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@wiseroutine/typescript-config": "workspace:*",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.10"
+  },
+  "exports": {
+    "./manifest": "./manifest.json"
+  }
+}
