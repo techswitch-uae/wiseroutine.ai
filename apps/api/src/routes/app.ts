@@ -21,8 +21,8 @@ import {
   deleteConnection,
   dependentsOf,
   directoryTransaction,
-  forgetStoredTitles,
   expiredRoutineBucket,
+  forgetStoredTitles,
   getAddon,
   getCalendarForSync,
   getReminder,
@@ -46,9 +46,9 @@ import {
   progressForRange,
   removeAddon,
   resumeDependents,
+  scheduleActivityChanges,
   scheduledForRange,
   scheduleWork,
-  scheduleActivityChanges,
   setActivityActive,
   setActivityWindows,
   setAddonEnabled,
@@ -970,10 +970,13 @@ function modulePatch(body: Record<string, unknown>): Record<string, unknown> {
 
 app.get("/activities", async (c) => {
   const rows = await listActivities(c.get("db"));
-  const today = isoOfLocalDate(localDateOf(c.get("now"), c.get("user").timeZone));
+  const today = isoOfLocalDate(
+    localDateOf(c.get("now"), c.get("user").timeZone),
+  );
   return c.json(
     rows.map(({ row, anchorMinutes, effectiveDate }) => ({
-      changesFrom: effectiveDate && effectiveDate > today ? effectiveDate : null,
+      changesFrom:
+        effectiveDate && effectiveDate > today ? effectiveDate : null,
       id: row.id,
       name: row.name,
       kind: row.kind,
@@ -1035,7 +1038,9 @@ function validateDailyFrequency(
 
 /** Calendar arithmetic, not +24 hours: tomorrow can be 23 or 25 hours away. */
 function nextRoutineDate(c: Ctx): string {
-  return isoOfLocalDate(addLocalDays(localDateOf(c.get("now"), c.get("user").timeZone), 1));
+  return isoOfLocalDate(
+    addLocalDays(localDateOf(c.get("now"), c.get("user").timeZone), 1),
+  );
 }
 
 app.post("/activities", async (c) =>
@@ -1153,7 +1158,12 @@ app.patch("/activities/:id", async (c) =>
       );
     }
 
-    await scheduleActivityChanges(db, previous.row.id, nextRoutineDate(c), previous);
+    await scheduleActivityChanges(
+      db,
+      previous.row.id,
+      nextRoutineDate(c),
+      previous,
+    );
     return c.body(null, 204);
   }),
 );
@@ -1412,7 +1422,10 @@ async function fillDay(
   if (!can(user.plan, { kind: "plan.adaptive" }).ok) return;
 
   const [activities, slots] = await Promise.all([
-    listActivities(db, isoOfLocalDate(localDateOf(wholeDay.start, user.timeZone))),
+    listActivities(
+      db,
+      isoOfLocalDate(localDateOf(wholeDay.start, user.timeZone)),
+    ),
     listSlotsForRange(db, wholeDay.start, wholeDay.end),
   ]);
 
@@ -1589,8 +1602,16 @@ app.get("/today", async (c) => {
         }
       : { before: [], after: [] },
     widgets: releasedWidgets(c.get("features"), visibleWidgets(user.plan, [])),
-    routineStartsOn: configured.filter((a) => a.row.isActive && a.effectiveDate && a.effectiveDate > isoOfLocalDate(date))
-      .map((a) => a.effectiveDate).sort()[0] ?? null,
+    routineStartsOn:
+      configured
+        .filter(
+          (a) =>
+            a.row.isActive &&
+            a.effectiveDate &&
+            a.effectiveDate > isoOfLocalDate(date),
+        )
+        .map((a) => a.effectiveDate)
+        .sort()[0] ?? null,
     /**
      * Progress against today's minimums, for the "Today so far" module.
      *
@@ -1627,8 +1648,8 @@ app.get("/today", async (c) => {
         sessionMinutes: a.row.sessionMinutes,
         count: done.get(a.row.id)?.count ?? 0,
         minutes: done.get(a.row.id)?.minutes ?? 0,
-        // Placed but not yet done. What separates "two stretches left" from
-        // "two stretches left, and both are already on your afternoon".
+        // Already accounted for: placements, saved shortfalls and stopped/
+        // missed occurrences. Completion is counted separately above.
         scheduled: scheduled.get(a.row.id) ?? 0,
       })),
   });
@@ -2053,14 +2074,17 @@ app.post("/slots", async (c) => {
       minutes: todo.estimatedMinutes ?? 15,
     };
   } else {
-    const activities = await listActivities(db, isoOfLocalDate(localDateOf(body.startsAt, user.timeZone)));
+    const activities = await listActivities(
+      db,
+      isoOfLocalDate(localDateOf(body.startsAt, user.timeZone)),
+    );
     const activity = activities.find((a) => a.row.id === body.activityId);
     if (!activity) {
       throw new HTTPException(404, { message: "No such activity" });
     }
     if (!activity.row.isActive) {
       throw new HTTPException(409, {
-        message: `${activity.row.name} is paused or hasn't started its routine yet.`, 
+        message: `${activity.row.name} is paused or hasn't started its routine yet.`,
       });
     }
     subject = {
@@ -2327,7 +2351,10 @@ app.post("/slots/:id/move", async (c) => {
   await userTransaction(c.get("db"), async (db) => {
     const slot = await getSlot(db, c.req.param("id"));
     if (!slot) throw new HTTPException(404);
-    if (!canPostponeSlot(slot, c.get("now")) || expiredRoutineBucket(slot, c.get("now"), c.get("user").timeZone))
+    if (
+      !canPostponeSlot(slot, c.get("now")) ||
+      expiredRoutineBucket(slot, c.get("now"), c.get("user").timeZone)
+    )
       throw new HTTPException(409, {
         message:
           "This slot can no longer be moved. You can still mark it done.",
@@ -2355,6 +2382,7 @@ app.post("/slots/:id/move", async (c) => {
         startsAt: body.startsAt,
         endsAt: body.endsAt,
         actor: "user",
+        timeZone: c.get("user").timeZone,
         reasonCode: "user_choice",
       },
       c.get("now"),
@@ -2415,10 +2443,9 @@ app.get("/missed", async (c) => {
  * with the position attached) or because there is no position at all.
  *
  * Read the same way `/missed` is: the status says a session is here, the
- * lifecycle log says why and where. Nothing empties it - a session stays until
- * the user gives it a time (`POST /slots/:id/move`, which lifts it straight
- * back out) or drops it (`POST /slots/:id/cancel`). Freed time is never
- * quietly claimed on their behalf.
+ * lifecycle log says why and where. Routine shortfalls belong to their local
+ * day; old ones are history, not extra demand tomorrow. Explicit one-off work
+ * remains saved. Freed time is never quietly claimed on the user's behalf.
  */
 app.get("/bucket", async (c) => {
   const db = c.get("db");

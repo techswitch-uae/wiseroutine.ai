@@ -9,6 +9,7 @@ import { readFeatures } from "./features";
 import {
   directory,
   resetDatabases,
+  seedActivity,
   seedUser,
   type TestUser,
   testFeatures,
@@ -236,16 +237,15 @@ function workingZone() {
   );
 }
 
-test("all-off Free creates and auto-places a routine; second activity preserves accepted slots; pause and move stay core", async () => {
+test("Free explicitly places an established routine; new activities wait until tomorrow; pause and move stay core", async () => {
   const user = await seedUser({ timeZone: workingZone() });
   const start = Date.now();
-  const first = await call(user, "/activities", "POST", {
+  const id = await seedActivity({
     name: "Focus",
     minimumValue: 1,
     sessionMinutes: 10,
   });
-  expect(first.status).toBe(201);
-  const { id } = (await first.json()) as { id: string };
+  expect((await call(user, "/plan", "POST", {})).status).toBe(200);
   const original = await userDb().slot.findFirst({ where: { activityId: id } });
   expect(original).not.toBeNull();
   expect(original?.startsAt.getTime()).toBeGreaterThanOrEqual(start);
@@ -265,7 +265,7 @@ test("all-off Free creates and auto-places a routine; second activity preserves 
     slots: { id: string; presetKey: string | null }[];
     widgets: string[];
   };
-  expect(today.slots).toHaveLength(2);
+  expect(today.slots).toHaveLength(1);
   expect(today.slots.every((slot) => slot.presetKey === null)).toBe(true);
   expect(today.widgets).not.toContain("today_so_far");
   const slots = await userDb().slot.findMany({ orderBy: { startsAt: "asc" } });

@@ -206,6 +206,33 @@ test("Place them for me uses the viewed day and toasts when no space remains", a
   expect(screen.getByText("Stretch")).toBeVisible();
 });
 
+test("changing days drops stale bucket counts before the next bucket read settles", async () => {
+  bucket.mockResolvedValue([saved("yesterday-1"), saved("yesterday-2")]);
+  publishPlan(day(2));
+  render(<NotPlaced />);
+  await ready();
+  expect(screen.getByText("10 min · 3 slots")).toBeVisible();
+  let resolve = (_: BucketItem[]) => {};
+  bucket.mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  const next = day(0);
+  next.date = { year: 2026, month: 9, day: 2 };
+  next.dayStart += 86400000;
+  next.dayEnd += 86400000;
+  act(() => publishPlan(next));
+  expect(screen.queryByText("10 min · 5 slots")).toBeNull();
+  expect(
+    screen.getByRole("button", { name: "Place them for me" }),
+  ).toBeDisabled();
+  act(() => resolve([]));
+  await ready();
+  expect(screen.getByText("10 min · 3 slots")).toBeVisible();
+  expect(bucket).toHaveBeenLastCalledWith((next.dayStart + next.dayEnd) / 2);
+});
+
 test("another tab already placing slots is not reported as a lack of space", async () => {
   plan.mockResolvedValue({ placed: 0, unplaced: [] });
   publishPlan(day());

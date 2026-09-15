@@ -18,6 +18,25 @@ the available limit but does not increase the chosen count. The API validates
 merged duration/frequency on create and patch, so a duration-only update cannot
 bypass the limit. Existing non-daily cadence fields are preserved by the form.
 
+## Changes take effect tomorrow
+
+New activities and edits to frequency, duration, days, placement preferences,
+priority or meeting buffers take effect on the **next local calendar date**.
+The editor shows the latest choice and its effective date; saving does not
+create slots or change today's target. Repeated edits overwrite tomorrow's
+choice, not today's settings and not a queue of extra occurrences.
+
+`activity_schedules` stores effective-dated settings. Planning, repair and daily
+progress resolve the version for the day being viewed. At local midnight the
+new version becomes current without a cron job or a planning write; opening or
+refreshing Today shows its fresh demand in **Not placed**. Dates are local to
+the account, including DST and month/year boundaries, not a 24-hour delay.
+Existing definitions retain their current settings as a baseline on upgrade.
+
+Pausing/removing an activity and guided-session controls remain immediate.
+Existing slots, completed work and earlier configuration versions are not
+rewritten by a frequency or duration edit.
+
 ## Automatic placement and repair
 
 Repeated activities get distinct targets across the working day, not repeated
@@ -31,7 +50,7 @@ Placement borrows edge padding when necessary to fit that spacing. It never
 shortens a session or bunches several together just to empty the bucket.
 
 Mid-day planning starts at now, while spacing still uses the full working day.
-Adding an activity preserves accepted slots. Opening an unplanned Today does
+Adding or editing an activity does not run the planner. Opening an unplanned Today does
 not place the routine as a side effect: it appears in **Not placed**, ready for
 manual placement or **Place them for me**. That button preserves existing
 placements. The gated future-day planning preview remains separate.
@@ -46,8 +65,9 @@ placements. The gated future-day planning preview remains separate.
   there is no replacement appointment or duplicate occurrence.
 - Once the cutoff passes, no Start/Resume, movement or Postpone is offered.
   **Mark it done** remains available to record what actually happened.
-- Started, completed and missed slots cannot be moved. Not placed has no
-  appointment to expire and remains available for future placement.
+- Started, completed and missed slots cannot be moved. Today's Not placed
+  slots remain available during the day; old daily shortfalls cannot be revived
+  through a stale drag or Postpone request. Saved one-off work does not expire.
 - Pointer and keyboard movement clamp to a future five-minute grid point.
   If no room remains in the visible day, no move is submitted.
 - Timeline, detail widgets, open dialogs and Up next update at the cutoff,
@@ -62,10 +82,20 @@ placements. The gated future-day planning preview remains separate.
 
 ## Not placed
 
-One widget combines the day's fresh demand with persisted placement shortfalls
-and slots displaced by rearrangement. Equal-duration occurrences of one
+One widget combines the day's fresh demand with **that day's** persisted
+placement shortfalls and slots displaced by rearrangement. Equal-duration occurrences of one
 activity share a row. Saved slots already count against fresh demand, so there
 is no duplicate list or double count. Different saved durations stay separate.
+
+Unused daily occurrences do **not carry over**. Yesterday's saved rows remain
+in history, but are excluded from today's bucket and automatic placement.
+Explicit one-off tasks remain saved until handled. Reads are scoped to the
+viewed day; a day change never combines new progress with stale bucket rows.
+
+Not placed is the remaining count, not the configured total: today's placed,
+completed, stopped, missed and explicitly dismissed occurrences already consume
+today's target. They never reduce tomorrow's target. Three stretches and four
+walks with nothing placed tomorrow produce exactly three and four fresh slots.
 
 The widget keeps the simple draggable-row design. There is no **Drop** or
 **Choose time** action: leaving slots here is fine. Drag one onto the timeline,
@@ -92,6 +122,10 @@ renamed: those describe UI geometry, not a second product concept.
   anchors, kept slots, short/late/crowded days, spacing and demand conservation.
 - `apps/api/src/planning/routine.test.ts`: real database persistence, repeated
   plans, bucket/manual recovery, merged validation, past/running/done refusals.
+- `apps/api/src/planning/day-routine.test.ts`: repeated edits, unchanged history,
+  local midnight/DST, fresh daily counts, old-bucket exclusion and one-off recovery.
+- `apps/desktop/e2e/day-routine.spec.ts`: real editor/save/reload and date-scoped
+  Not placed counts without yesterday's shortfalls.
 - Desktop unit tests: live form limits, timeline permissions, merged counts,
   read failures, keyboard placement/cancellation, and pointer placement.
 - `apps/desktop/e2e/routine.spec.ts`: configuration/save/reload, actual pointer

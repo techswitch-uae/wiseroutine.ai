@@ -1,20 +1,22 @@
 import type { Page } from "@playwright/test";
 import { API_URL } from "./environment";
-import { dayShown, expect, type SeededUser, test } from "./support";
+import {
+  dayShown,
+  expect,
+  type SeededUser,
+  seedRoutine,
+  test,
+} from "./support";
 
 async function prepare(page: Page, user: SeededUser, minutes: number) {
   const headers = { authorization: `Bearer ${user.token}` };
-  const created = await page.request.post(`${API_URL}/activities`, {
-    headers,
-    data: {
-      name: "Read a little",
-      kind: "focus",
-      sessionMinutes: minutes,
-      minimumType: "countPerDay",
-      minimumValue: 1,
-    },
+  await seedRoutine(user.token, {
+    name: "Read a little",
+    kind: "focus",
+    sessionMinutes: minutes,
+    minimumType: "countPerDay",
+    minimumValue: 1,
   });
-  expect(created.ok(), await created.text()).toBe(true);
   await page.goto("/");
   await dayShown(page);
   await page

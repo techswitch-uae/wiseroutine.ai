@@ -1719,6 +1719,11 @@ img.wr-avatar { object-fit: cover; }
 .wr-block {
   padding: 16px 18px; border-radius: 15px;
   background: var(--wr-card); box-shadow: var(--wr-lift-2);
+  transition: box-shadow 0.2s ease;
+}
+/* The section a link landed on, lit until the first press outside it. */
+.wr-settings-section[data-active] .wr-block {
+  box-shadow: 0 0 0 1.5px var(--color-accent), var(--wr-lift-2);
 }
 /* The mark on a recessed provider row takes the card's ground: a step away
    from what it sits on, in the other direction. */

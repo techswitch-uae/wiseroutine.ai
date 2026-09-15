@@ -374,6 +374,8 @@ export async function cancelUnstartedSlots(
 export async function moveSlot(
   db: UserDatabase,
   params: {
+    /** The account's current zone may differ from the slot's original zone. */
+    timeZone?: string;
     slotId: string;
     startsAt: number;
     endsAt: number;
@@ -388,8 +390,10 @@ export async function moveSlot(
     return userTransaction(db, (tx) => moveSlot(tx, params, now, newId));
   const current = await getSlot(db, params.slotId);
   if (!current) return;
-  if (expiredRoutineBucket(current, now))
-    throw new ActionConflict("This unplaced slot belonged to a previous day. Use today's routine instead.");
+  if (expiredRoutineBucket(current, now, params.timeZone))
+    throw new ActionConflict(
+      "This unplaced slot belonged to a previous day. Use today's routine instead.",
+    );
   if (
     params.actor === "system"
       ? !["planned", "live", "bucketed"].includes(current.status)
@@ -647,7 +651,11 @@ export async function listBucket(
 }
 
 /** Routine shortfalls belong to a day, unlike explicitly saved one-off work. */
-export async function listBucketForDay(db: UserDatabase, from: number, to: number): Promise<SlotRow[]> {
+export async function listBucketForDay(
+  db: UserDatabase,
+  from: number,
+  to: number,
+): Promise<SlotRow[]> {
   const rows = await db.slot.findMany({
     where: {
       status: "bucketed",
@@ -662,9 +670,17 @@ export async function listBucketForDay(db: UserDatabase, from: number, to: numbe
   return rows.map(toSlot);
 }
 
-export function expiredRoutineBucket(slot: SlotRow, now: number, zone = slot.timeZone): boolean {
-  return slot.status === "bucketed" && slot.activityId !== null && slot.reminderId === null &&
-    slot.startsAt < dayBounds(localDateOf(now, zone), zone, 0, 1440).start;
+export function expiredRoutineBucket(
+  slot: SlotRow,
+  now: number,
+  zone = slot.timeZone,
+): boolean {
+  return (
+    slot.status === "bucketed" &&
+    slot.activityId !== null &&
+    slot.reminderId === null &&
+    slot.startsAt < dayBounds(localDateOf(now, zone), zone, 0, 1440).start
+  );
 }
 
 /**
@@ -899,9 +915,11 @@ export async function scheduledForRange(
   const rows = await db.slot.findMany({
     where: {
       startsAt: { gte: at(from), lt: at(to) },
-      // Bucket occurrences are already accounted for. They must not also
-      // appear as fresh demand in To place or be recreated by another plan.
-      status: { in: ["planned", "live", "started", "bucketed", "skipped", "missed"] },
+      // Accounted-for occurrences, including unused attempts and today's
+      // saved shortfalls, must not also appear as fresh Not placed demand.
+      status: {
+        in: ["planned", "live", "started", "bucketed", "skipped", "missed"],
+      },
     },
     select: { activityId: true },
   });

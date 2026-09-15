@@ -269,7 +269,11 @@ const Activities: React.FC = () => {
     request
       .then(() => {
         setEditing(null);
-        notify(id ? "Saved for tomorrow. Today's routine is unchanged." : "Activity added. Its routine starts tomorrow.");
+        notify(
+          id
+            ? "Saved for tomorrow. Today's routine is unchanged."
+            : "Activity added. Its routine starts tomorrow.",
+        );
         invalidateServerState();
         load();
       })

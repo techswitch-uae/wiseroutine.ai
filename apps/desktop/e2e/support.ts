@@ -148,6 +148,13 @@ export const test = base.extend<{
 });
 
 export { expect };
+
+/** Seed a routine established before today, optionally already placed by its user. */
+export const seedRoutine = (
+  token: string,
+  activity: Record<string, unknown>,
+  options: { place?: boolean; pastUnplaced?: number } = {},
+) => seed<{ id: string }>("/routine", { activity, ...options }, token);
 export const setFeatures = (user: SeededUser, flags: FeatureOverrides) =>
   seed<void>("/features", flags, user.token);
 

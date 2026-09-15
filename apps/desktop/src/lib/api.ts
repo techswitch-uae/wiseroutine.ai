@@ -1102,7 +1102,8 @@ export const api = {
   missed: () => request<MissedItem[]>("/missed"),
   /** The bucket. Emptied by `moveSlot` (accept) or `cancelSlot` (drop) - it
    *  has no mutations of its own, because both already exist. */
-  bucket: (at?: number) => request<BucketItem[]>(at === undefined ? "/bucket" : `/bucket?at=${at}`),
+  bucket: (at?: number) =>
+    request<BucketItem[]>(at === undefined ? "/bucket" : `/bucket?at=${at}`),
   /**
    * Fill a day.
    *

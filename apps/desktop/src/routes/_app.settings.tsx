@@ -160,19 +160,31 @@ const Settings: React.FC = () => {
    * The store fills in after mount and the section only renders once it has,
    * so scrolling on mount alone lands on a page that is still a paragraph
    * tall. Keyed on the account instead: by the time there is one, the heading
-   * exists to scroll to.
+   * exists to scroll to. A boolean, not the account itself - every save
+   * patches the account, and each one would scroll back and re-light it.
    */
+  const ready = Boolean(account) && calendarsReady;
+  const [active, setActive] = useState<string | null>(null);
   useEffect(() => {
-    if (
-      !account ||
-      !calendarsReady ||
-      ![DAY_HOURS_ANCHOR, CALENDARS_ANCHOR].includes(hash)
-    )
-      return;
+    if (!ready || ![DAY_HOURS_ANCHOR, CALENDARS_ANCHOR].includes(hash)) return;
     document
       .getElementById(hash)
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [account, hash, calendarsReady]);
+    // Only hours are lit: they are the one section the app links to. Calendars
+    // is reached by old `/calendars` bookmarks alone, which just scroll.
+    if (hash === DAY_HOURS_ANCHOR) setActive(hash);
+  }, [ready, hash]);
+
+  // The landed section stays lit until the first press anywhere outside it.
+  useEffect(() => {
+    if (!active) return;
+    const release = (event: PointerEvent) => {
+      if (!document.getElementById(active)?.contains(event.target as Node))
+        setActive(null);
+    };
+    document.addEventListener("pointerdown", release, true);
+    return () => document.removeEventListener("pointerdown", release, true);
+  }, [active]);
 
   const saveName = () => {
     const next = draftName.trim();
@@ -272,7 +284,11 @@ const Settings: React.FC = () => {
         ) : null}
       </section>
 
-      <section id={DAY_HOURS_ANCHOR} className="wr-settings-section">
+      <section
+        id={DAY_HOURS_ANCHOR}
+        className="wr-settings-section"
+        data-active={active === DAY_HOURS_ANCHOR || undefined}
+      >
         <h2 className="wr-settings-title">Routine hours</h2>
         {account ? <DayHours account={account} /> : null}
       </section>

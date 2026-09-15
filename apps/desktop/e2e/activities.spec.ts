@@ -1,6 +1,13 @@
 import type { Locator, Page } from "@playwright/test";
 import { API_URL } from "./environment";
-import { dayShown, expect, meetingAt, test } from "./support";
+import {
+  dayShown,
+  expect,
+  meetingAt,
+  seedRoutine,
+  setFeatures,
+  test,
+} from "./support";
 
 test.use({ features: "all" });
 
@@ -36,17 +43,7 @@ async function seedActivity(
   token: string,
   input: Record<string, unknown>,
 ): Promise<void> {
-  const response = await fetch(`${API_URL}/activities`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(input),
-  });
-  if (!response.ok) {
-    throw new Error(`could not seed an activity: ${response.status}`);
-  }
+  await seedRoutine(token, input);
 }
 
 const libraryChip = (page: Page, name: string): Locator =>
@@ -252,28 +249,47 @@ test("an activity on no days cannot be saved", async ({ page, signIn }) => {
 
 /* ── On the day ──────────────────────────────────────────────────────────── */
 
-test("an added activity is planned onto today", async ({ page, signIn }) => {
-  await signIn(CALENDARS);
+test("a newly added routine starts tomorrow in Not placed, not on today's calendar", async ({
+  page,
+  signIn,
+}) => {
+  const user = await signIn(CALENDARS);
+  await setFeatures(user, { day_view_options: true });
   await openActivities(page);
   await add(page, "Stretch");
 
   await page.goto("/");
   await dayShown(page);
 
-  // The fixture's zone is in the morning. Only the remaining day is planned;
-  // after working hours, unplaced recovery (not retroactive slots) is correct.
   await expect(
-    page.locator(".wr-daygrid-item", { hasText: "Stretch" }).first(),
+    page.locator(".wr-daygrid-item", { hasText: "Stretch" }),
+  ).toHaveCount(0);
+  await expect(page.getByText(/Your routine starts on/)).toBeVisible();
+  const response = await page.request.get(`${API_URL}/activities`, {
+    headers: { authorization: `Bearer ${user.token}` },
+  });
+  const rows = await response.json();
+  await page.goto(`/?date=${rows[0].changesFrom}`);
+  await dayShown(page);
+  await expect(
+    page
+      .locator(".wr-widget", {
+        has: page.getByText("Not placed", { exact: true }),
+      })
+      .getByText("Stretch", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.locator(".wr-daygrid-item", { hasText: "Stretch" }),
+  ).toHaveCount(0);
 });
 
-test("created activities appear on the day, with nobody asking to plan", async ({
+test("an established, already placed routine is shown on Today", async ({
   page,
   signIn,
 }) => {
   const user = await signIn(CALENDARS);
 
-  // API creation now places the activity without a separate planning action.
+  // This fixture begins after the user placed an established routine.
   await seedActivity(user.token, {
     name: "Eye rest",
     sessionMinutes: 5,

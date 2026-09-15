@@ -1,18 +1,8 @@
 import { API_URL } from "./environment";
-import { dayShown, expect, test, todayAt } from "./support";
+import { dayShown, expect, seedRoutine, test, todayAt } from "./support";
 
 const M = 60_000;
-async function create(token: string, input: Record<string, unknown>) {
-  const response = await fetch(`${API_URL}/activities`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(input),
-  });
-  expect(response.status).toBe(201);
-}
+const create = seedRoutine;
 
 test("Deep work has a duration-aware frequency limit that adjusts and saves", async ({
   page,

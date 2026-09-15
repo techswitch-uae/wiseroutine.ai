@@ -5,9 +5,9 @@ import {
   claimTodoFiles,
   createReminder,
   deleteTodoFile,
+  expiredRoutineBucket,
   getReminder,
   getSlot,
-  expiredRoutineBucket,
   listTodoFiles,
   MAX_FILE_BYTES,
   moveSlot,
@@ -494,7 +494,10 @@ captureRoutes.post("/slots/:id/reschedule", async (c) => {
     }
     const slot = await getSlot(db, c.req.param("id"));
     if (!slot) throw new HTTPException(404);
-    if (!canPostponeSlot(slot, c.get("now")) || expiredRoutineBucket(slot, c.get("now"), c.get("user").timeZone))
+    if (
+      !canPostponeSlot(slot, c.get("now")) ||
+      expiredRoutineBucket(slot, c.get("now"), c.get("user").timeZone)
+    )
       throw new HTTPException(409, {
         message:
           "This slot can no longer be moved. You can still mark it done.",
@@ -530,6 +533,7 @@ captureRoutes.post("/slots/:id/reschedule", async (c) => {
           startsAt,
           endsAt,
           actor: "user",
+          timeZone: c.get("user").timeZone,
           reasonCode: "postponed",
         },
         c.get("now"),

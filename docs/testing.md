@@ -47,11 +47,11 @@ pnpm --filter @wiseroutine/desktop exec playwright test calendars.spec.ts
 | Web unit tests | Actual scheduler placement/repair, duration preservation, bounds/conflicts, no false confirmed placement, deterministic replay, fail-closed release configuration | No provider or app API mocks masquerading as integration coverage |
 | App full stack | First activity/setup, free limit and removal, edit persistence, daily availability, auto-placement and accepted-slot stability, drag/skip/undo, calendar selection, privacy opt-out, view/settings persistence | Real React app → Worker → migrated libSQL; sign-in and provider data are seeded |
 | App core/release | Default-off routes, hidden shortcuts/assets, core recovery, preview enable/disable; approaching → due → running → done cues in timeline/widget; delayed/refused Start, refresh/reload, stop cutoff; early Start → Stop → scheduled cutoff, stale Postpone closure, reload and Done; in-place postponement without copies | Native webview, tray, OS permissions and signed installers require separate checks |
-| Activity planning | Duration-aware frequency and save/reload; repeated activities spread across Today; future-only pointer/keyboard movement; Not placed merges fresh demand and saved slots; no-space toast, reload/retry without duplicates, keyboard/pointer placement, and automatic placement preserving existing slots | Shared scheduler rules plus Worker/database integration; see [activity planning](activity-planning.md) |
+| Activity planning | Duration-aware frequency and save/reload; tomorrow-effective edits and old-bucket exclusion; repeated activities spread across Today; future-only pointer/keyboard movement; Not placed merges fresh demand and saved slots; no-space toast, reload/retry without duplicates, keyboard/pointer placement, and automatic placement preserving existing slots | Shared scheduler rules plus Worker/database integration; see [activity planning](activity-planning.md) |
 | App capture | Keyboard/focus, links and multiple files, exact download bytes, offline draft recovery, plan/postpone and return to Inbox | Existing release/entitlement fixtures; not live OAuth or production storage |
 
 The suites currently contain **44 web browser cases** (11 stories × 4
-browser projects), **30 web unit cases**, and **50 full-stack app scenarios**.
+browser projects), **30 web unit cases**, and **51 full-stack app scenarios**.
 Counts will change as coverage grows; the actual run/report is authoritative.
 
 ## Isolation and reproducibility
@@ -63,6 +63,11 @@ Counts will change as coverage grows; the actual run/report is authoritative.
   two disposable in-memory `turso dev` servers, migrates them, resets between
   tests, and tears down their process groups. Worker state uses the separate
   `.wrangler/e2e-state` directory, not the developer's ordinary KV store.
+- Existing-routine browser fixtures use the gated `/test/routine` endpoint;
+  this seeds a routine established before today, rather than bypassing the new
+  production rule that an added activity starts tomorrow. Creation/edit scenarios
+  still drive the real form. API clock tests cover local midnight and DST;
+  browser date-navigation tests check matching per-day bucket counts.
 - App scenarios stay **serial**: local libSQL maps seeded accounts to the same
   user database. Do not turn on parallel workers or call this tenant-isolation
   coverage. Its timezone fixture keeps remaining-day planning in the morning.

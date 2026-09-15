@@ -1,8 +1,21 @@
 import { exports as worker } from "cloudflare:workers";
-import { listActivities, scheduleActivityChanges, updateActivity, placeSlot, setSlotStatus } from "@wiseroutine/db";
+import {
+  listActivities,
+  placeSlot,
+  scheduleActivityChanges,
+  setSlotStatus,
+  updateActivity,
+} from "@wiseroutine/db";
 import { dayBounds, localDateOf } from "@wiseroutine/scheduler";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { resetDatabases, seedUser, seedActivity, testFeatures, type TestUser, userDb } from "../test-support";
+import {
+  resetDatabases,
+  seedActivity,
+  seedUser,
+  type TestUser,
+  testFeatures,
+  userDb,
+} from "../test-support";
 import { localDateKey, planDay } from "./planDay";
 
 const M = 60_000;
@@ -14,15 +27,31 @@ const midnight = dayBounds(todayDate, "UTC", 0, 1440).start;
 const tomorrow = localDateKey(localDateOf(midnight + 86400000, "UTC"));
 const nextDay = midnight + 86400000;
 const settings = { timeZone: "UTC", dayStartMinutes: 480, dayEndMinutes: 1080 };
-const request = (user: TestUser, path: string, body?: unknown, method = "POST") => worker.default.fetch(`http://api${path}`, {
-  method: body === undefined ? "GET" : method,
-  headers: { ...user.headers, "content-type": "application/json" },
-  ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-});
+const request = (
+  user: TestUser,
+  path: string,
+  body?: unknown,
+  method = "POST",
+) =>
+  worker.default.fetch(`http://api${path}`, {
+    method: body === undefined ? "GET" : method,
+    headers: { ...user.headers, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
 const readDay = async (user: TestUser, at = now) => {
   const response = await request(user, `/today?at=${at}`);
   expect(response.status).toBe(200);
-  return response.json() as Promise<{ date: typeof todayDate; slots: { id: string }[]; progress: { id: string; minimumValue: number; sessionMinutes: number; scheduled: number; count: number }[] }>;
+  return response.json() as Promise<{
+    date: typeof todayDate;
+    slots: { id: string }[];
+    progress: {
+      id: string;
+      minimumValue: number;
+      sessionMinutes: number;
+      scheduled: number;
+      count: number;
+    }[];
+  }>;
 };
 
 beforeEach(async () => {
@@ -33,80 +62,289 @@ afterEach(() => vi.restoreAllMocks());
 
 test("new activities start tomorrow; repeated edits replace tomorrow's choice without creating slots", async () => {
   const user = await seedUser({ timeZone: "UTC" });
-  const created = await request(user, "/activities", { name: "Walk", minimumValue: 4, sessionMinutes: 20 });
+  const created = await request(user, "/activities", {
+    name: "Walk",
+    minimumValue: 4,
+    sessionMinutes: 20,
+  });
   expect(created.status).toBe(201);
-  const { id: activityId } = await created.json() as { id: string };
+  const { id: activityId } = (await created.json()) as { id: string };
   expect((await readDay(user)).progress).toEqual([]);
-  expect((await readDay(user, nextDay + 9 * 60 * M)).progress).toMatchObject([{ minimumValue: 4, scheduled: 0 }]);
+  expect((await readDay(user, nextDay + 9 * 60 * M)).progress).toMatchObject([
+    { minimumValue: 4, scheduled: 0 },
+  ]);
   for (const minimumValue of [2, 5, 4])
-    expect((await request(user, `/activities/${activityId}`, { minimumValue }, "PATCH")).status).toBe(204);
+    expect(
+      (
+        await request(
+          user,
+          `/activities/${activityId}`,
+          { minimumValue },
+          "PATCH",
+        )
+      ).status,
+    ).toBe(204);
   expect((await readDay(user)).progress).toEqual([]);
-  expect((await readDay(user, nextDay + 9 * 60 * M)).progress).toMatchObject([{ minimumValue: 4, scheduled: 0 }]);
+  expect((await readDay(user, nextDay + 9 * 60 * M)).progress).toMatchObject([
+    { minimumValue: 4, scheduled: 0 },
+  ]);
   expect(await userDb().activitySchedule.count()).toBe(2); // baseline + one tomorrow choice
   expect(await userDb().slot.count()).toBe(0);
   expect(await userDb().planRun.count()).toBe(0);
-  expect(await (await request(user, "/activities")).json()).toMatchObject([{ changesFrom: tomorrow }]);
+  expect(await (await request(user, "/activities")).json()).toMatchObject([
+    { changesFrom: tomorrow },
+  ]);
 });
 
 test("increases, reductions and duration edits leave today's completed, past and unplaced occurrences unchanged", async () => {
   const user = await seedUser({ timeZone: "UTC" });
-  const activityId = await seedActivity({ name: "Stretch", minimumValue: 3, sessionMinutes: 10 });
+  const activityId = await seedActivity({
+    name: "Stretch",
+    minimumValue: 3,
+    sessionMinutes: 10,
+  });
   for (const [index, status] of ["completed", "missed", "bucketed"].entries()) {
-    await userDb().slot.create({ data: { id: `today-${index}`, activityId, title: "Stretch", kind: "recovery", status, startsAt: new Date(midnight + (8 + index) * 60 * M), endsAt: new Date(midnight + (8 + index) * 60 * M + 10 * M), timeZone: "UTC", createdAt: new Date() } });
+    await userDb().slot.create({
+      data: {
+        id: `today-${index}`,
+        activityId,
+        title: "Stretch",
+        kind: "recovery",
+        status,
+        startsAt: new Date(midnight + (8 + index) * 60 * M),
+        endsAt: new Date(midnight + (8 + index) * 60 * M + 10 * M),
+        timeZone: "UTC",
+        createdAt: new Date(),
+      },
+    });
   }
   const rows = await userDb().slot.findMany({ orderBy: { id: "asc" } });
-  for (const [minimumValue, sessionMinutes] of [[5, 10], [1, 60], [2, 30]]) {
-    expect((await request(user, `/activities/${activityId}`, { minimumValue, sessionMinutes }, "PATCH")).status).toBe(204);
-    expect((await readDay(user)).progress).toMatchObject([{ minimumValue: 3, sessionMinutes: 10, count: 1, scheduled: 2 }]);
-    expect(await userDb().slot.findMany({ orderBy: { id: "asc" } })).toEqual(rows);
+  for (const [minimumValue, sessionMinutes] of [
+    [5, 10],
+    [1, 60],
+    [2, 30],
+  ]) {
+    expect(
+      (
+        await request(
+          user,
+          `/activities/${activityId}`,
+          { minimumValue, sessionMinutes },
+          "PATCH",
+        )
+      ).status,
+    ).toBe(204);
+    expect((await readDay(user)).progress).toMatchObject([
+      { minimumValue: 3, sessionMinutes: 10, count: 1, scheduled: 2 },
+    ]);
+    expect(await userDb().slot.findMany({ orderBy: { id: "asc" } })).toEqual(
+      rows,
+    );
   }
-  expect((await readDay(user, nextDay + 9 * 60 * M)).progress).toMatchObject([{ minimumValue: 2, sessionMinutes: 30, count: 0, scheduled: 0 }]);
+  expect((await readDay(user, nextDay + 9 * 60 * M)).progress).toMatchObject([
+    { minimumValue: 2, sessionMinutes: 30, count: 0, scheduled: 0 },
+  ]);
   expect((await listActivities(userDb(), today))[0]?.row.minimumValue).toBe(3);
-  expect((await listActivities(userDb(), tomorrow))[0]?.row.minimumValue).toBe(2);
+  expect((await listActivities(userDb(), tomorrow))[0]?.row.minimumValue).toBe(
+    2,
+  );
 });
 
 test("daily shortfalls do not carry over, but saved one-off work survives", async () => {
   const user = await seedUser({ timeZone: "UTC" });
   const stretch = await seedActivity({ name: "Stretch", minimumValue: 3 });
-  const walk = await seedActivity({ name: "Walk", minimumValue: 4, sessionMinutes: 20 });
-  for (const [index, activityId] of [stretch, stretch, walk, walk, walk, walk].entries()) {
-    await userDb().slot.create({ data: { id: `old-${index}`, activityId, title: "Old routine", kind: "recovery", status: "bucketed", startsAt: new Date(midnight - 12 * 60 * M), endsAt: new Date(midnight - 12 * 60 * M + 10 * M), timeZone: "UTC", createdAt: new Date() } });
+  const walk = await seedActivity({
+    name: "Walk",
+    minimumValue: 4,
+    sessionMinutes: 20,
+  });
+  for (const [index, activityId] of [
+    stretch,
+    stretch,
+    walk,
+    walk,
+    walk,
+    walk,
+  ].entries()) {
+    await userDb().slot.create({
+      data: {
+        id: `old-${index}`,
+        activityId,
+        title: "Old routine",
+        kind: "recovery",
+        status: "bucketed",
+        startsAt: new Date(midnight - 12 * 60 * M),
+        endsAt: new Date(midnight - 12 * 60 * M + 10 * M),
+        timeZone: "UTC",
+        createdAt: new Date(),
+      },
+    });
   }
-  const oneOff = await placeSlot(userDb(), { activityId: null, title: "Saved reading", kind: "task", startsAt: midnight - 12 * 60 * M, endsAt: midnight - 12 * 60 * M + 10 * M, timeZone: "UTC" }, now, id);
-  await setSlotStatus(userDb(), { slotId: oneOff.id, status: "bucketed", actor: "user" }, now, id);
-  expect(await (await request(user, "/bucket")).json()).toMatchObject([{ id: oneOff.id }]);
+  const oneOff = await placeSlot(
+    userDb(),
+    {
+      activityId: null,
+      title: "Saved reading",
+      kind: "task",
+      startsAt: midnight - 12 * 60 * M,
+      endsAt: midnight - 12 * 60 * M + 10 * M,
+      timeZone: "UTC",
+    },
+    now,
+    id,
+  );
+  await setSlotStatus(
+    userDb(),
+    { slotId: oneOff.id, status: "bucketed", actor: "user" },
+    now,
+    id,
+  );
+  expect(await (await request(user, "/bucket")).json()).toMatchObject([
+    { id: oneOff.id },
+  ]);
   const progress = (await readDay(user)).progress;
-  expect(progress.find((a) => a.id === stretch)).toMatchObject({ minimumValue: 3, scheduled: 0, count: 0 });
-  expect(progress.find((a) => a.id === walk)).toMatchObject({ minimumValue: 4, scheduled: 0, count: 0 });
+  expect(progress.find((a) => a.id === stretch)).toMatchObject({
+    minimumValue: 3,
+    scheduled: 0,
+    count: 0,
+  });
+  expect(progress.find((a) => a.id === walk)).toMatchObject({
+    minimumValue: 4,
+    scheduled: 0,
+    count: 0,
+  });
   for (const action of ["move", "reschedule"])
-    expect((await request(user, `/slots/old-0/${action}`, { startsAt: nextDay + 10 * 60 * M, endsAt: nextDay + 10 * 60 * M + 10 * M })).status).toBe(409);
-  const result = await planDay(userDb(), { user: settings, onDay: nextDay, trigger: "user_request", preservePlanned: true, retryUnplaced: true }, nextDay, id);
+    expect(
+      (
+        await request(user, `/slots/old-0/${action}`, {
+          startsAt: nextDay + 10 * 60 * M,
+          endsAt: nextDay + 10 * 60 * M + 10 * M,
+        })
+      ).status,
+    ).toBe(409);
+  const result = await planDay(
+    userDb(),
+    {
+      user: settings,
+      onDay: nextDay,
+      trigger: "user_request",
+      preservePlanned: true,
+      retryUnplaced: true,
+    },
+    nextDay,
+    id,
+  );
   expect(result.created).toBe(8); // 3 stretches + 4 walks + saved one-off
-  expect(await userDb().slot.count({ where: { id: { startsWith: "old-" }, status: "bucketed" } })).toBe(6);
-  expect(await userDb().slot.findUnique({ where: { id: oneOff.id } })).toMatchObject({ status: "planned" });
+  expect(
+    await userDb().slot.count({
+      where: { id: { startsWith: "old-" }, status: "bucketed" },
+    }),
+  ).toBe(6);
+  expect(
+    await userDb().slot.findUnique({ where: { id: oneOff.id } }),
+  ).toMatchObject({ status: "planned" });
+});
+
+test("bucket reads and moves use the account's current local day after a timezone change", async () => {
+  const at = Date.UTC(2027, 2, 15, 6);
+  vi.spyOn(Date, "now").mockReturnValue(at);
+  const user = await seedUser({ timeZone: "Pacific/Honolulu" });
+  const activityId = await seedActivity();
+  // Yesterday in the original UTC zone, but still today in Honolulu.
+  await userDb().slot.create({
+    data: {
+      id: "travel",
+      activityId,
+      title: "Walk",
+      kind: "recovery",
+      status: "bucketed",
+      startsAt: new Date(at - 8 * 60 * M),
+      endsAt: new Date(at - 8 * 60 * M + 10 * M),
+      timeZone: "UTC",
+      createdAt: new Date(at - 8 * 60 * M),
+    },
+  });
+  expect(await (await request(user, "/bucket")).json()).toMatchObject([
+    { id: "travel" },
+  ]);
+  expect(
+    (
+      await request(user, "/slots/travel/move", {
+        startsAt: at + 60 * M,
+        endsAt: at + 70 * M,
+      })
+    ).status,
+  ).toBe(204);
 });
 
 test("the following day's edits never rewrite either earlier day", async () => {
   await seedUser({ timeZone: "UTC" });
   const activityId = await seedActivity({ minimumValue: 3 });
-  let previous = (await listActivities(userDb()))[0]!;
+  let previous = (await listActivities(userDb()))[0];
+  expect(previous).toBeDefined();
   await updateActivity(userDb(), activityId, { minimumValue: 4 });
   await scheduleActivityChanges(userDb(), activityId, tomorrow, previous);
-  previous = (await listActivities(userDb()))[0]!;
+  previous = (await listActivities(userDb()))[0];
+  expect(previous).toBeDefined();
   const dayAfter = localDateKey(localDateOf(nextDay + 86400000, "UTC"));
   await updateActivity(userDb(), activityId, { minimumValue: 1 });
   await scheduleActivityChanges(userDb(), activityId, dayAfter, previous);
-  for (const [date, count] of [[today, 3], [tomorrow, 4], [dayAfter, 1]] as const)
-    expect((await listActivities(userDb(), date))[0]?.row.minimumValue).toBe(count);
+  for (const [date, count] of [
+    [today, 3],
+    [tomorrow, 4],
+    [dayAfter, 1],
+  ] as const)
+    expect((await listActivities(userDb(), date))[0]?.row.minimumValue).toBe(
+      count,
+    );
 });
+
+test.each([
+  ["America/New_York", "2027-03-14T06:30:00Z", "2027-03-15T04:00:00Z"],
+  ["America/New_York", "2027-11-07T05:30:00Z", "2027-11-08T05:00:00Z"],
+  ["Asia/Kathmandu", "2027-01-31T18:14:00Z", "2027-01-31T18:15:00Z"],
+])(
+  "%s switches at local midnight across DST/month boundaries (%s)",
+  async (timeZone, from, boundary) => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(from));
+    const user = await seedUser({ timeZone });
+    expect(
+      (
+        await request(user, "/activities", {
+          name: "Walk",
+          minimumValue: 4,
+          sessionMinutes: 20,
+        })
+      ).status,
+    ).toBe(201);
+    const end = Date.parse(boundary);
+    clock.mockReturnValue(end - 1);
+    expect(await (await request(user, "/today")).json()).toMatchObject({
+      progress: [],
+    });
+    clock.mockReturnValue(end);
+    expect(await (await request(user, "/today")).json()).toMatchObject({
+      date: localDateOf(end, timeZone),
+      progress: [{ minimumValue: 4, scheduled: 0 }],
+    });
+    expect(await userDb().slot.count()).toBe(0);
+  },
+);
 
 test("a routine switches at local midnight without an edit or a planning write", async () => {
   const user = await seedUser({ timeZone: "UTC" });
-  const created = await request(user, "/activities", { name: "Walk", minimumValue: 4, sessionMinutes: 20 });
+  const created = await request(user, "/activities", {
+    name: "Walk",
+    minimumValue: 4,
+    sessionMinutes: 20,
+  });
   expect(created.status).toBe(201);
   vi.spyOn(Date, "now").mockReturnValue(nextDay);
   const response = await request(user, "/today");
-  const day = await response.json() as { date: typeof todayDate; progress: { minimumValue: number; scheduled: number }[] };
+  const day = (await response.json()) as {
+    date: typeof todayDate;
+    progress: { minimumValue: number; scheduled: number }[];
+  };
   expect(day.date).toEqual(localDateOf(nextDay, "UTC"));
   expect(day.progress).toMatchObject([{ minimumValue: 4, scheduled: 0 }]);
   expect(await userDb().slot.count()).toBe(0);

@@ -48,7 +48,9 @@ export async function listActivities(
     if (date && version) {
       if (version.settingsJson === null) result.row.isActive = false;
       else {
-        const { anchorMinutes, ...settings } = JSON.parse(version.settingsJson) as ScheduleSettings;
+        const { anchorMinutes, ...settings } = JSON.parse(
+          version.settingsJson,
+        ) as ScheduleSettings;
         result.row = { ...result.row, ...settings };
         result.anchorMinutes = anchorMinutes;
       }
@@ -58,14 +60,21 @@ export async function listActivities(
 }
 
 const SCHEDULE_FIELDS = [
-  "minimumType", "minimumValue", "sessionMinutes", "daysOfWeek", "importance",
+  "minimumType",
+  "minimumValue",
+  "sessionMinutes",
+  "daysOfWeek",
+  "importance",
   "bufferBeforeMeetingMinutes",
 ] as const;
-type ScheduleSettings = Pick<ActivityRow, (typeof SCHEDULE_FIELDS)[number]> & { anchorMinutes: number[] };
-const settingsOf = ({ row, anchorMinutes }: ActivityWithWindows): string => JSON.stringify({
-  ...Object.fromEntries(SCHEDULE_FIELDS.map((key) => [key, row[key]])),
-  anchorMinutes: [...anchorMinutes].sort((a, b) => a - b),
-});
+type ScheduleSettings = Pick<ActivityRow, (typeof SCHEDULE_FIELDS)[number]> & {
+  anchorMinutes: number[];
+};
+const settingsOf = ({ row, anchorMinutes }: ActivityWithWindows): string =>
+  JSON.stringify({
+    ...Object.fromEntries(SCHEDULE_FIELDS.map((key) => [key, row[key]])),
+    anchorMinutes: [...anchorMinutes].sort((a, b) => a - b),
+  });
 
 /** Save tomorrow's latest choice, never a queue of every edit made today. */
 export async function scheduleActivityChanges(
@@ -75,15 +84,25 @@ export async function scheduleActivityChanges(
   previous?: ActivityWithWindows,
 ): Promise<boolean> {
   if (!isTransaction(db))
-    return userTransaction(db, (tx) => scheduleActivityChanges(tx, activityId, effectiveDate, previous));
-  const current = (await listActivities(db)).find((a) => a.row.id === activityId);
+    return userTransaction(db, (tx) =>
+      scheduleActivityChanges(tx, activityId, effectiveDate, previous),
+    );
+  const current = (await listActivities(db)).find(
+    (a) => a.row.id === activityId,
+  );
   if (!current) throw new Error("No activity to configure");
   const settingsJson = settingsOf(current);
   if (previous && settingsJson === settingsOf(previous)) return false;
   // Preserve the original baseline once. New activities have no routine today.
   await db.activitySchedule.upsert({
-    where: { activityId_effectiveDate: { activityId, effectiveDate: "0001-01-01" } },
-    create: { activityId, effectiveDate: "0001-01-01", settingsJson: previous ? settingsOf(previous) : null },
+    where: {
+      activityId_effectiveDate: { activityId, effectiveDate: "0001-01-01" },
+    },
+    create: {
+      activityId,
+      effectiveDate: "0001-01-01",
+      settingsJson: previous ? settingsOf(previous) : null,
+    },
     update: {},
   });
   await db.activitySchedule.upsert({

@@ -1,13 +1,20 @@
 import {
+  type ActivityInput,
+  createActivity,
+  userTransaction,
+} from "@wiseroutine/db";
+import {
   CORE_FEATURES,
   featureUserKey,
   parseFeatureOverrides,
 } from "@wiseroutine/plans/features";
+import { dayBounds, localDateOf } from "@wiseroutine/scheduler";
 import { Hono } from "hono";
 import type { App } from "../context";
 import { requireUser } from "../context";
 import { generateToken } from "../crypto";
 import { createUserDb } from "../env";
+import { planDay } from "../planning/planDay";
 
 /**
  * Seeding, for the browser tests and nothing else.
@@ -164,6 +171,78 @@ testing.post("/features", requireUser, async (c) => {
     JSON.stringify({ ...CORE_FEATURES, ...flags }),
   );
   return c.body(null, 204);
+});
+
+/** An established routine for scenarios that are not testing first-day setup.
+ * New production activities start tomorrow; fixtures may begin with a routine
+ * that already existed yesterday. Never a bypass on the production route. */
+testing.post("/routine", requireUser, async (c) => {
+  const {
+    activity,
+    place = true,
+    pastUnplaced = 0,
+  } = await c.req.json<{
+    activity: ActivityInput;
+    place?: boolean;
+    pastUnplaced?: number;
+  }>();
+  const now = c.get("now");
+  const user = c.get("user");
+  const newId = () => crypto.randomUUID();
+  return userTransaction(c.get("db"), async (db) => {
+    const id = await createActivity(
+      db,
+      {
+        ...activity,
+        kind: activity.kind ?? "recovery",
+        minimumType: activity.minimumType ?? "countPerDay",
+        minimumValue: activity.minimumValue ?? 1,
+        sessionMinutes: activity.sessionMinutes ?? 10,
+      },
+      now - 86400000,
+      newId,
+    );
+    const start = dayBounds(
+      localDateOf(now, user.timeZone),
+      user.timeZone,
+      0,
+      1440,
+    ).start;
+    const previous = dayBounds(
+      localDateOf(start - 1, user.timeZone),
+      user.timeZone,
+      480,
+      1080,
+    ).start;
+    for (let n = 0; n < Math.min(pastUnplaced, 12); n++)
+      await db.slot.create({
+        data: {
+          id: newId(),
+          activityId: id,
+          title: activity.name,
+          kind: activity.kind ?? "recovery",
+          status: "bucketed",
+          startsAt: new Date(previous),
+          endsAt: new Date(previous + (activity.sessionMinutes ?? 10) * 60000),
+          timeZone: user.timeZone,
+          createdAt: new Date(previous),
+        },
+      });
+    if (place)
+      await planDay(
+        db,
+        {
+          user,
+          onDay: now,
+          from: now,
+          trigger: "user_request",
+          preservePlanned: true,
+        },
+        now,
+        newId,
+      );
+    return c.json({ id }, 201);
+  });
 });
 
 /**

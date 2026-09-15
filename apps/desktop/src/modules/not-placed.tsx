@@ -13,7 +13,7 @@ import { dropTimeOf } from "../lib/drop-time";
 import { type NotPlacedRow, notPlacedRows } from "../lib/not-placed";
 import { notify } from "../lib/notify";
 import { type Placement, setPlacing, usePlacing } from "../lib/placing";
-import { reloadPlan, usePlan } from "../lib/plan-store";
+import { reloadPlan, usePlan, useTodayPlan } from "../lib/plan-store";
 
 const STEP = 5 * 60_000;
 
@@ -26,11 +26,13 @@ export function NotPlaced({
   standalone?: boolean;
   query?: string;
 }) {
-  const plan = usePlan();
+  const viewedPlan = usePlan();
+  const todayPlan = useTodayPlan();
+  const plan = standalone ? todayPlan : viewedPlan;
   const density = useDensity();
   const [saved, setSaved] = useState<BucketItem[]>([]);
   const [savedFor, setSavedFor] = useState<string | null>(null);
-  const dayKey = standalone ? "inbox" : JSON.stringify([plan?.date, plan?.timeZone]);
+  const dayKey = JSON.stringify([standalone, plan?.date, plan?.timeZone]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -54,7 +56,9 @@ export function NotPlaced({
       const order = ++sequence;
       setLoading(true);
       void api
-        .bucket(!standalone && plan ? (plan.dayStart + plan.dayEnd) / 2 : undefined)
+        .bucket(
+          !standalone && plan ? (plan.dayStart + plan.dayEnd) / 2 : undefined,
+        )
         .then((rows) => {
           if (active && order === sequence) {
             setSaved(standalone ? rows.filter((row) => !row.reminderId) : rows);

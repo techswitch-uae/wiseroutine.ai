@@ -712,7 +712,8 @@ const Today: React.FC = () => {
           />
         ) : null}
 
-        {rows.length === 0 && !data.progress?.length ? (
+        {!data.progress?.length &&
+        (rows.length === 0 || data.routineStartsOn) ? (
           // Keep the ruler available even on an empty day: it is the drop
           // target for Not placed, including one-off slots without activities.
           <DashedRow

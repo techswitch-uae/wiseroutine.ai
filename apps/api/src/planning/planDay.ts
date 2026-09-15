@@ -26,7 +26,7 @@ import {
   toBusyBlocks,
 } from "@wiseroutine/scheduler";
 
-export const ENGINE_VERSION = "1.2.0";
+export const ENGINE_VERSION = "1.3.0";
 
 /** The key a plan run is filed under. Spelled once, because `GET /today` asks
  *  "has this day been planned?" with it and this module answers with it. */
@@ -102,7 +102,9 @@ export async function planDay(
       listActivities(db, localDateKey(date)),
       listSlotsForRange(db, wholeDay.start, wholeDay.end),
       userDismissedSlots(db, wholeDay.start, wholeDay.end),
-      params.retryUnplaced ? listBucketForDay(db, wholeDay.start, wholeDay.end) : Promise.resolve([]),
+      params.retryUnplaced
+        ? listBucketForDay(db, wholeDay.start, wholeDay.end)
+        : Promise.resolve([]),
     ]);
   const dismissedIds = new Set(dismissed.map((slot) => slot.id));
 
@@ -147,8 +149,9 @@ export async function planDay(
     const keeps =
       slot.status === "planned"
         ? slot.isLocked || params.preservePlanned || slot.startsAt < dayStart
-        : ["live", "started", "bucketed", "skipped", "missed"].includes(slot.status) ||
-          dismissedIds.has(slot.id);
+        : ["live", "started", "bucketed", "skipped", "missed"].includes(
+            slot.status,
+          ) || dismissedIds.has(slot.id);
     if (!keeps || !slot.activityId) continue;
     keptToday.set(slot.activityId, (keptToday.get(slot.activityId) ?? 0) + 1);
   }
@@ -318,6 +321,7 @@ export async function planDay(
         startsAt: slot.start,
         endsAt: slot.end,
         actor: "system",
+        timeZone: zone,
         reasonCode: "placed_from_unplaced",
       },
       now,
