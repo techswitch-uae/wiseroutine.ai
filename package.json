@@ -19,8 +19,9 @@
     "bundle": "pnpm --filter @wiseroutine/desktop bundle",
     "release:config": "node scripts/release-config.mjs",
     "release:frontend": "node scripts/release-config.mjs --check && turbo run typecheck build --filter=@wiseroutine/desktop...",
-    "test:release": "node --test scripts/release-config.test.mjs scripts/release-version.test.mjs scripts/release-workflow.test.mjs",
+    "test:release": "node --test scripts/release-config.test.mjs scripts/release-version.test.mjs scripts/release-workflow.test.mjs scripts/install-turso-ci.test.mjs",
     "test:app-browser": "pnpm --filter @wiseroutine/desktop exec playwright test",
+    "test:app-built": "pnpm --filter @wiseroutine/desktop exec playwright test --config playwright.production.config.ts",
     "test:web-browser": "pnpm --filter @wiseroutine/web e2e",
     "test:e2e": "pnpm test:app-browser && pnpm test:web-browser",
     "test:core-browser": "pnpm --filter @wiseroutine/desktop exec playwright test core-release.spec.ts slot-actions.spec.ts",
@@ -38,6 +39,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.8",
     "js-yaml": "4.3.1",
+    "jsonc-parser": "3.3.1",
     "release-please": "17.4.0",
     "turbo": "^2.6.2",
     "typescript": "^7.0.2"

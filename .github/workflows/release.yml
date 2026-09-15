@@ -46,12 +46,8 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
-      # Homebrew no longer taps a formula's third-party dependencies on its own,
-      # and turso depends on libsql/sqld/sqld.
-      - run: |
-          brew tap tursodatabase/tap
-          brew tap libsql/sqld
-          brew install tursodatabase/tap/turso
+      - name: Install Turso with formula-scoped Homebrew trust
+        run: bash scripts/install-turso-ci.sh
       - run: pnpm install --frozen-lockfile
       - run: pnpm addon:verify
       - run: pnpm exec turbo run typecheck test --force
