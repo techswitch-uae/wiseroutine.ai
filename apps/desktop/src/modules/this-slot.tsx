@@ -10,7 +10,7 @@ import {
 import { canPostponeSlot, canStopSlot } from "@wiseroutine/scheduler";
 import { useEffect, useRef, useState } from "react";
 import { upNextOf } from "../lib/alerts";
-import { api, type TodayResponse } from "../lib/api";
+import { api, calendarProviderLabel, type TodayResponse } from "../lib/api";
 import { captureError } from "../lib/capture";
 import { useFeatures } from "../lib/features";
 import { notify } from "../lib/notify";
@@ -108,12 +108,14 @@ const Meeting: React.FC<{
 }> = ({ meeting, timeZone, leaving, onClose }) => {
   const [details, setDetails] = useState(false);
   const when = `${clock(meeting.startsAt, timeZone)}–${clock(meeting.endsAt, timeZone)}`;
+  const provider = calendarProviderLabel(meeting.provider);
 
   return (
     <Widget eyebrow="Meeting" leaving={leaving} onClose={onClose}>
       <h3 className="wr-widget-title">{meeting.title ?? "Busy"}</h3>
       <div className="wr-widget-time">
-        {clock(meeting.startsAt, timeZone)}–{clock(meeting.endsAt, timeZone)}
+        {provider ? `${provider} · ` : null}
+        {when}
       </div>
       {/* The one thing that can be *done* to someone else's block. It is not a
         link: the app's own webview must not navigate away from the app, and a
@@ -175,8 +177,9 @@ const Meeting: React.FC<{
 /**
  * What to call the button.
  *
- * The provider is not stored - the link is, and it says so plainly enough.
- * Naming it is the difference between "Join" and knowing whether this is the
+ * The call service comes from the link, not the calendar's provider: an
+ * Outlook calendar can hold a Zoom link. Naming it is the difference between
+ * "Join" and knowing whether this is the
  * call you already have Teams open for. Anything unrecognised stays a plain
  * "Join" rather than naming a hostname, which is not a product anyone has
  * heard of.

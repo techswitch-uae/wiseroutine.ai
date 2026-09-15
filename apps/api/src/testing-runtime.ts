@@ -1,4 +1,4 @@
-import type { SyncPage } from "@wiseroutine/providers";
+import type { ProviderCalendar, SyncPage } from "@wiseroutine/providers";
 import type { ServerEnv } from "./env";
 
 /** Test boundaries are inert in production even if test bindings are supplied. */
@@ -27,6 +27,22 @@ export async function providerTestReader(
   if (!testingEnabled(env)) return undefined;
   const page = await config.get<SyncPage>(`e2e:calendar:${calendarId}`, "json");
   return page ? async () => page : undefined;
+}
+
+/** The Sync button also rediscovers calendars. Substitute that provider list
+ * for seeded accounts without turning missing real credentials into success. */
+export async function providerTestCalendars(
+  env: ServerEnv,
+  config: KVNamespace,
+  connectionId: string,
+): Promise<ProviderCalendar[] | undefined> {
+  if (!testingEnabled(env)) return undefined;
+  return (
+    (await config.get<ProviderCalendar[]>(
+      `e2e:calendars:${connectionId}`,
+      "json",
+    )) ?? undefined
+  );
 }
 
 /** Only mail delivery and the failure boundary are substituted. Better Auth

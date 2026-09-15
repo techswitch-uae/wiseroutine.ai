@@ -258,6 +258,8 @@ export interface TodaySlot {
 
 export interface TodayMeeting {
   id: string;
+  /** Calendar provenance, independent of meeting details. Absent in old caches. */
+  provider?: "google" | "microsoft";
   title: string | null;
   startsAt: number;
   endsAt: number;
@@ -273,6 +275,16 @@ export interface TodayMeeting {
   /** What the organiser wrote, as plain text. Optional for the same reason as
    *  `joinUrl`: a day out of the offline cache may predate it. */
   description?: string | null;
+}
+
+export function calendarProviderLabel(
+  provider: TodayMeeting["provider"],
+): string | undefined {
+  return provider === "google"
+    ? "Google"
+    : provider === "microsoft"
+      ? "Outlook"
+      : undefined;
 }
 
 /** One of the day view's ranges, as the server derives them. */
@@ -1469,7 +1481,12 @@ export function buildTimeline(data: TodayResponse, now: number): TimelineRow[] {
       // A null title means the user opted out of storing titles, or we only
       // have free/busy access on that calendar.
       title: meeting.title ?? "Busy",
-      meta: `${Math.round((meeting.endsAt - meeting.startsAt) / 60_000)} min`,
+      meta: [
+        calendarProviderLabel(meeting.provider),
+        `${Math.round((meeting.endsAt - meeting.startsAt) / 60_000)} min`,
+      ]
+        .filter(Boolean)
+        .join(" · "),
     });
   }
 

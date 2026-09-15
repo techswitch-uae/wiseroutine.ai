@@ -442,6 +442,39 @@ test("a meeting is described and left alone", () => {
   ).toBeNull();
 });
 
+test.each(["google", "microsoft"] as const)(
+  "a private meeting keeps its %s provenance but has no activity controls",
+  (provider) => {
+    show(
+      day({
+        slots: [],
+        meetings: [
+          {
+            id: "private",
+            title: null,
+            provider,
+            startsAt: AT,
+            endsAt: AT + 3_600_000,
+            isAllDay: false,
+          },
+        ],
+      }),
+      "private",
+    );
+    expect(screen.getByText("Busy")).toBeTruthy();
+    expect(
+      screen.getByText(
+        `${provider === "google" ? "Google" : "Outlook"} · 09:00–10:00`,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", {
+        name: /^(Start|Resume|Stop|Postpone|Mark it done)$/,
+      }),
+    ).toBeNull();
+  },
+);
+
 // Removed, replanned out, or the day rolled over. There is no block to
 // describe any more, and describing the last one seen would be a lie.
 test("goes quiet when the block it was describing leaves the day", () => {

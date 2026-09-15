@@ -116,6 +116,7 @@ import { detectConflicts } from "../planning/planDay";
 import { enforceActivityFeatures, releaseGates } from "../release-gates";
 import { accessTokenFor, type SyncDeps } from "../sync/engine";
 import { ensureWatch, stopWatch, type WatchDeps } from "../sync/watch";
+import { providerTestCalendars } from "../testing-runtime";
 import { captureRoutes, updateTodoStatus } from "./capture";
 
 export const app = new Hono<App>();
@@ -732,16 +733,23 @@ async function rediscoverCalendars(c: Ctx): Promise<void> {
   for (const connection of await listConnections(db)) {
     if (connection.status !== "active") continue;
     try {
-      const accessToken = await accessTokenFor(
-        deps,
+      let calendars = await providerTestCalendars(
+        env,
+        c.env.CONFIG,
         connection.id,
-        connection.provider as "google" | "microsoft",
-        now,
       );
-      const calendars =
-        connection.provider === "google"
-          ? await googleListCalendars(accessToken)
-          : await microsoftListCalendars(accessToken);
+      if (calendars === undefined) {
+        const accessToken = await accessTokenFor(
+          deps,
+          connection.id,
+          connection.provider as "google" | "microsoft",
+          now,
+        );
+        calendars =
+          connection.provider === "google"
+            ? await googleListCalendars(accessToken)
+            : await microsoftListCalendars(accessToken);
+      }
 
       await upsertCalendars(
         db,
@@ -1441,6 +1449,7 @@ app.get("/today", async (c) => {
     .filter((e) => busy.some((b) => e.start < b.end && b.start < e.end))
     .map((e) => ({
       id: e.id,
+      provider: e.provider,
       title: user.storeEventTitles ? (e.title ?? null) : null,
       startsAt: e.start,
       endsAt: e.end,
@@ -1749,6 +1758,7 @@ app.get("/scope", async (c) => {
         .filter((event) => event.start < day.end && event.end > day.start)
         .map((event) => ({
           id: event.id,
+          provider: event.provider,
           // Null when the account stores busy intervals without titles. The
           // client says "Busy"; nothing here invents a name for it.
           title: user.storeEventTitles ? (event.title ?? null) : null,

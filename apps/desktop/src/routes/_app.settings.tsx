@@ -297,7 +297,7 @@ const Settings: React.FC = () => {
         className="wr-settings-section"
         data-active={active === DAY_HOURS_ANCHOR || undefined}
       >
-        <h2 className="wr-settings-title">Routine hours</h2>
+        <h2 className="wr-settings-title">Day working hours</h2>
         {account ? <DayHours account={account} /> : null}
       </section>
     </div>

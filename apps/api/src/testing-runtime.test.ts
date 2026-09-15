@@ -6,6 +6,7 @@ import { resolveServerEnv, type ServerEnv, userCredentials } from "./env";
 import { testing } from "./routes/testing";
 import {
   authTestBoundaries,
+  providerTestCalendars,
   providerTestReader,
   requestTime,
 } from "./testing-runtime";
@@ -70,6 +71,9 @@ test("test clocks, mail, provider pages and secondary routing are inert in produ
   const now = Date.now();
   expect(await requestTime(settings, kv)).toBeGreaterThanOrEqual(now);
   expect(await providerTestReader(settings, kv, "calendar")).toBeUndefined();
+  expect(
+    await providerTestCalendars(settings, kv, "connection"),
+  ).toBeUndefined();
   expect(get).not.toHaveBeenCalled();
   expect(userCredentials(settings, "wr-e2e-secondary").url).not.toContain(
     "127.0.0.1",

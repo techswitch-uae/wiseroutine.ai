@@ -16,7 +16,7 @@ import {
 } from "@wiseroutine/design";
 import { useEffect, useState } from "react";
 import { setAccount, useAccount } from "../lib/account";
-import { armAlerts, upNextOf } from "../lib/alerts";
+import { armAlerts } from "../lib/alerts";
 import { ApiError, api, getSessionToken, setSessionToken } from "../lib/api";
 import { dismiss, useToasts } from "../lib/notify";
 import { todaySnapshot, useTodayPlan } from "../lib/plan-store";
@@ -172,10 +172,17 @@ const useMenuBar = (): void => {
     let stopped = false;
     let unlisten: (() => void) | undefined;
     void import("@tauri-apps/api/event").then(async ({ listen }) => {
-      const stop = await listen("tray://start", () => {
-        const next = upNextOf(todaySnapshot()?.slots ?? [], Date.now());
-        if (next?.slotId) void startTodaySlot(next.slotId);
-      });
+      const stop = await listen<string>(
+        "tray://start",
+        ({ payload: slotId }) => {
+          // The tray may now name a meeting. Never substitute another activity
+          // for what its menu actually offered; the controller rechecks lifecycle.
+          const slot = todaySnapshot()?.slots.find(
+            (slot) => slot.id === slotId,
+          );
+          if (slot && slot.startsAt <= Date.now()) void startTodaySlot(slot.id);
+        },
+      );
       if (stopped) stop();
       else unlisten = stop;
     });
@@ -193,7 +200,7 @@ const useMenuBar = (): void => {
   useEffect(
     // No plan is a real answer, not a reason to skip: an empty schedule is
     // what clears a stale title off the bar.
-    () => armAlerts(plan?.slots ?? []),
+    () => armAlerts(plan?.slots ?? [], plan?.meetings ?? []),
     [plan],
   );
 

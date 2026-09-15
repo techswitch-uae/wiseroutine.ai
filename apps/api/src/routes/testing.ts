@@ -479,5 +479,20 @@ testing.post("/calendar", requireUser, async (c) => {
     }
   }
 
+  await c.env.CONFIG.put(
+    `e2e:calendars:${connectionId}`,
+    JSON.stringify(
+      await db.calendar.findMany({
+        where: { connectionId },
+        select: {
+          providerCalendarId: true,
+          name: true,
+          timeZone: true,
+          isPrimary: true,
+          accessRole: true,
+        },
+      }),
+    ),
+  );
   return c.json({ connectionId, calendars: made });
 });

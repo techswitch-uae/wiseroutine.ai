@@ -32,7 +32,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_notification::NotificationExt;
 
-/// One of the day's remaining slots, as the menu bar needs it.
+/// A pending slot or an imported timed meeting, as the menu bar needs it.
 ///
 /// Timestamps rather than the finished sentence, and this is the fix for a
 /// real bug: the webview used to work out "Breathing · now" and push the
@@ -43,14 +43,22 @@ use tauri_plugin_notification::NotificationExt;
 /// since finished. Exactly when the menu bar is the only thing you can see.
 ///
 /// So the webview says what the day *is*, once per change, and the picking and
-/// the counting happen here, on a clock that keeps running. `up_next` below is
-/// `upNextOf` in `lib/alerts.ts`, and the two have to keep agreeing - the
-/// webview still uses its copy to decide what "Start now" starts.
+/// the counting happen here, on a clock that keeps running. Imported meetings
+/// can be next too, but only our own slots offer Start. The menu sends that
+/// exact slot id rather than asking the webview to choose again.
 ///
 /// The start notifications were lost to the same thing, and worse: a menu bar
 /// that is a minute stale is untidy, but an alert that never arrives is the
 /// whole product failing quietly. They were one `setTimeout` per slot in that
 /// same webview. They are `due_starts` below now.
+#[derive(Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EntryKind {
+  #[default]
+  Slot,
+  Meeting,
+}
+
 #[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Entry {
@@ -58,6 +66,9 @@ pub struct Entry {
   pub title: String,
   pub starts_at: i64,
   pub ends_at: i64,
+  // Older webview schedules contain slots only.
+  #[serde(default)]
+  pub kind: EntryKind,
 }
 
 /// The day as last pushed, and what has already been said about it.
@@ -118,9 +129,9 @@ fn countdown(ms: i64) -> String {
   }
 }
 
-/// Pending slots only: the webview removes started/stopped work on refresh.
-/// Mirror scheduler/slot-actions.ts: first Start remains available until the
-/// scheduled end. The two-minute cutoff restricts movement, not first Start.
+/// The earliest pending slot or timed meeting that has not ended. The webview
+/// removes started/stopped slots on refresh. Meetings only supply a countdown;
+/// slot Start remains available until the scheduled end, as in the scheduler.
 fn up_next(entries: &[Entry], now: i64) -> UpNext {
   let Some(entry) = entries
     .iter()
@@ -141,8 +152,22 @@ fn up_next(entries: &[Entry], now: i64) -> UpNext {
     }),
     // Only offered while it is actually startable. Starting something an hour
     // early is not a shortcut, it is a different plan.
-    slot_id: live.then(|| entry.id.clone()),
+    slot_id: (live && entry.kind == EntryKind::Slot).then(|| entry.id.clone()),
   }
+}
+
+/// A menu press names the slot the user saw, even if the next native tick has
+/// changed what is up next. Never substitute a different slot or a meeting.
+fn start_slot(entries: &[Entry], id: &str, now: i64) -> Option<String> {
+  entries
+    .iter()
+    .find(|entry| {
+      entry.id == id
+        && entry.kind == EntryKind::Slot
+        && entry.starts_at <= now
+        && now < entry.ends_at
+    })
+    .map(|entry| entry.id.clone())
 }
 
 /// How long a slot runs, in whole minutes.
@@ -169,6 +194,7 @@ fn due_starts(state: &mut DayState, now: i64) -> Vec<Entry> {
   let ready: Vec<Entry> = state
     .entries
     .iter()
+    .filter(|entry| entry.kind == EntryKind::Slot)
     .filter(|entry| entry.starts_at <= now && entry.starts_at > now - LATE)
     .cloned()
     .collect();
@@ -261,7 +287,12 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
 
   // Greyed rather than hidden when there is nothing to start: an item that
   // comes and goes makes the menu jump under the cursor.
-  let start = MenuItemBuilder::with_id("start", "Start now")
+  let start_id = next
+    .slot_id
+    .as_ref()
+    .map(|id| format!("start:{id}"))
+    .unwrap_or_else(|| "start-disabled".to_string());
+  let start = MenuItemBuilder::with_id(start_id, "Start now")
     .enabled(next.slot_id.is_some())
     .build(app)?;
 
@@ -396,8 +427,17 @@ pub fn install<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
       "show" => show_window(app),
       // Acted on by the webview, which owns the session and the queue that
       // makes these work offline. Rust only carries the press across.
-      "start" => {
-        let _ = app.emit("tray://start", ());
+      id if id.starts_with("start:") => {
+        let requested = &id[6..];
+        let slot_id = app
+          .state::<Day>()
+          .0
+          .lock()
+          .ok()
+          .and_then(|state| start_slot(&state.entries, requested, now_ms()));
+        if let Some(slot_id) = slot_id {
+          let _ = app.emit("tray://start", slot_id);
+        }
       }
       _ => {}
     });
@@ -429,6 +469,7 @@ mod tests {
       title: "Breathing".to_string(),
       starts_at,
       ends_at,
+      kind: EntryKind::Slot,
     }
   }
 
@@ -526,6 +567,76 @@ mod tests {
     assert_eq!(displayed, "Walk in 1 min");
     native_title(&mut displayed, &up_next(&day, AT + 10 * MIN));
     assert_eq!(displayed, "Walk · now");
+  }
+
+  #[test]
+  fn imported_meetings_share_the_countdown_but_never_offer_start() {
+    let mut meeting = entry("meeting", AT + 5 * MIN, AT + 15 * MIN);
+    meeting.kind = EntryKind::Meeting;
+    meeting.title = "Design review".to_string();
+    let day = [entry("slot", AT + 20 * MIN, AT + 30 * MIN), meeting];
+    let mut displayed = String::new();
+    native_title(&mut displayed, &up_next(&day, AT));
+    assert_eq!(displayed, "Design review in 5 min");
+    let live = up_next(&day, AT + 5 * MIN);
+    native_title(&mut displayed, &live);
+    assert_eq!(displayed, "Design review · now");
+    assert_eq!(live.slot_id, None);
+    native_title(&mut displayed, &up_next(&day, AT + 15 * MIN));
+    assert_eq!(displayed, "Breathing in 5 min");
+    assert_eq!(
+      up_next(&day, AT + 20 * MIN).slot_id.as_deref(),
+      Some("slot")
+    );
+  }
+
+  #[test]
+  fn imported_meetings_do_not_receive_activity_start_notifications() {
+    let mut meeting = entry("meeting", AT, AT + 30 * MIN);
+    meeting.kind = EntryKind::Meeting;
+    let mut state = day(&[meeting, entry("slot", AT, AT + 10 * MIN)]);
+    let due = due_starts(&mut state, AT);
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].id, "slot");
+  }
+
+  #[test]
+  fn a_stale_start_menu_never_starts_another_slot_or_a_meeting() {
+    let mut meeting = entry("meeting", AT, AT + 30 * MIN);
+    meeting.kind = EntryKind::Meeting;
+    let day = [
+      entry("ended", AT - MIN, AT),
+      meeting,
+      entry("slot", AT, AT + MIN),
+    ];
+    assert_eq!(start_slot(&day, "ended", AT), None);
+    assert_eq!(start_slot(&day, "meeting", AT), None);
+    assert_eq!(start_slot(&day, "missing", AT), None);
+    assert_eq!(start_slot(&day, "slot", AT - 1), None);
+    assert_eq!(start_slot(&day, "slot", AT).as_deref(), Some("slot"));
+    assert_eq!(start_slot(&day, "slot", AT + MIN), None);
+  }
+
+  #[test]
+  fn schedule_kind_is_explicit_with_legacy_slot_compatibility() {
+    let legacy =
+      serde_json::json!({ "id": "a", "title": "Walk", "startsAt": AT, "endsAt": AT + MIN });
+    assert!(
+      serde_json::from_value::<Entry>(legacy.clone())
+        .unwrap()
+        .kind
+        == EntryKind::Slot
+    );
+    let mut meeting = legacy;
+    meeting["kind"] = "meeting".into();
+    assert!(
+      serde_json::from_value::<Entry>(meeting.clone())
+        .unwrap()
+        .kind
+        == EntryKind::Meeting
+    );
+    meeting["kind"] = "unknown".into();
+    assert!(serde_json::from_value::<Entry>(meeting).is_err());
   }
 
   #[test]

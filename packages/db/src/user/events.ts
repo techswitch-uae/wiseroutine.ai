@@ -37,6 +37,7 @@ export interface NormalisedEvent {
 export type StoredEvent = CalendarEvent & {
   joinUrl: string | null;
   description: string | null;
+  provider: "google" | "microsoft";
 };
 
 export interface UpsertResult {
@@ -69,21 +70,29 @@ export async function upsertEvents(
 
   const existing = await db.externalEvent.findMany({
     where: { calendarId: params.calendarId },
-    select: { providerEventId: true, changeTag: true },
+    select: {
+      providerEventId: true,
+      changeTag: true,
+      title: true,
+      joinUrl: true,
+      description: true,
+    },
   });
 
-  const tagById = new Map(
-    existing.map((e) => [e.providerEventId, e.changeTag]),
-  );
+  const byId = new Map(existing.map((e) => [e.providerEventId, e]));
   let written = 0;
   let skipped = 0;
 
   for (const event of events) {
-    const knownTag = tagById.get(event.providerEventId);
+    const known = byId.get(event.providerEventId);
+    // Provider tags describe the original event, not our privacy projection.
+    // An unchanged event must regain erased details after a fresh opt-in.
     if (
-      knownTag !== undefined &&
-      knownTag !== null &&
-      knownTag === event.changeTag
+      known?.changeTag != null &&
+      known.changeTag === event.changeTag &&
+      known.title === (storeTitles ? (event.title ?? null) : null) &&
+      known.joinUrl === (storeTitles ? (event.joinUrl ?? null) : null) &&
+      known.description === (storeTitles ? (event.description ?? null) : null)
     ) {
       skipped++;
       continue;
@@ -171,12 +180,16 @@ export async function listEventsInRange(
       endsAt: { gte: at(from) },
       calendar: { isSelected: true },
     },
+    include: {
+      calendar: { select: { connection: { select: { provider: true } } } },
+    },
   });
 
   const storeTitles = await storesEventDetails(db);
   return rows.map((row) => ({
     id: row.id,
     calendarId: row.calendarId,
+    provider: row.calendar.connection.provider as StoredEvent["provider"],
     icalUid: row.icalUid ?? undefined,
     title: storeTitles ? (row.title ?? undefined) : undefined,
     start: ms(row.startsAt),
@@ -214,6 +227,24 @@ export async function setEventPrivacy(
   storeTitles: boolean,
 ): Promise<void> {
   await userTransaction(db, async (tx) => {
+    const wasEnabled = await storesEventDetails(tx);
+    if (storeTitles && !wasEnabled) {
+      // Incremental feeds do not resend unchanged meetings. Invalidate both
+      // providers' cursors, including deselected calendars for their next sync.
+      // A generation change also fences provider fetches already in flight.
+      const calendars = await tx.calendar.findMany({ select: { id: true } });
+      for (const { id: calendarId } of calendars) {
+        await tx.calendarSyncState.upsert({
+          where: { calendarId },
+          create: { calendarId, syncGeneration: 1 },
+          update: {
+            syncToken: null,
+            deltaLink: null,
+            syncGeneration: { increment: 1 },
+          },
+        });
+      }
+    }
     await tx.$executeRawUnsafe(
       "UPDATE _event_privacy SET store_titles = ? WHERE id = 1",
       storeTitles ? 1 : 0,

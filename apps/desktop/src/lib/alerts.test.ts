@@ -1,6 +1,15 @@
-import { describe, expect, it } from "vitest";
-import { armAlerts, countdown, upNextOf } from "./alerts";
-import type { TodaySlot } from "./api";
+import { invoke } from "@tauri-apps/api/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { armAlerts, countdown, trayEntries, upNextOf } from "./alerts";
+import type { TodayMeeting, TodaySlot } from "./api";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn().mockResolvedValue(undefined),
+}));
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
 
 const AT = Date.UTC(2026, 7, 11, 9, 0);
 const MIN = 60_000;
@@ -76,11 +85,73 @@ describe("countdown", () => {
   });
 });
 
+const meeting = (over: Partial<TodayMeeting> = {}): TodayMeeting => ({
+  id: "meeting",
+  title: "Design review",
+  startsAt: AT,
+  endsAt: AT + 60 * MIN,
+  isAllDay: false,
+  provider: "microsoft",
+  ...over,
+});
+
+describe("trayEntries", () => {
+  it("includes timed imports with an explicit read-only kind, not all-day events or settled slots", () => {
+    expect(
+      trayEntries(
+        [slot({ id: "a" }), slot({ id: "done", status: "completed" })],
+        [meeting(), meeting({ id: "all-day", isAllDay: true })],
+      ),
+    ).toEqual([
+      {
+        id: "a",
+        title: "Shoulder stretch",
+        startsAt: AT,
+        endsAt: AT + 10 * MIN,
+        kind: "slot",
+      },
+      {
+        id: "meeting",
+        title: "Design review",
+        startsAt: AT,
+        endsAt: AT + 60 * MIN,
+        kind: "meeting",
+      },
+    ]);
+  });
+  it("uses Busy for a redacted meeting, without inventing an activity", () => {
+    expect(trayEntries([], [meeting({ title: null })])[0]).toMatchObject({
+      title: "Busy",
+      kind: "meeting",
+    });
+  });
+});
+
 describe("armAlerts", () => {
   // Outside Tauri there is nothing to arm, which is exactly the guard worth
   // pinning: the same bundle ships as the web app, where there is no menu bar
   // and no notifications to push a schedule to.
   it("is inert in a browser", () => {
-    expect(() => armAlerts([slot({ id: "a" })])).not.toThrow();
+    expect(() => armAlerts([slot({ id: "a" })], [meeting()])).not.toThrow();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+  it("sends both kinds through the native bridge and clears imported titles on refresh", async () => {
+    vi.stubGlobal("__TAURI_INTERNALS__", {});
+    armAlerts([slot({ id: "a" })], [meeting()]);
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("set_schedule", {
+        entries: trayEntries([slot({ id: "a" })], [meeting()]),
+      }),
+    );
+    armAlerts([], [meeting({ title: null })]);
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenLastCalledWith("set_schedule", {
+        entries: trayEntries([], [meeting({ title: null })]),
+      }),
+    );
+    armAlerts([]);
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenLastCalledWith("set_schedule", { entries: [] }),
+    );
   });
 });

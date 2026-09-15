@@ -139,6 +139,30 @@ describe("owedToday", () => {
  * in place only before the scheduled start cutoff; missed history never moves.
  */
 describe("buildTimeline", () => {
+  it("labels imported meetings by provider, including Busy, without guessing old cache provenance", () => {
+    const rows = buildTimeline(
+      day({
+        meetings: [
+          { ...meeting(H(10), H(11), "google"), provider: "google" },
+          {
+            ...meeting(H(11), H(12), "outlook"),
+            provider: "microsoft",
+            title: null,
+          },
+          meeting(H(12), H(13), "legacy"),
+        ],
+      }),
+      H(9),
+    );
+    expect(rows.map(({ title, meta }) => ({ title, meta }))).toEqual([
+      { title: "Design review", meta: "Google · 60 min" },
+      { title: "Busy", meta: "Outlook · 60 min" },
+      { title: "Design review", meta: "60 min" },
+    ]);
+    expect(
+      rows.every((row) => !row.slotId && !row.startable && !row.movable),
+    ).toBe(true);
+  });
   const status = (value: string) =>
     buildTimeline(
       day({

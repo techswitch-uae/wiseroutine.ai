@@ -10,6 +10,7 @@ import {
   tombstoneEvents,
   type UserDatabase,
   upsertEvents,
+  userTransaction,
 } from "@wiseroutine/db";
 import type { PlanId } from "@wiseroutine/plans";
 import {
@@ -95,6 +96,8 @@ export interface SyncTarget {
   provider: "google" | "microsoft";
   providerCalendarId: string;
   storeTitles: boolean;
+  /** Captured before reading the directory preference, to fence opt-in races. */
+  syncGeneration?: number;
   /**
    * The earliest instant this sync may reach - see `syncWindowStart`.
    *
@@ -112,6 +115,8 @@ export interface SyncOutcome {
   deleted: number;
   fullResync: boolean;
   pages: number;
+  /** A newer sync/privacy choice won; this fetch made no storage changes. */
+  superseded?: boolean;
 }
 
 /**
@@ -227,10 +232,8 @@ export async function syncCalendar(
   now: number,
   newId: () => string,
 ): Promise<SyncOutcome> {
-  const accessToken = deps.readPage
-    ? ""
-    : await accessTokenFor(deps, target.connectionId, target.provider, now);
   const state = await getSyncState(deps.db, target.calendarId);
+  const generation = state?.syncGeneration ?? 0;
 
   const stale =
     state?.windowRebasedAt != null &&
@@ -247,6 +250,26 @@ export async function syncCalendar(
     fullResync,
     pages: 0,
   };
+
+  if (
+    target.syncGeneration !== undefined &&
+    target.syncGeneration !== generation
+  )
+    return { ...outcome, superseded: true };
+
+  const accessToken = deps.readPage
+    ? ""
+    : await accessTokenFor(deps, target.connectionId, target.provider, now);
+
+  // Events and cursor advance together. A privacy opt-in or a competing sync
+  // must not have its full-refresh request overwritten by an old delta fetch.
+  const commit = (write: (db: UserDatabase) => Promise<void>) =>
+    userTransaction(deps.db, async (db) => {
+      const latest = await getSyncState(db, target.calendarId);
+      if ((latest?.syncGeneration ?? 0) !== generation) return false;
+      await write(db);
+      return true;
+    });
 
   // The caller supplies the floor because it is the caller that knows the
   // account's zone; without one this is the window it always was.
@@ -297,12 +320,19 @@ export async function syncCalendar(
     if (error instanceof SyncTokenExpired) {
       // Expected, not exceptional: an ACL change or an evicted token. Clear and
       // start over on the next pass rather than failing the job.
-      await saveSyncState(deps.db, target.calendarId, {
-        syncToken: null,
-        deltaLink: null,
-        windowRebasedAt: now,
-      });
-      return { ...outcome, fullResync: true };
+      const committed = await commit((db) =>
+        saveSyncState(db, target.calendarId, {
+          syncToken: null,
+          deltaLink: null,
+          windowRebasedAt: now,
+          syncGeneration: generation + 1,
+        }),
+      );
+      return {
+        ...outcome,
+        fullResync: true,
+        ...(!committed ? { superseded: true } : {}),
+      };
     }
     if (error instanceof ProviderError && error.needsReauth) {
       await markNeedsReauth(deps.db, target.connectionId);
@@ -310,32 +340,34 @@ export async function syncCalendar(
     throw error;
   }
 
-  const upserted = await upsertEvents(
-    deps.db,
-    { calendarId: target.calendarId, storeTitles: target.storeTitles },
-    collected,
-    now,
-    newId,
-  );
-  outcome.written = upserted.written;
-  outcome.skipped = upserted.skipped;
+  const committed = await commit(async (db) => {
+    const upserted = await upsertEvents(
+      db,
+      { calendarId: target.calendarId, storeTitles: target.storeTitles },
+      collected,
+      now,
+      newId,
+    );
+    outcome.written = upserted.written;
+    outcome.skipped = upserted.skipped;
 
-  if (deleted.length > 0) {
-    await tombstoneEvents(deps.db, target.calendarId, deleted, now);
-    outcome.deleted = deleted.length;
-  }
+    if (deleted.length > 0) {
+      await tombstoneEvents(db, target.calendarId, deleted, now);
+      outcome.deleted = deleted.length;
+    }
 
-  await saveSyncState(deps.db, target.calendarId, {
-    ...(target.provider === "google"
-      ? { syncToken: nextSyncToken ?? state?.syncToken ?? null }
-      : { deltaLink: nextSyncToken ?? state?.deltaLink ?? null }),
-    lastIncrementalAt: now,
-    ...(fullResync ? { lastFullSyncAt: now, windowRebasedAt: now } : {}),
-    consecutiveFailures: 0,
-    syncGeneration: (state?.syncGeneration ?? 0) + 1,
+    await saveSyncState(db, target.calendarId, {
+      ...(target.provider === "google"
+        ? { syncToken: nextSyncToken ?? token ?? null }
+        : { deltaLink: nextSyncToken ?? link ?? null }),
+      lastIncrementalAt: now,
+      ...(fullResync ? { lastFullSyncAt: now, windowRebasedAt: now } : {}),
+      consecutiveFailures: 0,
+      syncGeneration: generation + 1,
+    });
   });
 
-  return outcome;
+  return { ...outcome, ...(!committed ? { superseded: true } : {}) };
 }
 
 /** One ingestion → privacy fence → collision repair pipeline for worker jobs
@@ -346,6 +378,8 @@ export async function syncCalendarAndRepair(
   now: number,
   newId: () => string,
 ) {
+  const syncGeneration =
+    (await getSyncState(deps.db, target.calendarId))?.syncGeneration ?? 0;
   const user = await getUser(deps.directory, deps.userId);
   const sync = await syncCalendar(
     deps,
@@ -355,6 +389,7 @@ export async function syncCalendarAndRepair(
       provider: target.provider,
       providerCalendarId: target.providerCalendarId,
       storeTitles: user?.storeEventTitles ?? true,
+      syncGeneration,
       windowStart: syncWindowStart(
         now,
         target.connectedAt,

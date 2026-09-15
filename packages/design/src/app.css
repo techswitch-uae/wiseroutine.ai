@@ -17,6 +17,11 @@
   --wr-page: #f6f1e8;            /* content ground */
   --wr-chrome: var(--color-neutral-200); /* window bar, sidebars, settings panes */
   --wr-card: var(--color-neutral-100);
+  /* The surfaces that read as "a thing of ours": a slot on the day, a widget
+     in the rail, a settings block, the sidebar's current page. White, one
+     step above the card's cream so they lift off it as well as off the page.
+     One token on purpose - set it back to `var(--wr-card)` to revert. */
+  --wr-surface: #fff;
   --wr-recessed: var(--color-neutral-200);
   --wr-track: var(--color-neutral-300);
   --wr-dashed: #cdbe9f;
@@ -526,7 +531,7 @@ body.wr-dragging { user-select: none; -webkit-user-select: none; cursor: grabbin
 .wr-slot {
   flex: 1; display: flex; align-items: center; gap: 11px;
   padding: 11px 15px; border-radius: 14px;
-  background: var(--wr-card); box-shadow: var(--wr-lift-1);
+  background: var(--wr-surface); box-shadow: var(--wr-lift-1);
 }
 /* the 3px rule is the only category marker; dots are for status and legends */
 .wr-rule { width: 3px; height: 20px; flex: none; border-radius: 2px; background: var(--color-text); }
@@ -611,7 +616,7 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
    neighbour or on being first. */
 .wr-widget {
   width: 250px; padding: 17px 19px; border-radius: var(--radius-lg);
-  background: var(--wr-card); box-shadow: var(--wr-lift-2);
+  background: var(--wr-surface); box-shadow: var(--wr-lift-2);
   box-sizing: border-box;
 }
 /* The box a widget grows into. Its height is animated in script - see
@@ -746,7 +751,7 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
   border: 0; background: transparent; cursor: pointer; text-align: left; width: 100%;
 }
 .wr-navitem-active {
-  font-weight: 600; color: var(--color-text); background: var(--color-neutral-100);
+  font-weight: 600; color: var(--color-text); background: var(--wr-surface);
   box-shadow: 0 1px 2px rgba(46, 43, 37, 0.07), 0 3px 8px rgba(46, 43, 37, 0.06);
 }
 .wr-navitem-count { margin-left: auto; font: 700 10.5px var(--font-body); padding: 1px 7px; border-radius: 999px; background: var(--wr-track); }
@@ -809,7 +814,7 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
    not a heavier shadow, is what separates it from its target. */
 .wr-drag-card {
   position: absolute; left: 34px; top: 34px; right: 34px;
-  border-radius: 14px; background: var(--wr-card); box-shadow: var(--wr-lift-3);
+  border-radius: 14px; background: var(--wr-surface); box-shadow: var(--wr-lift-3);
   padding: 11px 15px; display: flex; align-items: center; gap: 11px;
 }
 .wr-grip { font: 400 12px var(--font-body); color: var(--wr-text-soft); letter-spacing: 2px; }
@@ -1157,7 +1162,7 @@ img.wr-avatar { object-fit: cover; }
 /* Lift 3 - the floating-surface step, shared with the live slot and dialogs. */
 .wr-usermenu-pop {
   position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; min-width: 208px;
-  background: var(--wr-card); border-radius: var(--radius-md); box-shadow: var(--wr-lift-3);
+  background: var(--wr-surface); border-radius: var(--radius-md); box-shadow: var(--wr-lift-3);
   padding: 6px; z-index: 20;
 }
 .wr-usermenu-head {
@@ -1343,7 +1348,7 @@ img.wr-avatar { object-fit: cover; }
      behind it is still visible - and the body is the only part that scrolls,
      so the title stays put however long the content is. */
   position: relative; width: 100%; max-width: 560px; max-height: min(80vh, 100%);
-  background: var(--wr-page); border-radius: 18px; box-shadow: var(--wr-lift-3);
+  background: var(--wr-surface); border-radius: 18px; box-shadow: var(--wr-lift-3);
   display: flex; flex-direction: column; overflow: hidden;
 }
 .wr-sheet-head {
@@ -1542,7 +1547,7 @@ img.wr-avatar { object-fit: cover; }
 .wr-hours-pop {
   position: absolute; top: calc(100% + 8px); left: 0; z-index: 20;
   width: 296px; padding: 14px 15px 12px;
-  border-radius: var(--radius-md); background: var(--wr-card);
+  border-radius: var(--radius-md); background: var(--wr-surface);
   box-shadow: var(--wr-lift-3);
 }
 .wr-hours-title { padding: 0 3px; }
@@ -1712,6 +1717,10 @@ img.wr-avatar { object-fit: cover; }
    `scroll-margin-top` is what makes "Edit hours and ranges" arrive with the
    heading visible rather than flush against the top of the scroller. */
 .wr-settings { display: flex; flex-direction: column; gap: 30px; }
+/* Activities still groups its list and its form in cards. On a settings-style
+   page they are the same kind of surface as a block, so they take the same
+   ground - the rail's cards on Today keep the cream. */
+.wr-settings .wr-card { background: var(--wr-surface); }
 .wr-settings-section { scroll-margin-top: 18px; }
 /* Trimmed for the same reason the day's title is: vertical space is measured
    to a text box and horizontal space to the letters, so an untrimmed heading
@@ -1739,7 +1748,7 @@ img.wr-avatar { object-fit: cover; }
 .wr-blocks { display: grid; gap: 12px; }
 .wr-block {
   padding: 16px 18px; border-radius: 15px;
-  background: var(--wr-card); box-shadow: var(--wr-lift-2);
+  background: var(--wr-surface); box-shadow: var(--wr-lift-2);
   transition: box-shadow 0.2s ease;
 }
 /* The section a link landed on, lit until the first press outside it. */
@@ -2033,7 +2042,7 @@ img.wr-avatar { object-fit: cover; }
   font: 400 11.5px/1.5 var(--font-body); color: var(--wr-text-muted);
 }
 .wr-legend-swatch { width: 16px; height: 8px; border-radius: 999px; flex: none; }
-.wr-legend-slot { background: var(--wr-card); box-shadow: var(--wr-lift-1); }
+.wr-legend-slot { background: var(--wr-surface); box-shadow: var(--wr-lift-1); }
 .wr-legend-meeting {
   background: var(--wr-recessed);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #2e2b25 12%, transparent);
@@ -2149,7 +2158,7 @@ img.wr-avatar { object-fit: cover; }
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #2e2b25 12%, transparent);
   align-items: flex-start; padding: 4px 6px;
 }
-.wr-week-block-slot { background: var(--wr-card); box-shadow: var(--wr-lift-1); }
+.wr-week-block-slot { background: var(--wr-surface); box-shadow: var(--wr-lift-1); }
 .wr-week-block-live {
   background: var(--color-accent-700); color: #fff;
   box-shadow: 0 2px 5px rgba(46, 43, 37, 0.2);
@@ -2171,7 +2180,7 @@ img.wr-avatar { object-fit: cover; }
   position: absolute; left: 3px; z-index: 3;
   width: 210px; max-width: none;
   padding: 9px 11px; border-radius: 12px;
-  background: var(--wr-card); box-shadow: var(--wr-lift-3);
+  background: var(--wr-surface); box-shadow: var(--wr-lift-3);
 }
 /* The last days of the week open leftwards - the page scroller clips
    sideways, so opening rightwards there runs off the edge of the week. */
@@ -2321,3 +2330,34 @@ button.wr-month-cell:hover { box-shadow: var(--wr-lift-2); }
   font: 400 11px var(--font-body); color: var(--wr-text-muted);
 }
 .wr-palette-foot span { display: inline-flex; align-items: center; gap: 5px; }
+
+/* ── On a white surface ────────────────────────────────────────────────────
+   Everything that is recessed was drawn for the cream card: the sand a step
+   below it. On a white surface - a block, a widget, a sheet, a popover, the
+   Activities cards - that same sand reads as a darker patch rather than a
+   lower plane, so here the recessed things take the cream instead, one step
+   down from white. A control inside one of those (a stepper's buttons, a
+   provider row's mark) goes one further step so it stays separate.
+   Last in the file on purpose, and `:where()` on the surface so the rules
+   carry only the control's own specificity: a hover, a pressed segment, a
+   selected day or pill - all declared with more - still win. */
+:where(.wr-block, .wr-widget, .wr-sheet, .wr-hours-pop, .wr-usermenu-pop, .wr-week-pop, .wr-settings .wr-card)
+  :is(.wr-seg, .wr-btn-secondary, .wr-timefield, .wr-stepper, .wr-provider,
+      .wr-provider-terms, .wr-slot-meeting, .wr-slot-inset, .wr-confirm,
+      .wr-switchrow, .wr-hours-edit, .wr-hours-opt:hover, .wr-status,
+      .wr-keycap, .wr-pillgroup, .wr-widget-time-btn, .wr-iconbtn) {
+  background: var(--wr-card);
+}
+:where(.wr-block, .wr-widget, .wr-sheet, .wr-hours-pop, .wr-usermenu-pop, .wr-week-pop, .wr-settings .wr-card)
+  :is(.wr-hours-opt[aria-checked="true"], .wr-calpick-row:hover,
+      .wr-palette-pill:not(.wr-palette-pill-on), .wr-day:not(.wr-day-on)) {
+  background: var(--wr-card);
+}
+:where(.wr-block, .wr-widget, .wr-sheet, .wr-hours-pop, .wr-usermenu-pop, .wr-week-pop, .wr-settings .wr-card)
+  :is(.wr-stepper-btn, .wr-provider .wr-provider-mark) {
+  background: var(--wr-surface);
+}
+:where(.wr-block, .wr-widget, .wr-sheet, .wr-hours-pop, .wr-usermenu-pop, .wr-week-pop, .wr-settings .wr-card)
+  .wr-stepper-btn:disabled:hover {
+  background: var(--wr-surface);
+}

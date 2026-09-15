@@ -58,7 +58,7 @@ pnpm --filter @wiseroutine/desktop exec playwright test calendars.spec.ts
 | App capture | Keyboard/focus, links and multiple files, exact download bytes, offline draft recovery, plan/postpone and return to Inbox | Existing release/entitlement fixtures; not live OAuth or production storage |
 
 The suites currently contain **44 web browser cases** (11 stories × 4
-browser projects), **30 web unit cases**, and **70 full-stack app scenarios**.
+browser projects), **30 web unit cases**, and **72 full-stack app scenarios**.
 Counts will change as coverage grows; the actual run/report is authoritative.
 
 ## Isolation and reproducibility
@@ -86,6 +86,11 @@ Counts will change as coverage grows; the actual run/report is authoritative.
   delivery is a guarded sink. `calendar-repair.spec.ts` supplies controlled provider
   pages; normalization, privacy storage and the worker's shared repair pipeline run.
   Scheduled test syncs use the same controlled page boundary, never live providers.
+  Calendar rediscovery also uses a controlled provider list for seeded connections,
+  so the real Sync button never needs live OAuth tokens in browser tests.
+  Opt-out → opt-in journeys retain unchanged provider tags, press Sync, and check
+  that both earlier/later meetings regain names, notes and join links. Google/Outlook
+  provenance remains visible on Busy cards and restored meeting details.
 - Web tests use semantic locators, web-first assertions and no arbitrary sleeps.
   Browser/console errors fail the interaction suite. Safari keyboard checks use
   the platform's link-navigation gesture. Buttons remain disabled until hydration.
@@ -161,6 +166,13 @@ Let the slot **end**. After the next native tick (at most 15 seconds), only the
 tray icon should remain; the menu should say **Nothing up next**, with
 **Start now** disabled. Repeat after completing the last slot and signing out. Rust unit tests
 model the setter contract; they do not drive a live AppKit status item.
+
+Imported timed meetings also belong in the tray countdown, with the same
+`Meeting in 10 min` → `Meeting · now` wording and 22-character name limit.
+All-day events are excluded. Check that an imported meeting never enables Start
+or triggers an activity's “Starting now” notification; the following own slot
+must still appear and start normally. These changes require a rebuilt native
+binary, not just a webview reload.
 
 ## Rules migration regression checks
 
