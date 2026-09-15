@@ -1,8 +1,9 @@
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import type { AddonManifest } from "@wiseroutine/addons";
 import { parseManifest } from "@wiseroutine/addons";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { publishPlan, resetPlans } from "../lib/plan-store";
+import { changeSession, identifySession } from "../lib/session-lifecycle";
 import { AddonFrame } from "./frame";
 import { type AddonContext, dispatchQuickAdd, serve } from "./host";
 import type { InstalledAddon } from "./installed";
@@ -243,13 +244,14 @@ describe("where the frame comes from", () => {
       convertFileSrc: (path: string, protocol: string) =>
         `${protocol}://localhost/${path}`,
     };
-    localStorage.setItem("wiseroutine.session", "test-token");
-    localStorage.setItem("wiseroutine.identity", "account-a");
+    act(() => {
+      changeSession("test-token");
+      identifySession("account-a");
+    });
     try {
       fn();
     } finally {
-      localStorage.removeItem("wiseroutine.session");
-      localStorage.removeItem("wiseroutine.identity");
+      act(() => changeSession(null));
       delete host.__TAURI_INTERNALS__;
     }
   };

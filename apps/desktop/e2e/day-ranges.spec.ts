@@ -257,7 +257,11 @@ test("the last chosen view persists, while an explicit Settings default supersed
   });
   await expect(working).toHaveAttribute("aria-pressed", "true");
   await working.click();
-  await page.goto("/");
+  // Navigate as a user does; a full document navigation here can abort the
+  // still-saving control before it clears this device's previous view.
+  await page.getByRole("button", { name: "Today", exact: true }).click();
+  await expect(hoursShown(page)).toHaveText("08:00–18:00");
+  await page.reload();
   await expect(hoursShown(page)).toHaveText("08:00–18:00");
 });
 

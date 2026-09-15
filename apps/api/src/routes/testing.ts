@@ -1,6 +1,7 @@
 import {
   type ActivityInput,
   createActivity,
+  getCalendarForSync,
   placeSlot,
   userTransaction,
 } from "@wiseroutine/db";
@@ -9,13 +10,19 @@ import {
   featureUserKey,
   parseFeatureOverrides,
 } from "@wiseroutine/plans/features";
+import {
+  normaliseGoogleEvent,
+  normaliseMicrosoftEvent,
+} from "@wiseroutine/providers";
 import { dayBounds, localDateOf } from "@wiseroutine/scheduler";
 import { Hono } from "hono";
 import type { App } from "../context";
-import { requireUser } from "../context";
+import { requireUser, rootKey } from "../context";
 import { generateToken } from "../crypto";
 import { createUserDb } from "../env";
 import { planDay } from "../planning/planDay";
+import { syncCalendarAndRepair } from "../sync/engine";
+import { providerTestReader, testingEnabled } from "../testing-runtime";
 
 /**
  * Seeding, for the browser tests and nothing else.
@@ -32,11 +39,11 @@ import { planDay } from "../planning/planDay";
  * A miss on any of them is a 404 rather than a 403, because "this endpoint
  * does not exist here" is the honest answer and not a hint to keep guessing.
  *
- * Why this exists at all: signing in is a code emailed to a real address, and
- * connecting a calendar is a consent screen on Google's servers. Neither can
- * be driven by a test, so the test needs a door of its own - and one door with
- * three locks is safer than the alternative everybody reaches for, which is
- * loosening the real sign-in until a test can get through it.
+ * Most scenarios seed auth/consent so they can focus on the day. Dedicated
+ * authentication journeys instead use a controlled mail sink and the real
+ * OTP verification/provisioning paths. Provider journeys replace transport,
+ * not event ingestion or repair. The clocks and inspection helpers here have
+ * the same three locks; production sign-in is never loosened for a test.
  */
 export const testing = new Hono<App>();
 
@@ -44,18 +51,18 @@ testing.use("*", async (c, next) => {
   const env = c.get("env");
   const secret = env.E2E_SECRET;
 
-  if (env.ENVIRONMENT === "production" || !secret) return c.notFound();
+  if (!testingEnabled(env)) return c.notFound();
   if (c.req.header("x-e2e-key") !== secret) return c.notFound();
 
   await next();
 });
 
 /**
- * Empty both databases.
+ * Empty the directory and configured fixture databases.
  *
- * Locally one libSQL database serves every user - `TURSO_USER_HOST` is an
- * http:// URL, so the per-user name is never resolved - which means scenarios
- * are not isolated from each other by default. The first run of this skeleton
+ * Ordinary fixtures share one local user database. Cross-account acceptance
+ * explicitly opts into a second endpoint; neither database is shared with a
+ * developer's data. Scenarios are still serial and reset before each test. The first run of this skeleton
  * proved it: a later test saw the calendars an earlier one had seeded, and
  * looked for a set-up module the app was right not to show.
  *
@@ -64,27 +71,36 @@ testing.use("*", async (c, next) => {
  */
 testing.post("/reset", async (c) => {
   const directory = c.get("directory");
-  // Any name: locally they all resolve to the one database.
-  const db = createUserDb(c.get("env"), "wr-e2e-reset");
-
-  await db.$executeRawUnsafe("DELETE FROM _slot_actions");
-  await db.$executeRawUnsafe("DELETE FROM _captures");
-  await db.$executeRawUnsafe("DELETE FROM _todo_file_chunks");
-  await db.$executeRawUnsafe("DELETE FROM _todo_files");
-  await db.$executeRawUnsafe(
-    "UPDATE _event_privacy SET store_titles = 1 WHERE id = 1",
-  );
-  await db.slotEvent.deleteMany();
-  await db.slot.deleteMany();
-  await db.planRun.deleteMany();
-  await db.activityWindow.deleteMany();
-  await db.activity.deleteMany();
-  await db.externalEvent.deleteMany();
-  await db.calendarSyncState.deleteMany();
-  await db.calendar.deleteMany();
-  await db.oAuthToken.deleteMany();
-  await db.calendarConnection.deleteMany();
-  await db.reminder.deleteMany();
+  const env = c.get("env");
+  let cursor: string | undefined;
+  do {
+    const keys = await c.env.CONFIG.list({ prefix: "e2e:", cursor });
+    await Promise.all(keys.keys.map(({ name }) => c.env.CONFIG.delete(name)));
+    cursor = keys.list_complete ? undefined : keys.cursor;
+  } while (cursor);
+  const databases = [createUserDb(env, "wr-e2e-reset")];
+  if (env.E2E_SECOND_USER_URL)
+    databases.push(createUserDb(env, "wr-e2e-secondary"));
+  for (const db of databases) {
+    await db.$executeRawUnsafe("DELETE FROM _slot_actions");
+    await db.$executeRawUnsafe("DELETE FROM _captures");
+    await db.$executeRawUnsafe("DELETE FROM _todo_file_chunks");
+    await db.$executeRawUnsafe("DELETE FROM _todo_files");
+    await db.$executeRawUnsafe(
+      "UPDATE _event_privacy SET store_titles = 1 WHERE id = 1",
+    );
+    await db.slotEvent.deleteMany();
+    await db.slot.deleteMany();
+    await db.planRun.deleteMany();
+    await db.activityWindow.deleteMany();
+    await db.activity.deleteMany();
+    await db.externalEvent.deleteMany();
+    await db.calendarSyncState.deleteMany();
+    await db.calendar.deleteMany();
+    await db.oAuthToken.deleteMany();
+    await db.calendarConnection.deleteMany();
+    await db.reminder.deleteMany();
+  }
 
   await directory.watchChannel.deleteMany();
   await directory.scheduledWork.deleteMany();
@@ -116,9 +132,12 @@ testing.post("/seed", async (c) => {
       timeZone?: string;
       plan?: "free" | "pro";
       features?: unknown;
+      secondUser?: boolean;
     }>()
     .catch(() => ({}) as Record<string, never>);
 
+  if (body.secondUser && !c.get("env").E2E_SECOND_USER_URL)
+    return c.text("Second test tenant is not configured", 400);
   const directory = c.get("directory");
   const now = c.get("now");
   const userId = crypto.randomUUID();
@@ -132,11 +151,12 @@ testing.post("/seed", async (c) => {
       timeZone: body.timeZone ?? "Europe/Rome",
       plan: body.plan ?? "free",
       storeEventTitles: true,
-      // Locally `TURSO_USER_HOST` is an http:// URL, so one database serves
-      // every user and the name is never resolved. This would need real
-      // provisioning anywhere else - which is another reason these routes stay
-      // out of deployed environments.
-      databaseName: `wr-e2e-${userId.slice(0, 8)}`,
+      // Ordinary fixtures share the primary local endpoint. The explicitly
+      // configured secondary tenant exercises independent datasets without
+      // pretending to validate production Turso provisioning/routing.
+      databaseName: body.secondUser
+        ? "wr-e2e-secondary"
+        : `wr-e2e-${userId.slice(0, 8)}`,
       databaseReady: true,
       createdAt: new Date(now),
       updatedAt: new Date(now),
@@ -164,6 +184,41 @@ testing.post("/seed", async (c) => {
   return c.json({ userId, token, email: `${userId}@e2e.invalid` });
 });
 
+/** A controlled mail sink; never an OTP bypass on the sign-in endpoint. */
+testing.post("/mail", async (c) => {
+  const { email } = await c.req.json<{ email: string }>();
+  const mail = await c.env.CONFIG.get(
+    `e2e:mail:${email.toLowerCase()}`,
+    "json",
+  );
+  return mail ? c.json(mail) : c.notFound();
+});
+testing.post("/mail/expire", async (c) => {
+  const { email } = await c.req.json<{ email: string }>();
+  await c.get("directory").verification.updateMany({
+    where: { identifier: `sign-in-otp-${email.toLowerCase()}` },
+    data: { expiresAt: new Date(0) },
+  });
+  return c.body(null, 204);
+});
+testing.post("/infrastructure", async (c) => {
+  const { provisionFailure } = await c.req.json<{
+    provisionFailure: boolean;
+  }>();
+  await c.env.CONFIG.put(
+    "e2e:provision-failure",
+    String(provisionFailure === true),
+  );
+  return c.body(null, 204);
+});
+testing.post("/clock", async (c) => {
+  const { now } = await c.req.json<{ now: number }>();
+  if (!Number.isFinite(now) || !Number.isFinite(new Date(now).getTime()))
+    return c.text("Invalid clock", 400);
+  await c.env.CONFIG.put("e2e:clock", String(now));
+  return c.body(null, 204);
+});
+
 // The same three test-only locks as seeding, plus account authentication.
 testing.post("/features", requireUser, async (c) => {
   const flags = parseFeatureOverrides(await c.req.json());
@@ -172,6 +227,85 @@ testing.post("/features", requireUser, async (c) => {
     JSON.stringify({ ...CORE_FEATURES, ...flags }),
   );
   return c.body(null, 204);
+});
+
+/** Previously saved one-off history, independent of routine demand. */
+testing.post("/saved-slot", requireUser, async (c) => {
+  const { title, startsAt } = await c.req.json<{
+    title: string;
+    startsAt: number;
+  }>();
+  const slot = await c.get("db").slot.create({
+    data: {
+      id: crypto.randomUUID(),
+      activityId: null,
+      title,
+      kind: "recovery",
+      status: "bucketed",
+      startsAt: new Date(startsAt),
+      endsAt: new Date(startsAt + 20 * 60_000),
+      timeZone: c.get("user").timeZone,
+      createdAt: new Date(startsAt),
+    },
+  });
+  return c.json({ id: slot.id });
+});
+testing.post("/inspect", requireUser, async (c) => {
+  const db = c.get("db");
+  return c.json({
+    slots: await db.slot.findMany(),
+    events: await db.slotEvent.findMany(),
+    planRuns: await db.planRun.count(),
+  });
+});
+
+/** Deliver a provider response at the external boundary. The same engine and
+ * repair orchestration as the queue worker owns persistence and movement. */
+testing.post("/calendar/delta", requireUser, async (c) => {
+  const { calendarId, events } = await c.req.json<{
+    calendarId: string;
+    events: Record<string, unknown>[];
+  }>();
+  const db = c.get("db");
+  const target = await getCalendarForSync(db, calendarId);
+  if (target?.connectionStatus !== "active") return c.notFound();
+  const user = c.get("user");
+  const now = c.get("now");
+  const key = rootKey(c);
+  await c.env.CONFIG.put(
+    `e2e:calendar:${calendarId}`,
+    JSON.stringify({
+      events: events.map((event) =>
+        target.provider === "google"
+          ? normaliseGoogleEvent(event)
+          : normaliseMicrosoftEvent(event),
+      ),
+      deletedIds: [],
+      nextSyncToken: `e2e-${now}`,
+    }),
+  );
+  const readPage = await providerTestReader(
+    c.get("env"),
+    c.env.CONFIG,
+    calendarId,
+  );
+  const outcome = await syncCalendarAndRepair(
+    {
+      db,
+      directory: c.get("directory"),
+      userId: user.userId,
+      rootKey: key,
+      clientIds: {
+        google: { clientId: "e2e", clientSecret: "e2e" },
+        microsoft: { clientId: "e2e", clientSecret: "e2e" },
+      },
+      ...(readPage ? { readPage } : {}),
+    },
+    target,
+    now,
+    () => crypto.randomUUID(),
+  );
+  return c.json(outcome);
 });
 
 /** An established routine for scenarios that are not testing first-day setup.
@@ -320,6 +454,14 @@ testing.post("/calendar", requireUser, async (c) => {
       data: { calendarId, lastIncrementalAt: new Date(now) },
     });
 
+    await c.env.CONFIG.put(
+      `e2e:calendar:${calendarId}`,
+      JSON.stringify({
+        events: [],
+        deletedIds: [],
+        nextSyncToken: "e2e-initial",
+      }),
+    );
     made.push({ id: calendarId, name: calendar.name });
 
     for (const event of calendar.events ?? []) {

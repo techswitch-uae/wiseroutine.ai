@@ -19,7 +19,6 @@ import {
   type WorkKind,
   watchesExpiringBefore,
 } from "@wiseroutine/db";
-import type { PlanId } from "@wiseroutine/plans";
 import { CORE_FEATURES, type FeatureFlags } from "@wiseroutine/plans/features";
 import { syncInterval } from "@wiseroutine/scheduler";
 import { Hono } from "hono";
@@ -50,12 +49,11 @@ import { signin } from "./routes/signin";
 import { testing } from "./routes/testing";
 import {
   type SyncDeps,
-  syncCalendar,
-  syncWindowStart,
+  syncCalendarAndRepair,
   WINDOW_BEHIND_DAYS,
 } from "./sync/engine";
-import { realignAfterSync } from "./sync/realign";
 import { ensureWatch, type WatchDeps } from "./sync/watch";
+import { providerTestReader, requestTime } from "./testing-runtime";
 import { webhooks } from "./webhooks";
 
 const api = new Hono<App>();
@@ -257,6 +255,7 @@ async function runSyncJob(
   config: ServerEnv,
   rootKey: string,
   now: number,
+  kv: KVNamespace,
 ): Promise<number | undefined> {
   if (!job.targetId) return undefined;
 
@@ -268,59 +267,25 @@ async function runSyncJob(
   if (target?.connectionStatus !== "active") return undefined;
 
   const directory = createDirectory(directoryCredentials(config));
-  const user = await getUser(directory, job.userId);
-  const deps: SyncDeps = {
-    db,
-    userId: job.userId,
-    rootKey,
-    clientIds: clientIds(config),
-  };
-
-  await syncCalendar(
-    deps,
+  const readPage = await providerTestReader(config, kv, target.calendarId);
+  const { lastSeenAt } = await syncCalendarAndRepair(
     {
-      calendarId: target.calendarId,
-      connectionId: target.connectionId,
-      provider: target.provider,
-      providerCalendarId: target.providerCalendarId,
-      storeTitles: user?.storeEventTitles ?? true,
-      // Never reach back before the calendar was connected. The zone is only
-      // known out here, which is why the floor is computed here and not in
-      // the engine.
-      windowStart: syncWindowStart(
-        now,
-        target.connectedAt,
-        user?.timeZone ?? "UTC",
-      ),
+      ...(readPage ? { readPage } : {}),
+      db,
+      directory,
+      userId: job.userId,
+      rootKey,
+      clientIds: clientIds(config),
     },
+    target,
     now,
     newId,
   );
 
-  // Detecting the change is only half of it. Without this, a meeting dragged
-  // onto a focus slot in Outlook is stored correctly and the slot stays put.
-  if (user) {
-    await realignAfterSync(
-      {
-        db,
-        directory,
-        userId: job.userId,
-        plan: user.plan as PlanId,
-        user: {
-          timeZone: user.timeZone,
-          dayStartMinutes: user.dayStartMinutes,
-          dayEndMinutes: user.dayEndMinutes,
-        },
-      },
-      now,
-      newId,
-    );
-  }
-
   // Push notifications are what keep a calendar current; this poll only
   // catches the ones that never arrived. So how soon it runs again follows
   // whether anyone is actually looking.
-  return now + syncInterval(user?.lastSeenAt?.getTime() ?? null, now);
+  return now + syncInterval(lastSeenAt, now);
 }
 
 /**
@@ -461,7 +426,7 @@ export default {
     );
     const directory = createDirectory(directoryCredentials(config));
     const rootKey = config.TOKEN_ROOT_KEY ?? "";
-    const now = Date.now();
+    const now = await requestTime(config, env.CONFIG);
 
     for (const message of batch.messages) {
       const job = message.body;
@@ -483,7 +448,7 @@ export default {
               )
             : job.type === "renew-watch"
               ? await runWatchJob(job, config, rootKey, now)
-              : await runSyncJob(job, config, rootKey, now);
+              : await runSyncJob(job, config, rootKey, now, env.CONFIG);
 
         // Reschedule in the directory, or drop the marker if there is nothing
         // further to do. Forgetting this is how a calendar goes quiet.

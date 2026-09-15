@@ -31,6 +31,7 @@ import { notify } from "../lib/notify";
 import { sessionGeneration } from "../lib/session-lifecycle";
 import { CALENDARS_ANCHOR, DAY_HOURS_ANCHOR } from "../lib/settings-sections";
 import { CalendarSettings } from "../modules/calendar-settings";
+import { NotificationSettings } from "../modules/notification-settings";
 import { PrivacySettings } from "../modules/privacy-settings";
 
 /**
@@ -187,22 +188,25 @@ const Settings: React.FC = () => {
   }, [active]);
 
   const saveName = () => {
+    const generation = sessionGeneration();
     const next = draftName.trim();
     setSavingName(true);
     api
       .updateName(next)
       .then(() => {
+        if (generation !== sessionGeneration()) return;
         // One write, both screens: the rail re-renders from the same store.
         patchAccount({ name: next });
         setDraftName(next);
       })
-      .catch((cause: unknown) =>
+      .catch((cause: unknown) => {
+        if (generation !== sessionGeneration()) return;
         notify(
           cause instanceof OfflineError
             ? "No connection - your name wasn't saved."
             : "Couldn't save that name. Try again.",
-        ),
-      )
+        );
+      })
       .finally(() => setSavingName(false));
   };
 
@@ -248,9 +252,11 @@ const Settings: React.FC = () => {
             // Optimistic: the picker should not lag behind the click. A refusal
             // puts the old value back, so the screen never claims a zone the
             // server rejected.
+            const generation = sessionGeneration();
             const previous = account?.timeZone;
             patchAccount({ timeZone: zone });
             api.setTimeZone(zone).catch(() => {
+              if (generation !== sessionGeneration()) return;
               if (previous) patchAccount({ timeZone: previous });
               notify("Couldn't change your time zone. Try again.");
             });
@@ -283,6 +289,8 @@ const Settings: React.FC = () => {
           />
         ) : null}
       </section>
+
+      <NotificationSettings />
 
       <section
         id={DAY_HOURS_ANCHOR}
@@ -379,6 +387,7 @@ const DayHours: React.FC<{ account: Account }> = ({ account }) => {
           setDayRange(null);
       })
       .catch((cause: unknown) => {
+        if (generation !== sessionGeneration()) return;
         setDraft(previous);
         remember(previous);
         notify(excuse(cause));
@@ -388,13 +397,18 @@ const DayHours: React.FC<{ account: Account }> = ({ account }) => {
   /** A typed value, committed on purpose. Not optimistic: the user is looking
    *  at the button they just pressed, so the button is where the wait shows. */
   const save = (block: DayHoursBlock) => {
+    const generation = sessionGeneration();
     setSaving(block);
     api
       .updateSettings(asPatch(draft))
-      .then(() => remember(draft))
+      .then(() => {
+        if (generation === sessionGeneration()) remember(draft);
+      })
       // The draft is left alone on failure - the typed values stay on screen,
       // the same promise the calendar section makes about unsaved ticks.
-      .catch((cause: unknown) => notify(excuse(cause)))
+      .catch((cause: unknown) => {
+        if (generation === sessionGeneration()) notify(excuse(cause));
+      })
       .finally(() => setSaving(null));
   };
 

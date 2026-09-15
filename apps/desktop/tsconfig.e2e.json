@@ -1,0 +1,6 @@
+{
+  "extends": "@wiseroutine/typescript-config/vite.json",
+  "compilerOptions": { "types": ["node"], "noEmit": true },
+  "include": ["e2e/**/*.ts", "e2e-addons/**/*.ts", "playwright*.config.ts"],
+  "exclude": [".playwright", "node_modules"]
+}

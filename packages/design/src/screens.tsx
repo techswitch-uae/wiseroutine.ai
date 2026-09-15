@@ -669,6 +669,8 @@ export const CheckEmailScreen: React.FC<{
   /** The code did not match. Digits stay put. */
   wrong?: boolean;
   attemptsLeft?: number;
+  /** Transport/provisioning failures are not a wrong code. */
+  problem?: string;
   /** The code is past its ten minutes; only a new one will do. */
   expired?: boolean;
   busy?: boolean;
@@ -684,6 +686,7 @@ export const CheckEmailScreen: React.FC<{
   resendIn = 0,
   wrong,
   attemptsLeft,
+  problem,
   expired,
   busy,
   minutes = 10,
@@ -707,6 +710,11 @@ export const CheckEmailScreen: React.FC<{
       )}
     </p>
 
+    {problem ? (
+      <p className="wr-auth-problem" role="alert">
+        {problem}
+      </p>
+    ) : null}
     {expired ? (
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 22 }}>
         <Button variant="primary" onClick={onResend} disabled={busy}>

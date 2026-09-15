@@ -12,7 +12,8 @@
     "tauri": "tauri",
     "icons": "tauri icon src-tauri/app-icon.svg",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && pnpm typecheck:e2e",
+    "typecheck:e2e": "tsc --project tsconfig.e2e.json",
     "clean": "git clean -xdf .cache .turbo dist node_modules",
     "e2e": "playwright test"
   },

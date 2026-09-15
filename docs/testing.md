@@ -45,13 +45,13 @@ pnpm --filter @wiseroutine/desktop exec playwright test calendars.spec.ts
 | Web, production build | Value/free/availability copy, sample-first navigation, account-link handoffs to existing signup, download link configuration, meeting change → repair → unaffected walk, no-space work → recovery, FAQ, anchors, reload, 404 | Chromium, Firefox, WebKit, mobile Safari emulation; server-rendered HTML with JS off |
 | Web accessibility/layout | Real keyboard navigation and skip link, native FAQ controls, axe WCAG A/AA checks in demo states, reduced motion, widths 320/390/640/800/1280 | Screenshots saved for review; automated checks are not a substitute for screen-reader or real-device acceptance |
 | Web unit tests | Actual scheduler placement/repair, duration preservation, bounds/conflicts, no false confirmed placement, deterministic replay, fail-closed release configuration | No provider or app API mocks masquerading as integration coverage |
-| App full stack | First activity/setup, free limit and removal, edit persistence, daily availability, auto-placement and accepted-slot stability, drag/skip/undo, calendar selection, privacy opt-out, view/settings persistence | Real React app → Worker → migrated libSQL; sign-in and provider data are seeded |
+| App full stack | First activity/setup, free limit and removal, edit persistence, daily availability, auto-placement and accepted-slot stability, drag/skip/undo, calendar selection, privacy opt-out, view/settings persistence | Real React app → Worker → migrated libSQL; most scenarios seed auth/consent; dedicated OTP and provider-delivery journeys exercise the real internal paths |
 | App core/release | Default-off routes, hidden shortcuts/assets, core recovery, preview enable/disable; approaching → due → running → done cues in timeline/widget; delayed/refused Start, refresh/reload, stop cutoff; early Start → Stop → scheduled cutoff, stale Postpone closure, reload and Done; in-place postponement without copies; first Start after movement expires, exact end, wake and reload | Native webview, tray, OS permissions and signed installers require separate checks |
 | Activity planning | Duration-aware frequency and save/reload; tomorrow-effective edits and old-bucket exclusion; repeated activities spread across Today; future-only pointer/keyboard movement; Not placed merges fresh demand and saved slots; no-space toast, reload/retry without duplicates, keyboard/pointer placement, and automatic placement preserving existing slots | Shared scheduler rules plus Worker/database integration; see [activity planning](activity-planning.md) |
 | App capture | Keyboard/focus, links and multiple files, exact download bytes, offline draft recovery, plan/postpone and return to Inbox | Existing release/entitlement fixtures; not live OAuth or production storage |
 
 The suites currently contain **44 web browser cases** (11 stories × 4
-browser projects), **30 web unit cases**, and **54 full-stack app scenarios**.
+browser projects), **30 web unit cases**, and **70 full-stack app scenarios**.
 Counts will change as coverage grows; the actual run/report is authoritative.
 
 ## Isolation and reproducibility
@@ -59,18 +59,26 @@ Counts will change as coverage grows; the actual run/report is authoritative.
 - Web owns port **42100**, builds the production server, and refuses to borrow
   an existing process. Development uses **42000**. The sample has fixed UTC
   instants and never makes provider requests. Tests use fresh browser contexts.
-- App owns **41190–41193** for its directory DB, user DB, Worker and UI. It starts
-  two disposable in-memory `turso dev` servers, migrates them, resets between
+- App owns **41190–41194** for its directory DB, primary user DB, Worker, UI and
+  secondary user DB. It starts three disposable `turso dev` servers, migrates them, resets between
   tests, and tears down their process groups. Worker state uses the separate
   `.wrangler/e2e-state` directory, not the developer's ordinary KV store.
 - Existing-routine browser fixtures use the gated `/test/routine` endpoint;
   this seeds a routine established before today, rather than bypassing the new
   production rule that an added activity starts tomorrow. Creation/edit scenarios
   still drive the real form. API clock tests cover local midnight and DST;
-  browser date-navigation tests check matching per-day bucket counts.
-- App scenarios stay **serial**: local libSQL maps seeded accounts to the same
-  user database. Do not turn on parallel workers or call this tenant-isolation
-  coverage. Its timezone fixture keeps remaining-day planning in the morning.
+  browser rollover tests coordinate a guarded API clock with Playwright's clock,
+  including Settings and overnight offline/reconnect, without waiting for midnight.
+- App scenarios stay **serial** and reset all three databases. Ordinary seeded
+  accounts share the primary user DB; session-boundary scenarios explicitly seed
+  a second tenant into an independent user DB. This is controlled local routing,
+  not evidence for production Turso hostname routing or infrastructure isolation.
+  Its normal timezone fixture keeps remaining-day planning in the morning.
+- `authentication.spec.ts` drives real OTP generation/verification, expiry, HTTP
+  throttling, first provisioning, failure/retry and returning sign-in. Only mail
+  delivery is a guarded sink. `calendar-repair.spec.ts` supplies controlled provider
+  pages; normalization, privacy storage and the worker's shared repair pipeline run.
+  Scheduled test syncs use the same controlled page boundary, never live providers.
 - Web tests use semantic locators, web-first assertions and no arbitrary sleeps.
   Browser/console errors fail the interaction suite. Safari keyboard checks use
   the platform's link-navigation gesture. Buttons remain disabled until hydration.
@@ -85,6 +93,10 @@ Counts will change as coverage grows; the actual run/report is authoritative.
 `.github/workflows/ci.yml` runs **all** app browser scenarios, rather than only
 core/capture subsets. A separate Linux job tests the marketing production build
 across all four browser projects. Focused-only tests are rejected in CI.
+Desktop `typecheck` also checks browser specs and Playwright configs, so undefined
+fixture variables cannot hide outside TypeScript coverage. The Release workflow
+calls this same complete CI workflow with the candidate SHA before installers
+build; releases stay drafts. See [the acceptance contract](release-contract.md).
 
 Both suites save HTML reports and failure traces/screenshots. Web also keeps
 failure videos and 390px/1280px full-page captures. CI uploads them even on failure

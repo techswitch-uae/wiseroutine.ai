@@ -199,6 +199,25 @@ test("sign-out aborts old requests, clears in-memory state/callbacks, and ignore
   expect(cachedPlan(now)).toBeNull();
 });
 
+test("an external token switch cannot cache a delayed response under the next account", async () => {
+  let reply!: (response: Response) => void;
+  fetcher().mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        reply = resolve;
+      }),
+  );
+  const request = api.today();
+  const rejected = expect(request).rejects.toThrow("session changed");
+  localStorage.setItem("wiseroutine.session", "token-b");
+  localStorage.setItem("wiseroutine.identity", "user-b");
+  // Deliberately no storage event: response fencing must handle this ordering.
+  reply(Response.json(plan()));
+  await rejected;
+  identifySession("user-b");
+  expect(cachedPlan(now)).toBeNull();
+});
+
 test("legacy actions are detected and retained, not attributed to another account", () => {
   const legacy = JSON.stringify([
     { id: "legacy", slotId: "old-slot", kind: "start", at: now },

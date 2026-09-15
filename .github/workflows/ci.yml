@@ -1,9 +1,17 @@
 name: Verify
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact candidate commit to verify
+        type: string
+        required: true
 permissions:
   contents: read
 concurrency:
-  group: verify-${{ github.ref }}
+  group: verify-${{ github.workflow }}-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 jobs:
   verify:
@@ -12,6 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@v4
@@ -75,6 +84,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:

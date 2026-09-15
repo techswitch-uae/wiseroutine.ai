@@ -290,7 +290,18 @@ export function createAuth(
   directory: Directory,
   env: ServerEnv,
   handoff?: SocialHandoffAttempt,
+  boundaries: {
+    sendCode?: (email: string, otp: string) => Promise<void>;
+    beforeProvision?: () => Promise<void>;
+  } = {},
 ) {
+  const provision = async (user: { id: string; databaseName?: unknown }) => {
+    await boundaries.beforeProvision?.();
+    await provisionUserDatabase(directory, env, {
+      userId: user.id,
+      databaseName: String(user.databaseName),
+    });
+  };
   return betterAuth({
     database: prismaAdapter(directory, { provider: "sqlite" }),
     baseURL: env.API_URL,
@@ -406,6 +417,20 @@ export function createAuth(
     },
 
     databaseHooks: {
+      session: {
+        create: {
+          // A failed user-create after-hook can leave the user row behind.
+          // Retrying OTP then signs into an existing user, so the create hook
+          // alone cannot recover it. Never issue a usable session until ready.
+          before: async (session) => {
+            const user = await directory.user.findUnique({
+              where: { id: session.userId },
+            });
+            if (user && !user.databaseReady) await provision(user);
+            return { data: session };
+          },
+        },
+      },
       user: {
         create: {
           /**
@@ -417,11 +442,7 @@ export function createAuth(
            * a retried signup recovers rather than leaving half an account.
            */
           after: async (user) => {
-            await provisionUserDatabase(directory, env, {
-              userId: user.id,
-              // The name the insert actually used, not one recomputed here.
-              databaseName: String(user.databaseName),
-            });
+            await provision(user);
 
             // M0 is a real Free account, not an expiring Pro trial. Existing
             // grants/subscriptions are untouched; founding discounts are a
@@ -442,7 +463,10 @@ export function createAuth(
         // Sign-in and sign-up are the same act: an address that proves it can
         // read its own mail. No separate registration step to abandon.
         async sendVerificationOTP({ email, otp }) {
-          await sendOtp(env, email, otp);
+          await (boundaries.sendCode ?? ((to, code) => sendOtp(env, to, code)))(
+            email,
+            otp,
+          );
         },
       }),
       // The desktop app has no cookie jar worth the name, so it carries the

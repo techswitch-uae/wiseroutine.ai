@@ -322,7 +322,7 @@ Maintain a public changelog ([#9](https://github.com/techswitch-uae/wiseroutine.
 
 ### Initial funnel
 
-**Account created → first real activity auto-placed → first completion → routine used on subsequent days.** Instrumentation is [#20](https://github.com/techswitch-uae/wiseroutine.ai/issues/20).
+**Sample explored → account created → first activity configured for tomorrow → explicit placement → first completion → routine used on subsequent days.** Creating or editing an activity never places slots immediately; the first-use flow must say when its routine begins. Instrumentation is [#20](https://github.com/techswitch-uae/wiseroutine.ai/issues/20).
 
 A sample-day interaction is an interest signal, not real activation. Separate signups, calendar-connected users, activated users, and retained users in reporting.
 
@@ -543,7 +543,7 @@ These flags are release gates, not destructive migrations:
 
 ## M0 — core launch (no release flag)
 
-**Built:** Shared default-off registry, server resolution, per-account previews, operator CLI, client refresh/reset, direct-route guards, endpoint gates, and addon unload/authorization filtering. Simplified shell; full activity template library preserved as timed activities; advanced/session fields omitted rather than erased on basic edits. Free automatic planning/repair, remaining-day placement, automatic placement on activity creation, accepted-slot preservation, and Edit/Remove activity controls. Calendars are configured inline in Settings; privacy has a clearly explained Save meeting details toggle. Turning it off removes saved details and stops saving new ones while preserving busy times. The Free/core allowance is three. No automatic signup trial, unavailable checkout blocked, no hidden-Pro upsell in core activity-limit/recovery copy. First-activity onboarding target reduced from two to one; notification permission no longer blocks setup completion.
+**Built:** Shared default-off registry, server resolution, per-account previews, operator CLI, client refresh/reset, direct-route guards, endpoint gates, and addon unload/authorization filtering. Simplified shell; full activity template library preserved as timed activities; advanced/session fields omitted rather than erased on basic edits. Free explicit automatic placement and collision repair, remaining-day placement, tomorrow-effective activity creation/edits, accepted-slot preservation, and Edit/Remove activity controls. Calendars are configured inline in Settings; privacy offers Save meeting details / Busy times only radio choices with an explicit Update. Saving Busy times only removes saved details and stops saving new ones while preserving busy times. The Free/core allowance is three. No automatic signup trial, unavailable checkout blocked, no hidden-Pro upsell in core activity-limit/recovery copy. First-activity onboarding target reduced from two to one; notification permission no longer blocks setup completion.
 
 **Open work**
 

@@ -1,6 +1,9 @@
 import {
+  type Directory,
+  type getCalendarForSync,
   getSyncState,
   getTokens,
+  getUser,
   markNeedsReauth,
   saveSyncState,
   saveTokens,
@@ -8,6 +11,7 @@ import {
   type UserDatabase,
   upsertEvents,
 } from "@wiseroutine/db";
+import type { PlanId } from "@wiseroutine/plans";
 import {
   googleRefresh,
   googleSyncPage,
@@ -15,10 +19,12 @@ import {
   microsoftSyncPage,
   type NormalisedEvent,
   ProviderError,
+  type SyncPage,
   SyncTokenExpired,
 } from "@wiseroutine/providers";
 import { dayBounds, localDateOf } from "@wiseroutine/scheduler";
 import { open, seal } from "../crypto";
+import { realignAfterSync } from "./realign";
 
 /** How far either side of today we keep concrete event instances. Chosen once:
  *  on Google the window is baked into the sync token forever, so changing it
@@ -71,6 +77,12 @@ export interface SyncDeps {
   /** Envelope-encryption keys are per user, so the id is part of the context. */
   userId: string;
   rootKey: string;
+  /** Controlled provider-page boundary for acceptance tests; not a placement substitute. */
+  readPage?: (page: {
+    pageToken?: string;
+    syncToken?: string;
+    deltaLink?: string;
+  }) => Promise<SyncPage>;
   clientIds: {
     google: { clientId: string; clientSecret: string };
     microsoft: { clientId: string; clientSecret: string };
@@ -215,12 +227,9 @@ export async function syncCalendar(
   now: number,
   newId: () => string,
 ): Promise<SyncOutcome> {
-  const accessToken = await accessTokenFor(
-    deps,
-    target.connectionId,
-    target.provider,
-    now,
-  );
+  const accessToken = deps.readPage
+    ? ""
+    : await accessTokenFor(deps, target.connectionId, target.provider, now);
   const state = await getSyncState(deps.db, target.calendarId);
 
   const stale =
@@ -254,8 +263,9 @@ export async function syncCalendar(
   try {
     // Bounded so a pathological calendar cannot spin forever inside one job.
     for (let page = 0; page < 40; page++) {
-      const result =
-        target.provider === "google"
+      const result = deps.readPage
+        ? await deps.readPage({ pageToken, syncToken: token, deltaLink: link })
+        : target.provider === "google"
           ? await googleSyncPage({
               accessToken,
               calendarId: target.providerCalendarId,
@@ -326,4 +336,50 @@ export async function syncCalendar(
   });
 
   return outcome;
+}
+
+/** One ingestion → privacy fence → collision repair pipeline for worker jobs
+ * and controlled provider deliveries in browser acceptance tests. */
+export async function syncCalendarAndRepair(
+  deps: SyncDeps & { directory: Directory },
+  target: NonNullable<Awaited<ReturnType<typeof getCalendarForSync>>>,
+  now: number,
+  newId: () => string,
+) {
+  const user = await getUser(deps.directory, deps.userId);
+  const sync = await syncCalendar(
+    deps,
+    {
+      calendarId: target.calendarId,
+      connectionId: target.connectionId,
+      provider: target.provider,
+      providerCalendarId: target.providerCalendarId,
+      storeTitles: user?.storeEventTitles ?? true,
+      windowStart: syncWindowStart(
+        now,
+        target.connectedAt,
+        user?.timeZone ?? "UTC",
+      ),
+    },
+    now,
+    newId,
+  );
+  const repair = user
+    ? await realignAfterSync(
+        {
+          db: deps.db,
+          directory: deps.directory,
+          userId: deps.userId,
+          plan: user.plan as PlanId,
+          user: {
+            timeZone: user.timeZone,
+            dayStartMinutes: user.dayStartMinutes,
+            dayEndMinutes: user.dayEndMinutes,
+          },
+        },
+        now,
+        newId,
+      )
+    : null;
+  return { sync, repair, lastSeenAt: user?.lastSeenAt?.getTime() ?? null };
 }

@@ -1,11 +1,12 @@
 import { useNavigate } from "@tanstack/react-router";
 import {
+  Button,
   type CalendarProvider,
   Modal,
   ProviderChoice,
   SetupModule,
 } from "@wiseroutine/design";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   alertPermissionGranted,
   alertsAvailable,
@@ -101,29 +102,47 @@ export const SetupRail: React.FC = () => {
   /** Null while unknown, and in a browser it stays null - a step that cannot
    *  exist is never counted rather than being counted as failed. */
   const [alerts, setAlerts] = useState<boolean | null>(null);
+  const [readProblem, setReadProblem] = useState(false);
+  const revision = useRef(0);
 
   const look = useCallback(() => {
     // Nothing left to ask about, and no answer that could bring this back.
     if (finished) return;
 
-    api
-      .calendars()
-      .then((response) => setConnected(response.connections.length > 0))
-      // A failed read is not proof of no calendar, and asking someone who is
-      // already set up to set up again is worse than showing nothing.
-      .catch(() => setConnected(true));
-
-    api
-      .activities()
-      .then((rows) => setActive(rows.filter((row) => row.isActive).length))
-      .catch(() => setActive(ENOUGH_ACTIVITIES));
+    const request = ++revision.current;
+    setReadProblem(false);
+    setConnected(null);
+    setActive(null);
+    void Promise.allSettled([api.calendars(), api.activities()]).then(
+      ([calendars, activities]) => {
+        if (request !== revision.current) return;
+        setConnected(
+          calendars.status === "fulfilled"
+            ? calendars.value.connections.length > 0
+            : null,
+        );
+        setActive(
+          activities.status === "fulfilled"
+            ? activities.value.filter((row) => row.isActive).length
+            : null,
+        );
+        setReadProblem(
+          calendars.status === "rejected" || activities.status === "rejected",
+        );
+      },
+    );
 
     // Granted in a system dialog outside this window, so it is re-read on
     // every look rather than only when the button is pressed.
     if (alertsAvailable()) void alertPermissionGranted().then(setAlerts);
   }, [finished]);
 
-  useEffect(look, [look]);
+  useEffect(() => {
+    look();
+    return () => {
+      revision.current++;
+    };
+  }, [look]);
 
   // Consent completes in a browser, and activities are added on another page,
   // so coming back to this window is the only signal this one gets that
@@ -146,6 +165,15 @@ export const SetupRail: React.FC = () => {
   }, [complete]);
 
   if (finished) return null;
+  if (readProblem)
+    return (
+      <section aria-label="Setup">
+        <p role="alert">
+          Couldn't check your setup. Your progress hasn't been changed.
+        </p>
+        <Button onClick={look}>Retry setup check</Button>
+      </section>
+    );
   // Nothing until both reads land: a checklist that ticks its steps one at a
   // time as the answers arrive reads as progress the user did not make.
   if (connected === null || active === null) return null;
@@ -169,7 +197,8 @@ export const SetupRail: React.FC = () => {
           {
             key: "activities",
             label: "Add your first activity",
-            detail: "Choose one thing you want to make time for.",
+            detail:
+              "Choose one thing you want to make time for. Its routine starts tomorrow.",
             done: enough,
             action: {
               label: "Add an activity",

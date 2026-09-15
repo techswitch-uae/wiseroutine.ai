@@ -19,7 +19,7 @@
     "bundle": "pnpm --filter @wiseroutine/desktop bundle",
     "release:config": "node scripts/release-config.mjs",
     "release:frontend": "node scripts/release-config.mjs --check && turbo run typecheck build --filter=@wiseroutine/desktop...",
-    "test:release": "node --test scripts/release-config.test.mjs",
+    "test:release": "node --test scripts/release-config.test.mjs scripts/release-version.test.mjs scripts/release-workflow.test.mjs",
     "test:app-browser": "pnpm --filter @wiseroutine/desktop exec playwright test",
     "test:web-browser": "pnpm --filter @wiseroutine/web e2e",
     "test:e2e": "pnpm test:app-browser && pnpm test:web-browser",
@@ -32,12 +32,13 @@
     "test:features-cli": "node --test scripts/features.test.mjs",
     "api": "pnpm --filter @wiseroutine/api dev",
     "wrangler": "pnpm --filter @wiseroutine/api exec wrangler",
-    "release:preview": "pnpm dlx release-please release-pr --dry-run --repo-url=techswitch-uae/wiseroutine.ai --config-file=release-please-config.json --manifest-file=.release-please-manifest.json --token=$GITHUB_TOKEN",
+    "release:preview": "pnpm exec release-please release-pr --dry-run --repo-url=techswitch-uae/wiseroutine.ai --config-file=release-please-config.json --manifest-file=.release-please-manifest.json --token=$GITHUB_TOKEN",
     "db:migrate": "pnpm --filter @wiseroutine/db migrate"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.8",
     "js-yaml": "4.3.1",
+    "release-please": "17.4.0",
     "turbo": "^2.6.2",
     "typescript": "^7.0.2"
   }

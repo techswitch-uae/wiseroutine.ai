@@ -264,10 +264,9 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
     .enabled(next.slot_id.is_some())
     .build(app)?;
 
-  // Quit stays, and is not swapped for a Hide. Closing the window already
-  // hides it, and once it is hidden this menu is the only way to stop the app
-  // that is always reachable - Cmd+Q needs the app to be focused, which it
-  // cannot be. Reopening is the dock icon's job; see `RunEvent::Reopen`.
+  // Windows has no dock Reopen event. Always offer a way back, including
+  // when there are no slots or the user is signed out.
+  let show = MenuItemBuilder::with_id("show", "Show Wise Routine").build(app)?;
   let quit = MenuItemBuilder::with_id("quit", "Quit Wise Routine").build(app)?;
 
   let menu = MenuBuilder::new(app)
@@ -275,6 +274,7 @@ fn render<R: Runtime>(app: &AppHandle<R>, next: &UpNext) -> tauri::Result<()> {
       &heading,
       &start,
       &PredefinedMenuItem::separator(app)?,
+      &show,
       &quit,
     ])
     .build()?;
@@ -392,6 +392,7 @@ pub fn install<R: Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
       // accelerator on it: the app menu already owns Cmd+Q, and a second
       // registration of the same chord is a fight nobody wins.
       "quit" => app.exit(0),
+      "show" => show_window(app),
       // Acted on by the webview, which owns the session and the queue that
       // makes these work offline. Rust only carries the press across.
       "start" => {

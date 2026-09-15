@@ -2,6 +2,36 @@
 
 The supported installer entry point is `pnpm bundle`. It validates release configuration, writes a **public-key-only** Tauri overlay, runs the frontend dependency graph (including tests and addon builds), and packages the app. The GitHub workflow uses the same overlay and frontend gate, with a separate full-workspace/native verification job.
 
+## Candidate workflow and first-release bootstrap
+
+`Release` is manual and never publishes installers automatically:
+
+1. Merge a reviewed Conventional Commit such as `feat: prepare the first core release`.
+   The audited history had no eligible `feat:`, `fix:` or `perf:` subjects since the
+   bootstrap SHA. Do not rewrite that history. If an exact first version is needed,
+   include a reviewed `Release-As: x.y.z` footer on that bootstrap commit, then inspect
+   the proposed PR. This is an operator decision, not an automatic version change.
+2. Dispatch Release on `main` to open/update the version PR. Review the root package,
+   manifest, Tauri version, Cargo manifest **and lockfile**, plus the changelog.
+3. Merge the PR after CI passes; dispatch Release again. A merge does not dispatch it.
+4. Release Please creates a **draft** and its tag. The reusable Verify workflow runs
+   both browser suites, workspace tests/typechecks and native tests at the release
+   SHA. Installer jobs depend on that candidate gate and check out the same SHA.
+5. Keep the release a draft until phase 3/4 artifact, signing, updater, live provider
+   and platform acceptance is complete. A successful build is not publication approval.
+   Re-run failed jobs for the same candidate; do not move an existing release tag.
+
+`pnpm test:release` tests the real pinned Release Please JSON/TOML updaters and
+runs `cargo metadata --locked` against a temporary next-version manifest/lockfile.
+The Cargo.lock JSONPath uses `name.value` because Release Please's TOML parser
+wraps scalar values with source positions. The regression test guards that detail.
+`pnpm release:preview` uses the pinned local CLI rather than downloading a new one.
+Future release-bearing commits (or squash PR titles) should use Conventional Commits.
+
+The candidate workflow is verification-only and receives no production secrets.
+Draft creation/build configuration is in place; public artifact promotion and live
+acceptance remain operational work. See [the first-release audit](first-release-audit.md).
+
 ## Marketing site
 
 The launch site lives in [`apps/web`](../apps/web/README.md), independently of
@@ -55,7 +85,9 @@ Use the root build graph (`pnpm build`) rather than invoking Vite directly on a 
 
 Apply directory migrations **before deploying the new Worker**, including the writer-lock, scheduled-work revision, and **`0006_social_handoffs.sql`** migrations. Social login fails closed if its handoff table is missing; do not deploy the Worker first. The new handoff replaces KV redemption with atomic directory claims. In-flight old login attempts must be restarted; existing sessions remain valid. See [social sign-in](social-signin.md) for protocol and acceptance checks. Run the project's migration command with the intended environment; see `setup-database.md` before selecting a database.
 
-Capture/inbox support requires user migration **`0015_capture.sql`** (currently **6 directory / 15 user migrations**). It adds private attachment storage and capture idempotency, preserves guided-activity identity on todos, and repairs stranded todo/slot links. Include the regenerated Prisma client and embedded migrations with the Worker. See [capture and rescheduling](capture-and-rescheduling.md) for storage limits and native acceptance checks.
+The current schema contains **6 directory / 16 user migrations**. Routine versioning requires **`0016_activity_schedules.sql`**: new activities and edited routine settings take effect on the next account-local date, without placing slots on read. Include it for existing users as well as fresh provisioning.
+
+Capture/inbox support also requires user migration **`0015_capture.sql`**. It adds private attachment storage and capture idempotency, preserves guided-activity identity on todos, and repairs stranded todo/slot links. Include the regenerated Prisma client and embedded migrations with the Worker. See [capture and rescheduling](capture-and-rescheduling.md) for storage limits and native acceptance checks.
 
 User databases catch up on authenticated requests and queue consumption. A schema upgrade failure now refuses the operation with a retryable error instead of continuing against an incompatible schema. Each migration commits together with its marker.
 
@@ -64,4 +96,4 @@ User databases catch up on authenticated requests and queue consumption. A schem
 - New offline actions are account-scoped, carry stable idempotency IDs, and survive reauthentication for that same account. Another account cannot drain them.
 - Legacy unscoped addon configuration, setup flags, and native addon secret locations are deliberately not assigned to whichever user signs in next. Installed addons reload from the server; device-local addon secrets may need to be entered again.
 - Legacy unscoped offline queues are not automatically attributed or replayed; sign-in displays a recovery warning when they exist. They are not deleted by the new account-scoped queue code; inspect and verify their ownership before any manual recovery. This matters if deploying over an existing development installation with pending actions.
-- Turning off Settings' **Save meeting details** toggle erases titles, notes, and call links and stops saving new details. Busy times remain and the original provider calendar is unchanged. Opting back in permits subsequent sync writes; erased historical details are not reconstructed automatically.
+- Selecting **Busy times only** in Settings and pressing **Update** erases titles, notes, and call links and stops saving new details. Busy times remain and the original provider calendar is unchanged. Opting back in permits subsequent sync writes; erased historical details are not reconstructed automatically.

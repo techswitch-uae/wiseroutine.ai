@@ -44,6 +44,8 @@ const env = composeEnv({
   ...billingKeys,
   ...emailKeys,
   ...notificationKeys,
+  // Optional local test tenant, never selected in production.
+  E2E_SECOND_USER_URL: z.string().url().optional(),
 });
 
 export const serverEnvSchema = env.schema;
@@ -195,10 +197,16 @@ export function userCredentials(
   databaseName: string,
 ): Credentials {
   return {
-    url: userDatabaseUrl(
-      databaseName,
-      required(env.TURSO_USER_HOST, "TURSO_USER_HOST"),
-    ),
+    url:
+      env.ENVIRONMENT !== "production" &&
+      env.E2E_SECRET &&
+      databaseName === "wr-e2e-secondary" &&
+      env.E2E_SECOND_USER_URL
+        ? env.E2E_SECOND_USER_URL
+        : userDatabaseUrl(
+            databaseName,
+            required(env.TURSO_USER_HOST, "TURSO_USER_HOST"),
+          ),
     authToken: env.TURSO_AUTH_TOKEN,
   };
 }

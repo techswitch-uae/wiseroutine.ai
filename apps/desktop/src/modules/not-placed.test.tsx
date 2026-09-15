@@ -134,8 +134,22 @@ test("a background re-read of the same day keeps placing usable", async () => {
   expect(button).toBeEnabled();
   expect(grip()).toBeEnabled();
 
+  // biome-ignore lint/nursery/useAwaitThenable: React act returns a thenable that flushes async renders
   await act(async () => finish([]));
   expect(button).toBeEnabled();
+});
+
+test("a retained offline plan is passive until a fresh day arrives", async () => {
+  publishPlan(day());
+  render(<NotPlaced />);
+  const button = await ready();
+  act(() => publishPlan({ ...day(), stale: true }));
+  await waitFor(() => expect(button).toBeDisabled());
+  expect(grip()).toBeDisabled();
+  fireEvent.click(button);
+  expect(plan).not.toHaveBeenCalled();
+  act(() => publishPlan({ ...day(), stale: false }));
+  await waitFor(() => expect(button).toBeEnabled());
 });
 
 test("saved slots and fresh demand share one row without double counting", async () => {

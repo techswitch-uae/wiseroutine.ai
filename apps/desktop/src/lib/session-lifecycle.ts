@@ -31,11 +31,47 @@ const put = (key: string, value: string | null) => {
     /* unavailable storage */
   }
 };
-export const sessionToken = (): string | null => get(TOKEN);
-export const sessionGeneration = (): number => generation;
-export const sessionSignal = (): AbortSignal => controller.signal;
-export const sessionIdentity = (): string | null =>
-  sessionToken() ? get(IDENTITY) : null;
+let observedToken = get(TOKEN);
+let observedIdentity = observedToken ? get(IDENTITY) : null;
+// Persisted identity is usable on an offline cold start. A different session
+// arriving from another tab must be verified here before mounting its screens.
+let identity = observedIdentity;
+function observeStorage(): void {
+  const token = get(TOKEN);
+  const storedIdentity = token ? get(IDENTITY) : null;
+  if (token === observedToken && storedIdentity === observedIdentity) return;
+  observedToken = token;
+  observedIdentity = storedIdentity;
+  identity = null;
+  generation++;
+  controller.abort();
+  controller = new AbortController();
+  for (const reset of resets) reset();
+  for (const listener of listeners) listener();
+}
+// Storage events can arrive after a response resolves. Every request boundary
+// also observes storage synchronously, so that delivery order is not a fence.
+export const sessionToken = (): string | null => {
+  observeStorage();
+  return observedToken;
+};
+export const sessionGeneration = (): number => {
+  observeStorage();
+  return generation;
+};
+export const sessionSignal = (): AbortSignal => {
+  observeStorage();
+  return controller.signal;
+};
+export const sessionIdentity = (): string | null => {
+  observeStorage();
+  return identity;
+};
+globalThis.addEventListener?.("storage", (event) => {
+  if (event.key === null || event.key === TOKEN || event.key === IDENTITY)
+    observeStorage();
+});
+globalThis.addEventListener?.("focus", observeStorage);
 export const onSessionReset = (reset: () => void): (() => void) => {
   resets.add(reset);
   return () => {
@@ -44,33 +80,30 @@ export const onSessionReset = (reset: () => void): (() => void) => {
 };
 export function changeSession(token: string | null): void {
   if (token === sessionToken()) return;
-  generation++;
-  controller.abort();
-  controller = new AbortController();
   put(TOKEN, token);
   put(IDENTITY, null);
-  for (const reset of resets) reset();
-  for (const listener of listeners) listener();
+  observeStorage();
 }
 export function identifySession(id: string): void {
   if (!sessionToken()) return;
   put(IDENTITY, id);
+  observedIdentity = get(IDENTITY);
+  identity = id;
   for (const listener of listeners) listener();
 }
 /** Legacy unscoped data cannot safely be assigned to whichever user signs in next. */
 export const accountStorageKey = (key: string): string =>
   `wr.user.${encodeURIComponent(sessionIdentity() ?? "unidentified")}.${key}`;
+const subscribe = (listener: () => void): (() => void) => {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+};
 export const useSessionIdentity = (): string | null =>
-  useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-    sessionIdentity,
-    () => null,
-  );
+  useSyncExternalStore(subscribe, sessionIdentity, () => null);
+export const useSessionGeneration = (): number =>
+  useSyncExternalStore(subscribe, sessionGeneration, () => 0);
 export interface SessionScope {
   generation: number;
   token: string | null;
@@ -86,7 +119,10 @@ export function assertSessionScope(scope: SessionScope): void {
   if (
     scope.generation !== sessionGeneration() ||
     scope.token !== sessionToken() ||
-    scope.identity !== sessionIdentity()
+    // Parallel bootstrap reads may identify this same token while a request
+    // is in flight. That null → verified identity is not an account switch;
+    // external identity changes still reset generation in observeStorage().
+    (scope.identity !== null && scope.identity !== sessionIdentity())
   )
     throw new SessionChangedError();
 }

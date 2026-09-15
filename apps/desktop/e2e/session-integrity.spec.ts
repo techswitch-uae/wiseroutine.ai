@@ -76,6 +76,7 @@ test("privacy opt-out erases existing titles and persists across a full page rel
     joinUrl: null,
     description: null,
   });
-  await expect(page.getByText(/Only busy times are saved/)).toBeVisible();
-  await expect(toggle).not.toBeChecked();
+  await expect(busy).toBeChecked();
+  await expect(details).not.toBeChecked();
+  await expect(page.getByRole("button", { name: "Update" })).toHaveCount(0);
 });

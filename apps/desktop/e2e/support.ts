@@ -8,11 +8,11 @@ import { API_URL as DEFAULT_API_URL, E2E_SECRET } from "./environment";
 /**
  * What a scenario needs before it can start clicking.
  *
- * Two things the app cannot be asked to do in a test: sign in, which is a code
- * emailed to a real address, and connect a calendar, which is a consent screen
- * on Google's servers. Both go through the Worker's seeding routes instead -
- * see `apps/api/src/routes/testing.ts` for why that is a door with three locks
- * rather than a loosened sign-in.
+ * Most scenarios seed auth and calendar consent so they can focus on the day.
+ * authentication.spec.ts instead drives real OTP generation/verification with
+ * a controlled mail sink. Provider-delivery scenarios drive real ingestion
+ * and repair with controlled external pages. No live email/consent is claimed.
+ * See apps/api/src/routes/testing.ts for the three independent test-only locks.
  */
 
 /**
@@ -49,7 +49,7 @@ export interface SeedCalendar {
   events?: { title: string; startsAt: number; endsAt: number }[];
 }
 
-async function seed<T>(
+export async function seed<T>(
   path: string,
   body: unknown,
   token?: string,
@@ -87,9 +87,9 @@ export const test = base.extend<{
 }>({
   features: [{}, { option: true }],
   /**
-   * Empty both databases before every scenario.
+   * Empty all three databases before every scenario.
    *
-   * Not optional: locally one database serves every user, so without this a
+   * Most fixtures share the primary database, so without this a
    * scenario sees whatever the previous one seeded. That is not a quirk of the
    * fixture - it is what the first run of these tests actually did.
    *

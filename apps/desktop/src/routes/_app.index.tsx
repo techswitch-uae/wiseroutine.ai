@@ -187,6 +187,12 @@ const Today: React.FC = () => {
       })
       .catch((cause: unknown) => {
         if (!current()) return;
+        // Retained data is no longer a current answer, including when a day
+        // rolls over offline. Keep history visible but label it and disable
+        // placement until the new day's reads succeed.
+        setData((previous) =>
+          previous && !previous.stale ? { ...previous, stale: true } : previous,
+        );
         setError(
           cause instanceof ApiError && cause.status === 401
             ? "not_connected"
@@ -308,15 +314,22 @@ const Today: React.FC = () => {
    * regaining a network - not on the app being reopened somewhere with one.
    */
   useEffect(() => {
-    const drain = () => {
-      void flushPending().then((sent) => {
-        if (sent > 0) load();
-      });
+    const drain = (refresh = false) => {
+      void flushPending().then(
+        (sent) => {
+          if (refresh || sent > 0) load();
+        },
+        () => {
+          if (refresh) load();
+        },
+      );
     };
-
+    // An empty queue is not evidence that the visible day is fresh: it may
+    // have rolled over while offline, independently of any pending action.
+    const online = () => drain(true);
     drain();
-    globalThis.addEventListener?.("online", drain);
-    return () => globalThis.removeEventListener?.("online", drain);
+    globalThis.addEventListener?.("online", online);
+    return () => globalThis.removeEventListener?.("online", online);
   }, [load]);
 
   /**

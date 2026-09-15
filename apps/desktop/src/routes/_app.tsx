@@ -23,6 +23,7 @@ import { todaySnapshot, useTodayPlan } from "../lib/plan-store";
 import { dayLabel, periodLabel, scopeOf, todayOf } from "../lib/scope";
 import {
   sessionGeneration,
+  useSessionGeneration,
   useSessionIdentity,
 } from "../lib/session-lifecycle";
 import { startTodayController, startTodaySlot } from "../lib/today-controller";
@@ -243,6 +244,7 @@ function useQuickAdd(enabled: boolean): [boolean, (open: boolean) => void] {
 const AppLayout: React.FC = () => {
   const navigate = useNavigate();
   const identity = useSessionIdentity();
+  const epoch = useSessionGeneration();
   useMenuBar();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   // The switcher names the period on screen, and the period lives in the URL -
@@ -280,7 +282,7 @@ const AppLayout: React.FC = () => {
    */
   useEffect(() => {
     let cancelled = false;
-    const generation = sessionGeneration();
+    const generation = epoch;
 
     const signedOut = () => {
       if (cancelled || generation !== sessionGeneration()) return;
@@ -335,7 +337,7 @@ const AppLayout: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [navigate]);
+  }, [navigate, epoch]);
 
   // No fallback: on a calendar scope nothing in this list is current, and
   // defaulting to one would light a row the user is not on.
@@ -364,6 +366,7 @@ const AppLayout: React.FC = () => {
   return (
     <>
       <AppFrame
+        key={epoch}
         chrome={false}
         // The same width of page whether or not this one has modules - unless
         // it has asked for the width instead, which the calendar's wider

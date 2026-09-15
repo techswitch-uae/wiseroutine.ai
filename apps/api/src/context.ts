@@ -23,6 +23,7 @@ import {
   userCredentials,
 } from "./env";
 import { readFeatures } from "./features";
+import { authTestBoundaries, requestTime } from "./testing-runtime";
 
 /**
  * Cloudflare bindings.
@@ -114,8 +115,16 @@ export const withContext: MiddlewareHandler<App> = async (c, next) => {
   const directory = createDirectory(directoryCredentials(env));
   c.set("env", env);
   c.set("directory", directory);
-  c.set("auth", createAuth(directory, env));
-  c.set("now", Date.now());
+  c.set(
+    "auth",
+    createAuth(
+      directory,
+      env,
+      undefined,
+      authTestBoundaries(env, c.env.CONFIG),
+    ),
+  );
+  c.set("now", await requestTime(env, c.env.CONFIG));
   await next();
 };
 

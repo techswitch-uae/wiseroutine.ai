@@ -50,6 +50,8 @@ and download URLs are supplied.
 
 See [browser testing](docs/testing.md) for setup, coverage, isolated test ports,
 CI artifacts and the live-provider/native checks automation does not replace.
+The [first-release audit and phase plan](docs/first-release-audit.md) tracks readiness;
+the [core acceptance contract](docs/release-contract.md) maps release promises to tests.
 
 ## Product strategy
 

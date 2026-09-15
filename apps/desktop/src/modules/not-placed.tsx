@@ -89,7 +89,7 @@ export function NotPlaced({
     setRevision((value) => value + 1);
   };
   const place = (at: Placement) => {
-    if (working.current || at.startsAt === null) return;
+    if (working.current || plan?.stale || at.startsAt === null) return;
     if (at.startsAt < Date.now()) {
       notify("Choose a time ahead of now.");
       return;
@@ -209,7 +209,7 @@ export function NotPlaced({
   // each of those flashed the grips and the button on every window focus. Rows
   // this day already has stay usable while it refreshes; the server still
   // refuses a placement that went stale in between.
-  const disabled = busy || error || savedFor !== dayKey;
+  const disabled = busy || error || plan?.stale === true || savedFor !== dayKey;
   const begin = (row: NotPlacedRow, x: number, y: number, keyboard = false) => {
     if (disabled || !plan) return;
     const start = Math.ceil(Math.max(Date.now(), plan.dayStart) / STEP) * STEP;

@@ -27,6 +27,7 @@ import {
 } from "./privacy";
 import {
   assertSessionScope,
+  captureSessionScope,
   changeSession,
   identifySession,
   invalidateServerState,
@@ -138,7 +139,7 @@ async function refusal(response: Response): Promise<unknown> {
 async function send(
   path: string,
   init: RequestInit = {},
-  scope?: SessionScope,
+  scope: SessionScope = captureSessionScope(),
 ): Promise<Response> {
   const token = getSessionToken();
   if (scope) {
@@ -179,11 +180,9 @@ async function send(
         ? Number(retry) * 1000
         : Date.parse(retry) - Date.now()
       : 0;
-    throw new ApiError(
-      response.status,
-      await refusal(response),
-      Math.max(0, delay || 0),
-    );
+    const body = await refusal(response);
+    assertSessionScope(scope);
+    throw new ApiError(response.status, body, Math.max(0, delay || 0));
   }
   if (
     init.method &&
@@ -199,7 +198,7 @@ async function send(
 async function request<T>(
   path: string,
   init: RequestInit = {},
-  scope?: SessionScope,
+  scope: SessionScope = captureSessionScope(),
 ): Promise<T> {
   const generation = sessionGeneration();
   const response = await send(path, init, scope);
@@ -967,19 +966,26 @@ export const api = {
     options: { at?: number; range?: string } = {},
   ): Promise<TodayResponse & { stale: boolean; cachedAt: number }> {
     const now = Date.now();
+    const scope = captureSessionScope();
     const query = new URLSearchParams();
     if (options.at) query.set("at", String(options.at));
     if (options.range) query.set("range", options.range);
     const suffix = query.size > 0 ? `?${query}` : "";
 
     try {
-      const response = await request<TodayResponse>(`/today${suffix}`);
+      const response = await request<TodayResponse>(
+        `/today${suffix}`,
+        {},
+        scope,
+      );
+      assertSessionScope(scope);
       const data = eventDetailsAllowed() ? response : redactPlan(response);
       cachePlan(data, now);
       return { ...withPending(data, pending()), stale: false, cachedAt: now };
     } catch (error) {
       if (!(error instanceof OfflineError)) throw error;
 
+      assertSessionScope(scope);
       const saved = cachedPlan(now);
       // Nothing saved, or saved for a day that has ended: there is no honest
       // plan to show, so this is a plain failure.

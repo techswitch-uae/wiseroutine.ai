@@ -6,7 +6,9 @@ import {
   within,
 } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
+import { api } from "../lib/api";
 import { beginConnect } from "../lib/calendar-connect";
+import { accountStorageKey } from "../lib/session-lifecycle";
 import { SetupRail } from "./setup-rail";
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
@@ -25,7 +27,45 @@ vi.mock("../lib/alerts", () => ({
 beforeEach(() => {
   localStorage.clear();
   vi.mocked(beginConnect).mockReset();
+  vi.mocked(api.calendars)
+    .mockReset()
+    .mockResolvedValue({ connections: [], calendars: [] });
+  vi.mocked(api.activities).mockReset().mockResolvedValue([]);
 });
+
+test.each(["calendars", "activities"] as const)(
+  "failed %s read never completes setup and retry can recover",
+  async (failed) => {
+    localStorage.setItem(accountStorageKey("wr.setup.hours"), "1");
+    vi.mocked(api.calendars).mockResolvedValue({
+      connections: [
+        {
+          id: "connected",
+          provider: "google",
+          email: "test@example.com",
+          status: "active",
+        },
+      ],
+      calendars: [],
+    } as Awaited<ReturnType<typeof api.calendars>>);
+    vi.mocked(api.activities).mockResolvedValue([{ isActive: true }] as Awaited<
+      ReturnType<typeof api.activities>
+    >);
+    vi.mocked(api[failed]).mockRejectedValueOnce(new Error("offline"));
+    render(<SetupRail />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Couldn't check your setup",
+    );
+    expect(localStorage.getItem(accountStorageKey("wr.setup.done"))).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry setup check" }));
+    await waitFor(() =>
+      expect(localStorage.getItem(accountStorageKey("wr.setup.done"))).toBe(
+        "1",
+      ),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+  },
+);
 
 test("failed browser handoff leaves setup open with an actionable error; retry can succeed", async () => {
   vi.mocked(beginConnect)
