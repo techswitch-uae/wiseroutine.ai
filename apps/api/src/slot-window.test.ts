@@ -67,7 +67,7 @@ async function setup(status: "planned" | "live" | "skipped", minutes = 30) {
 }
 
 test.each(["planned", "live", "skipped"] as const)(
-  "%s cannot start/resume, move, postpone or bucket after the cutoff, but can record Done",
+  "%s cannot move, postpone or bucket after the cutoff, but can record Done",
   async (status) => {
     const { user, slot, deadline } = await setup(status);
     const events = await userDb().slotEvent.count();
@@ -75,9 +75,11 @@ test.each(["planned", "live", "skipped"] as const)(
       startsAt: tomorrowNoon(),
       endsAt: tomorrowNoon() + 30 * 60_000,
     };
+    if (status === "skipped") {
+      expect((await post(user, slot.id, "start", { at: deadline })).status).toBe(409);
+      expect((await post(user, slot.id, "start")).status).toBe(409);
+    }
     for (const [action, body] of [
-      ["start", { at: deadline }],
-      ["start", {}],
       ["move", destination],
       ["reschedule", destination],
       ["reschedule", { bucket: true }],
@@ -95,6 +97,30 @@ test.each(["planned", "live", "skipped"] as const)(
     ).toMatchObject({ status: "completed" });
   },
 );
+
+test.each(["planned", "live"] as const)("%s accepts first Start after the movement cutoff without moving or extending the slot", async (status) => {
+  const { user, slot, deadline } = await setup(status);
+  const key = id();
+  expect((await post(user, slot.id, "start", { at: deadline }, key)).status).toBe(204);
+  expect((await post(user, slot.id, "start", { at: deadline }, key)).status).toBe(204);
+  expect(await userDb().slot.findUnique({ where: { id: slot.id } })).toMatchObject({
+    status: "started", startsAt: new Date(slot.startsAt), endsAt: new Date(slot.endsAt),
+  });
+  expect(await userDb().slotEvent.count({ where: { slotId: slot.id, type: "started" } })).toBe(1);
+});
+
+test.each([1, 2, 10])("a %i-minute slot accepts Start strictly before its end, never at it", async (minutes) => {
+  const { slot } = await setup("planned", minutes);
+  const action = { slotId: slot.id, status: "started" as const, actor: "user" as const };
+  await expect(setSlotStatus(userDb(), action, slot.endsAt, id)).rejects.toThrow("can no longer be started");
+  await setSlotStatus(userDb(), action, slot.endsAt - 1, id);
+  expect(await userDb().slot.findUnique({ where: { id: slot.id } })).toMatchObject({ status: "started" });
+});
+
+test.each(["user", "system"] as const)("%s cannot move an unstarted slot at the movement cutoff", async (actor) => {
+  const { slot, deadline } = await setup("planned");
+  await expect(moveSlot(userDb(), { slotId: slot.id, startsAt: tomorrowNoon(), endsAt: tomorrowNoon() + 600_000, actor }, deadline, id)).rejects.toThrow("can no longer be moved");
+});
 
 test.each([1, 10])(
   "a %i-minute slot accepts an offline Resume before the cutoff, never at it",

@@ -52,6 +52,9 @@ export interface UpNext {
   /** "18m", or "now" once it can be started. */
   badge?: string;
   slotId?: string;
+  /** The block itself, startable yet or not - what the rail matches a pressed
+   *  block against. `slotId` stays the startable-only one Start reads. */
+  id?: string;
 }
 
 /**
@@ -85,6 +88,7 @@ export function upNextOf(slots: readonly TodaySlot[], now: number): UpNext {
     title: next.title,
     label: `${minutesOf(next)} min`,
     badge: live ? "now" : countdown(next.startsAt - now),
+    id: next.id,
     // Only offered while it is actually startable. Starting something an hour
     // early is not a shortcut, it is a different plan.
     ...(live ? { slotId: next.id } : {}),

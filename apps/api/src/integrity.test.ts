@@ -7,7 +7,7 @@ import {
   nextGraceDeadline,
   placeSlot,
   processWebhook,
-  replacePlannedSlots,
+  insertPlannedSlots,
   scheduleWork,
   setActivityWindows,
   setSlotStatus,
@@ -241,7 +241,7 @@ test("failed lifecycle event rolls back status and idempotency key", async () =>
   });
 });
 
-test("failed plan replacement preserves the previous plan and history", async () => {
+test("failed plan insertion preserves the previous plan and history", async () => {
   const s = await slot();
   const db = userDb();
   await db.slot.update({ where: { id: s.id }, data: { isLocked: false } });
@@ -250,9 +250,9 @@ test("failed plan replacement preserves the previous plan and history", async ()
   );
   try {
     await expect(
-      replacePlannedSlots(
+      insertPlannedSlots(
         db,
-        { from: s.startsAt, to: s.endsAt, planRunId: "missing" },
+        { planRunId: "missing" },
         [
           {
             activityId: null,
@@ -370,7 +370,7 @@ test("next deadline includes imminent auto starts and running session ends", asy
   expect(await nextGraceDeadline(db, now)).toBe(now + 120000);
   await setSlotStatus(
     db,
-    { slotId: s.id, status: "started", actor: "system" },
+    { slotId: s.id, status: "started", actor: "system", reasonCode: "auto_start" },
     now,
     id,
   );

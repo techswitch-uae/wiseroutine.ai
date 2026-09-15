@@ -42,6 +42,7 @@
 
 import { freeGaps } from "./busy";
 import { siblingGap } from "./routine";
+import { canRepairSlot } from "./slot-actions";
 import type { Activity, BusyBlock, Instant, Interval, Minutes } from "./types";
 
 export { MIN_SIBLING_GAP_MS, SPREAD_TOLERANCE } from "./routine";
@@ -397,6 +398,8 @@ interface Search {
   siblings: readonly Interval[];
   /** How far this session must stay from any of them. */
   requiredGap: number;
+  /** Optional work budget for bounded batch placement. */
+  spend?: (work: number) => void;
 }
 
 /**
@@ -449,7 +452,7 @@ function positionsIn(gap: Interval, search: Search): Instant[] {
  * user gets: `no_gap` means the day is full, `too_close` means the day has
  * room but only shoulder to shoulder with the same activity.
  */
-function search(
+export function searchPlacement(
   gaps: readonly Interval[],
   params: Search,
 ): { best: Candidate } | { failed: "no_gap" | "too_close" } {
@@ -457,7 +460,9 @@ function search(
   let sawAnyPosition = false;
 
   for (const gap of gaps) {
+    params.spend?.(params.occupied.length + params.siblings.length + params.policy.windows.length + 1);
     for (const start of positionsIn(gap, params)) {
+      params.spend?.(params.occupied.length + params.siblings.length + 1);
       sawAnyPosition = true;
       const slot = { start, end: start + params.duration };
 
@@ -500,9 +505,7 @@ function search(
 
 /** Slots that still hold time but are no longer ours to move. */
 const isFrozen = (slot: CurrentSlot, now: Instant): boolean =>
-  // Already begun by the clock, whatever the status says. Moving something the
-  // user may be in the middle of is worse than leaving it where it clashes.
-  slot.status !== "planned" || slot.start < now;
+  !canRepairSlot({ status: slot.status, startsAt: slot.start, endsAt: slot.end }, now);
 
 /** Slots that will not happen and should not block a repair. */
 const isGone = (slot: CurrentSlot): boolean =>
@@ -622,7 +625,7 @@ export function rearrange(input: RearrangeInput): RearrangeResult {
       policy.spread,
     );
 
-    const found = search(freeGaps(day, occupied), {
+    const found = searchPlacement(freeGaps(day, occupied), {
       duration,
       bufferMs: activity.bufferBeforeMeetingMinutes * MINUTE,
       policy,

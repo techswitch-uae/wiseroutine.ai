@@ -1,6 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { TodayResponse, TodaySlot } from "../lib/api";
+import { pick } from "../lib/picked";
 import { publishPlan } from "../lib/plan-store";
 import { DashboardWidgets } from "./dashboard";
 
@@ -57,6 +58,7 @@ beforeEach(() => {
 
 afterEach(() => {
   publishPlan(null);
+  pick(null);
   vi.useRealTimers();
 });
 
@@ -88,13 +90,15 @@ test("offers a start only once the block is actually due", () => {
   expect(screen.getByRole("button", { name: "Start now" })).toBeTruthy();
 });
 
-test("Up next expires Start and Postpone at the exact scheduled cutoff", () => {
+test("Up next expires Postpone at the cutoff but Start only at the end", () => {
   vi.useFakeTimers({ now: AT + 120_000 - 1 });
   show(day({ slots: [slot({ startsAt: AT, endsAt: AT + 600_000 })] }));
   expect(screen.getByRole("button", { name: "Start now" })).toBeTruthy();
   act(() => vi.advanceTimersByTime(1));
-  expect(screen.queryByRole("button", { name: "Start now" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Start now" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
+  act(() => vi.advanceTimersByTime(480_000));
+  expect(screen.queryByRole("button", { name: "Start now" })).toBeNull();
 });
 
 test("Up next withdraws Start as soon as the slot starts, then follows the next activity", () => {
@@ -118,6 +122,16 @@ test("stands down entirely when the day is done", () => {
   const { container } = show(day({ slots: [slot({ status: "completed" })] }));
   expect(container.querySelector(".wr-widget-attention")).toBeNull();
   expect(screen.queryByText("Up next")).toBeNull();
+});
+
+// Pressing the block it names opens This slot, which takes this card's
+// countdown as its tab. Both at once named one block twice.
+test("steps aside while its block is open as This slot", () => {
+  pick("s1");
+  show(day());
+  expect(screen.queryByText("Shoulder stretch")).toBeNull();
+  act(() => pick(null));
+  expect(screen.getByText("Shoulder stretch")).toBeTruthy();
 });
 
 /**

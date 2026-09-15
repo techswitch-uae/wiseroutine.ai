@@ -1,9 +1,11 @@
 import { freeGaps } from "./busy";
+import { ANYWHERE, resolveBreather, searchPlacement } from "./rearrange";
 import { siblingGap } from "./routine";
 import type {
   Demand,
   Importance,
   Instant,
+  Interval,
   PlacedSlot,
   PlanInput,
   PlanResult,
@@ -19,63 +21,14 @@ const IMPORTANCE_RANK: Record<Importance, number> = {
   low: 1,
 };
 
-interface Gap {
-  start: Instant;
-  end: Instant;
-  /** True when this gap butts up against a meeting, so a pre-meeting buffer
-   *  applies to anything placed at its tail. */
-  endsAtMeeting: boolean;
-}
-
 interface Placement {
-  gapIndex: number;
   start: Instant;
-  /** Distance in ms from the nearest preferred time. Lower wins. */
   cost: number;
-}
-
-/** Best position for `duration` inside one gap, or undefined if it won't fit. */
-function fitInGap(
-  gap: Gap,
-  duration: number,
-  bufferMs: number,
-  preferredAt: readonly Instant[],
-): { start: Instant; cost: number } | undefined {
-  const limit = gap.endsAtMeeting ? gap.end - bufferMs : gap.end;
-  const earliest = gap.start;
-  const latest = limit - duration;
-  if (latest < earliest) return undefined;
-
-  if (preferredAt.length === 0) {
-    // No preference: earliest wins, and cost stays neutral so the gap ordering
-    // below falls through to "soonest".
-    return { start: earliest, cost: 0 };
-  }
-
-  let best: { start: Instant; cost: number } | undefined;
-  for (const preferred of preferredAt) {
-    const start = Math.min(Math.max(preferred, earliest), latest);
-    const cost = Math.abs(start - preferred);
-    if (
-      !best ||
-      cost < best.cost ||
-      (cost === best.cost && start < best.start)
-    ) {
-      best = { start, cost };
-    }
-  }
-  return best;
-}
-
-/** Would this session fit anywhere, ignoring buffers? Used to tell "no gap at
- *  all" apart from "a gap existed but the buffer ate it". */
-function fitsIgnoringBuffer(gaps: readonly Gap[], duration: number): boolean {
-  return gaps.some((g) => g.end - g.start >= duration);
 }
 
 function orderDemands(
   demands: readonly Demand[],
-  gaps: readonly Gap[],
+  gaps: readonly Interval[],
 ): Demand[] {
   // Scarcity: an activity that fits in few gaps should claim one before an
   // activity that fits anywhere takes it. Computed once against the initial
@@ -171,14 +124,14 @@ export function plan(input: PlanInput): PlanResult {
   }));
   const occupied = [...input.busy, ...lockedIntervals];
 
-  let gaps: Gap[] = freeGaps(bounds, occupied).map((g) => ({
-    start: g.start,
-    end: g.end,
-    // A gap that ends before the day does butts up against something busy.
-    endsAtMeeting: g.end < bounds.end,
-  }));
+  let gaps = freeGaps(bounds, occupied);
+  const breather = resolveBreather(undefined);
 
   let budget = 200_000 - gaps.length * input.demands.length;
+  const spend = (work: number) => {
+    budget -= work;
+    if (budget < 0) throw new RangeError("Plan exceeds work bounds");
+  };
   if (budget < 0) throw new RangeError("Plan exceeds work bounds");
   const initialGaps = gaps.map((g) => ({ ...g }));
   const placed: PlacedSlot[] = [...input.locked];
@@ -248,43 +201,23 @@ export function plan(input: PlanInput): PlanResult {
         targets[session] === undefined
           ? demand.preferredAt
           : [targets[session] as number];
-      const excluded = siblings.map((slot) => ({
-        start: slot.start - separation,
-        end: slot.end + separation,
-      }));
-      for (const [index, gap] of gaps.entries()) {
-        budget -= Math.max(1, siblings.length);
-        if (budget < 0) throw new RangeError("Plan exceeds work bounds");
-        for (const available of freeGaps(gap, excluded)) {
-          budget -= Math.max(1, preferred.length);
-          if (budget < 0) throw new RangeError("Plan exceeds work bounds");
-          const fit = fitInGap(
-            {
-              ...available,
-              endsAtMeeting: gap.endsAtMeeting && available.end === gap.end,
-            },
-            duration,
-            bufferMs,
-            preferred,
-          );
-          if (!fit) continue;
-          if (
-            !best ||
-            fit.cost < best.cost ||
-            (fit.cost === best.cost && fit.start < best.start)
-          )
-            best = { gapIndex: index, start: fit.start, cost: fit.cost };
-        }
+      // The same candidate search as repair: spacing is required, breathing
+      // room (including the activity buffer) is preferred. Initial placement
+      // measures drift from its target; repair measures it from its old time.
+      for (const origin of preferred.length ? preferred : [input.dayStart]) {
+        const found = searchPlacement(gaps, {
+          duration, bufferMs, policy: ANYWHERE, origin, occupied, breather,
+          siblings, requiredGap: separation, spend,
+        });
+        if ("failed" in found) continue;
+        const fit = found.best;
+        if (!best || fit.cost < best.cost || (fit.cost === best.cost && fit.start < best.start))
+          best = fit;
       }
 
       if (!best) {
-        const reason: UnplacedReason = gaps.some((gap) =>
-          fitInGap(gap, duration, bufferMs, []),
-        )
-          ? "spacing_blocked"
-          : fitsIgnoringBuffer(gaps, duration)
-            ? "buffer_blocked"
-            : "no_gap";
+        const reason: UnplacedReason = gaps.some((gap) => gap.end - gap.start >= duration)
+          ? "spacing_blocked" : "no_gap";
         const existing = shortfall.get(activity.id);
         shortfall.set(activity.id, {
           sessions: (existing?.sessions ?? 0) + 1,
@@ -304,28 +237,8 @@ export function plan(input: PlanInput): PlanResult {
       placed.push(slot);
       siblings.push(slot);
 
-      // Split the consumed gap into whatever is left either side.
-      const gap = gaps[best.gapIndex] as Gap;
-      const remainder: Gap[] = [];
-      if (best.start > gap.start) {
-        remainder.push({
-          start: gap.start,
-          end: best.start,
-          endsAtMeeting: false,
-        });
-      }
-      if (end < gap.end) {
-        remainder.push({
-          start: end,
-          end: gap.end,
-          endsAtMeeting: gap.endsAtMeeting,
-        });
-      }
-      gaps = [
-        ...gaps.slice(0, best.gapIndex),
-        ...remainder,
-        ...gaps.slice(best.gapIndex + 1),
-      ];
+      occupied.push({ start: slot.start, end: slot.end });
+      gaps = freeGaps(bounds, occupied);
     }
   }
 

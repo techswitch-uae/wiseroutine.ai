@@ -1,4 +1,4 @@
-import { canStartSlot } from "@wiseroutine/scheduler";
+import { canPostponeSlot, canStartSlot } from "@wiseroutine/scheduler";
 import type { TodaySlot } from "./api";
 
 /** Lifecycle permissions shared by the timeline and the selected-slot widget.
@@ -23,6 +23,7 @@ const inactive = {
 export function slotState(slot: TodaySlot, now: number): SlotState {
   const over = now >= slot.endsAt;
   const available = canStartSlot(slot, now);
+  const movable = canPostponeSlot(slot, now);
 
   switch (slot.status) {
     case "started":
@@ -36,7 +37,7 @@ export function slotState(slot: TodaySlot, now: number): SlotState {
         ...inactive,
         label: "Stopped",
         startable: available,
-        movable: available,
+        movable,
       };
     case "missed":
       return { ...inactive, label: "Missed" };
@@ -49,7 +50,7 @@ export function slotState(slot: TodaySlot, now: number): SlotState {
         ...inactive,
         label: slot.isLocked ? "Placed by you" : null,
         startable: true,
-        movable: true,
+        movable,
       };
   }
 }

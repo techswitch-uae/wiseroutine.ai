@@ -236,7 +236,6 @@ testing.post("/routine", requireUser, async (c) => {
           onDay: now,
           from: now,
           trigger: "user_request",
-          preservePlanned: true,
         },
         now,
         newId,

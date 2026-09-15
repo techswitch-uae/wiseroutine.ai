@@ -124,7 +124,7 @@ fn countdown(ms: i64) -> String {
 fn up_next(entries: &[Entry], now: i64) -> UpNext {
   let Some(entry) = entries
     .iter()
-    .filter(|entry| entry.ends_at > now && entry.starts_at.saturating_add(120_000) > now)
+    .filter(|entry| entry.ends_at > now && entry.ends_at > entry.starts_at)
     .min_by_key(|entry| entry.starts_at)
   else {
     return UpNext::default();
@@ -434,15 +434,17 @@ mod tests {
   /// menu bar, and it must leave on the clock alone - no new push from the
   /// webview, which is the thing that had stopped arriving.
   #[test]
-  fn drops_a_slot_at_its_start_cutoff() {
+  fn keeps_start_available_until_the_slot_ends() {
     let day = [entry("a", AT, AT + 10 * MIN)];
 
     let during = up_next(&day, AT + 2 * MIN - 1);
     assert_eq!(during.title.as_deref(), Some("Breathing"));
     assert_eq!(during.badge.as_deref(), Some("now"));
 
+    assert_eq!(up_next(&day, AT + 2 * MIN).slot_id.as_deref(), Some("a"));
+    assert_eq!(up_next(&day, AT + 10 * MIN - 1).slot_id.as_deref(), Some("a"));
     // Same schedule, later clock. Nothing else changed.
-    let after = up_next(&day, AT + 2 * MIN);
+    let after = up_next(&day, AT + 10 * MIN);
     assert_eq!(after.title, None);
     assert_eq!(after.badge, None);
     assert_eq!(menu_bar_title(&after), None);
@@ -475,7 +477,7 @@ mod tests {
     native_title(&mut displayed, &up_next(&day, AT));
     assert_eq!(displayed, "Walk · now");
 
-    for now in [AT + 2 * MIN, AT + 60 * MIN] {
+    for now in [AT + 20 * MIN, AT + 60 * MIN] {
       let next = up_next(&day, now);
       native_title(&mut displayed, &next);
       assert_eq!(displayed, "");
@@ -500,9 +502,9 @@ mod tests {
     let mut displayed = String::new();
     native_title(&mut displayed, &up_next(&day, AT));
     assert_eq!(displayed, "Breathing · now");
-    native_title(&mut displayed, &up_next(&day, AT + 2 * MIN));
-    assert_eq!(displayed, "Breathing · 18m");
-    native_title(&mut displayed, &up_next(&day, AT + 22 * MIN));
+    native_title(&mut displayed, &up_next(&day, AT + 10 * MIN));
+    assert_eq!(displayed, "Breathing · 10m");
+    native_title(&mut displayed, &up_next(&day, AT + 30 * MIN));
     assert_eq!(displayed, "");
   }
 

@@ -70,6 +70,34 @@ test("an unplanned morning waits for manual placement or Place them for me", asy
   expect(await userDb().slot.count()).toBe(3);
 });
 
+test("reading future days with weekly planning enabled never creates appointments or plan runs", async () => {
+  const user = await seedUser({ timeZone: "UTC" });
+  await seedActivity({ minimumValue: 3 });
+  for (const at of [start, start + 86_400_000, start, start + 2 * 86_400_000]) {
+    const response = await request(user, `/today?at=${at}`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ slots: [], progress: [{ minimumValue: 3, scheduled: 0 }] });
+  }
+  expect(await userDb().slot.count()).toBe(0);
+  expect(await userDb().slotEvent.count()).toBe(0);
+  expect(await userDb().planRun.count()).toBe(0);
+});
+
+test("all explicit placement trigger names preserve accepted unpinned slots and their history", async () => {
+  const user = await seedUser({ timeZone: "UTC" });
+  await seedActivity({ minimumValue: 3 });
+  expect(await (await request(user, "/plan", { at: start })).json()).toMatchObject({ placed: 3, removed: 0 });
+  const slots = await userDb().slot.findMany({ orderBy: { id: "asc" } });
+  expect(slots.every((slot) => !slot.isLocked)).toBe(true);
+  const events = await userDb().slotEvent.count();
+  for (const trigger of ["morning", "calendar_change", "missed_replan", "user_request"]) {
+    expect(await (await request(user, "/plan", { at: start, trigger })).json()).toMatchObject({ placed: 0, removed: 0, unplaced: [] });
+    expect(await userDb().slot.findMany({ orderBy: { id: "asc" } })).toEqual(slots);
+    expect(await userDb().slotEvent.count()).toBe(events);
+  }
+  expect((await request(user, "/plan", { trigger: "replace_everything" })).status).toBe(400);
+});
+
 test("initial shortfalls persist once, do not double-count demand, and can be manually placed", async () => {
   const user = await seedUser({ timeZone: "UTC" });
   const id = await seedActivity({ name: "Stretch", minimumValue: 3 });

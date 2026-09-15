@@ -9,6 +9,7 @@ import {
 } from "@wiseroutine/design";
 import { canPostponeSlot, canStopSlot } from "@wiseroutine/scheduler";
 import { useEffect, useRef, useState } from "react";
+import { upNextOf } from "../lib/alerts";
 import { api, type TodayResponse } from "../lib/api";
 import { captureError } from "../lib/capture";
 import { useFeatures } from "../lib/features";
@@ -268,6 +269,11 @@ export const ThisSlot: React.FC = () => {
   const minutes = Math.round((slot.endsAt - slot.startsAt) / 60_000);
   const times = `${clock(slot.startsAt, plan.timeZone)}–${clock(slot.endsAt, plan.timeZone)}`;
   const module = moduleFor(slot.presetKey);
+  // The block Up next is already counting down to. This card takes that
+  // countdown as an ink tab and the module steps aside - see `UpNext`. Once it
+  // starts it is no longer next, and the tab goes with it.
+  const next = upNextOf(plan.slots, now);
+  const upNext = next.id === slot.id;
 
   const nudge = (direction: -1 | 1) => {
     const by = direction * STEP_MINUTES * 60_000;
@@ -323,7 +329,26 @@ export const ThisSlot: React.FC = () => {
   };
 
   return (
-    <Widget eyebrow="This slot" leaving={leaving} onClose={close}>
+    <Widget
+      eyebrow={upNext ? "Up next" : "This slot"}
+      leaving={leaving}
+      onClose={close}
+      {...(upNext
+        ? {
+            tab: (
+              <span
+                className={
+                  next.badge === "now"
+                    ? "wr-widget-time wr-widget-tab-now"
+                    : "wr-widget-time"
+                }
+              >
+                {next.badge === "now" ? "Now" : `in ${next.badge}`}
+              </span>
+            ),
+          }
+        : {})}
+    >
       <div className="wr-widget-title-row">
         <h3 className="wr-widget-title">{slot.title}</h3>
         {slot.status === "completed" || state.running ? (

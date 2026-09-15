@@ -1646,6 +1646,14 @@ export type WidgetProps = {
    */
   onClose?: () => void;
   /**
+   * Draws the head as an ink tab, with this beside the eyebrow.
+   *
+   * For This slot on the block Up next is counting down to: the card carries
+   * that module's ink and countdown so the rail names the block once, while
+   * every control below stays on the sand it was drawn for.
+   */
+  tab?: React.ReactNode;
+  /**
    * On its way out.
    *
    * A widget that unmounts the instant it is closed takes its height with it
@@ -1761,19 +1769,24 @@ export const Widget: React.FC<WidgetProps> = ({
   style,
   onClose,
   leaving,
+  tab,
 }) => (
   <div ref={useWidgetEntrance(leaving)} className="wr-widget-slot">
     <section
       className={cx(
         "wr-widget",
         variant === "attention" && "wr-widget-attention",
+        tab !== undefined && "wr-widget-tabbed",
         className,
       )}
       style={style}
     >
       {eyebrow ? (
-        <div className="wr-widget-head">
+        <div
+          className={cx("wr-widget-head", tab !== undefined && "wr-widget-tab")}
+        >
           <span className="wr-label">{eyebrow}</span>
+          {tab}
           {count !== undefined ? <Chip variant="static">{count}</Chip> : null}
           {onClose ? (
             <button

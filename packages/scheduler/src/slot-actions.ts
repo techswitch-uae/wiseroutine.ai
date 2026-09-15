@@ -32,7 +32,7 @@ export function canStopSlot(slot: StartedSlot, now: number): boolean {
 
 type TimedSlot = Pick<StartedSlot, "status" | "startsAt" | "endsAt">;
 
-/** Start, Resume and manual movement share the scheduled-time cutoff.
+/** Resume and movement close two minutes after the scheduled start.
  * An early Start/Stop never renews it. Short slots close at their end. */
 export function slotActionDeadline(
   slot: Pick<TimedSlot, "startsAt" | "endsAt">,
@@ -52,11 +52,21 @@ export function canStartSlot(slot: TimedSlot, now: number): boolean {
     ["planned", "live", "skipped"].includes(slot.status) &&
     deadline !== null &&
     Number.isFinite(now) &&
-    now < deadline
+    now < (slot.status === "skipped" ? deadline : slot.endsAt)
   );
 }
 
-/** Not placed has no appointment to expire. Missed/done history never moves. */
+/** Not placed has no appointment to expire. Missed/done history never moves.
+ * First Start remains available after this window, but never renews movement. */
 export function canPostponeSlot(slot: TimedSlot, now: number): boolean {
-  return slot.status === "bucketed" || canStartSlot(slot, now);
+  const deadline = slotActionDeadline(slot);
+  return slot.status === "bucketed" || (
+    ["planned", "live", "skipped"].includes(slot.status) &&
+    deadline !== null && Number.isFinite(now) && now < deadline
+  );
+}
+
+/** Calendar repair only moves pending appointments, never stopped history. */
+export function canRepairSlot(slot: TimedSlot, now: number): boolean {
+  return ["planned", "live"].includes(slot.status) && canPostponeSlot(slot, now);
 }

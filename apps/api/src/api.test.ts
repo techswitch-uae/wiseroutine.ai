@@ -1,9 +1,8 @@
 import { exports as worker } from "cloudflare:workers";
 import {
-  abandonedSlots,
   autoSlotsToComplete,
   removeAddon,
-  slotsPastGrace,
+  slotsToAutoStart,
 } from "@wiseroutine/db";
 import { beforeEach, describe, expect, test } from "vitest";
 import { bundledEntries } from "./addons/registry";
@@ -2381,14 +2380,13 @@ describe("the grace sweep's window", () => {
     });
   };
 
-  test("reaches a slot just past its moment, and not one from this morning", async () => {
+  test("manual appointments never enter background auto-start work", async () => {
     const now = Date.now();
     await seedSlot("Two minutes ago", now - 2 * 60_000);
     await seedSlot("This morning", now - 9 * 3_600_000);
     await seedSlot("Later", now + 60_000);
 
-    const due = await slotsPastGrace(userDb(), now, 200, 30 * 60_000);
-    expect(due.map((slot) => slot.title)).toEqual(["Two minutes ago"]);
+    expect(await slotsToAutoStart(userDb(), now, 200)).toEqual([]);
   });
 });
 
@@ -2437,13 +2435,13 @@ describe("a session that was started and never finished", () => {
     );
   });
 
-  test("is collected once it is well past its end", async () => {
+  test("manual starts remain for confirmation even a day after their end", async () => {
     await seedUser();
     const activityId = await seedActivity();
     const yesterday = await startedSlot(activityId, Date.now() - 24 * HOUR);
 
-    const found = await abandonedSlots(userDb(), Date.now(), 200, HOUR);
-    expect(found.map((slot) => slot.id)).toEqual([yesterday]);
+    expect(await autoSlotsToComplete(userDb(), Date.now(), 200)).toEqual([]);
+    expect(await userDb().slot.findUnique({ where: { id: yesterday } })).toMatchObject({ status: "started" });
   });
 
   /**
@@ -2457,12 +2455,10 @@ describe("a session that was started and never finished", () => {
     await startedSlot(activityId, Date.now() - 10 * 60_000);
     await startedSlot(activityId, Date.now() + 60_000);
 
-    expect(await abandonedSlots(userDb(), Date.now(), 200, HOUR)).toHaveLength(
-      0,
-    );
+    expect(await autoSlotsToComplete(userDb(), Date.now(), 200)).toHaveLength(0);
   });
 
-  test("only ever collects the started ones", async () => {
+  test("no lifecycle state is automatically completed without auto-start evidence", async () => {
     const user = await seedUser();
     const activityId = await seedActivity();
     const long = Date.now() - 24 * HOUR;
@@ -2484,8 +2480,8 @@ describe("a session that was started and never finished", () => {
       });
     }
 
-    const found = await abandonedSlots(userDb(), Date.now(), 200, HOUR);
-    expect(found.map((slot) => slot.id)).toEqual([started]);
+    expect(await autoSlotsToComplete(userDb(), Date.now(), 200)).toEqual([]);
+    expect(await userDb().slot.findUnique({ where: { id: started } })).toMatchObject({ status: "started" });
     expect(user).toBeTruthy();
   });
 

@@ -65,7 +65,7 @@ import {
   upsertCalendars,
   userTransaction,
 } from "@wiseroutine/db";
-import { can, visibleWidgets } from "@wiseroutine/plans";
+import { visibleWidgets } from "@wiseroutine/plans";
 import { addonReleased, releasedWidgets } from "@wiseroutine/plans/features";
 import {
   googleListCalendars,
@@ -1381,83 +1381,6 @@ const localDay = (c: Ctx, at: number): { start: number; end: number } => {
 const isOver = (c: Ctx, day: { end: number }): boolean =>
   day.end <= c.get("now");
 
-/**
- * Put on the day whatever the day is missing.
- *
- * Activities repeat - "three times a day, every weekday" - and the obvious way
- * to honour that is to write slots for every day ahead. That is a table
- * growing forever with a plan nobody has seen, every row of it already wrong
- * the moment a meeting moves. So nothing is written ahead: a day is filled in
- * when it is opened.
- *
- * The trigger is the plain one, and it is the rule a user would state: an
- * activity that should run today and has no slot on today is missing, and a
- * day with anything missing gets planned. That is why adding an activity and
- * walking back to Today places it, with nobody having pressed anything - and
- * why opening the same day twice does not move what is already on it, so a
- * slot dragged somewhere by hand stays there.
- *
- * The whole working day is fair game, not just what is left of it. Someone
- * opening the app at nine in the evening still wants to see the shape their
- * day was meant to have, and a screen that answers an empty ruler reads as the
- * app being broken rather than as the day being over.
- *
- * ponytail: which means slots can land in the past, and an activity that does
- * not fit stays missing so every load re-solves it. Both are the "for now"
- * shape - one in-memory solve over one day. Plan from `now` and say what
- * happened to the rest once there is a mid-day story to tell.
- */
-async function fillDay(
-  c: Ctx,
-  /** The whole local day. `end` is the midnight after it. */
-  wholeDay: { start: number; end: number },
-): Promise<void> {
-  const db = c.get("db");
-  const user = c.get("user");
-
-  if (isOver(c, wholeDay)) return;
-
-  // Automatic placement and repair are part of Free's core promise.
-  // Wider views must not materialize future routines as a side effect.
-  if (!can(user.plan, { kind: "plan.adaptive" }).ok) return;
-
-  const [activities, slots] = await Promise.all([
-    listActivities(
-      db,
-      isoOfLocalDate(localDateOf(wholeDay.start, user.timeZone)),
-    ),
-    listSlotsForRange(db, wholeDay.start, wholeDay.end),
-  ]);
-
-  const weekday = localWeekday(wholeDay.start, user.timeZone);
-  const due = activities.filter(
-    ({ row }) => row.isActive && runsOn(toSchedulerActivity(row), weekday),
-  );
-  if (due.length === 0) return;
-
-  /**
-   * Once a day, at the start of it.
-   *
-   * This used to fill in any activity that had no slot yet, which meant an
-   * activity added at eleven in the morning was already on the day by the
-   * time you walked back to Today - the day rearranging itself behind you,
-   * which is the opposite of what filling it is for. A day with anything on
-   * it has already been filled; whatever is added after that is owed, and the
-   * "To place today" module offers it with a button.
-   */
-  if (slots.length > 0) return;
-
-  await planAndSchedule(c, {
-    user,
-    // Midnight of the day itself. Its `end` is the first instant of the day
-    // *after* it, and passing that planned tomorrow while filing the run
-    // under today - so every open planned again, one day out.
-    onDay: wholeDay.start,
-    from: c.get("now"),
-    trigger: "morning",
-  });
-}
-
 app.get("/today", async (c) => {
   const db = c.get("db");
   const user = c.get("user");
@@ -1490,14 +1413,8 @@ app.get("/today", async (c) => {
    */
   const wholeDay = dayBounds(date, user.timeZone, 0, FULL_DAY_MINUTES);
 
-  // An unplanned Today is a choice: show its routine in Not placed until the
-  // user drags slots or asks us to place them. Keep the future-day planning
-  // preview's existing behaviour separate from opening the current day.
-  if (
-    c.get("features").weekly_planning &&
-    !(c.get("now") >= wholeDay.start && c.get("now") < wholeDay.end)
-  )
-    await fillDay(c, wholeDay);
+  // Reading any date is side-effect-free. Not placed is a choice, including
+  // future-day views: only an explicit placement may create appointments.
 
   const [slots, events, syncedAt, activities, done, scheduled, configured] =
     await Promise.all([
@@ -1848,7 +1765,12 @@ app.post("/plan", async (c) => {
     .json<PlanBody>()
     .catch(() => ({}) as PlanBody);
 
-  // Core automatic placement and adaptation are available on both plans.
+  // Legacy trigger names remain accepted as telemetry, not alternative
+  // scheduling algorithms. This endpoint always explicitly fills remaining work.
+  if (body.trigger !== undefined && !["morning", "calendar_change", "user_request", "missed_replan"].includes(body.trigger))
+    throw new HTTPException(400, { message: "Unknown placement trigger" });
+  if (body.at !== undefined && !Number.isFinite(body.at))
+    throw new HTTPException(400, { message: "Invalid placement date" });
   const trigger = (body.trigger ?? "user_request") as
     | "morning"
     | "calendar_change"
@@ -1873,9 +1795,7 @@ app.post("/plan", async (c) => {
     onDay,
     trigger,
     from: now,
-    // Filling what is not placed must never rearrange accepted placements.
-    preservePlanned: trigger === "user_request",
-    retryUnplaced: trigger === "user_request",
+    retryUnplaced: true,
   });
 
   return c.json({
@@ -2274,7 +2194,7 @@ app.patch("/todos/:id", async (c) => {
  * Cancelled rather than deleted, and deliberately not the same thing as
  * skipped: skipping is a decision the missed list reports on, and this is "not
  * today, thanks". The row survives, which is what makes both the undo below
- * and "today only" work - `fillDay` re-plans an activity that has no slot on
+ * and "today only" work - explicit placement otherwise replenishes demand on
  * the day, and a cancelled slot is still a slot, so the activity stays gone
  * until tomorrow rather than reappearing on the next page load.
  */

@@ -7,7 +7,7 @@ import {
   listSlotsForRange,
   moveSlot,
   progressForRange,
-  replacePlannedSlots,
+  insertPlannedSlots,
   toSchedulerActivity,
   type UserDatabase,
   userDismissedSlots,
@@ -74,8 +74,6 @@ export async function planDay(
     /** Plan only from here onward, so a mid-day replan cannot place a slot in
      *  the past. */
     from?: number;
-    /** Adding a new activity must not reshuffle accepted placements. */
-    preservePlanned?: boolean;
     /** Explicit "Place them for me": retry saved occurrences, never recreate them. */
     retryUnplaced?: boolean;
   },
@@ -94,7 +92,7 @@ export async function planDay(
     params.user.dayEndMinutes,
   );
   const wholeDay = dayBounds(date, zone, 0, 1440);
-  const dayStart = Math.max(bounds.start, params.from ?? bounds.start);
+  const dayStart = Math.max(bounds.start, params.from ?? now, now);
 
   const [events, activities, slots, dismissed, unplacedSlots] =
     await Promise.all([
@@ -110,16 +108,10 @@ export async function planDay(
 
   const busy = toBusyBlocks(events);
 
-  // Anything pinned, started or already settled survives a replan untouched.
+  // Every accepted appointment is preserved, whether placed by hand or by
+  // the planner. Only collision-driven repair may move one, before its cutoff.
   const locked = slots
-    .filter(
-      (s) =>
-        ["planned", "live", "started", "completed"].includes(s.status) &&
-        (s.isLocked ||
-          s.status !== "planned" ||
-          params.preservePlanned ||
-          s.startsAt < dayStart),
-    )
+    .filter((s) => ["planned", "live", "started", "completed"].includes(s.status))
     .map((s) => ({
       activityId: s.activityId ?? s.id,
       start: s.startsAt,
@@ -146,12 +138,7 @@ export async function planDay(
    */
   const keptToday = new Map<string, number>();
   for (const slot of slots) {
-    const keeps =
-      slot.status === "planned"
-        ? slot.isLocked || params.preservePlanned || slot.startsAt < dayStart
-        : ["live", "started", "bucketed", "skipped", "missed"].includes(
-            slot.status,
-          ) || dismissedIds.has(slot.id);
+    const keeps = ["planned", "live", "started", "bucketed", "skipped", "missed"].includes(slot.status) || dismissedIds.has(slot.id);
     if (!keeps || !slot.activityId) continue;
     keptToday.set(slot.activityId, (keptToday.get(slot.activityId) ?? 0) + 1);
   }
@@ -296,16 +283,9 @@ export async function planDay(
     newId,
   );
 
-  const written = await replacePlannedSlots(
+  const written = await insertPlannedSlots(
     db,
-    {
-      from: dayStart,
-      to: bounds.end,
-      planRunId,
-      ...(params.preservePlanned
-        ? { preserveIds: slots.map((slot) => slot.id) }
-        : {}),
-    },
+    { planRunId },
     planned,
     now,
     newId,

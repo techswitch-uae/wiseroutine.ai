@@ -1,5 +1,6 @@
 import {
   canPostponeSlot,
+  canRepairSlot,
   canStartSlot,
   canStopSlot,
   dayBounds,
@@ -181,20 +182,11 @@ export interface PlannedSlot {
   timeZone: string;
 }
 
-/**
- * Replace the unsettled, unlocked slots in a window with a fresh plan.
- *
- * What survives a replan: anything the user pinned (`isLocked`), anything
- * already started or finished, and anything already logged as missed. A replan
- * must never quietly erase history or move a slot the user placed by hand.
- */
-export async function replacePlannedSlots(
+/** Append an explicit placement without deleting accepted appointments or history. */
+export async function insertPlannedSlots(
   db: UserDatabase,
   params: {
-    from: number;
-    to: number;
     planRunId: string;
-    preserveIds?: readonly string[];
   },
   planned: readonly PlannedSlot[],
   now: number,
@@ -202,23 +194,8 @@ export async function replacePlannedSlots(
 ): Promise<{ removed: number; created: number }> {
   if (!isTransaction(db))
     return userTransaction(db, (tx) =>
-      replacePlannedSlots(tx, params, planned, now, newId),
+      insertPlannedSlots(tx, params, planned, now, newId),
     );
-  const replaceable = await db.slot.findMany({
-    where: {
-      startsAt: { gte: at(params.from), lt: at(params.to) },
-      isLocked: false,
-      status: "planned",
-      ...(params.preserveIds ? { id: { notIn: [...params.preserveIds] } } : {}),
-    },
-    select: { id: true },
-  });
-
-  const ids = replaceable.map((r) => r.id);
-  if (ids.length > 0) {
-    await db.slotEvent.deleteMany({ where: { slotId: { in: ids } } });
-    await db.slot.deleteMany({ where: { id: { in: ids } } });
-  }
 
   for (const slot of planned) {
     const id = newId();
@@ -244,7 +221,7 @@ export async function replacePlannedSlots(
     );
   }
 
-  return { removed: ids.length, created: planned.length };
+  return { removed: 0, created: planned.length };
 }
 
 /**
@@ -396,7 +373,7 @@ export async function moveSlot(
     );
   if (
     params.actor === "system"
-      ? !["planned", "live", "bucketed"].includes(current.status)
+      ? current.status !== "bucketed" && !canRepairSlot(current, now)
       : !canPostponeSlot(current, now)
   )
     throw new ActionConflict(
@@ -539,7 +516,6 @@ export async function setSlotStatus(
   }
   if (
     params.status === "started" &&
-    params.actor !== "system" &&
     !canStartSlot(slot, now)
   )
     throw new ActionConflict(
@@ -728,65 +704,25 @@ export async function markConflicts(
   }
 }
 
-/**
- * A slot due for a decision, with the two activity fields that make it.
- *
- * The policy and the grace both live on the activity, and the sweep needs them
- * per slot rather than as one number for everyone - a five-minute eye rest
- * that starts itself and a twenty-five minute focus block you have to commit
- * to are the same row with different answers to these two questions.
- */
-export interface DueSlot extends SlotRow {
-  /** "manual" | "auto" | "prompt". Manual for a slot with no activity behind
-   *  it, which is the behaviour that existed before policies did. */
-  startPolicy: string;
-  graceMinutes: number;
-  bufferBeforeMeetingMinutes: number;
-}
-
-export async function slotsPastGrace(
+/** Due guided slots, including a late wake, but never an already ended slot.
+ * Manual slots are deliberately not background work: time passing only changes
+ * their presentation, leaving the user's outcome and offline actions intact. */
+export async function slotsToAutoStart(
   db: UserDatabase,
   now: number,
   limit: number,
-  /**
-   * How far back to look.
-   *
-   * Without it the sweep matched every planned slot ever, however old. A slot
-   * that started this morning is not "just past its grace period": moving it
-   * five minutes on says nothing, and doing that twice buries it in the missed
-   * list. The auto-move is for a slot whose moment is passing right now;
-   * anything older has already been missed, and saying so is the missed list's
-   * job rather than this one's.
-   */
-  window: number,
-): Promise<DueSlot[]> {
+): Promise<SlotRow[]> {
   const rows = await db.slot.findMany({
     where: {
-      status: "planned",
-      startsAt: { lte: at(now), gt: at(now - window) },
-    },
-    // The policy decides what a locked slot gets, so the lock can no longer be
-    // a filter here: a hand-placed eye rest still has to start itself, it just
-    // must never be moved. See `sweepGrace`.
-    include: {
-      activity: {
-        select: {
-          startPolicy: true,
-          graceMinutes: true,
-          bufferBeforeMeetingMinutes: true,
-        },
-      },
+      status: { in: ["planned", "live"] },
+      startsAt: { lte: at(now) },
+      endsAt: { gt: at(now) },
+      activity: { isActive: true, startPolicy: "auto" },
     },
     orderBy: { startsAt: "asc" },
     take: limit,
   });
-
-  return rows.map(({ activity, ...row }) => ({
-    ...toSlot(row),
-    startPolicy: activity?.startPolicy ?? "manual",
-    graceMinutes: activity?.graceMinutes ?? 0,
-    bufferBeforeMeetingMinutes: activity?.bufferBeforeMeetingMinutes ?? 0,
-  }));
+  return rows.map(toSlot);
 }
 
 /**
@@ -805,7 +741,7 @@ export async function autoSlotsToComplete(
     where: {
       status: "started",
       endsAt: { lte: at(now) },
-      activity: { startPolicy: "auto" },
+      events: { some: { type: "started", actor: "system", reasonCode: "auto_start" } },
     },
     orderBy: { endsAt: "asc" },
     take: limit,
@@ -813,37 +749,8 @@ export async function autoSlotsToComplete(
   return rows.map(toSlot);
 }
 
-/**
- * Sessions that were started by hand and never finished.
- *
- * `started` is the one status with nothing behind it. An `auto` slot is closed
- * at its end by the query above; a manual one is closed by the person doing
- * it, from inside the session - and if the window is shut, the app quit or the
- * machine sleeps, nobody ever closes it. The row then stays `started` for
- * ever: still "running now" a week later, still counted as scheduled by
- * `scheduledForRange`, so the day never asks for the session again either.
- *
- * The grace is long on purpose. A session that ran over, or a laptop lid shut
- * for ten minutes mid-stretch, is someone still doing the activity, and this
- * must not close a session out from under them. An hour past the end is not
- * that.
- *
- * Any policy, deliberately: run this after `autoSlotsToComplete` and the
- * `auto` ones are already gone, so what is left really is abandoned.
- */
-export async function abandonedSlots(
-  db: UserDatabase,
-  now: number,
-  limit: number,
-  grace: number,
-): Promise<SlotRow[]> {
-  const rows = await db.slot.findMany({
-    where: { status: "started", endsAt: { lte: at(now - grace) } },
-    orderBy: { endsAt: "asc" },
-    take: limit,
-  });
-  return rows.map(toSlot);
-}
+/** Manual starts remain Needs confirmation after their end. No timer invents
+ * a missed or completed outcome for them. */
 
 /** The next moment anything in this database needs attention, so the directory
  *  can be told when to come back. */
@@ -854,24 +761,14 @@ export async function nextGraceDeadline(
   const rows = await db.slot.findMany({
     where: {
       OR: [
-        { status: "planned", startsAt: { gt: at(after - 30 * 60_000) } },
-        { status: "started" },
+        { status: { in: ["planned", "live"] }, endsAt: { gt: at(after) }, activity: { isActive: true, startPolicy: "auto" } },
+        { status: "started", events: { some: { type: "started", actor: "system", reasonCode: "auto_start" } } },
       ],
     },
-    include: {
-      activity: { select: { startPolicy: true, graceMinutes: true } },
-    },
   });
-  const deadlines = rows.flatMap((row) => {
-    const auto = row.activity?.startPolicy === "auto";
-    if (row.status === "started")
-      return [ms(row.endsAt) + (auto ? 0 : 60 * 60_000)];
-    if (!auto && row.isLocked) return [];
-    return [
-      ms(row.startsAt) +
-        (auto ? 0 : (row.activity?.graceMinutes ?? 0) * 60_000),
-    ];
-  });
+  const deadlines = rows.map((row) =>
+    ms(row.status === "started" ? row.endsAt : row.startsAt),
+  );
   return deadlines.length ? Math.min(...deadlines) : undefined;
 }
 

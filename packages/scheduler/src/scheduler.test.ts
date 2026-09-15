@@ -288,12 +288,12 @@ describe("plan", () => {
         ],
       }),
     );
-    // 14:00 is 60 min from preferred; 12:20 is only 40, so it wins.
-    expect(asLocal(result.placed[0]?.start ?? 0)).toBe("12:20");
+    // 12:10 leaves ten minutes before the long meeting; it is still nearer
+    // the preferred time than the equally comfortable 14:10 landing.
+    expect(asLocal(result.placed[0]?.start ?? 0)).toBe("12:10");
   });
 
-  // 3e: "Never before a meeting · leaves 5 min".
-  test("leaves the pre-meeting buffer clear", () => {
+  test("prefers the larger of the activity buffer and shared breather", () => {
     // Preferring the latest possible time pushes the session hard against the
     // meeting, so the buffer is the only thing that can stop it.
     const runWith = (bufferBeforeMeetingMinutes: number) =>
@@ -310,12 +310,13 @@ describe("plan", () => {
         }),
       );
 
-    expect(asLocal(runWith(5).placed[0]?.end ?? 0)).toBe("09:15");
-    // Without a buffer it would happily run right up to the meeting.
-    expect(asLocal(runWith(0).placed[0]?.end ?? 0)).toBe("09:20");
+    expect(asLocal(runWith(5).placed[0]?.end ?? 0)).toBe("09:10");
+    expect(asLocal(runWith(0).placed[0]?.end ?? 0)).toBe("09:10");
+    // A larger requested buffer is still preferred, but cannot shorten a slot.
+    expect(asLocal(runWith(15).placed[0]?.end ?? 0)).toBe("09:10");
   });
 
-  test("reports buffer_blocked separately from no_gap", () => {
+  test("borrows breathing room for a full-length tight fit, but never borrows occupied time", () => {
     const tightGap = toBusyBlocks([
       event({ id: "m", start: at(9, 12), end: at(17) }),
     ]);
@@ -328,9 +329,8 @@ describe("plan", () => {
         ],
       }),
     );
-    expect(blocked.unplaced).toEqual([
-      { activityId: "stretch", sessions: 1, reason: "buffer_blocked" },
-    ]);
+    expect(blocked.unplaced).toEqual([]);
+    expect(blocked.placed).toMatchObject([{ start: at(9), end: at(9, 10) }]);
 
     const noRoom = plan(
       input({

@@ -1,6 +1,5 @@
 import {
   ActionConflict,
-  abandonedSlots,
   autoSlotsToComplete,
   completeWork,
   createDirectory,
@@ -10,29 +9,19 @@ import {
   failWork,
   getCalendarForSync,
   getUser,
-  listEventsInRange,
-  listSlotEvents,
-  listSlotsForRange,
-  moveSlot,
   nextGraceDeadline,
   pruneEventsBefore,
   pruneProcessedEvents,
   scheduleWork,
   setSlotStatus,
-  slotsPastGrace,
+  slotsToAutoStart,
   userTransaction,
   type WorkKind,
   watchesExpiringBefore,
 } from "@wiseroutine/db";
 import type { PlanId } from "@wiseroutine/plans";
 import { CORE_FEATURES, type FeatureFlags } from "@wiseroutine/plans/features";
-import {
-  dayBounds,
-  freeGaps,
-  localDateOf,
-  syncInterval,
-  toBusyBlocks,
-} from "@wiseroutine/scheduler";
+import { syncInterval } from "@wiseroutine/scheduler";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
@@ -185,29 +174,6 @@ function clientIds(config: ServerEnv): SyncDeps["clientIds"] {
  * no longer scan everyone at once - the directory says whose turn it is, and
  * this runs against that one person.
  */
-/**
- * How far back the auto-mover looks.
- *
- * Generous enough to cover the longest grace an activity sets plus a sweep
- * that arrived late, and short enough that a slot placed at nine this morning
- * is left where it is rather than dragged to now and then marked missed.
- *
- * The grace itself is per activity and read from the slot - see `slotsPastGrace`.
- * This is only the horizon the query looks back over.
- */
-const GRACE_WINDOW = 30 * MINUTE;
-
-/**
- * How long past its end a started session may sit before it is called
- * abandoned.
- *
- * Long on purpose. A stretch someone is still doing, a session that ran over,
- * a lid shut for ten minutes - all of those are someone still in it, and
- * closing a session out from under them is worse than leaving it a while
- * longer. An hour past the end is none of those.
- */
-const ABANDONED_AFTER = 60 * MINUTE;
-
 export async function sweepGrace(
   job: SyncJob,
   config: ServerEnv,
@@ -221,15 +187,10 @@ export async function sweepGrace(
   );
   if (!user) return undefined;
   return userTransaction(db, async (db) => {
-    const due = await slotsPastGrace(db, now, 200, GRACE_WINDOW);
+    const due = features.guided_sessions ? await slotsToAutoStart(db, now, 200) : [];
 
     for (const slot of due) {
-      switch (
-        graceAction(
-          features.guided_sessions ? slot : { ...slot, startPolicy: "manual" },
-          now,
-        )
-      ) {
+      switch (graceAction({ ...slot, startPolicy: "auto" }, now)) {
         /**
          * An activity that starts itself.
          *
@@ -255,89 +216,6 @@ export async function sweepGrace(
         case "leave":
           break;
 
-        case "miss":
-          await setSlotStatus(
-            db,
-            {
-              slotId: slot.id,
-              status: "missed",
-              actor: "system",
-              reasonCode: "auto_move_limit",
-              reasonText: "moved twice, then no gap appeared",
-            },
-            now,
-            newId,
-          );
-          break;
-
-        case "move": {
-          const duration = slot.endsAt - slot.startsAt;
-          const bounds = dayBounds(
-            localDateOf(now, user.timeZone),
-            user.timeZone,
-            user.dayStartMinutes,
-            user.dayEndMinutes,
-          );
-          const [events, slots] = await Promise.all([
-            listEventsInRange(db, bounds.start, bounds.end),
-            listSlotsForRange(db, bounds.start, bounds.end),
-          ]);
-          const busy = toBusyBlocks(events);
-          const occupied = [
-            ...busy,
-            ...slots
-              .filter(
-                (other) =>
-                  other.id !== slot.id &&
-                  ["planned", "live", "started"].includes(other.status),
-              )
-              .map((other) => ({ start: other.startsAt, end: other.endsAt })),
-          ];
-          const gap = freeGaps(
-            {
-              start: Math.max(bounds.start, now + 5 * MINUTE),
-              end: bounds.end,
-            },
-            occupied,
-          ).find(
-            (gap) =>
-              gap.end - gap.start >=
-              duration +
-                (busy.some((meeting) => meeting.start === gap.end)
-                  ? slot.bufferBeforeMeetingMinutes * MINUTE
-                  : 0),
-          );
-          if (!gap) {
-            await setSlotStatus(
-              db,
-              {
-                slotId: slot.id,
-                status: "bucketed",
-                actor: "system",
-                reasonCode: "no_gap",
-                reasonText: "No free time remains in working hours",
-                fromStartsAt: slot.startsAt,
-              },
-              now,
-              newId,
-            );
-            break;
-          }
-          await moveSlot(
-            db,
-            {
-              slotId: slot.id,
-              startsAt: gap.start,
-              endsAt: gap.start + duration,
-              actor: "system",
-              reasonCode: "grace_expired",
-              reasonText: "not started in time",
-            },
-            now,
-            newId,
-          );
-          break;
-        }
       }
     }
 
@@ -346,15 +224,8 @@ export async function sweepGrace(
     // different question asked of a different set of slots.
     const finished = await autoSlotsToComplete(db, now, 200);
     for (const slot of finished) {
-      // Finish an auto-start already in flight during rollback, but never
-      // auto-complete a plain session the user started under core-only mode.
-      if (
-        !features.guided_sessions &&
-        !(await listSlotEvents(db, [slot.id])).some(
-          (event) => event.reasonCode === "auto_start",
-        )
-      )
-        continue;
+      // Actual auto-start evidence, not the activity's current policy. This
+      // also finishes an in-flight guided slot after a feature rollback.
       await setSlotStatus(
         db,
         {
@@ -368,39 +239,9 @@ export async function sweepGrace(
       );
     }
 
-    /**
-     * Sessions someone started and never finished.
-     *
-     * The one status with nothing behind it. `auto` slots are closed by the pass
-     * above and manual ones are closed from inside the session - so a window
-     * shut mid-stretch left the row `started` for ever. Still drawn as "running
-     * now" days later, still counted as scheduled, so the day never re-asked for
-     * the session either.
-     *
-     * Recorded as missed, not completed, and this is the judgement call in here:
-     * we know it was started and we do not know it was done. Inventing progress
-     * in someone's own health record is the worse of the two mistakes, and the
-     * missed list can say exactly what happened where a silent completion could
-     * not. The reason code is what makes it reversible if that call is wrong.
-     *
-     * After the `auto` pass on purpose - by here, anything still `started` and an
-     * hour past its end really was abandoned.
-     */
-    const abandoned = await abandonedSlots(db, now, 200, ABANDONED_AFTER);
-    for (const slot of abandoned) {
-      await setSlotStatus(
-        db,
-        {
-          slotId: slot.id,
-          status: "missed",
-          actor: "system",
-          reasonCode: "never_finished",
-          reasonText: "started, then left running",
-        },
-        now,
-        newId,
-      );
-    }
+    // Manual starts retain their outcome choice (Needs confirmation after
+    // the end). Unstarted slots become Time passed in the shared presentation.
+    // Neither is moved, bucketed, completed or declared missed by a timer.
 
     const next = await nextGraceDeadline(db, now);
     return Math.max(

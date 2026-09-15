@@ -7,6 +7,7 @@ import {
   Widget,
 } from "@wiseroutine/design";
 import { releasedWidgets } from "@wiseroutine/plans/features";
+import { canPostponeSlot } from "@wiseroutine/scheduler";
 import { useEffect, useState } from "react";
 import { AddonWidgets } from "../addons/widget";
 import { upNextOf } from "../lib/alerts";
@@ -14,9 +15,9 @@ import {
   type ActivityProgress,
   api,
   type MissedItem,
-  type TodaySlot,
 } from "../lib/api";
 import { useFeatures } from "../lib/features";
+import { usePicked } from "../lib/picked";
 import { startSlot, usePlan } from "../lib/plan-store";
 import { useSlotClock } from "../lib/slot-clock";
 import { Reschedule } from "./reschedule";
@@ -70,11 +71,17 @@ function progressOf(row: ActivityProgress): { value: string; ratio: number } {
 const UpNext: React.FC = () => {
   const [moving, setMoving] = useState(false);
   const plan = usePlan();
+  const picked = usePicked();
   const nextId = plan ? upNextOf(plan.slots, Date.now()).slotId : undefined;
   const now = useSlotClock(plan?.slots.find((slot) => slot.id === nextId));
 
   if (!plan) return null;
   const next = upNextOf(plan.slots, now);
+  // Open as This slot, which carries this card's countdown as its tab. Both at
+  // once named one block twice.
+  if (next.id !== undefined && picked === next.id) return null;
+  const slot = plan.slots.find((s) => s.id === next.slotId);
+  const movable = slot && canPostponeSlot(slot, now);
   // Nothing ahead, so nothing to pin. `title` is the test rather than the
   // whole object: `upNextOf` answers `{}` for an empty day, and a next with no
   // name is not something anyone can act on.
@@ -106,7 +113,7 @@ const UpNext: React.FC = () => {
           Start now
         </Button>
       ) : null}
-      {next.slotId ? (
+      {movable ? (
         <Button
           variant="secondary"
           block
@@ -116,10 +123,10 @@ const UpNext: React.FC = () => {
           Postpone / change time
         </Button>
       ) : null}
-      {moving && next.slotId && plan.slots.find((s) => s.id === next.slotId) ? (
+      {moving && movable ? (
         <Reschedule
-          key={next.slotId}
-          slot={plan.slots.find((s) => s.id === next.slotId) as TodaySlot}
+          key={slot.id}
+          slot={slot}
           timeZone={plan.timeZone}
           onClose={() => setMoving(false)}
         />

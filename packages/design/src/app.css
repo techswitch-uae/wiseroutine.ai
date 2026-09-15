@@ -675,6 +675,27 @@ button.wr-dashed-row { cursor: pointer; width: 100%; }
 .wr-widget-attention .wr-widget-time-soft {
   color: color-mix(in srgb, var(--color-neutral-100) 66%, transparent);
 }
+/* The head as an ink tab across a sand card: This slot on the block Up next is
+   counting down to, carrying that module's ink and countdown so the rail names
+   the block once. Only the head goes dark - every control below keeps the
+   ground it was drawn for. The top radius is the card's, so nothing clips. */
+.wr-widget-tabbed { padding-top: 0; }
+.wr-widget-tab {
+  margin: 0 -19px 2px; padding: 12px 19px 11px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--color-text); color: var(--color-neutral-100);
+}
+.wr-widget-tab .wr-label { color: color-mix(in srgb, var(--color-neutral-100) 72%, transparent); }
+.wr-widget-tab .wr-widget-time { color: var(--color-neutral-100); }
+.wr-widget-tab .wr-widget-tab-now {
+  padding: 1px 8px; border-radius: 999px;
+  background: var(--color-accent-100); color: var(--color-accent-900);
+}
+.wr-widget-tab .wr-widget-close { color: color-mix(in srgb, var(--color-neutral-100) 66%, transparent); }
+.wr-widget-tab .wr-widget-close:hover {
+  background: color-mix(in srgb, var(--color-neutral-100) 12%, transparent);
+  color: var(--color-neutral-100);
+}
 /* Same reason, for a second line borrowed from a light-surface row: the muted
    token is near-black, and on this card that is invisible rather than quiet. */
 .wr-widget-attention .wr-slot-meta {

@@ -116,6 +116,40 @@ test("names the block, when it is, and how long it runs", () => {
   expect(screen.getByText(/· 5 min$/)).toBeTruthy();
 });
 
+// Up next steps out of the rail while its block is open here, so its countdown
+// comes along as the head. Any other block keeps the plain one.
+test("the block up next carries Up next's countdown as its head", () => {
+  const due = show(day());
+  expect(screen.getByText("Up next")).toBeTruthy();
+  expect(screen.getByText("Now")).toBeTruthy();
+  due.unmount();
+
+  const ahead = show(
+    day({
+      slots: [
+        slot({
+          startsAt: AT + 18 * 60_000,
+          endsAt: AT + 28 * 60_000,
+          startedAt: null,
+        }),
+      ],
+    }),
+  );
+  expect(screen.getByText("in 17m")).toBeTruthy();
+  ahead.unmount();
+
+  const later = slot({
+    id: "s2",
+    title: "Walk",
+    startsAt: AT + 30 * 60_000,
+    endsAt: AT + 45 * 60_000,
+    startedAt: null,
+  });
+  show(day({ slots: [slot(), later] }), "s2");
+  expect(screen.getByText("This slot")).toBeTruthy();
+  expect(screen.queryByText("Up next")).toBeNull();
+});
+
 test("a block still ahead of you can be nudged and started", async () => {
   const moved: unknown[] = [];
   const started: string[] = [];
@@ -228,7 +262,7 @@ test("an early Stop unlocks postponement only once the plan confirms it", async 
 });
 
 test.each(["planned", "live", "skipped"] as const)(
-  "%s loses Start/Resume and all movement at the scheduled cutoff, but keeps Done",
+  "%s loses movement at the cutoff; first Start stays available until the end",
   (status) => {
     vi.useFakeTimers({ now: AT + 119_999, shouldAdvanceTime: false });
     show(
@@ -244,10 +278,11 @@ test.each(["planned", "live", "skipped"] as const)(
     expect(screen.getByRole("button", { name: /Postpone/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Later" })).toBeTruthy();
     act(() => vi.advanceTimersByTime(1));
-    expect(
-      screen.queryByRole("button", { name: /^(Start|Resume|Earlier|Later)$/ }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /^(Resume|Earlier|Later)$/ })).toBeNull();
+    expect(Boolean(screen.queryByRole("button", { name: "Start", exact: true }))).toBe(status !== "skipped");
     expect(screen.queryByRole("button", { name: /Postpone/ })).toBeNull();
+    act(() => vi.advanceTimersByTime(slot().endsAt - (AT + 120_000)));
+    expect(screen.queryByRole("button", { name: /^(Start|Resume)$/ })).toBeNull();
     expect(screen.getByRole("button", { name: "Mark it done" })).toBeTruthy();
   },
 );

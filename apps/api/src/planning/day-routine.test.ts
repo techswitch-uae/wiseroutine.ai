@@ -228,7 +228,6 @@ test("daily shortfalls do not carry over, but saved one-off work survives", asyn
       user: settings,
       onDay: nextDay,
       trigger: "user_request",
-      preservePlanned: true,
       retryUnplaced: true,
     },
     nextDay,

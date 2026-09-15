@@ -42,10 +42,11 @@ describe("upNextOf", () => {
     expect(next.slotId).toBe("a");
   });
 
-  it("withdraws Start at the scheduled cutoff even with time left in the slot", () => {
+  it("keeps Start after the movement cutoff, withdrawing it at the slot end", () => {
     const day = [slot({ id: "a" })];
-    expect(upNextOf(day, AT + 120_000 - 1).slotId).toBe("a");
-    expect(upNextOf(day, AT + 120_000)).toEqual({});
+    expect(upNextOf(day, AT + 120_000).slotId).toBe("a");
+    expect(upNextOf(day, day[0]!.endsAt - 1).slotId).toBe("a");
+    expect(upNextOf(day, day[0]!.endsAt)).toEqual({});
   });
 
   it("skips a slot whose time has wholly passed", () => {

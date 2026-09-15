@@ -63,7 +63,7 @@ test.each([
 });
 
 test.each([1, 2, 3, 10])(
-  "Start, Resume and moving share the scheduled cutoff for a %i-minute slot",
+  "Start lasts until the end; Resume and movement keep the cutoff for a %i-minute slot",
   (minutes) => {
     for (const status of ["planned", "live", "skipped"]) {
       const s = { ...slot(minutes, AT - 600_000), status };
@@ -74,7 +74,7 @@ test.each([1, 2, 3, 10])(
         expect(canPostponeSlot(s, now)).toBe(true);
       }
       for (const now of [deadline, deadline + 1, s.endsAt, AT + 86_400_000]) {
-        expect(canStartSlot(s, now)).toBe(false);
+        expect(canStartSlot(s, now)).toBe(status !== "skipped" && now < s.endsAt);
         expect(canPostponeSlot(s, now)).toBe(false);
       }
     }
