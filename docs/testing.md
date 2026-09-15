@@ -91,6 +91,13 @@ Counts will change as coverage grows; the actual run/report is authoritative.
   delivery is a guarded sink. `calendar-repair.spec.ts` supplies controlled provider
   pages; normalization, privacy storage and the worker's shared repair pipeline run.
   Scheduled test syncs use the same controlled page boundary, never live providers.
+  Calendar-repair scenarios pin API/browser time to 09:00. The direct-delivery
+  count check reads its baseline through `/test/inspect` and delivers before
+  opening the app: `/today` and app navigation enqueue foreground sync, so a
+  competing consumer could own the repair instead. API regression tests force
+  that overlap with promise barriers for both providers and verify exactly one
+  persisted move with healthy slots unchanged. The separate privacy-restoration
+  scenarios still exercise the real Sync button and queue.
   Calendar rediscovery also uses a controlled provider list for seeded connections,
   so the real Sync button never needs live OAuth tokens in browser tests.
   Opt-out → opt-in journeys retain unchanged provider tags, press Sync, and check

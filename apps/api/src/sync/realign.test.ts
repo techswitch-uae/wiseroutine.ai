@@ -1,5 +1,10 @@
 import { exports as worker } from "cloudflare:workers";
+import { getCalendarForSync } from "@wiseroutine/db";
 import type { PlanId } from "@wiseroutine/plans";
+import {
+  normaliseGoogleEvent,
+  normaliseMicrosoftEvent,
+} from "@wiseroutine/providers";
 import { beforeEach, describe, expect, test } from "vitest";
 import { newId } from "../context";
 import {
@@ -12,6 +17,7 @@ import {
   testFeatures,
   userDb,
 } from "../test-support";
+import { syncCalendarAndRepair } from "./engine";
 import { realignAfterSync } from "./realign";
 
 /**
@@ -138,6 +144,109 @@ interface BucketEntry {
   wasAt: number;
   reasonCode: string | null;
   suggested: { startsAt: number; endsAt: number } | null;
+}
+
+for (const provider of ["google", "microsoft"] as const) {
+  test(`${provider}: a competing sync can own the repair while this delivery reports zero`, async () => {
+    const { user, calendarId, activityId } = await aDay("free");
+    const db = userDb();
+    const initialTarget = await getCalendarForSync(db, calendarId);
+    if (!initialTarget) throw new Error("Missing calendar");
+    await db.calendarConnection.update({
+      where: { id: initialTarget.connectionId },
+      data: { provider },
+    });
+    const target = await getCalendarForSync(db, calendarId);
+    if (!target) throw new Error("Missing calendar");
+    const slotId = await seedSlot(activityId, hour(10), 30);
+    const healthyId = await seedSlot(activityId, hour(12), 30);
+    const healthy = await slotRow(healthyId);
+    const time = (at: number) => ({
+      dateTime: new Date(at).toISOString(),
+      timeZone: "UTC",
+    });
+    const event = {
+      id: "provider-event",
+      start: time(hour(9.75)),
+      end: time(hour(10.5)),
+    };
+    const page = {
+      events: [
+        provider === "google"
+          ? normaliseGoogleEvent({
+              ...event,
+              summary: "Changed meeting",
+              status: "confirmed",
+              etag: "v1",
+            })
+          : normaliseMicrosoftEvent({
+              ...event,
+              subject: "Changed meeting",
+              showAs: "busy",
+              changeKey: "v1",
+            }),
+      ],
+      deletedIds: [],
+      nextSyncToken: "v1",
+    };
+    const syncDeps = {
+      db,
+      directory: directory(),
+      userId: user.userId,
+      rootKey: "unused-controlled-provider",
+      clientIds: {
+        google: { clientId: "test", clientSecret: "test" },
+        microsoft: { clientId: "test", clientSecret: "test" },
+      },
+    };
+    // Deterministically reproduce the queue/direct-delivery overlap, without
+    // sleeps: the foreground consumer commits while the first fetch is held.
+    let started!: () => void;
+    let deliver!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      deliver = resolve;
+    });
+    const delivery = syncCalendarAndRepair(
+      {
+        ...syncDeps,
+        readPage: async () => {
+          started();
+          await release;
+          return page;
+        },
+      },
+      target,
+      hour(9),
+      newId,
+    );
+    try {
+      await entered;
+      const foreground = await syncCalendarAndRepair(
+        { ...syncDeps, readPage: async () => page },
+        target,
+        hour(9),
+        newId,
+      );
+      expect(foreground.repair).toMatchObject({ moved: 1, bucketed: 0 });
+    } finally {
+      deliver();
+    }
+    const result = await delivery;
+    expect(result.sync.superseded).toBe(true);
+    expect(result.repair).toEqual({ conflicts: 0, moved: 0, bucketed: 0 });
+    const moved = await slotRow(slotId);
+    expect(moved.startsAt.getTime()).toBeGreaterThanOrEqual(hour(10.5));
+    expect(moved.endsAt.getTime() - moved.startsAt.getTime()).toBe(30 * MINUTE);
+    expect(await slotRow(healthyId)).toEqual(healthy);
+    expect(
+      await db.slotEvent.count({
+        where: { slotId, reasonCode: "calendar_change" },
+      }),
+    ).toBe(1);
+  });
 }
 
 describe("a meeting lands on a slot", () => {

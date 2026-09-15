@@ -33,6 +33,14 @@ function meeting(
       };
 }
 
+// This suite tests sync/repair, not a race against the real clock crossing the
+// 10:00 slot's movement cutoff during a long CI run. Timers still run normally.
+test.beforeEach(async ({ page }) => {
+  const now = todayAt(9);
+  await seed("/clock", { now });
+  await page.clock.setFixedTime(now);
+});
+
 for (const provider of ["google", "microsoft"] as const) {
   test(`${provider} delivery repairs only the collision, preserves slot identity and full duration`, async ({
     page,
@@ -57,12 +65,20 @@ for (const provider of ["google", "microsoft"] as const) {
       { slotStartsAt: todayAt(12) },
     );
     const headers = { authorization: `Bearer ${user.token}` };
-    const before = await (
-      await page.request.get(`${API_URL}/today`, { headers })
-    ).json();
-    await page.goto("/");
-    await dayShown(page);
-    const moved = await seed<{ repair: { moved: number } }>(
+    // /today and opening the app enqueue foreground sync. That consumer can
+    // win ingestion/repair after /calendar/delta publishes its provider page,
+    // so this one delivery can legitimately report moved: 0. Inspect without
+    // foreground side effects and deliver before navigating when asserting an
+    // exact per-invocation repair count. Queue-driven Sync is covered below.
+    const before = await seed<{ slots: { id: string; title: string }[] }>(
+      "/inspect",
+      {},
+      user.token,
+    );
+    const moved = await seed<{
+      sync: { superseded?: boolean };
+      repair: { moved: number };
+    }>(
       "/calendar/delta",
       {
         calendarId,
@@ -70,7 +86,10 @@ for (const provider of ["google", "microsoft"] as const) {
       },
       user.token,
     );
-    expect(moved.repair.moved).toBe(1);
+    expect(moved.sync.superseded, JSON.stringify(moved)).not.toBe(true);
+    expect(moved.repair.moved, JSON.stringify(moved)).toBe(1);
+    await page.goto("/");
+    await dayShown(page);
     await page.reload();
     await dayShown(page);
     await expect(
@@ -86,8 +105,7 @@ for (const provider of ["google", "microsoft"] as const) {
       (slot: { title: string }) => slot.title === "Deep work",
     );
     expect(focus.id).toBe(
-      before.slots.find((slot: { title: string }) => slot.title === "Deep work")
-        .id,
+      before.slots.find((slot) => slot.title === "Deep work")?.id,
     );
     expect(focus.endsAt - focus.startsAt).toBe(30 * 60_000);
     expect(focus.startsAt).toBeGreaterThanOrEqual(todayAt(10, 30));
@@ -96,9 +114,7 @@ for (const provider of ["google", "microsoft"] as const) {
         (slot: { title: string }) => slot.title === "Healthy walk",
       ),
     ).toMatchObject({
-      id: before.slots.find(
-        (slot: { title: string }) => slot.title === "Healthy walk",
-      ).id,
+      id: before.slots.find((slot) => slot.title === "Healthy walk")?.id,
       startsAt: todayAt(12),
       endsAt: todayAt(12, 20),
     });
@@ -112,6 +128,14 @@ for (const provider of ["google", "microsoft"] as const) {
       user.token,
     );
     expect(retried.repair.moved).toBe(0);
+    const persisted = await seed<{
+      events: { slotId: string; reasonCode: string | null }[];
+    }>("/inspect", {}, user.token);
+    expect(
+      persisted.events.filter(
+        (event) => event.reasonCode === "calendar_change",
+      ),
+    ).toEqual([expect.objectContaining({ slotId: focus.id })]);
   });
 
   test(`${provider} opting back in restores unchanged meetings on sync and shows calendar provenance`, async ({
