@@ -75,6 +75,8 @@ jobs:
             apps/desktop/test-results/
             apps/desktop/.playwright/built/report/
             apps/desktop/.playwright/built/test-results/
+            apps/api/.wrangler/e2e-logs/
+            apps/api/.wrangler/e2e-built-logs/
           include-hidden-files: true
           retention-days: 7
       # This job verifies only. Never expose publishing/deployment/signing secrets to PR code.

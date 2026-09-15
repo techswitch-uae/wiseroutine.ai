@@ -148,7 +148,11 @@ build; releases stay drafts. See [the acceptance contract](release-contract.md).
 
 All browser suites save HTML reports and failure traces/screenshots. Built-app
 evidence lives under `apps/desktop/.playwright/built/{report,test-results}`;
-CI explicitly includes these hidden paths in the app artifact. Web also keeps
+CI explicitly includes these hidden paths in the app artifact. Isolated,
+sanitized Wrangler diagnostic logs are also retained from
+`apps/api/.wrangler/{e2e-logs,e2e-built-logs}`. If the Worker exits and later tests
+all report connection failures, inspect the first server error and these logs
+rather than treating each downstream failure as a separate application defect. Web also keeps
 failure videos and 390px/1280px full-page captures. CI uploads them even on failure
 with a seven-day retention period. Reports contain synthetic fixture data;
 don't run these scenarios against private calendars.

@@ -47,12 +47,20 @@ test("installers require the entire CI contract at the exact release SHA", () =>
 
 test("built-app CI installs both engines and retains its actual report paths", () => {
   const steps = ci.jobs.verify.steps;
-  assert.ok(steps.some((s) => /playwright install.*chromium.*webkit/.test(s.run ?? "")));
+  assert.ok(
+    steps.some((s) => /playwright install.*chromium.*webkit/.test(s.run ?? "")),
+  );
   const evidence = steps.find((s) => s.with?.name === "app-browser-results");
   assert.equal(evidence.if, "always()");
   assert.equal(evidence.with["include-hidden-files"], true);
-  for (const path of [".playwright/built/report/", ".playwright/built/test-results/"]) {
+  for (const path of [
+    ".playwright/built/report/",
+    ".playwright/built/test-results/",
+  ]) {
     assert.ok(evidence.with.path.includes(`apps/desktop/${path}`));
+  }
+  for (const path of ["e2e-logs", "e2e-built-logs"]) {
+    assert.ok(evidence.with.path.includes(`apps/api/.wrangler/${path}/`));
   }
 });
 

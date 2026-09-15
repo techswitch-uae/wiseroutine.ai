@@ -47,4 +47,11 @@ test("the local Worker explicitly loads the fixture rather than developer dotenv
   assert.match(config, /CLOUDFLARE_ENV:\s*""/);
   assert.match(config, /CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV:\s*"true"/);
   assert.match(config, /CLOUDFLARE_INCLUDE_PROCESS_ENV:\s*"false"/);
+  assert.match(config, /WRANGLER_LOG_PATH:\s*"\.wrangler\/e2e-logs"/);
+  assert.match(config, /WRANGLER_LOG_SANITIZE:\s*"true"/);
+  const built = readFileSync(
+    new URL("../apps/desktop/playwright.production.config.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(built, /WRANGLER_LOG_PATH:\s*"\.wrangler\/e2e-built-logs"/);
 });

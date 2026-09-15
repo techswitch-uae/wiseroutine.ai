@@ -1,141 +1,165 @@
 #!/usr/bin/env node
-/**
- * Apply every unapplied migration, to the directory and to every user database.
- *
- *   pnpm db:migrate                  # local `turso dev` servers
- *   pnpm db:migrate --dry            # say what would run, change nothing
- *   pnpm db:migrate --directory      # the directory only
- *   pnpm db:migrate --user <name>    # one user database
- *
- * One database per user means a schema change is not one migration run but
- * N+1, and the ones that matter most are the ones nobody remembers: a signup
- * from last month whose owner has not opened the app since. So this walks the
- * directory's user list rather than taking a name, and reports each database
- * by name so a failure halfway is legible rather than a count.
- *
- * Nothing here decides what "unapplied" means. `applyMigrations` tracks names
- * in a `_migrations` table and skips what it finds there - the same function
- * the Worker calls when it provisions a database at signup, so a database
- * created tomorrow and one migrated today go through identical code.
- *
- * Reads `TURSO_DIRECTORY_URL`, `TURSO_USER_HOST` and `TURSO_AUTH_TOKEN` from
- * the environment, falling back to `apps/api/.dev.vars` and then to the local
- * defaults from `wrangler.jsonc`. Pointing it at production is an explicit act.
- */
-
-import { readFileSync } from "node:fs";
+/** Explicit, directory-first rollout. Never loads dotenv files or deploys a Worker. */
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { createClient } from "@libsql/client";
 import {
   applyMigrations,
   DIRECTORY_MIGRATIONS,
   USER_MIGRATIONS,
   userDatabaseUrl,
-} from "../src/index.ts";
+} from "../src/client.ts";
+import {
+  HELP,
+  migrationConfig,
+  migrationOptions,
+  validateDatabaseName,
+} from "./migration-config.mjs";
 
-/** The two `turso dev` servers from the top-level wrangler config. */
-const LOCAL = {
-  TURSO_DIRECTORY_URL: "http://127.0.0.1:41080",
-  TURSO_USER_HOST: "http://127.0.0.1:41081",
-};
-
-function devVars() {
+/** Read-only: even an empty database must not acquire a marker table on --dry. */
+export async function migrationStatus(credentials, migrations) {
+  const client = createClient(credentials);
   try {
-    const path = new URL("../../../apps/api/.dev.vars", import.meta.url);
-    const found = {};
-    for (const line of readFileSync(path, "utf8").split("\n")) {
-      const match = /^\s*([A-Z0-9_]+)\s*=\s*"?([^"\n]*)"?\s*$/.exec(line);
-      if (match) found[match[1]] = match[2];
-    }
-    return found;
-  } catch {
-    // Normal when the credentials are already exported, and normal locally.
-    return {};
-  }
-}
-
-const args = process.argv.slice(2);
-const dry = args.includes("--dry");
-const directoryOnly = args.includes("--directory");
-const oneUser = args.includes("--user")
-  ? args[args.indexOf("--user") + 1]
-  : null;
-
-const fallback = devVars();
-const pick = (key) => process.env[key] ?? fallback[key] ?? LOCAL[key];
-
-const directoryUrl = pick("TURSO_DIRECTORY_URL");
-const userHost = pick("TURSO_USER_HOST");
-const authToken = pick("TURSO_AUTH_TOKEN");
-const creds = (url) => ({ url, ...(authToken ? { authToken } : {}) });
-
-if (!directoryUrl) {
-  console.error("TURSO_DIRECTORY_URL is not set and has no local default.");
-  process.exit(1);
-}
-
-console.log(`directory  ${directoryUrl}`);
-console.log(`users      ${userHost ?? "(skipped - no TURSO_USER_HOST)"}`);
-console.log(
-  `${DIRECTORY_MIGRATIONS.length} directory and ${USER_MIGRATIONS.length} user migration(s) known${
-    dry ? " · dry run" : ""
-  }\n`,
-);
-
-let failed = 0;
-
-/** Every live user's database, oldest first. */
-async function userDatabaseNames() {
-  const client = createClient(creds(directoryUrl));
-  try {
-    const result = await client.execute(
-      "SELECT database_name FROM users WHERE deleted_at IS NULL ORDER BY created_at ASC",
+    const table = await client.execute(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = '_migrations'",
     );
-    return result.rows.map((row) => String(row.database_name));
+    const applied = table.rows.length
+      ? (await client.execute("SELECT name FROM _migrations")).rows.map((row) =>
+          String(row.name),
+        )
+      : [];
+    const known = new Set(migrations.map((migration) => migration.name));
+    if (applied.some((name) => !known.has(name)))
+      throw new Error(
+        "Database contains unknown migration markers; use the correct application revision before proceeding",
+      );
+    return migrations
+      .filter((migration) => !applied.includes(migration.name))
+      .map((migration) => migration.name);
   } finally {
     client.close();
   }
 }
 
-/** Run one database, and keep going if it fails. */
-async function migrate(label, url, migrations) {
-  if (dry) {
-    console.log(`  dry   ${label}`);
+async function userNames(credentials) {
+  const client = createClient(credentials);
+  try {
+    const result = await client.execute(
+      "SELECT database_name FROM users WHERE deleted_at IS NULL AND database_ready = 1 ORDER BY created_at ASC",
+    );
+    return [
+      ...new Set(
+        result.rows.map((row) => validateDatabaseName(row.database_name)),
+      ),
+    ];
+  } finally {
+    client.close();
+  }
+}
+
+export async function runMigration(
+  config,
+  { log = console.log, userUrl = userDatabaseUrl } = {},
+) {
+  const creds = (url) => ({
+    url,
+    ...(config.authToken ? { authToken: config.authToken } : {}),
+  });
+  const redact = (error) =>
+    config.authToken
+      ? String(error.message).replaceAll(config.authToken, "[redacted]")
+      : String(error.message);
+  log(
+    `environment ${config.environment} · ${config.dry ? "read-only dry run" : "apply migrations"}`,
+  );
+  log(`directory   ${config.directoryUrl}`);
+  const directoryPending = await migrationStatus(
+    creds(config.directoryUrl),
+    DIRECTORY_MIGRATIONS,
+  );
+  if (config.scope === "directory") {
+    log(
+      `directory: ${directoryPending.length ? directoryPending.join(", ") : "already current"}`,
+    );
+    if (!config.dry)
+      await applyMigrations(creds(config.directoryUrl), DIRECTORY_MIGRATIONS);
     return;
   }
-  try {
-    const { applied } = await applyMigrations(creds(url), migrations);
-    console.log(
-      applied.length > 0
-        ? `  ok    ${label} — applied ${applied.join(", ")}`
-        : `  --    ${label} — already current`,
+  if (directoryPending.length)
+    throw new Error(
+      "Directory migrations are pending; run --directory first. No user databases were changed",
     );
+  // A local server has one shared database, even when no user has signed up.
+  const names =
+    config.environment === "local"
+      ? ["local-shared-user"]
+      : await userNames(creds(config.directoryUrl));
+  if (config.user && !names.includes(config.user))
+    throw new Error(
+      "Requested database is not an active, provisioned user in the selected directory",
+    );
+  const selected = config.user ? [config.user] : names;
+  log(
+    `${selected.length} user database(s) selected${config.environment === "local" ? " (shared local endpoint)" : " (active, provisioned accounts only)"}`,
+  );
+  const targets = selected.map((name) => ({
+    name,
+    url: userUrl(name, config.userHost),
+  }));
+  const directoryOrigin = new URL(config.directoryUrl);
+  for (const { url } of targets) {
+    const target = new URL(url);
+    if (
+      target.href === directoryOrigin.href ||
+      (config.environment !== "local" &&
+        target.hostname &&
+        target.hostname === directoryOrigin.hostname)
+    ) {
+      throw new Error(
+        "A user target resolves to the directory database; no user migrations were applied",
+      );
+    }
+  }
+  let failed = 0;
+  for (const { name, url } of targets) {
+    try {
+      const pending = await migrationStatus(creds(url), USER_MIGRATIONS);
+      log(
+        `${name} ${url}: ${pending.length ? pending.join(", ") : "already current"}`,
+      );
+      if (!config.dry) await applyMigrations(creds(url), USER_MIGRATIONS);
+    } catch (error) {
+      failed++;
+      log(`FAIL ${name}: ${redact(error)}`);
+    }
+  }
+  if (failed)
+    throw new Error(
+      `${failed} user database(s) failed; review the output and rerun the same explicit scope`,
+    );
+}
+
+if (
+  process.argv[1] &&
+  pathToFileURL(resolve(process.argv[1])).href === import.meta.url
+) {
+  let config;
+  try {
+    config = migrationConfig(migrationOptions(process.argv.slice(2)));
+    if (config.help) console.log(HELP);
+    else {
+      await runMigration(config);
+      console.log(
+        config.dry
+          ? "Read-only inspection complete. No migration writes performed."
+          : "Migration run complete. Connectivity, provisioning, backup recovery and application smoke tests remain separate gates.",
+      );
+    }
   } catch (error) {
-    // Reported and counted rather than thrown. One unreachable database must
-    // not stop the other four hundred from being migrated, and a run that
-    // stopped a third of the way through is the worst possible state to be
-    // left in.
-    failed += 1;
-    console.error(`  FAIL  ${label} — ${error.message}`);
+    const message = config?.authToken
+      ? String(error.message).replaceAll(config.authToken, "[redacted]")
+      : error.message;
+    console.error(`[migrate] ${message}`);
+    process.exitCode = 1;
   }
 }
-
-await migrate("directory", directoryUrl, DIRECTORY_MIGRATIONS);
-
-if (!directoryOnly && userHost) {
-  // One column from one table, read with the same libSQL client
-  // `applyMigrations` uses. Prisma would mean loading its query engine to ask
-  // a question that fits on one line, and the generated client is built for a
-  // bundler rather than for a script.
-  const names = oneUser ? [oneUser] : await userDatabaseNames();
-
-  console.log(`\n${names.length} user database(s)`);
-  for (const name of names) {
-    await migrate(name, userDatabaseUrl(name, userHost), USER_MIGRATIONS);
-  }
-}
-
-if (failed > 0) {
-  console.error(`\n${failed} database(s) failed. Re-run to retry just those.`);
-  process.exit(1);
-}
-console.log("\nDone.");

@@ -27,19 +27,25 @@ mkdir -p .turso-local
 turso dev --port 41080 --db-file .turso-local/wiseroutine-directory.db &
 turso dev --port 41081 --db-file .turso-local/wiseroutine-user.db &
 
-turso db shell http://127.0.0.1:41080 < packages/db/migrations/directory/0001_init.sql
-turso db shell http://127.0.0.1:41081 < packages/db/migrations/user/0001_init.sql
+# After both servers are listening:
+pnpm --filter @wiseroutine/db generate
+pnpm db:migrate --env local --directory --dry
+pnpm db:migrate --env local --directory
+pnpm db:migrate --env local --all-users --dry
+pnpm db:migrate --env local --all-users
 ```
 
 `--db-file` matters. Without it `turso dev` is in-memory, so every restart
 loses the schema *and* your account, and you re-run both migrations each time.
 
-Both migrations are needed. The user database also migrates itself at signup,
-so the second is belt-and-braces - but without it the first request against a
-user database fails and `pnpm api` gives you no hint why.
+Both tiers need the full migration chain, currently **6 directory / 16 user
+migrations**. The runner records each successful migration in `_migrations`;
+rerunning an already-current schema is a no-op. `--all-users` in local mode
+means the single shared user endpoint, even before the first signup.
 
-Run them once. `applyMigrations` records what it has applied, so re-running is
-a no-op.
+Do not initialize with raw `0001_init.sql` and then assume the migration markers
+exist. If an old database was initialized by hand without `_migrations`, back it
+up and reconcile its actual schema/markers before attempting a rollout.
 
 `pnpm test` starts its own pair on **41090/41091** and migrates them itself
 (`apps/api/vitest.globalSetup.ts`) - deliberately in-memory, so each run starts
@@ -84,7 +90,6 @@ dev.
 ```bash
 turso group create users-dev
 turso db create wiseroutine-directory-dev --group users-dev
-turso db shell wiseroutine-directory-dev < packages/db/migrations/directory/0001_init.sql
 
 turso group tokens create users-dev          # -> WR_DEV_TURSO_AUTH_TOKEN
 turso auth api-tokens mint wiseroutine-dev   # -> WR_DEV_TURSO_PLATFORM_TOKEN
@@ -96,15 +101,17 @@ turso db show wiseroutine-directory-dev --url
 ```bash
 turso group create users
 turso db create wiseroutine-directory --group users
-turso db shell wiseroutine-directory < packages/db/migrations/directory/0001_init.sql
 
 turso group tokens create users              # -> WR_PROD_TURSO_AUTH_TOKEN
 turso auth api-tokens mint wiseroutine       # -> WR_PROD_TURSO_PLATFORM_TOKEN
 turso db show wiseroutine-directory --url
 ```
 
-Only the directory is migrated by hand. User databases are created **and**
-migrated at signup from `USER_MIGRATIONS` - see `apps/api/src/provisioning.ts`.
+After configuring the URLs below, run the explicit directory-first rollout
+commands under **Changing the schema**. New user databases are created and
+migrated at signup from `USER_MIGRATIONS`; existing users catch up on authenticated
+requests and queue consumption. The migration CLI can also walk active,
+provisioned accounts before deployment. None of these paths replaces a backup.
 
 Two things that catch people:
 
@@ -141,13 +148,37 @@ because `turso dev` serves one database and the name has nothing to attach to.
 pnpm --filter @wiseroutine/db migrate:diff:user > packages/db/migrations/user/0002_<name>.sql
 # 3. Regenerate clients and re-embed the SQL
 pnpm --filter @wiseroutine/db generate
-# 4. Apply it to every directory database by hand
-turso db shell wiseroutine-directory-dev < packages/db/migrations/directory/0002_<name>.sql
 ```
 
-**A user-schema change fans out.** New user databases pick it up at creation;
-existing ones need a backfill job that walks the directory. That job does not
-exist - write it before the first user-schema change after launch, not during.
+**Select both the environment and scope explicitly.** The CLI never reads
+`.dev.vars` or `.env` files. Local mode accepts only loopback HTTP endpoints
+(the defaults above, or explicit `TURSO_DIRECTORY_URL` / `TURSO_USER_HOST`
+overrides) and never forwards a remote token. Named environments take their URLs
+only from the matching `apps/api/wrangler.jsonc` block and require an exported
+`WR_DEV_TURSO_AUTH_TOKEN` / `WR_PROD_TURSO_AUTH_TOKEN`. Generic unprefixed tokens
+and URL overrides are not used for a named environment.
 
-**Dev and production migrate separately.** Applying to one does nothing for the
-other.
+Supply the intended group token securely in the shell, then:
+
+```bash
+pnpm db:migrate --env dev --directory --dry
+pnpm db:migrate --env dev --directory
+pnpm db:migrate --env dev --all-users --dry
+pnpm db:migrate --env dev --all-users
+# Or one active, provisioned user registered in that selected directory:
+pnpm db:migrate --env dev --user DATABASE_NAME --dry
+```
+
+`--dry` connects and reads actual markers, reports pending migration names, and
+performs no schema/marker writes. User-only scopes refuse a directory with
+pending migrations instead of silently migrating it. Unknown markers refuse
+execution; one failed user is reported while other selected users continue, and
+the command exits nonzero. Incomplete provisioning and deleted accounts are not
+included in the all-users rollout; check provisioning/recovery separately.
+
+**Production is a separate approval:** after backup/recovery rehearsal and
+review of the exact targets, use `--env production`. Dry runs need no write
+confirmation; writes additionally require `--confirm-production`. That flag is
+an operator acknowledgement, not evidence that a backup exists. See the
+[database rollout and recovery runbook](database-rollout.md) before doing this.
+The CLI does not deploy the Worker or certify tenant routing/live readiness.

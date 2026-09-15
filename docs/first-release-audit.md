@@ -11,8 +11,13 @@ Keep the launch at **M0**: three active activity definitions, Google/Outlook
 calendars, and the existing core. Do not enable billing or later-milestone
 features just to satisfy configuration checks.
 
-## 1. Prepare and verify the deployed environments
+## 1. Finish verification and prepare the deployed environments
 
+- [ ] **Restore a fully green Verify run.** The latest CI runs lost the local
+  Wrangler process mid-suite, followed by connection failures in unrelated tests.
+  The console error is empty; isolated, sanitized Wrangler logs are now included
+  in CI artifacts. Reproduce/diagnose the exit and require both app suites plus
+  the rest of Verify to pass. Local passes do not close this CI gate.
 - [ ] **Replace remaining production placeholders and configure core secrets.**
   The production Turso directory URL still contains `REPLACE_WITH_ORG`.
   Confirm the actual production database URL rather than guessing it. Configure
@@ -35,8 +40,10 @@ features just to satisfy configuration checks.
   clients/migrations; verify; migrate; deploy; smoke-test. There are **6 directory
   and 16 user migrations**, including `0016_activity_schedules.sql`. Apply directory
   migrations before the new Worker and verify catch-up for existing user databases.
-  The migration CLI can fall back to local `.dev.vars`/URLs—do not assume an
-  environment was selected merely because a deployment command was.
+  Follow [database-rollout.md](database-rollout.md). The CLI now requires explicit
+  environment/scope, uses environment-prefixed remote credentials, and offers a
+  read-only marker inspection. Disposable backup/restore tests are not the live
+  Turso rehearsal; record actual backup IDs, restore results and fleet coverage.
 - [ ] **Check real readiness after deployment.** Verify database connectivity,
   applied migrations, fresh provisioning and an existing-account upgrade.
   `/health/config` checks configuration, not connectivity or migration completion.

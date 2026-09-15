@@ -82,6 +82,10 @@ export default defineConfig({
         CLOUDFLARE_ENV: "",
         CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "true",
         CLOUDFLARE_INCLUDE_PROCESS_ENV: "false",
+        // Keep crash details with this isolated run, not in a runner-global
+        // directory that disappears before CI can upload failure evidence.
+        WRANGLER_LOG_PATH: ".wrangler/e2e-logs",
+        WRANGLER_LOG_SANITIZE: "true",
       },
       // `/health` answers without touching a database, which is what makes it
       // a readiness check rather than a second thing that has to be up.
